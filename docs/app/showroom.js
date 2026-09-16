@@ -14,17 +14,9 @@
 // through PlayCanvas's own prefilter - which is all an image-based light is.
 
 import { resource } from "./payload.js";
-
-export const FINISHES = [
-  { key: "steel",   label: "Brushed steel", color: [0.62, 0.65, 0.68], metalness: 1,    gloss: 0.62 },
-  { key: "chrome",  label: "Chrome",        color: [0.88, 0.90, 0.93], metalness: 1,    gloss: 0.96 },
-  { key: "brass",   label: "Brass",         color: [0.83, 0.66, 0.31], metalness: 1,    gloss: 0.80 },
-  { key: "anodised",label: "Anodised black",color: [0.09, 0.10, 0.11], metalness: 0.85, gloss: 0.45 },
-  { key: "paint",   label: "Gloss paint",   color: [0.16, 0.42, 0.66], metalness: 0.05, gloss: 0.92 },
-  { key: "matte",   label: "Matte white",   color: [0.90, 0.90, 0.89], metalness: 0.02, gloss: 0.22 },
-  { key: "oak",     label: "Oak",           color: [0.71, 0.53, 0.31], metalness: 0,    gloss: 0.35 },
-  { key: "concrete",label: "Concrete",      color: [0.60, 0.59, 0.56], metalness: 0,    gloss: 0.12 },
-];
+// The materials themselves live with the view styles: one table, so the
+// showroom and the modelling view cannot disagree about what brass is.
+import { materialOf } from "./styles.js";
 
 // An environment is what a metal has to reflect, so these carry real light: a
 // bright upper hemisphere, a darker floor, and light cards overhead for the
@@ -47,7 +39,6 @@ export const ENVIRONMENTS = [
     reflect: 0.30, floor: false },
 ];
 
-export const findFinish = key => FINISHES.find(f => f.key === key) || FINISHES[0];
 const findEnvironment = key => ENVIRONMENTS.find(e => e.key === key) || ENVIRONMENTS[0];
 
 //! Runs the engine source in global scope. A published page may not fetch it,
@@ -352,21 +343,26 @@ export class Showroom {
     const part = this.parts.get(id);
     if (!part) return;
     const pc = this.pc;
-    const finish = findFinish(appearance && appearance.finish);
-    const rgb = (appearance && appearance.color) || finish.color;
+    const made = materialOf(appearance);
+    const rgb = made.color;
 
     part.material.useMetalness = true;
     part.material.diffuse = new pc.Color(rgb[0], rgb[1], rgb[2]);
-    part.material.metalness = finish.metalness;
-    part.material.gloss = finish.gloss;
+    part.material.metalness = made.metalness;
+    part.material.gloss = made.gloss;
+    // Transparency is a property of the material, not of the stage, so a sheet
+    // of glass is glass here as well as in the modelling view.
+    part.material.opacity = made.opacity;
+    part.material.blendType = made.opacity < 0.999 ? pc.BLEND_NORMAL : pc.BLEND_NONE;
+    part.material.depthWrite = made.opacity >= 0.999;
     part.material.update();
 
     if (part.mirrorMaterial) {
       part.mirrorMaterial.useMetalness = true;
       part.mirrorMaterial.diffuse = new pc.Color(rgb[0], rgb[1], rgb[2]);
-      part.mirrorMaterial.metalness = finish.metalness;
-      part.mirrorMaterial.gloss = finish.gloss;
-      part.mirrorMaterial.opacity = this.reflection;
+      part.mirrorMaterial.metalness = made.metalness;
+      part.mirrorMaterial.gloss = made.gloss;
+      part.mirrorMaterial.opacity = this.reflection * made.opacity;
       part.mirrorMaterial.update();
     }
   }

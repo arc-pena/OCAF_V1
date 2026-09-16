@@ -33,6 +33,7 @@
   --bad-soft:    rgba(187, 58, 44, .12);
   --view-top:    #e4e9ee;
   --view-bottom: #bcc7d1;
+  --view-clay:   #e6eaee;
   --shape:       #93a2ad;
   --shape-edge:  #3d4c58;
   --curve:       #12775b;
@@ -64,6 +65,7 @@
     --bad-soft:    rgba(226, 112, 95, .16);
     --view-top:    #18232c;
     --view-bottom: #0a0f14;
+    --view-clay:   #141b21;
     --shape:       #7d8d99;
     --shape-edge:  #cfdbe4;
     --curve:       #59d0a2;
@@ -92,6 +94,7 @@
   --bad-soft:    rgba(226, 112, 95, .16);
   --view-top:    #18232c;
   --view-bottom: #0a0f14;
+  --view-clay:   #141b21;
   --shape:       #7d8d99;
   --shape-edge:  #cfdbe4;
   --curve:       #59d0a2;
@@ -354,7 +357,9 @@ body.analysing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 .an-panel {
   right: var(--edge); top: var(--edge); width: 300px;
-  max-height: calc(100vh - var(--edge) * 2); z-index: 8;
+  /* Stops above the view controls in the corner: a mode panel that covers
+     them is a mode where nobody can change the style or fit the view. */
+  max-height: calc(100vh - var(--edge) * 2 - 46px); z-index: 8;
   display: flex; flex-direction: column;
 }
 .an-site-name { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
@@ -437,7 +442,9 @@ body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 .fl-panel {
   right: var(--edge); top: var(--edge); width: 292px;
-  max-height: calc(100vh - var(--edge) * 2); z-index: 8;
+  /* Stops above the view controls in the corner: a mode panel that covers
+     them is a mode where nobody can change the style or fit the view. */
+  max-height: calc(100vh - var(--edge) * 2 - 46px); z-index: 8;
   display: flex; flex-direction: column;
 }
 .fl-clock { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
@@ -772,6 +779,8 @@ input.line:focus { outline: none; border-color: var(--accent); }
   font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
 }
 #view-tools button:hover { background: var(--panel-2); color: var(--ink); }
+#view-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+#view-tools .tool-sep { width: 1px; background: var(--line); margin: 3px 4px; }
 
 #chip button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 
@@ -799,8 +808,14 @@ input.line:focus { outline: none; border-color: var(--accent); }
 #showroom.on { opacity: 1; pointer-events: auto; }
 #showroom canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 /* The move between the two views is a dissolve, not a cut. */
-#showroom, .fades { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
+#showroom, .fades, #view-tools { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
 body.staging .fades { opacity: 0; pointer-events: none; }
+/* The view tools stay through a mode, and they are the exception on purpose.
+   Flow and Climate are things you look AT through this window; how the window
+   draws and where it is pointing are still yours while you do. The showroom is
+   not - it is a different renderer over the whole screen, and a button here
+   that spoke to the other one would be a button that does nothing. */
+body.staging #view-tools { opacity: 0; pointer-events: none; }
 
 #stage-ui {
   position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 0);
@@ -833,6 +848,23 @@ body.staging #stage-ui { opacity: 1; pointer-events: auto; transform: translate(
   width: 26px; height: 26px; border-radius: 50%; padding: 0;
   border: 1px solid rgba(255,255,255,.28); cursor: pointer;
 }
+
+/* The same swatches in the definition panel, where the background is light and
+   a white ring round each one would disappear into it. */
+.field.material { border-top: 1px solid var(--line-soft); padding-top: 4px; }
+.field.material .params-head { margin: 2px 0 6px; }
+.swatch-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.swatch-row .swatch {
+  width: 22px; height: 22px; border: 1px solid var(--line);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .35);
+}
+.swatch-row .swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field.material .field-head { align-items: center; margin: 3px 0; }
+.mat-colour {
+  width: 46px; height: 22px; padding: 0; border: 1px solid var(--line);
+  border-radius: 5px; background: none; cursor: pointer;
+}
+.mat-slider { width: 132px; accent-color: var(--accent); }
 .swatch[aria-pressed="true"] { outline: 2px solid #fff; outline-offset: 2px; }
 .tray input[type="range"] { width: 96px; accent-color: #fff; margin: 0 8px; }
 #stage-hint {
@@ -1105,6 +1137,9 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   .mode-row span { display: block; font-size: 11px; color: var(--ink-3); line-height: 1.4; }
   .mode-row[aria-pressed="true"] span { color: inherit; opacity: .8; }
   #sheet-modes .mode-cams { display: flex; gap: 4px; padding: 2px 8px 4px; flex-wrap: wrap; }
+  #sheet-modes .mode-cams button[aria-pressed="true"] {
+    background: var(--accent-soft); color: var(--accent); border-color: var(--accent);
+  }
   #sheet-modes .mode-cams button {
     flex: 1; min-width: 62px; border: 1px solid var(--line); background: var(--panel-2);
     color: var(--ink-2); border-radius: 7px; padding: 9px 4px;
@@ -1292,7 +1327,13 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      buttons are built from, so a package that adds a mode adds a row here. -->
 <div class="float" id="sheet-modes" hidden></div>
 
-<div class="float fades" id="view-tools">
+<div class="float" id="view-tools">
+  <!-- How the model is drawn, beside where it is looked at from: both are the
+       same kind of decision and neither is a property of the document. -->
+  <button data-style="shaded">SHADED</button>
+  <button data-style="rendered">RENDERED</button>
+  <button data-style="arctic">ARCTIC</button>
+  <span class="tool-sep"></span>
   <button data-view="iso">ISO</button>
   <button data-view="top">TOP</button>
   <button data-view="front">FRONT</button>

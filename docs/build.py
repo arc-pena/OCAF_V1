@@ -67,7 +67,7 @@ STAGE_FILE = "build/playcanvas.min.js"
 # so this order is only the order they are stapled together in.
 MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "ocaf.js", "wasm-kernel.js",
            "http-kernel.js", "mdl.js", "graph.js",
-           "agent.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
+           "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "app.js"]
 
 # The one module the page loads; everything else is reached through its imports.

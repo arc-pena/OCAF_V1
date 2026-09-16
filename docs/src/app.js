@@ -5,7 +5,9 @@ import replicadInit from "./occt-glue.js";
 import { resource } from "./payload.js";
 import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
-import { ENVIRONMENTS, FINISHES, Showroom, findFinish } from "./showroom.js";
+import { ENVIRONMENTS, Showroom } from "./showroom.js";
+import { Arctic, FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf,
+         makeSky, materialOf, rgbOf } from "./styles.js";
 import { Mdl } from "./mdl.js";
 import { acceptsFrom, dataLines, lightenModel, round, SAMPLES, sliderSpan } from "./ocaf.js";
 import { GraphEditor } from "./graph.js";
@@ -52,6 +54,10 @@ const state = {
   edited: null,        // feature id whose definition the panel shows
   hidden: new Set(),   // per-view hide; the document is not touched
   stream: null,        // what the last triangle fetch cost
+  // How the model is drawn. A property of the window rather than of the
+  // document: two people looking at one model may want different answers, and
+  // neither answer belongs in the file.
+  style: "shaded",
 };
 
 //! The part the page opens on, so the first thing you see is a real solid.
@@ -118,9 +124,18 @@ scene.add(world);
 
 const key = new THREE.DirectionalLight(0xffffff, 0.78);
 const fill = new THREE.DirectionalLight(0xffffff, 0.32);
+const ambient = new THREE.AmbientLight(0xffffff, 0.55);
 key.position.set(220, -320, 420);
 fill.position.set(-360, 240, 120);
-scene.add(key, fill, new THREE.AmbientLight(0xffffff, 0.55));
+scene.add(key, fill, ambient);
+// What each style lights the model with. Arctic is nearly all ambient on
+// purpose: the only thing that may darken a white model is its own shape, and
+// a key light across it would be telling you about the light instead.
+const LIGHTING = {
+  shaded:   { key: 0.78, fill: 0.32, ambient: 0.55 },
+  rendered: { key: 0.55, fill: 0.22, ambient: 0.32 },
+  arctic:   { key: 0.10, fill: 0.06, ambient: 0.98 },
+};
 
 const THEME = {};
 let grid = null, axes = null;
@@ -129,8 +144,18 @@ function readTheme() {
   const style = getComputedStyle(document.documentElement);
   for (const name of ["shape", "shape-edge", "curve", "accent", "datum", "grid", "grid-axis", "bad"])
     THEME[name] = new THREE.Color(style.getPropertyValue("--" + name).trim() || "#888888");
-  viewportEl.style.background =
-    `linear-gradient(${style.getPropertyValue("--view-top")}, ${style.getPropertyValue("--view-bottom")})`;
+  paintBackdrop();
+}
+
+//! What is behind the model, which is part of the style. Shaded and Rendered
+//! get the sky gradient they have always had; Arctic gets one flat tone a
+//! shade darker than the clay, because a graded sky behind a white model is a
+//! background competing with the thing in front of it.
+function paintBackdrop() {
+  const style = getComputedStyle(document.documentElement);
+  const flat = style.getPropertyValue("--view-clay").trim() || "#e7eaee";
+  viewportEl.style.background = state.style === "arctic" ? flat
+    : `linear-gradient(${style.getPropertyValue("--view-top")}, ${style.getPropertyValue("--view-bottom")})`;
 }
 
 function buildGround() {
@@ -387,7 +412,17 @@ let frameQueued = false;
 function draw() {
   if (frameQueued) return;
   frameQueued = true;
-  requestAnimationFrame(() => { frameQueued = false; renderer.render(scene, camera); });
+  requestAnimationFrame(() => {
+    frameQueued = false;
+    if (state.style !== "arctic") { renderer.render(scene, camera); return; }
+    // How far the occlusion reaches is a length in the model's own units: a
+    // twentieth of what is on screen darkens the inside of a corner and leaves
+    // a flat wall alone, at a bracket's scale and at a masterplan's alike.
+    const pass = arcticPass();
+    pass.setScale({ radius: Math.max(view.span * 0.05, 1e-4),
+                    reach: view.distance + view.span * 3 });
+    pass.render(scene, camera);
+  });
 }
 
 function resize() {
@@ -417,11 +452,134 @@ function disposeGroup(group) {
 //! geometry - which is also how you find it to wire it up.
 const drawsFaint = entry => !!entry && entry.category === "datum" && entry.type !== "Line";
 
+//! The surface of one body, as this style wants it.
+//!
+//! Three styles, one material: what changes between them is where the numbers
+//! come from. Shaded takes the theme's grey because modelling is not about
+//! what a thing is made of. Rendered takes the object's own material, which is
+//! the whole point of having one. Arctic takes the same clay for everything,
+//! because the moment two objects are different colours you are reading the
+//! colours rather than the form.
+function surfaceMaterial(entry, style = findStyle(state.style)) {
+  if (style.clay) {
+    const clay = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(...style.clay), metalness: 0, roughness: 1,
+    });
+    clay.userData.base = clay.color.clone();
+    return clay;
+  }
+  if (!style.materials) {
+    const shaded = new THREE.MeshStandardMaterial({
+      color: THEME.shape.clone(), metalness: 0.15, roughness: 0.55,
+    });
+    shaded.userData.base = THEME.shape.clone();
+    return shaded;
+  }
+  const made = materialOf(entry && entry.appearance);
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(...made.color),
+    metalness: made.metalness, roughness: made.roughness,
+    envMap: skyMap(), envMapIntensity: 1,
+    transparent: made.opacity < 0.999, opacity: made.opacity,
+    depthWrite: made.opacity >= 0.999, side: THREE.DoubleSide,
+  });
+  material.userData.base = material.color.clone();
+  return material;
+}
+
+//! And the line along its edges. A tangent edge is scaffolding for modelling
+//! and clutter in a picture, so the styles that are pictures do without it -
+//! but a curve FEATURE is not an edge, it is the thing itself, and it is drawn
+//! in every style.
+function edgeMaterial(entry, style = findStyle(state.style)) {
+  const datum = drawsFaint(entry);
+  const curve = !!entry && entry.produces === "curve";
+  const shown = curve || datum ? true : style.edges;
+  return new THREE.LineBasicMaterial({
+    color: datum ? THEME.datum : curve ? THEME.curve : THEME["shape-edge"],
+    transparent: true, opacity: datum ? 0.42 : curve ? 1 : 0.4,
+    visible: shown && (datum ? style.datums : true),
+  });
+}
+
+//! The sky a rendered view reflects, built once and kept. Nothing needs it
+//! until somebody asks for Rendered, and a session that never does never pays
+//! for the prefiltering.
+let sky = null;
+function skyMap() {
+  if (!sky) sky = makeSky(THREE, renderer);
+  return sky;
+}
+
+//! Ambient occlusion and ink. Also built on demand: two render targets and
+//! three shader programs that a shaded session has no use for.
+let arctic = null;
+function arcticPass() {
+  if (!arctic) arctic = new Arctic(THREE, renderer);
+  return arctic;
+}
+
+//! Which style is showing, applied to everything already on screen. Nothing is
+//! re-meshed - the triangles are the same triangles - so this is a walk over
+//! the materials and a redraw.
+function applyStyle(styleKey = state.style) {
+  const style = findStyle(styleKey);
+  state.style = style.key;
+
+  const light = LIGHTING[style.key] || LIGHTING.shaded;
+  key.intensity = light.key;
+  fill.intensity = light.fill;
+  ambient.intensity = light.ambient;
+
+  if (grid) grid.visible = style.ground;
+  if (axes) axes.visible = style.ground;
+
+  for (const [id, { group }] of shapes) {
+    const entry = feature(id);
+    for (const object of group.children) {
+      if (object.isMesh) {
+        const was = object.material;
+        object.material = object.userData.datum
+          ? was
+          : surfaceMaterial(entry, style);
+        if (object.userData.datum) was.visible = style.datums;
+        else was.dispose();
+      } else if (object.isLineSegments) {
+        object.material.dispose();
+        object.material = edgeMaterial(entry, style);
+      } else if (object.isPoints) {
+        object.material.visible = style.datums || !object.parent.userData.datum;
+      }
+    }
+  }
+
+  // The backdrop belongs to the style too: a white model wants a plain ground
+  // behind it, not a blue-grey sky that its own silhouette disappears into.
+  document.body.dataset.style = style.key;
+  paintBackdrop();
+  // The material panel says where a material is shown and that depends on the
+  // style, so it is rebuilt rather than left saying something that was true a
+  // moment ago.
+  if (state.edited && wearsMaterial(feature(state.edited))) buildPanel();
+  for (const button of document.querySelectorAll("[data-style]"))
+    button.setAttribute("aria-pressed", button.dataset.style === style.key ? "true" : "false");
+  paintSelection();
+  draw();
+}
+
+function setStyle(styleKey) {
+  applyStyle(styleKey);
+  try { localStorage.setItem("ocafcad/view-style", state.style); } catch (e) {}
+  say(findStyle(state.style).label + " — " + findStyle(state.style).summary);
+}
+
 function groupFromStream(mesh, entry) {
   const group = new THREE.Group();
   const datum = drawsFaint(entry);
+  const style = findStyle(state.style);
   group.userData.solid = !datum;
   group.userData.curve = !!entry && entry.produces === "curve";
+  group.userData.datum = datum;
 
   if (mesh.positions && mesh.index) {
     const geometry = new THREE.BufferGeometry();
@@ -429,14 +587,19 @@ function groupFromStream(mesh, entry) {
     if (mesh.normals)
       geometry.setAttribute("normal", new THREE.Float32BufferAttribute(mesh.normals, 3));
     geometry.setIndex(mesh.index);
+    // Arctic reads its creases off the normals, so a stream that arrived
+    // without any gets them worked out rather than drawn with none.
+    if (!mesh.normals) geometry.computeVertexNormals();
 
     const material = datum
       ? new THREE.MeshBasicMaterial({ color: THEME.datum, transparent: true, opacity: 0.05,
-                                      side: THREE.DoubleSide, depthWrite: false })
-      : new THREE.MeshStandardMaterial({ color: THEME.shape, metalness: 0.15, roughness: 0.55 });
+                                      side: THREE.DoubleSide, depthWrite: false,
+                                      visible: style.datums })
+      : surfaceMaterial(entry, style);
 
     const solid = new THREE.Mesh(geometry, material);
     solid.userData.id = mesh.id;
+    solid.userData.datum = datum;
     group.add(solid);
     if (!datum) pickable.push(solid);
   }
@@ -446,10 +609,7 @@ function groupFromStream(mesh, entry) {
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(mesh.edges, 3));
     // A curve is the feature, not the outline of one, so it is drawn in its own
     // colour at full strength rather than as a solid's tangent edge.
-    const curve = !!entry && entry.produces === "curve";
-    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-      color: datum ? THEME.datum : curve ? THEME.curve : THEME["shape-edge"],
-      transparent: true, opacity: datum ? 0.42 : curve ? 1 : 0.4 }));
+    const lines = new THREE.LineSegments(geometry, edgeMaterial(entry, style));
     group.add(lines);
   }
 
@@ -533,14 +693,22 @@ function applyVisibility() {
   }
 }
 
+//! How far a selected body is pulled towards the accent colour. Gentler in the
+//! styles that are pictures: forty per cent of blue over a white clay model is
+//! a blue model, and arctic's whole claim is that everything is the same clay.
 const SELECTED_TINT = 0.42;
+const tintFor = style => (style.clay ? 0.14 : style.materials ? 0.22 : SELECTED_TINT);
 function paintSelection() {
   for (const [id, { group }] of shapes) {
     const selected = id === state.selected;
     group.traverse(object => {
       if (object.isMesh && object.material.isMeshStandardMaterial) {
-        object.material.color.copy(THEME.shape);
-        if (selected) object.material.color.lerp(THEME.accent, SELECTED_TINT);
+        // Back to whatever the style painted it, THEN the tint. Reading the
+        // base off the material rather than off the theme is what lets a brass
+        // body stay brass when something else is picked.
+        const base = object.material.userData.base || THEME.shape;
+        object.material.color.copy(base);
+        if (selected) object.material.color.lerp(THEME.accent, tintFor(findStyle(state.style)));
         object.material.emissive.copy(THEME.accent);
         object.material.emissiveIntensity = selected ? 0.06 : 0;
       }
@@ -2219,6 +2387,10 @@ function buildPanel() {
   // but this; a DivideCurve has it as well as geometry.
   if (entry.data) host.appendChild(dataField(entry));
 
+  // What it is made of. A property of the object, like its size - held on the
+  // feature, written into the model file, and read by both renderers.
+  if (wearsMaterial(entry)) host.appendChild(materialField(entry));
+
   // Whatever the script declared for itself, as sliders.
   if (entry.params && entry.params.length) {
     const head = document.createElement("div");
@@ -2247,6 +2419,129 @@ function buildPanel() {
   remove.addEventListener("click", () => deleteFeature(entry.id));
   actions.appendChild(remove);
   host.appendChild(actions);
+}
+
+//! Which features have a material at all. A point has no surface to be made of
+//! anything, a datum is scaffolding, and a body that has been consumed is not
+//! drawn - painting it would be painting something nobody can see.
+const wearsMaterial = entry =>
+  !!entry && !entry.consumedBy && entry.category !== "datum" && entry.category !== "data"
+  && (entry.produces === "solid" || entry.produces === "mesh");
+
+//! The material of one object, the way Rhino puts it on the object rather than
+//! in the scene: pick the nearest thing off the shelf, then move the sliders.
+//! What is written down is the name and whatever was moved, so a document says
+//! "brass" rather than four numbers that happen to be brass.
+function materialField(entry) {
+  const field = document.createElement("div");
+  field.className = "field material";
+  const made = materialOf(entry.appearance);
+
+  const head = document.createElement("div");
+  head.className = "params-head";
+  head.textContent = "Material";
+  field.appendChild(head);
+
+  const swatches = document.createElement("div");
+  swatches.className = "swatch-row";
+  for (const finish of FINISHES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "swatch";
+    button.dataset.finish = finish.key;
+    button.title = finish.label;
+    button.setAttribute("aria-label", finish.label);
+    button.setAttribute("aria-pressed", finish.key === made.finish ? "true" : "false");
+    button.style.background = hexOf(finish.color);
+    button.addEventListener("click", () => wearMaterial(entry.id, { finish: finish.key }));
+    swatches.appendChild(button);
+  }
+  field.appendChild(swatches);
+
+  const row = (label, control) => {
+    const line = document.createElement("div");
+    line.className = "field-head";
+    const name = document.createElement("label");
+    name.textContent = label;
+    line.appendChild(name);
+    line.appendChild(control);
+    field.appendChild(line);
+    return control;
+  };
+
+  const colour = document.createElement("input");
+  colour.type = "color";
+  colour.className = "mat-colour";
+  colour.value = hexOf(made.color);
+  colour.addEventListener("input", () =>
+    wearMaterial(entry.id, { color: rgbOf(colour.value) }, true));
+  colour.addEventListener("change", () =>
+    wearMaterial(entry.id, { color: rgbOf(colour.value) }));
+  row(findFinish(made.finish).label, colour);
+
+  for (const [key, label] of [["gloss", "Gloss"], ["metalness", "Metal"], ["opacity", "Opacity"]]) {
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.className = "mat-slider";
+    slider.min = "0"; slider.max = "1"; slider.step = "0.01";
+    slider.value = String(made[key]);
+    slider.dataset.mat = key;
+    // While it is being dragged the material changes on screen and the document
+    // is left alone; letting go is the edit. Otherwise one drag is forty
+    // entries in the undo stack.
+    slider.addEventListener("input", () =>
+      wearMaterial(entry.id, { [key]: +slider.value }, true));
+    slider.addEventListener("change", () =>
+      wearMaterial(entry.id, { [key]: +slider.value }));
+    row(label, slider);
+  }
+
+  const note = document.createElement("div");
+  note.className = "summary";
+  note.textContent = state.style === "rendered"
+    ? "Shown here and in the showroom."
+    : "Shown in the Rendered style and in the showroom. This view is "
+      + findStyle(state.style).label + ".";
+  field.appendChild(note);
+  return field;
+}
+
+//! Writes a material onto an object. \p live means the slider is still moving:
+//! the material on screen follows, and the document is written when it stops.
+function wearMaterial(id, change, live = false) {
+  const entry = feature(id);
+  if (!entry) return;
+  const made = materialOf(entry.appearance);
+  const next = appearanceOf(change.finish || made.finish, {
+    color: change.color || (change.finish ? null : made.color),
+    gloss: change.gloss !== undefined ? change.gloss : (change.finish ? null : made.gloss),
+    metalness: change.metalness !== undefined ? change.metalness
+                                              : (change.finish ? null : made.metalness),
+    opacity: change.opacity !== undefined ? change.opacity : (change.finish ? null : made.opacity),
+  });
+  entry.appearance = next;                    // so the next read sees it at once
+  repaintMaterial(id);
+  if (showroom.ready) showroom.paint(id, next);
+  if (live) return;
+  mdl.run({ op: "appearance", id, appearance: next }, { keepPanel: true })
+    .then(() => { if (state.edited === id) buildPanel(); })
+    .catch(err => showError(err.message));
+}
+
+//! One object's surface, rebuilt where it stands. Cheaper than re-skinning the
+//! whole scene and it keeps a slider's drag smooth.
+function repaintMaterial(id) {
+  const held = shapes.get(id);
+  if (!held) return;
+  const entry = feature(id);
+  const style = findStyle(state.style);
+  for (const object of held.group.children) {
+    if (!object.isMesh || object.userData.datum) continue;
+    object.material.dispose();
+    object.material = surfaceMaterial(entry, style);
+  }
+  paintSelection();
+  draw();
 }
 
 //! Two surfaces, one document: a value changed in the node graph has to appear
@@ -3458,7 +3753,7 @@ function refreshStageSelection() {
 async function applyFinish(key) {
   const entry = feature(state.selected);
   if (!entry) return;
-  const appearance = { finish: key, color: findFinish(key).color };
+  const appearance = appearanceOf(key);
   showroom.paint(entry.id, appearance);
   try {
     await mdl.run({ op: "appearance", id: entry.id, appearance }, { keepPanel: true });
@@ -3712,6 +4007,19 @@ function buildModeSheet() {
   for (const mode of modes)
     row(MODE_ICONS.mode, mode.label, mode.title || "", openMode === mode,
         () => (openMode === mode ? leaveMode() : enterMode(mode)));
+
+  head("Drawn as");
+  const styles = document.createElement("div");
+  styles.className = "mode-cams";
+  for (const style of VIEW_STYLES) {
+    const button = document.createElement("button");
+    button.textContent = style.label.toUpperCase();
+    button.dataset.style = style.key;
+    button.setAttribute("aria-pressed", style.key === state.style ? "true" : "false");
+    button.addEventListener("click", () => { setStyle(style.key); buildModeSheet(); });
+    styles.appendChild(button);
+  }
+  host.appendChild(styles);
 
   head("Camera");
   const cams = document.createElement("div");
@@ -4196,12 +4504,20 @@ document.getElementById("btn-load").addEventListener("click", async () => {
 
 for (const button of document.querySelectorAll("#view-tools button")) {
   button.addEventListener("click", () => {
+    if (button.dataset.style) return setStyle(button.dataset.style);
     const name = button.dataset.view;
     if (name === "fit") return fitView();
     Object.assign(view, STANDARD_VIEWS[name]);
     placeCamera(); draw();
   });
 }
+
+// The style survives a reload, because it is how somebody prefers to work
+// rather than something they are choosing again every morning.
+applyStyle((() => {
+  try { return localStorage.getItem("ocafcad/view-style") || "shaded"; }
+  catch (e) { return "shaded"; }
+})());
 
 //! Materials carry theme colours, so a theme change rebuilds them from the
 //! triangles the kernel already sent - no rebuild of the geometry.
