@@ -11,7 +11,10 @@ python3 docs/build.py          # writes docs/parametric-cad.html AND the site in
 
 1. **The Artifact** — `docs/parametric-cad.html`, published with the Artifact
    tool to the existing URL so the link never changes:
-   `https://claude.ai/code/artifact/2bf933ac-1530-4343-80bc-b533de0c2b7b`
+   `https://claude.ai/artifact/6RwchubErKSRTXve59pDHL`
+   (the same artifact used to be addressed as
+   `https://claude.ai/code/artifact/2bf933ac-1530-4343-80bc-b533de0c2b7b`, which
+   still resolves to it.)
    Pass that URL as `url`; publishing without it makes a second artifact.
 2. **GitHub Pages** — `docs/index.html` with `docs/app/`, `docs/kernel/` and
    `docs/data/`. Pages serves what is committed, from this branch with the
