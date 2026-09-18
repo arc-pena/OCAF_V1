@@ -23,6 +23,7 @@ import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
          onPlane, rulerAt, vUnit } from "./handle.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
+import { PACKING } from "./packing-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
          productNames, readable, sniffFormat, toBase64, whyNot } from "./exchange.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer,

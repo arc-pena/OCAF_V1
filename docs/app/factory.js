@@ -682,6 +682,17 @@ export function makeFactories(oc, kit) {
         positive(dx, "box width"), positive(dy, "box depth"),
         positive(dz, "box height")).Shape() },
 
+    { name: "boxAt", takes: "corner, dx, dy, dz", gives: "solid",
+      summary: "An upright box from a corner, square to the world. What a room in a "
+             + "massing study is, and what anything else that is laid out on a plan and "
+             + "given a height is - so the caller does not have to build a placement to "
+             + "say the one thing every one of them says.",
+      run: (corner, dx, dy, dz) => new oc.BRepPrimAPI_MakeBox(
+        new oc.gp_Ax2(new oc.gp_Pnt(corner[0], corner[1], corner[2]),
+                      new oc.gp_Dir(0, 0, 1), new oc.gp_Dir(1, 0, 0)),
+        positive(dx, "box width"), positive(dy, "box depth"),
+        positive(dz, "box height")).Shape() },
+
     { name: "cylinder", takes: "plane, radius, height, degrees", gives: "solid",
       summary: "A full cylinder, or a pie slice when an angle is given.",
       run: (plane, radius, height, degrees) => {

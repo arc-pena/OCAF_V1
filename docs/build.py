@@ -69,7 +69,8 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "ocaf.js", "wasm-kernel.js",
            "http-kernel.js", "mdl.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
-           "crowd.js", "crowd-plugin.js", "handle.js", "pie.js", "app.js"]
+           "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
+           "handle.js", "pie.js", "app.js"]
 
 # The one module the page loads; everything else is reached through its imports.
 ENTRY = "app.js"
