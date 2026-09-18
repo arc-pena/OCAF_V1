@@ -1392,7 +1392,10 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
   background: radial-gradient(ellipse at var(--pie-x, 50%) var(--pie-y, 50%),
               rgba(0,0,0,.05), rgba(0,0,0,.16));
 }
-.pie-ring { position: fixed; zoom: var(--ui); }
+/* Scaled about its own origin, by a transform the widget sets. Never `zoom`:
+   zoom multiplies an element's own left and top, so the ring would be drawn
+   somewhere other than the point its wedges are measured from. */
+.pie-ring { position: fixed; transform-origin: 0 0; }
 .pie-heart {
   position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
   min-width: 10px; padding: 4px 9px; border-radius: 999px;
@@ -1445,9 +1448,10 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
   white-space: nowrap; font-size: 9.5px; color: var(--ink-3);
   text-shadow: 0 1px 0 var(--panel);
 }
-/* A phone has no space bar. The ring is reached by a long press instead, and
-   it wants room: fewer pixels across means the chips have to come in. */
-@media (max-width: 900px) { .pie-ring { zoom: calc(var(--ui) * .86); } }
+/* A phone has no space bar: the ring is reached by a long press instead, and
+   it is drawn a little smaller because there are fewer pixels across. That is
+   done in the widget, with the rest of the scale, so one number decides how
+   big the ring is and how far from the edge it may open. */
 
 
 </style>

@@ -510,7 +510,25 @@ export function makePie(host, { onOpen, onClose } = {}) {
   let at = { x: 0, y: 0 };     // the middle, in page pixels
   let live = -1;               // the wedge under the pointer
   let moved = false;           // has the pointer left the dead zone at all
+  let scale = 1;               // how big the ring is drawn, against the screen
   const items = () => (stack.length ? stack[stack.length - 1].items : []);
+
+  //! How big to draw it. The interface has one scale for the screen it is on,
+  //! and the ring takes it - a little smaller where there is no room across.
+  //!
+  //! Worked out HERE and applied as a transform, not as CSS `zoom`. Zoom
+  //! multiplies an element's own `left` and `top`, so a ring told to open at
+  //! the cursor on a screen scaled to 1.3 was drawn a third of the way further
+  //! down and across than the middle the wedges were being measured from: the
+  //! highlight lagged the pointer by a hundred pixels and got worse the
+  //! further from the top left corner you were. A scale about the ring's own
+  //! origin moves nothing and, being uniform, leaves every angle exactly as it
+  //! was - which is the whole of what the hit test reads.
+  const sized = () => {
+    const ui = Number(getComputedStyle(document.documentElement)
+      .getPropertyValue("--ui")) || 1;
+    return ui * (innerWidth <= 900 ? 0.86 : 1);
+  };
 
   const draw = () => {
     ring.textContent = "";
@@ -554,7 +572,6 @@ export function makePie(host, { onOpen, onClose } = {}) {
       chip.querySelector(".pie-label").textContent = item.label;
       chip.title = item.note || item.label;
       chip.addEventListener("click", event => { event.stopPropagation(); choose(i); });
-      chip.addEventListener("pointerenter", () => { live = i; paint(); });
       ring.appendChild(chip);
     });
 
@@ -601,9 +618,20 @@ export function makePie(host, { onOpen, onClose } = {}) {
     draw();
   };
 
-  const track = (x, y) => {
-    const dx = x - at.x, dy = y - at.y;
-    const found = wedgeAt(items().length, dx, dy);
+  //! What the pointer is on. The word under it wins, and the angle decides
+  //! everywhere else.
+  //!
+  //! Both, because neither alone is right. A chip is nudged off its own ray so
+  //! that it cannot land on its neighbour, so the angle to the middle of a
+  //! word is not always the angle of the wedge it belongs to - and lighting up
+  //! the item next to the one being pointed at is exactly as wrong as lagging
+  //! behind the pointer. Out in the gaps between words there is nothing under
+  //! the cursor and the angle is the only answer, which is what makes a flick
+  //! work at all.
+  const track = (x, y, target) => {
+    const chip = target && target.closest ? target.closest(".pie-item") : null;
+    const found = chip ? Number(chip.dataset.wedge)
+      : wedgeAt(items().length, x - at.x, y - at.y, PIE_DEAD * scale);
     if (found >= 0) moved = true;
     if (found !== live) { live = found; paint(); }
   };
@@ -611,10 +639,17 @@ export function makePie(host, { onOpen, onClose } = {}) {
   const open = (list, x, y) => {
     if (!list || !list.length) return;
     stack = [{ items: list, label: "" }];
-    // Kept clear of the edges, so a ring opened in a corner is still a ring.
-    at = { x: Math.max(230, Math.min(innerWidth - 230, x)),
-           y: Math.max(160, Math.min(innerHeight - 160, y)) };
+    scale = sized();
+    ring.style.transform = "scale(" + scale + ")";
+    // Kept clear of the edges, so a ring opened in a corner is still a ring -
+    // and by as much as it is actually drawn, which is the margin times the
+    // scale it is drawn at.
+    const across = 232 * scale, down = 168 * scale;
+    at = { x: Math.max(across, Math.min(innerWidth - across, x)),
+           y: Math.max(down, Math.min(innerHeight - down, y)) };
     live = -1; moved = false;
+    veil.style.setProperty("--pie-x", at.x + "px");
+    veil.style.setProperty("--pie-y", at.y + "px");
     veil.hidden = false;
     draw();
     if (onOpen) onOpen();
@@ -628,7 +663,8 @@ export function makePie(host, { onOpen, onClose } = {}) {
     if (onClose) onClose();
   };
 
-  veil.addEventListener("pointermove", event => track(event.clientX, event.clientY));
+  veil.addEventListener("pointermove", event =>
+    track(event.clientX, event.clientY, event.target));
   veil.addEventListener("pointerdown", event => {
     // A press on the veil rather than on a chip: the wedge under it if there
     // is one, and otherwise the way out.
