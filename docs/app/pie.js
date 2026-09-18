@@ -332,9 +332,10 @@ function interfaceBranch(world) {
 //! context menu offers, which is where these used to live and the reason a
 //! full screen with no tree in it would otherwise lose them.
 function editBranch(world) {
-  const { selected, containers = [], hidden, act } = world;
+  const { selected, containers = [], hidden, act, picked = 1 } = world;
   const home = selected.parent ? containers.find(c => c.id === selected.parent) : null;
-  return branch("Edit", selected.name, [
+  const many = picked > 1;
+  return branch("Edit", many ? picked + " selected" : selected.name, [
     leaf("Definition", "open its arguments", () => act.openDef()),
     ...only(!!world.lead, leaf("Set " + (world.lead || "").toLowerCase(),
       "by hand, against the model", () => act.drag())),
@@ -345,7 +346,7 @@ function editBranch(world) {
       branch("Move into", "a set", paged(containers.filter(c => c.id !== selected.parent)
         .map(set => leaf(set.name, set.type === "Body" ? "solids" : "wireframe",
                          () => act.moveInto(set.id)))))),
-    leaf("Delete", "", () => act.del()),
+    leaf(many ? "Delete " + picked : "Delete", many ? "all of them" : "", () => act.del()),
   ]);
 }
 

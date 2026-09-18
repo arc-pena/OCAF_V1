@@ -60,7 +60,8 @@ const state = {
   tree: null,          // the mirror of the OCAF document
   report: null,        // what the last regeneration did
   selected: null,      // feature id
-  picked: [],          // every feature shift-clicked, in the order picked
+  picked: [],          // every feature picked, in the order the tree draws them
+  anchor: null,        // where a shift-click measures its block from
   edited: null,        // feature id whose definition the panel shows
   hidden: new Set(),   // per-view hide; the document is not touched
   stream: null,        // what the last triangle fetch cost
@@ -112,6 +113,14 @@ async function edit(command, options = {}) {
   try { return await mdl.run(command, options); }
   catch (err) { showError(err.message); return null; }
 }
+
+//! Several edits that are one thing that happened: four features filed into a
+//! set is one action and one step to undo, not four of each.
+edit.many = async (commands, options = {}) => {
+  if (!commands.length) return null;
+  try { return await mdl.runAll(commands, options); }
+  catch (err) { showError(err.message); return null; }
+};
 
 const schemaType = type => (state.schema ? state.schema.types.find(t => t.type === type) : null) || null;
 const feature = id => state.tree ? state.tree.features.find(f => f.id === id) || null : null;
@@ -2295,10 +2304,18 @@ function refreshToolbar() {
 }
 
 /* ------------------------------------------------------- specification tree */
+
+//! The rows as they are actually drawn, top to bottom, sets and all. A range
+//! means "everything between these two ON THE SCREEN", and the screen is the
+//! only thing that knows what that is: the tree nests, reorders by set and
+//! hides what is filed away, so the document's own order is not it.
+const treeOrder = [];
+
 function buildTree() {
   closeMenu();
   const list = document.getElementById("tree");
   list.textContent = "";
+  treeOrder.length = 0;
   if (!state.tree) return;
 
   // The tree keeps CATIA's two sets and adds one: the features that compute
@@ -2341,6 +2358,7 @@ function buildTree() {
 function treeNode(entry) {
   const consumed = !!entry.consumedBy;
   const hidden = state.hidden.has(entry.id);
+  treeOrder.push(entry.id);
 
   const li = document.createElement("li");
   li.className = "node pick " + entry.category + (consumed ? " consumed" : "")
@@ -2394,7 +2412,12 @@ function treeNode(entry) {
   }
 
   li.addEventListener("click", event => {
-    if (event.shiftKey) pickAlso(entry.id); else select(entry.id, false);
+    // The two conventions every file list has had for thirty years, and they
+    // are not the same gesture: shift takes the block from the last thing
+    // clicked to this one, ctrl takes this one and leaves the rest alone.
+    if (event.shiftKey) pickRange(entry.id);
+    else if (event.ctrlKey || event.metaKey) pickAlso(entry.id);
+    else select(entry.id, false);
   });
   li.addEventListener("dblclick", () => {
     // A sketch opens into the sketcher, the way a CAD modeller does. Everything
@@ -2408,6 +2431,11 @@ function treeNode(entry) {
   li.addEventListener("contextmenu", event => {
     event.preventDefault();
     event.stopPropagation();
+    // A right-click ON the selection is about the selection. One outside it is
+    // about the row it landed on, and takes the selection with it - otherwise
+    // the menu would be offering to delete four things you can no longer see
+    // marked.
+    if (!state.picked.includes(entry.id)) select(entry.id, false);
     openMenu(event, entry);
   });
 
@@ -2514,13 +2542,44 @@ function openDocMenu() {
   button.setAttribute("aria-expanded", "true");
 }
 
+//! Deepest first. A feature something else reads from cannot go until the
+//! thing reading it has gone, so deleting a block that contains both a sketch
+//! and the pad made from it has to take the pad first - and the order a person
+//! happened to click them in says nothing about which that is.
+function inFallingOrder(ids) {
+  const left = new Set(ids);
+  const out = [];
+  while (left.size) {
+    const rest = [...left];
+    // Nothing still waiting reads from these, so they are the top of what is
+    // left and they can go now.
+    const free = rest.filter(id => !rest.some(other => other !== id && dependsOn(other, id)));
+    if (!free.length) { out.push(...rest); break; }   // a cycle cannot happen; do not hang if it does
+    for (const id of free) { out.push(id); left.delete(id); }
+  }
+  return out;
+}
+
+//! Everything the menu is about. A right-click inside a selection means the
+//! selection - that is what selecting several of them was FOR - and one
+//! outside it means the row it landed on, which by now is the selection too.
+function menuTargets(entry) {
+  return state.picked.length > 1 && state.picked.includes(entry.id)
+    ? state.picked.slice() : [entry.id];
+}
+
 function openMenu(event, entry) {
   const menu = document.getElementById("menu");
   menu.textContent = "";
   const item = (label, note, run) => menuItem(label, note, run);
   const rule = () => menuRule();
+  const many = menuTargets(entry);
+  const several = many.length > 1;
+  //! "and four others" rather than nothing: a menu that does not say how many
+  //! things it is about is a menu that deletes three more than you meant.
+  const about = one => several ? many.length + " features" : one;
 
-  if (entry.category === "container") {
+  if (entry.category === "container" && !several) {
     const inputs = (entry.inputs || []).map(id => (feature(id) || {}).name || id);
     const outputs = (entry.outputs || []).map(id => (feature(id) || {}).name || id);
     item("Inputs", inputs.length ? inputs.length + " from outside" : "nothing comes in",
@@ -2534,23 +2593,41 @@ function openMenu(event, entry) {
     rule();
   }
 
-  // Where it lives. A set can hold a set, so the list is every container but
-  // this one and anything already inside it.
+  // Where they live. A set can hold a set, so the list is every container that
+  // is not one of these and does not already contain one of them.
   const containers = state.tree.features.filter(f => f.category === "container"
-    && f.id !== entry.id && !within(entry.id, f.id));
-  if (entry.parent) item("Take out of " + (feature(entry.parent) || {}).name, "to the top level",
-    () => edit({ op: "group", id: entry.id }));
+    && !many.includes(f.id) && !many.some(id => within(id, f.id)));
+  const filed = many.filter(id => (feature(id) || {}).parent);
+  if (filed.length)
+    item("Take out" + (several ? " of their sets" : " of "
+           + (feature(entry.parent) || {}).name), "to the top level",
+      () => edit.many(filed.map(id => ({ op: "group", id }))));
   for (const set of containers) {
-    if (set.id === entry.parent) continue;
-    item("Move into " + set.name, set.type === "Body" ? "solids" : "wireframe",
-      () => edit({ op: "group", id: entry.id, into: set.id }));
+    const moving = many.filter(id => (feature(id) || {}).parent !== set.id);
+    if (!moving.length) continue;
+    item("Move " + (several ? moving.length + " into " : "into ") + set.name,
+      set.type === "Body" ? "solids" : "wireframe",
+      () => edit.many(moving.map(id => ({ op: "group", id, into: set.id }))));
   }
-  if (entry.parent || containers.length) rule();
+  if (filed.length || containers.length) rule();
 
-  item("Open definition", "", () => select(entry.id, true));
-  item(entry.category === "container" ? "Delete set" : "Delete",
-    entry.category === "container" ? "keeps what is in it" : "",
-    () => edit({ op: "delete", id: entry.id }));
+  // Hiding is a per-row eye in the tree and there is only one hand: hiding
+  // eleven things one eye at a time is the same complaint as deleting them one
+  // at a time, so it is here too.
+  const dark = many.filter(id => state.hidden.has(id));
+  item(dark.length === many.length ? "Show " + about("it") : "Hide " + about("it"),
+    "in the 3D view, not in the document", () => {
+      const showing = dark.length === many.length;
+      for (const id of many) showing ? state.hidden.delete(id) : state.hidden.add(id);
+      buildTree(); applyVisibility(); draw();
+    });
+
+  if (!several) item("Open definition", "", () => select(entry.id, true));
+  item(several ? "Delete " + many.length + " features"
+       : entry.category === "container" ? "Delete set" : "Delete",
+    several ? "and everything selected with it"
+      : entry.category === "container" ? "keeps what is in it" : "",
+    () => deleteFeature(many));
 
   placeMenu(event.clientX, event.clientY);
 }
@@ -3736,20 +3813,53 @@ async function addFeature(type) {
   offerHeads(payload.id);
 }
 
-async function deleteFeature(id) {
-  const was = { selected: state.selected, edited: state.edited };
-  if (state.selected === id) state.selected = null;
-  if (state.edited === id) state.edited = null;
-  if (!(await edit({ op: "delete", id }))) {
+//! One feature or a whole block of them, and a block is one step to undo.
+//!
+//! In falling order, because the kernel refuses to delete anything that is
+//! still being read from: select a sketch and the pad made out of it and the
+//! pad has to go first, which is not the order anybody clicked them in.
+async function deleteFeature(what) {
+  const ids = (Array.isArray(what) ? what : [what]).filter(Boolean);
+  if (!ids.length) return;
+  const was = { selected: state.selected, edited: state.edited, picked: state.picked.slice() };
+  if (ids.includes(state.selected)) { state.selected = null; state.anchor = null; }
+  if (ids.includes(state.edited)) state.edited = null;
+  state.picked = state.picked.filter(id => !ids.includes(id));
+  const order = inFallingOrder(ids);
+  const done = ids.length === 1
+    ? await edit({ op: "delete", id: order[0] })
+    : await edit.many(order.map(id => ({ op: "delete", id })));
+  if (!done) {
     state.selected = was.selected;
     state.edited = was.edited;
+    state.picked = was.picked;
     buildPanel();
   }
 }
 
-//! Shift adds to what is picked and takes it away again; a plain click starts
-//! over. The set is what a Loft's sections and a Join's parts are wired from,
-//! and what Delete removes - so picking several is worth doing.
+//! Everything between the last thing clicked and this one, as the tree draws
+//! them. That is what shift has meant in every list since the Finder, and
+//! doing it one row at a time - which is what this used to make you do - is
+//! not a shortcut for it, it is the thing the shortcut exists to replace.
+//!
+//! The anchor is wherever the selection last STARTED, so shift-clicking again
+//! grows or shrinks the same block rather than starting a new one from
+//! wherever the block happens to end.
+function pickRange(id) {
+  const from = treeOrder.indexOf(state.anchor ?? state.selected);
+  const to = treeOrder.indexOf(id);
+  if (to < 0) return;
+  if (from < 0) { select(id, false); return; }
+  const lo = Math.min(from, to), hi = Math.max(from, to);
+  state.picked = treeOrder.slice(lo, hi + 1);
+  // The row clicked is the one the panel follows; the anchor stays where it
+  // was, which is what makes the block adjustable.
+  select(id, false, true);
+}
+
+//! Ctrl adds one to what is picked and takes it away again; a plain click
+//! starts over. The set is what a Loft's sections and a Join's parts are wired
+//! from, and what Delete removes - so picking several is worth doing.
 function pickAlso(id) {
   if (!id) { state.picked = []; select(null, false); return; }
   state.picked = state.picked.includes(id)
@@ -3763,7 +3873,9 @@ function pickAlso(id) {
 //! \p keep leaves the picked set alone; without it a selection is a set of
 //! one, so there is only ever one answer to "what is selected".
 function select(id, openDefinition, keep = false) {
-  if (!keep) state.picked = id ? [id] : [];
+  // A plain click is where a range will be measured from next time. Adding to
+  // the set does not move that, or a block could never be grown twice.
+  if (!keep) { state.picked = id ? [id] : []; state.anchor = id; }
   state.selected = id;
   if (openDefinition || (id && state.edited && id !== state.edited)) state.edited = id;
   const entry = feature(id);
@@ -5764,6 +5876,7 @@ function pieWorld() {
     selected,
     // The one number this thing is about, so the ring can offer to set it.
     lead: lead ? lead.label : null,
+    picked: state.picked.length,
     hidden: selected ? state.hidden.has(selected.id) : false,
     containers: (state.tree ? state.tree.features : []).filter(f =>
       f.category === "container" && (!selected
@@ -5837,7 +5950,7 @@ const PIE_ACTS = {
     offerHeads(born.id);
   },
   openDef: () => select(state.selected, true),
-  del: () => deleteFeature(state.selected),
+  del: () => deleteFeature(state.picked.length > 1 ? state.picked.slice() : state.selected),
   visible: was => {
     was ? state.hidden.delete(state.selected) : state.hidden.add(state.selected);
     buildTree(); applyVisibility(); draw();
