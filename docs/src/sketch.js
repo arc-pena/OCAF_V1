@@ -21,7 +21,14 @@
 //!
 //! Every element carries its own geometry in 2D. Nothing is implicit and
 //! nothing is derived at rest, so the JSON is the drawing.
-export const SKETCH_TYPES = ["point", "line", "arc", "circle", "ellipse", "oblong", "spline"];
+export const SKETCH_TYPES = ["point", "line", "arc", "circle", "ellipse", "oblong",
+                             "spline", "bspline"];
+
+//! An ellipse with no a0/a1 is the whole of one; with them it is the arc of
+//! one between those two parameters. Said here because four different files
+//! ask the question and none of them should guess.
+export const wholeEllipse = el =>
+  el.a0 === undefined || el.a1 === undefined || Math.abs((el.a1 - el.a0) - Math.PI * 2) < 1e-9;
 
 //! The relations the solver knows. Each one is a projection: it moves the
 //! handles it governs the shortest way to satisfy itself, and the solver runs
@@ -95,6 +102,10 @@ export function sketchElement(type, id, clicks) {
       return { id, type, a: sketchRound(a), b: sketchRound(b), r: round1(r) };
     }
     case "spline": return { id, type, pts: clicks.map(sketchRound), closed: false };
+    // Drawn, a B-spline is its control points - the polygon you pull on, not
+    // a run of points the curve goes through. Imported, it is whatever the
+    // file said: a degree, a knot vector and, if it is rational, weights.
+    case "bspline": return { id, type, ctrl: clicks.map(sketchRound), degree: 3, closed: false };
     default: throw new Error('there is no sketch element called "' + type + '"');
   }
 }
@@ -118,7 +129,8 @@ const round4 = v => Math.round(v * 1e6) / 1e6;
 
 //! How many clicks each kind wants before it is a thing. A spline is however
 //! many you give it.
-export const SKETCH_CLICKS = { point: 1, line: 2, circle: 2, arc: 3, ellipse: 3, oblong: 3, spline: 0 };
+export const SKETCH_CLICKS = { point: 1, line: 2, circle: 2, arc: 3, ellipse: 3, oblong: 3,
+                               spline: 0, bspline: 0 };
 
 //! The points on an element that can be taken hold of - by the solver, by a
 //! coincidence, or by a cursor. Named, because a constraint says "e1.b".
@@ -128,15 +140,26 @@ export function sketchHandles(el) {
     case "line":    return [["a", el.a], ["b", el.b]];
     case "circle":  return [["c", el.c]];
     case "arc":     return [["c", el.c], ["start", arcEnd(el, el.a0)], ["end", arcEnd(el, el.a1)]];
-    case "ellipse": return [["c", el.c]];
+    case "ellipse": return wholeEllipse(el) ? [["c", el.c]]
+      : [["c", el.c], ["start", ellipseAt(el, el.a0)], ["end", ellipseAt(el, el.a1)]];
     case "oblong":  return [["a", el.a], ["b", el.b]];
     case "spline":  return el.pts.map((p, i) => ["p" + i, p]);
+    case "bspline": return (el.ctrl || []).map((p, i) => ["p" + i, p]);
     default: return [];
   }
 }
 
 const arcEnd = (el, angle) =>
   [el.c[0] + el.r * Math.cos(angle), el.c[1] + el.r * Math.sin(angle)];
+
+//! Where an ellipse is at a parameter. Not an angle: the parameter of an
+//! ellipse runs round the circle it is a squashed copy of, which is why the
+//! two are only the same at the axes.
+export const ellipseAt = (el, t) => {
+  const cos = Math.cos(el.rot || 0), sin = Math.sin(el.rot || 0);
+  const x = el.rx * Math.cos(t), y = el.ry * Math.sin(t);
+  return [el.c[0] + x * cos - y * sin, el.c[1] + x * sin + y * cos];
+};
 
 //! Moving a handle. An arc's endpoint is not a free point - it is an angle and
 //! a radius - so moving it turns and resizes the arc instead of tearing it.
@@ -145,8 +168,21 @@ export function sketchMoveHandle(el, key, to) {
   switch (el.type) {
     case "point":   el.p = p; return;
     case "line":    if (key === "a") el.a = p; else el.b = p; return;
-    case "circle":
-    case "ellipse": el.c = p; return;
+    case "circle":  el.c = p; return;
+    case "ellipse":
+      if (key === "c" || wholeEllipse(el)) { el.c = p; return; }
+      {
+        // The end of an elliptical arc is a parameter, not a point: it is
+        // moved to wherever on the ellipse is nearest what was asked for.
+        const cos = Math.cos(el.rot || 0), sin = Math.sin(el.rot || 0);
+        const dx = to[0] - el.c[0], dy = to[1] - el.c[1];
+        const u = (dx * cos + dy * sin) / (el.rx || 1);
+        const v = (-dx * sin + dy * cos) / (el.ry || 1);
+        const t = Math.atan2(v, u);
+        if (key === "start") el.a0 = round4(t);
+        else { let a1 = t; while (a1 <= el.a0) a1 += Math.PI * 2; el.a1 = round4(a1); }
+      }
+      return;
     case "oblong":  if (key === "a") el.a = p; else el.b = p; return;
     case "arc":
       if (key === "c") { el.c = p; return; }
@@ -164,6 +200,11 @@ export function sketchMoveHandle(el, key, to) {
     case "spline": {
       const at = Number(key.slice(1));
       if (Number.isInteger(at) && el.pts[at]) el.pts[at] = p;
+      return;
+    }
+    case "bspline": {
+      const at = Number(key.slice(1));
+      if (Number.isInteger(at) && el.ctrl && el.ctrl[at]) el.ctrl[at] = p;
       return;
     }
   }
@@ -200,13 +241,11 @@ export function sketchOutline(el, quality = 64) {
     case "circle": return round(0, Math.PI * 2, el.r, el.c);
     case "arc":    return round(el.a0, el.a1, el.r, el.c);
     case "ellipse": {
+      const whole = wholeEllipse(el);
+      const from = whole ? 0 : el.a0, to = whole ? Math.PI * 2 : el.a1;
+      const steps = Math.max(2, Math.ceil(Math.abs(to - from) / (Math.PI * 2) * quality));
       const out = [];
-      const cos = Math.cos(el.rot || 0), sin = Math.sin(el.rot || 0);
-      for (let i = 0; i <= quality; i++) {
-        const t = (i / quality) * Math.PI * 2;
-        const x = el.rx * Math.cos(t), y = el.ry * Math.sin(t);
-        out.push([el.c[0] + x * cos - y * sin, el.c[1] + x * sin + y * cos]);
-      }
+      for (let i = 0; i <= steps; i++) out.push(ellipseAt(el, from + (to - from) * (i / steps)));
       return out;
     }
     case "oblong": {
@@ -220,6 +259,7 @@ export function sketchOutline(el, quality = 64) {
       ];
     }
     case "spline": return splinePoints(el, Math.max(8, quality / 4));
+    case "bspline": return bsplinePoints(el, Math.max(8, quality / 4));
     default: return [];
   }
 }
@@ -248,6 +288,88 @@ export function splinePoints(el, perSpan = 12) {
   return out;
 }
 
+//! A B-spline, evaluated where it actually is.
+//!
+//! De Boor's algorithm, which is the one that answers "where is this curve" by
+//! repeatedly cutting corners off the control polygon rather than by summing
+//! basis functions - the same answer, without ever evaluating a basis. Weights
+//! are carried in the fourth coordinate and divided out at the end, which is
+//! the whole of what makes a curve rational: a circle written as a B-spline is
+//! a rational one, and dropping the weights would turn it into a rounded
+//! square.
+export function bsplinePoints(el, perSpan = 16) {
+  const given = el.ctrl || [];
+  if (given.length < 2) return given.slice();
+  const wrap = el.closed ? Math.min(el.degree || 3, given.length) : 0;
+  const ctrl = el.closed ? given.concat(given.slice(0, wrap)) : given;
+  const degree = Math.max(1, Math.min(el.degree || 3, ctrl.length - 1));
+  if (ctrl.length === 2) return ctrl.slice();
+
+  const weights = el.weights && el.weights.length === given.length
+    ? (el.closed ? el.weights.concat(el.weights.slice(0, wrap)) : el.weights) : null;
+  const knots = el.knots && el.knots.length === ctrl.length + degree + 1
+    ? el.knots : uniformKnots(ctrl.length, degree, el.closed);
+
+  const n = ctrl.length;
+  const point = t => {
+    // Which span t is in. The curve is only defined between knot[degree] and
+    // knot[n], which is why both ends are clamped to that range.
+    let k = degree;
+    while (k < n - 1 && t >= knots[k + 1]) k++;
+    const d = [];
+    for (let j = 0; j <= degree; j++) {
+      const i = k - degree + j;
+      const w = weights ? weights[i] : 1;
+      d[j] = [ctrl[i][0] * w, ctrl[i][1] * w, w];
+    }
+    for (let r = 1; r <= degree; r++)
+      for (let j = degree; j >= r; j--) {
+        const i = k - degree + j;
+        const span = knots[i + degree - r + 1] - knots[i];
+        const a = span > 1e-12 ? (t - knots[i]) / span : 0;
+        d[j] = [d[j - 1][0] + (d[j][0] - d[j - 1][0]) * a,
+                d[j - 1][1] + (d[j][1] - d[j - 1][1]) * a,
+                d[j - 1][2] + (d[j][2] - d[j - 1][2]) * a];
+      }
+    const [x, y, w] = d[degree];
+    return w > 1e-12 ? [x / w, y / w] : [x, y];
+  };
+
+  const from = knots[degree], to = knots[n];
+  const steps = Math.max(2, Math.round(perSpan * (n - degree)));
+  const out = [];
+  for (let i = 0; i <= steps; i++) out.push(point(from + (to - from) * (i / steps)));
+  return out;
+}
+
+//! The knot vector a spline gets when it arrived without one: clamped at both
+//! ends so the curve starts at the first control point and finishes at the
+//! last, or evenly spaced when it is periodic and does neither.
+export function uniformKnots(count, degree, periodic = false) {
+  const knots = [];
+  if (periodic) {
+    for (let i = 0; i < count + degree + 1; i++) knots.push(i - degree);
+    return knots;
+  }
+  for (let i = 0; i < count + degree + 1; i++)
+    knots.push(i <= degree ? 0 : i >= count ? count - degree : i - degree);
+  return knots;
+}
+
+//! The same curve, walked the other way. A B-spline reversed is its control
+//! points reversed AND its knots turned inside out - reverse the points alone
+//! and a curve with an uneven knot vector comes back a different shape.
+export function reversedBspline(el) {
+  const ctrl = (el.ctrl || []).slice().reverse();
+  const out = { ctrl };
+  if (el.weights) out.weights = el.weights.slice().reverse();
+  if (el.knots && el.knots.length) {
+    const first = el.knots[0], last = el.knots[el.knots.length - 1];
+    out.knots = el.knots.map(k => first + last - k).reverse();
+  }
+  return out;
+}
+
 //! Where an element starts and ends, and whether it closes on itself. A point
 //! is neither, so it never joins a loop.
 export function sketchEnds(el) {
@@ -256,13 +378,20 @@ export function sketchEnds(el) {
     case "line":   return { a: el.a, b: el.b, closed: false };
     case "arc":    return { a: arcEnd(el, el.a0), b: arcEnd(el, el.a1), closed: false };
     case "circle":
-    case "ellipse":
     case "oblong": return { a: null, b: null, closed: true };
+    case "ellipse": return wholeEllipse(el) ? { a: null, b: null, closed: true }
+      : { a: ellipseAt(el, el.a0), b: ellipseAt(el, el.a1), closed: false };
     case "spline": {
       const pts = el.pts || [];
       if (pts.length < 2) return null;
       return el.closed ? { a: null, b: null, closed: true }
                        : { a: pts[0], b: pts[pts.length - 1], closed: false };
+    }
+    case "bspline": {
+      const run = bsplinePoints(el, 8);
+      if (run.length < 2) return null;
+      return el.closed ? { a: null, b: null, closed: true }
+                       : { a: run[0], b: run[run.length - 1], closed: false };
     }
     default: return null;
   }

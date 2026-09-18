@@ -6,6 +6,7 @@ import { resource } from "./payload.js";
 import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, Showroom } from "./showroom.js";
+import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { Arctic, FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf,
          makeSky, materialOf, rgbOf } from "./styles.js";
 import { Mdl } from "./mdl.js";
@@ -869,7 +870,7 @@ function pickSketchTool(type) {
 //! what the model file says; these are for people.
 const SKETCH_LABELS = {
   select: "Select", point: "Point", line: "Polyline", arc: "Arc", circle: "Circle",
-  ellipse: "Ellipse", oblong: "Oblong", spline: "Spline",
+  ellipse: "Ellipse", oblong: "Oblong", spline: "Spline", bspline: "Control curve",
 };
 
 const sketching = () => (sketcher.id && feature(sketcher.id)) || null;
@@ -1209,7 +1210,12 @@ function sketchHint() {
     return "arc · 2 more clicks · Tangent to carry on smoothly";
   if (sketcher.tool === "line" && sketcher.clicks.length)
     return "polyline · click for the next corner · Esc or Enter to stop";
-  if (!wanted) return "spline · click points, Enter or double-click to finish";
+  // The two tools that take as many points as you give them, and the one word
+  // that tells them apart: a spline goes through its points, a control curve
+  // is pulled by them.
+  if (!wanted) return sketcher.tool === "bspline"
+    ? "control curve · click the points that pull it, Enter or double-click to finish"
+    : "spline · click the points it goes through, Enter or double-click to finish";
   const left = wanted - sketcher.clicks.length;
   return sketcher.tool + " · " + (left > 0 ? left + " more click" + (left === 1 ? "" : "s")
                                            : "click to place");
@@ -1482,6 +1488,8 @@ function buildSketchRail() {
       type === "select" ? "Select · drag an end, or pick things to relate"
       : type === "line" ? "Polyline · click corner after corner"
       : type === "arc" ? "Arc · 3 clicks, or tangent to what you just drew"
+      : type === "spline" ? "Spline · click points it goes THROUGH, Enter to finish"
+      : type === "bspline" ? "Control curve · click points that PULL it, Enter to finish"
       : SKETCH_CLICKS[type] ? SKETCH_LABELS[type] + " · " + SKETCH_CLICKS[type] + " clicks"
       : SKETCH_LABELS[type] + " · click points, Enter to finish";
     // The long form is the hover label; the short one is what is printed under
@@ -1709,6 +1717,12 @@ const SKETCH_ICONS = {
   ellipse: '<ellipse cx="8" cy="8" rx="6.2" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/>',
   oblong: '<rect x="1.6" y="4.6" width="12.8" height="6.8" rx="3.4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
   spline: '<path d="M1.8 11.5c2.6 0 2.6-7 5.2-7s2.6 7 5.2 7 2.6-3 2.6-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  // The control polygon, and the curve it pulls. What tells the two spline
+  // tools apart is exactly this: one goes THROUGH its points, the other is
+  // pulled by them.
+  bspline: '<path d="M2 13L5 3.4l6 .2 3 9" fill="none" stroke="currentColor" stroke-width=".9" stroke-dasharray="2 1.6" opacity=".55"/>'
+         + '<path d="M2 13C3.6 6.4 12.4 6.6 14 12.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
+         + '<circle cx="5" cy="3.4" r="1.2" fill="currentColor"/><circle cx="11" cy="3.6" r="1.2" fill="currentColor"/>',
 
   coincident: '<path d="M2 11.5L7.4 6.1M14 4.5L8.6 9.9" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.3"/>',
   horizontal: '<path d="M1.8 8h12.4" stroke="currentColor" stroke-width="1.6"/><path d="M1.8 12.5h12.4" stroke="currentColor" stroke-width=".9" stroke-dasharray="2 2" opacity=".5"/>',
@@ -4247,7 +4261,8 @@ document.getElementById("btn-step-copy").addEventListener("click", async () => {
    what comes back is a feature in the tree like any other.
    ========================================================================== */
 
-const EXTENSION = { step: ".step", brep: ".brep", obj: ".obj", stl: ".stl", model: ".ocaf.json" };
+const EXTENSION = { step: ".step", brep: ".brep", obj: ".obj", stl: ".stl", dxf: ".dxf",
+                    model: ".ocaf.json" };
 
 //! The name to save under: the document's, made safe for a filesystem.
 const stemOf = () => ((state.tree && state.tree.name) || "part").replace(/[^\w.-]+/g, "-");
@@ -4372,6 +4387,15 @@ async function takeFile(file) {
                     encoding: binary ? "base64" : "text",
                     data: binary ? toBase64(bytes) : new TextDecoder().decode(bytes) };
 
+  // A drawing is asked two things a solid never is: how big one unit in it is,
+  // and which layers of it are wanted. Both have to be answered before it is
+  // read, so the file is surveyed first and converted afterwards.
+  if (format.key === "dxf") {
+    try { askDxf(request, format, dxfSurvey(request.data)); }
+    catch (err) { say("could not read " + file.name + " — " + err.message); }
+    return;
+  }
+
   const several = format.structure && !binary ? partsNamed(format.key, request.data) : 1;
   if (several > 1) askImport(request, format, several);
   else runImport({ ...request, as: "single" });
@@ -4420,6 +4444,95 @@ function askImport(request, format, several) {
     });
     host.appendChild(button);
   }
+  importDialog.showModal();
+}
+
+//! The two questions a DXF cannot answer for itself.
+//!
+//! How big it is, because $INSUNITS says "unitless" in most files ever
+//! exported and 4200 then means four metres or four thousand millimetres
+//! depending on who drew it. And which layers, because a floor plan is mostly
+//! furniture, hatching and text, and a sketch of all of it is a sketch nobody
+//! can work in.
+function askDxf(request, format, survey) {
+  const chosen = new Set(survey.layers.map(l => l.name));
+  pending = { ...request, as: "single", units: survey.units.key === "none" ? "mm" : survey.units.key,
+              layers: [...chosen] };
+
+  document.getElementById("import-title").textContent = "Import " + format.name;
+  document.getElementById("import-note").textContent =
+    request.name + " · " + readable(request.data.length) + " — " + survey.entities
+    + " entities on " + survey.layers.length + (survey.layers.length === 1 ? " layer" : " layers")
+    + (survey.blocks ? ", " + survey.blocks
+        + (survey.blocks === 1 ? " block" : " blocks") : "") + ". "
+    + (survey.saidUnits && survey.units.key !== "none"
+        ? "The file says it is drawn in " + survey.units.label.toLowerCase() + "."
+        : "The file does not say what its units are, which is usual.")
+    + " It comes in as a sketch.";
+
+  const host = document.getElementById("import-choice");
+  host.textContent = "";
+
+  const head = text => {
+    const line = document.createElement("div");
+    line.className = "pick-head";
+    line.textContent = text;
+    host.appendChild(line);
+  };
+
+  head("One unit in the drawing is");
+  const units = document.createElement("div");
+  units.className = "pick-row";
+  for (const unit of DXF_UNITS.filter(u => ["mm", "cm", "m", "in", "ft"].includes(u.key))) {
+    const button = document.createElement("button");
+    button.className = "pick-chip";
+    button.textContent = unit.label;
+    button.setAttribute("aria-pressed", String(unit.key === pending.units));
+    button.addEventListener("click", () => {
+      pending.units = unit.key;
+      for (const other of units.children)
+        other.setAttribute("aria-pressed", String(other === button));
+    });
+    units.appendChild(button);
+  }
+  host.appendChild(units);
+
+  if (survey.layers.length > 1) {
+    head("Layers");
+    const list = document.createElement("div");
+    list.className = "pick-layers";
+    for (const layer of survey.layers) {
+      const row = document.createElement("label");
+      row.className = "pick-layer";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      box.addEventListener("change", () => {
+        if (box.checked) chosen.add(layer.name); else chosen.delete(layer.name);
+        pending.layers = [...chosen];
+      });
+      const name = document.createElement("span");
+      name.textContent = layer.name;
+      const count = document.createElement("b");
+      count.textContent = layer.entities;
+      row.append(box, name, count);
+      list.appendChild(row);
+    }
+    host.appendChild(list);
+  }
+
+  // What is in the file that a sketch has no meaning for, said before it is
+  // imported rather than after.
+  const lost = survey.kinds.filter(k => DXF_IGNORED[k.type]);
+  if (lost.length) {
+    const note = document.createElement("div");
+    note.className = "pick-note";
+    note.textContent = "Not brought in: "
+      + lost.map(k => ignoredName(k.type, k.entities)).join(", ")
+      + ". A sketch holds geometry; the rest belongs to a drawing sheet.";
+    host.appendChild(note);
+  }
+
   importDialog.showModal();
 }
 

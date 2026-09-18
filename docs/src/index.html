@@ -632,6 +632,37 @@ select {
 .pick-opt b { display: block; font-size: 12.5px; font-weight: 600; }
 .pick-opt span { display: block; margin-top: 3px; font-size: 11px; color: var(--ink-3); line-height: 1.45; }
 
+/* A drawing is asked two things before it is read: how big one unit in it is,
+   and which of its layers are wanted. */
+.pick-head {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); margin: 10px 2px 6px;
+}
+.pick-head:first-child { margin-top: 0; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.pick-chip {
+  padding: 7px 11px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel-2); color: var(--ink-2); cursor: pointer; font: inherit;
+  font-size: 12px;
+}
+.pick-chip:hover { border-color: var(--accent); }
+.pick-chip[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+}
+.pick-layers {
+  max-height: 208px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px;
+}
+.pick-layer {
+  display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 6px;
+  cursor: pointer; font-size: 12px;
+}
+.pick-layer:hover { background: var(--panel-2); }
+.pick-layer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                   white-space: nowrap; }
+.pick-layer b { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); font-weight: 400; }
+.pick-note { margin-top: 10px; font-size: 11px; color: var(--ink-3); line-height: 1.5; }
+
 /* the code editor: a Script feature needs more room than a slider does */
 #def-panel.wide { width: 460px; }
 .editor { padding: 10px 12px 12px; border-top: 1px solid var(--line-soft); }

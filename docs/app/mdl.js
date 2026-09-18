@@ -203,14 +203,16 @@ export const MDL_OPS = [
       return await ctx.kernel.loadModel(model);
     }),
 
-  modelOp("import", ["format", "data", "name?", "encoding?", "as?"],
+  modelOp("import", ["format", "data", "name?", "encoding?", "as?", "units?", "layers?"],
     "Read a file into the document. `format` is one of the kernel's read formats - step, "
     + "brep, obj, stl - and `data` is the file itself, as text, or base64 with "
     + '`encoding` set to "base64" for a binary STL. `as` is "single" for one feature or '
     + '"parts" to break the file into the parts it names, which only a format that '
     + "carries several will do anything with. What comes in is stored as geometry, not as "
     + "the file, so it rebuilds without the reader that read it - and a mesh keeps the "
-    + "faces it was authored with, quads included.",
+    + "faces it was authored with, quads included. A DXF is the exception and comes in as a "
+    + "SKETCH: `units` says what one unit in the drawing means - mm, cm, m, in, ft - because "
+    + "most DXF files do not, and `layers` takes only the layers named.",
     { op: "import", format: "step", name: "bracket.step", as: "parts", data: "ISO-10303-21;…" },
     (ctx, edit) => ctx.kernel.importFile({
       format: needText(edit, "format"),
@@ -218,6 +220,8 @@ export const MDL_OPS = [
       name: edit.name ? String(edit.name) : "",
       encoding: edit.encoding === "base64" ? "base64" : "text",
       as: edit.as === "parts" ? "parts" : "single",
+      units: edit.units ? String(edit.units) : "mm",
+      layers: Array.isArray(edit.layers) ? edit.layers.map(String) : null,
     })),
 
   modelOp("vertex", ["id", "index", "x", "y", "z"],

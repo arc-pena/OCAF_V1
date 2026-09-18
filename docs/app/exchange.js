@@ -46,6 +46,14 @@ export const FORMATS = [
     read: true, write: true, structure: false,
     summary: "Triangles, in ASCII or binary. One shape per file, no names, no "
            + "colour: what a printer takes." },
+  { key: "dxf", name: "DXF", extensions: [".dxf"], carries: "drawing",
+    short: "2D drawings, as a sketch",
+    read: true, write: true, structure: false, layers: true,
+    summary: "AutoCAD's drawing interchange format. It comes in as a SKETCH - lines, "
+           + "arcs, ellipses and splines on a plane, with the corners of every "
+           + "polyline written down as coincidences - so an outline somebody drew "
+           + "elsewhere can be constrained, dimensioned and extruded here. Sketches "
+           + "go back out the same way, one layer each." },
   { key: "model", name: "Model file", extensions: [".json", ".mdl"], carries: "model",
     short: "the parametric model itself",
     read: true, write: true, structure: false,
@@ -68,9 +76,10 @@ export const UNAVAILABLE = [
   { extensions: [".ifc"], name: "IFC",
     reason: "IFC is a building model, not a shape file; it needs a reader this build "
           + "does not have. Export the geometry as STEP." },
-  { extensions: [".dwg", ".dxf"], name: "DWG/DXF",
-    reason: "these are drawing formats and this is a solid modeller. For 2D, draw a "
-          + "sketch; for 3D, bring it in as STEP." },
+  { extensions: [".dwg"], name: "DWG",
+    reason: "DWG is AutoCAD's own binary format and nothing outside AutoCAD reads it "
+          + "reliably. Save it as DXF - AutoCAD, BricsCAD, Rhino and QCAD all do - "
+          + "and it comes in as a sketch." },
 ];
 
 const dotted = name => {

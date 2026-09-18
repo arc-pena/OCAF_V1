@@ -24,11 +24,13 @@
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshFaces,
          parseNumbers, schemaJson,
          typeSpec } from "./ocaf.js";
-import { sketchArcPoint, sketchChainEnds, sketchEnds, sketchLoops, sketchNesting,
-         sketchOutline, solveSketch, splinePoints } from "./sketch.js";
+import { bsplinePoints, reversedBspline, sketchArcPoint, sketchChainEnds, sketchEnds,
+         sketchLoops, sketchNesting, sketchOutline, solveSketch, splinePoints,
+         wholeEllipse } from "./sketch.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
+import { DXF_LIMIT, describeDrawing, dxfDrawing, ignoredName, writeDxf } from "./dxf.js";
 
 export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm, onProgress }) {
   if (onProgress) onProgress("starting OpenCascade");
@@ -1366,8 +1368,12 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         const tall = (el.ry || 0) > (el.rx || 0);
         const major = Math.max(el.rx, el.ry), minor = Math.min(el.rx, el.ry);
         const turn = (el.rot || 0) + (tall ? Math.PI / 2 : 0);
-        return [new oc.BRepBuilderAPI_MakeEdge(
-          new oc.gp_Elips(frame.frame(el.c, turn), major, minor)).Edge()];
+        const conic = new oc.gp_Elips(frame.frame(el.c, turn), major, minor);
+        if (wholeEllipse(el)) return [new oc.BRepBuilderAPI_MakeEdge(conic).Edge()];
+        // An arc of one. Turning the frame a quarter turn moved the parameter
+        // with it, so the two ends move by the same quarter turn.
+        const shift = tall ? -Math.PI / 2 : 0;
+        return [new oc.BRepBuilderAPI_MakeEdge(conic, el.a0 + shift, el.a1 + shift).Edge()];
       }
       case "oblong": {
         // Two straights and a half turn at either end - built through points so
@@ -1386,6 +1392,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       }
       case "spline": {
         const run = splinePoints(el, 12);
+        if (run.length < 2) return [];
+        const walk = a && b ? [a, ...run.slice(1, -1), b] : run;
+        return runOfEdges(frame, walk);
+      }
+      // A B-spline arrives as a fine run of edges for the same reason a
+      // spline does: this kernel build carries Geom_BSplineCurve but not the
+      // arrays needed to hand it a knot vector, so the curve is evaluated here
+      // - exactly, by de Boor - and built as what it passes through.
+      case "bspline": {
+        const run = bsplinePoints(el, 16);
         if (run.length < 2) return [];
         const walk = a && b ? [a, ...run.slice(1, -1), b] : run;
         return runOfEdges(frame, walk);
@@ -1435,6 +1451,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   //! meaning, and it was a three-quarter turn the other way round.
   function reverseElement(el) {
     if (el.type === "spline") return { pts: (el.pts || []).slice().reverse() };
+    if (el.type === "bspline") return reversedBspline(el);
     return {};
   }
 
@@ -3687,7 +3704,24 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     //! which is the part worth reading, because "14 solids in 3 assemblies"
     //! and "one solid" are both successes and only one of them is what was
     //! expected.
-    async importFile({ format, name = "", data = "", encoding = "text", as = "single" }) {
+    //! A plane to put an imported drawing on, when the document has none. The
+    //! same three datums a new document opens with, made here so that opening
+    //! a DXF into an empty document does not need a person to draw a plane
+    //! first.
+    datumPlane(stem) {
+      const origin = doc.addFeature("Point", null, "Origin");
+      const up = doc.addFeature("Vector", null, "Z Direction");
+      doc.setParameter(up, "dx", 0);
+      doc.setParameter(up, "dy", 0);
+      doc.setParameter(up, "dz", 1);
+      const plane = doc.addFeature("Plane", null, "XY Plane");
+      doc.setReference(plane, "origin", origin);
+      doc.setReference(plane, "normal", up);
+      return plane;
+    },
+
+    async importFile({ format, name = "", data = "", encoding = "text", as = "single",
+                       units = "mm", layers = null }) {
       const spec = FORMATS.find(f => f.key === format);
       if (!spec || !spec.read) throw new Error('this kernel cannot read "' + format + '"');
       const bytes = encoding === "base64" ? fromBase64(data) : null;
@@ -3751,6 +3785,46 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         note = pieces.length + (pieces.length === 1 ? " mesh, " : " meshes, ") + kept + " faces"
           + (quads ? " - " + quads + " of them with more than three sides, kept as they are"
                    : " - all triangles");
+      } else if (format === "dxf") {
+        // A drawing is not a shape, and this is the one import that does not
+        // make one. It makes a SKETCH - on a plane, with its corners written
+        // down as coincidences - because everything a person wants to do with
+        // an imported outline afterwards is a thing you do to a sketch.
+        const text = bytes ? utf8(bytes) : String(data);
+        const { drawing, report } = dxfDrawing(text, {
+          units: units || "mm",
+          layers: Array.isArray(layers) && layers.length ? layers : null,
+          limit: DXF_LIMIT,
+        });
+        if (!drawing.elements.length)
+          throw new Error(report.skippedCount
+            ? "nothing in that file is geometry a sketch can hold"
+            : "no lines, arcs or curves in that file"
+              + (report.tilted ? " - " + report.tilted + " entities are drawn out of plane" : ""));
+
+        const plane = doc.features().find(f => F.spec(f).type === "Plane") || this.datumPlane(stem);
+        const sketch = doc.addFeature("Sketch", null, stem);
+        doc.setReference(sketch, "plane", plane);
+        const origin = doc.features().find(f => F.spec(f).type === "Point");
+        if (origin) doc.setReference(sketch, "origin", origin);
+        doc.setSketch(sketch, "drawing", drawing);
+        // "Ignore": solving on arrival would move an imported drawing to
+        // satisfy coincidences it already satisfies, and a drawing that shifts
+        // the moment it lands is a drawing nobody trusts. Turn it back on when
+        // you start pulling the outline about.
+        doc.setParameter(sketch, "solve", 1);
+        made.push(sketch);
+
+        const said = Object.entries(report.skipped)
+          .map(([type, n]) => ignoredName(type, n)).join(", ");
+        note = report.elements + " elements from " + report.entities + " entities"
+          + (report.blocks ? ", " + report.blocks + " block placements flattened" : "")
+          + (report.joints ? ", " + report.joints + " corners held together" : "")
+          + (said ? " · not brought in: " + said : "")
+          + (report.tilted ? " · " + report.tilted + " out of plane" : "")
+          + (report.full ? " · the file has more than " + report.limit
+             + " entities and that is as many as a sketch holds - turn layers off and export again"
+             : "");
       } else {
         throw new Error('"' + format + '" is not read here - a model file is opened, not imported');
       }
@@ -3783,6 +3857,26 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         return { ok: true, text: oc.BRepToolsWrapper.Write(compoundOf(shapes)),
                  parts: shapes.length, name: doc.title, units: doc.units,
                  note: shapes.length + " shapes, exactly as the kernel holds them" };
+      }
+
+      // A DXF is a drawing, and the drawings in this document are its sketches.
+      // Every one of them goes, consumed or not: the profile a slab was
+      // extruded from is exactly the thing somebody wants back as a DXF, and
+      // it is hidden precisely because it was used.
+      if (format === "dxf") {
+        const sketches = doc.features().filter(f => F.spec(f).type === "Sketch")
+          .map(f => ({ name: F.name(f), drawing: sketchDrawing(f) }))
+          .filter(one => (one.drawing.elements || []).length);
+        if (!sketches.length)
+          throw new Error("there are no sketches in this document, and a DXF is a drawing - "
+            + "draw one, or import one, and it will go back out");
+        const written = writeDxf(sketches, { units: "mm", name: doc.title });
+        return { ok: true, text: written.text, parts: written.layers,
+                 name: doc.title, units: doc.units,
+                 note: written.entities + " entities on " + written.layers
+                   + (written.layers === 1 ? " layer" : " layers") + ", in millimetres · "
+                   + sketches.map(one => one.name + ": " + describeDrawing(one.drawing))
+                     .join(" · ") };
       }
 
       const parts = exportParts();
