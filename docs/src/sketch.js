@@ -938,6 +938,105 @@ export function shownDrawing(drawing) {
   return { ...drawing, elements, constraints };
 }
 
+/* ---------------------------------------------------------- picking in bulk
+
+   Two gestures every drawing board has, and they are the same question asked
+   about a rectangle: what is inside it, and what does it touch. Dragging a
+   window left to right takes only what is wholly inside - that is a WINDOW;
+   dragging it right to left takes anything it crosses - a CROSSING. Every CAD
+   package since AutoCAD has drawn that distinction and drawn it the same way
+   round, so this one does too.                                              */
+
+const insideBox = (p, box) =>
+  p[0] >= box.x0 && p[0] <= box.x1 && p[1] >= box.y0 && p[1] <= box.y1;
+
+//! Do two segments cross? Orientation of each end about the other segment; a
+//! pair that straddle each other cross. Touching at an end counts, which is
+//! what a >= 0 does here - a line that just reaches the window is in it.
+function segmentsCross(a, b, c, d) {
+  const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const s1 = side(a, b, c), s2 = side(a, b, d), s3 = side(c, d, a), s4 = side(c, d, b);
+  return ((s1 >= 0) !== (s2 >= 0)) && ((s3 >= 0) !== (s4 >= 0));
+}
+
+function segmentMeetsBox(a, b, box) {
+  if (insideBox(a, box) || insideBox(b, box)) return true;
+  const corner = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]];
+  for (let i = 0; i < 4; i++)
+    if (segmentsCross(a, b, corner[i], corner[(i + 1) % 4])) return true;
+  return false;
+}
+
+//! How far \p p is from a segment - to the segment, not to its ends.
+function awayFromSegment(p, a, b) {
+  const vx = b[0] - a[0], vy = b[1] - a[1];
+  const square = vx * vx + vy * vy;
+  const t = square < 1e-18 ? 0
+    : Math.max(0, Math.min(1, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / square));
+  return Math.hypot(a[0] + vx * t - p[0], a[1] + vy * t - p[1]);
+}
+
+//! How far a point is from an element - measured to the element, not to the
+//! points it happens to have been sampled at. A line's outline is its two ends
+//! and nothing in between, so a cursor halfway along a two-metre line used to
+//! be a metre from the nearest sample and therefore nowhere near the line.
+export function sketchDistanceTo(el, p, quality = 48) {
+  const line = sketchOutline(el, quality);
+  if (!line.length) return Infinity;
+  if (line.length === 1) return Math.hypot(line[0][0] - p[0], line[0][1] - p[1]);
+  let away = Infinity;
+  for (let i = 0; i + 1 < line.length; i++)
+    away = Math.min(away, awayFromSegment(p, line[i], line[i + 1]));
+  return away;
+}
+
+//! The box two corners make, whichever way round they were given.
+export const sketchBox = (from, to) => ({
+  x0: Math.min(from[0], to[0]), x1: Math.max(from[0], to[0]),
+  y0: Math.min(from[1], to[1]), y1: Math.max(from[1], to[1]),
+});
+
+//! What a window takes. Nothing on a layer that is off or locked is ever in
+//! it, for the same reason nothing on one is ever under the cursor.
+export function sketchInBox(drawing, box, { crossing = false, quality = 32 } = {}) {
+  const out = [];
+  for (const el of (drawing.elements || [])) {
+    if (!elementShown(drawing, el) || elementLocked(drawing, el)) continue;
+    const line = sketchOutline(el, quality);
+    if (!line.length) continue;
+    if (!crossing) { if (line.every(p => insideBox(p, box))) out.push(el.id); continue; }
+    let hit = line.some(p => insideBox(p, box));
+    for (let i = 0; i + 1 < line.length && !hit; i++)
+      hit = segmentMeetsBox(line[i], line[i + 1], box);
+    if (hit) out.push(el.id);
+  }
+  return out;
+}
+
+//! Every element on one layer, by id. What "select everything on this layer"
+//! means - and it counts the ones that are on it by saying nothing, because
+//! that is what being on the drawing's own layer is.
+export const sketchOnLayer = (drawing, name) =>
+  (drawing.elements || []).filter(el => layerName(el) === name).map(el => el.id);
+
+//! An element moved bodily, every point of it by the same amount. An arc and a
+//! circle move by their centre, which leaves the radius and the sweep exactly
+//! as drawn - moving each end of an arc separately would turn it into a
+//! different arc, and a drag of six elements must not redraw any of them.
+export function sketchMoveElement(el, by) {
+  const to = p => sketchRound([p[0] + by[0], p[1] + by[1]]);
+  switch (el.type) {
+    case "point":   el.p = to(el.p); return;
+    case "line":    el.a = to(el.a); el.b = to(el.b); return;
+    case "circle":
+    case "arc":
+    case "ellipse": el.c = to(el.c); return;
+    case "oblong":  el.a = to(el.a); el.b = to(el.b); return;
+    case "spline":  el.pts = (el.pts || []).map(to); return;
+    case "bspline": el.ctrl = (el.ctrl || []).map(to); return;
+  }
+}
+
 /* ------------------------------------------------------------ construction */
 
 /* Construction geometry is the second half of a sketcher, and the half that

@@ -1,7 +1,7 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, nextSketchId, readSketch,
-         sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveHandle,
-         sketchRelation, sketchTangentArc, solveSketch } from "./sketch.js";
+         sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
+         sketchMoveHandle, sketchRelation, sketchTangentArc, solveSketch } from "./sketch.js";
 
 // The model description language.
 //
@@ -372,6 +372,54 @@ export const MDL_OPS = [
       // Written as a flag or not written at all: a drawing nobody has marked
       // anything in stays a drawing with no construction key in it.
       for (const el of found) { if (on) el.construction = true; else delete el.construction; }
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("relayer", ["id", "of", "to"],
+    "Move elements of a sketch onto another layer. A name nobody has used yet makes "
+    + "the layer, the way the layer op does - so putting a selection somewhere new is "
+    + "one edit rather than two.",
+    { op: "relayer", id: "SK1", of: ["e1", "e2"], to: "SETTING OUT" },
+    async (ctx, edit) => {
+      const of = (Array.isArray(edit.of) ? edit.of : [edit.of])
+        .map(name => String(name || "").split(".")[0]).filter(Boolean);
+      if (!of.length) throw new Error('"of" names the elements to move');
+      const to = needText(edit, "to").trim();
+      if (!to) throw new Error("a layer needs a name");
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const wanted = new Set(of);
+      const found = drawing.elements.filter(el => wanted.has(el.id));
+      if (found.length !== wanted.size) {
+        const missing = [...wanted].filter(id => !found.some(el => el.id === id));
+        throw new Error("that sketch has no element called " + missing.join(", "));
+      }
+      // The layer is written down even when it already had everything on it,
+      // so a drawing that has just been given layers keeps them.
+      const layers = sketchLayers(drawing).map(({ name, on, locked }) => ({ name, on, locked }));
+      if (!layers.some(l => l.name === to)) layers.push({ name: to, on: true, locked: false });
+      for (const el of found) el.layer = to;
+      drawing.layers = layers;
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("nudge", ["id", "of", "by"],
+    "Move elements of a sketch bodily, by the same amount each, in the plane's own "
+    + "coordinates. An arc and a circle move by their centre, so the radius and the "
+    + "sweep are exactly as they were drawn. This is what dragging a window selection "
+    + "in the sketcher writes.",
+    { op: "nudge", id: "SK1", of: ["e1", "e2"], by: [40, 0] },
+    async (ctx, edit) => {
+      const of = (Array.isArray(edit.of) ? edit.of : [edit.of])
+        .map(name => String(name || "").split(".")[0]).filter(Boolean);
+      if (!of.length) throw new Error('"of" names the elements to move');
+      const by = edit.by;
+      if (!Array.isArray(by) || by.length !== 2 || !by.every(Number.isFinite))
+        throw new Error('"by" must be two numbers');
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const wanted = new Set(of);
+      const found = drawing.elements.filter(el => wanted.has(el.id));
+      if (!found.length) throw new Error("that sketch has none of those elements on it");
+      for (const el of found) sketchMoveElement(el, by);
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 

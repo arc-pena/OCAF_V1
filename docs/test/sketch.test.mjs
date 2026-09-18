@@ -8,8 +8,10 @@
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, builtDrawing, currentLayer,
          elementLocked, isConstruction,
-         elementShown, readSketch, shownDrawing, sketchDirectionAt, sketchCrossings,
-         sketchElement, sketchEnds, sketchLayers, sketchLoops, sketchRelation,
+         elementShown, readSketch, shownDrawing, sketchBox, sketchDirectionAt, sketchCrossings,
+         sketchDistanceTo, sketchElement, sketchEnds, sketchInBox, sketchLayers, sketchLoops,
+         sketchMoveElement,
+         sketchOnLayer, sketchRelation,
          sketchRelationMarks, sketchSummary, sketchTangentArc,
          solveSketch } from "../src/sketch.js";
 import { Mdl } from "../src/mdl.js";
@@ -684,6 +686,119 @@ console.log("\n16. one element nothing can be made of is one element");
   check("and the square around them is built, whole",
         Math.abs(Number(made.data.preview) - 100 * 100 * 10) < 20,
         made.data && made.data.preview);
+}
+
+console.log("\n17. a window, a layer, and everything picked moved at once");
+{
+  const drawing = {
+    elements: [
+      { id: "a", type: "line", a: [0, 0], b: [40, 0], layer: "PLAN" },
+      { id: "b", type: "line", a: [40, 0], b: [40, 40], layer: "PLAN" },
+      { id: "c", type: "circle", c: [20, 20], r: 8, layer: "PLAN" },
+      { id: "far", type: "line", a: [200, 200], b: [240, 200], layer: "NOTES" },
+      { id: "half", type: "line", a: [30, 30], b: [300, 30], layer: "NOTES" },
+    ],
+    constraints: [{ type: "coincident", of: ["a.b", "b.a"] }],
+    layers: [{ name: "PLAN", on: true, locked: false },
+             { name: "NOTES", on: true, locked: false }],
+    current: "PLAN",
+  };
+
+  // Left to right takes only what is wholly inside. Right to left takes
+  // anything it touches. That is the difference, and it is the whole of it.
+  const box = sketchBox([-5, -5], [50, 50]);
+  check("a window takes what is wholly inside it",
+        sketchInBox(drawing, box).join(",") === "a,b,c",
+        sketchInBox(drawing, box).join(","));
+  check("and leaves the line that only starts in it",
+        !sketchInBox(drawing, box).includes("half"));
+  check("a crossing window takes anything it touches",
+        sketchInBox(drawing, box, { crossing: true }).join(",") === "a,b,c,half",
+        sketchInBox(drawing, box, { crossing: true }).join(","));
+  check("neither of them reaches what is nowhere near",
+        !sketchInBox(drawing, box, { crossing: true }).includes("far"));
+  check("a crossing window catches a line that passes right through it, "
+        + "both ends outside",
+        sketchInBox({ elements: [{ id: "t", type: "line", a: [-50, 20], b: [90, 20] }],
+                      constraints: [] }, box, { crossing: true }).join(",") === "t");
+  check("a window two corners make is the same box whichever way round",
+        JSON.stringify(sketchBox([50, 50], [-5, -5])) === JSON.stringify(box));
+  check("and nothing on a layer that is off is ever in one",
+        sketchInBox({ ...drawing, layers: [{ name: "PLAN", on: false }] },
+                    box, { crossing: true }).join(",") === "half");
+  check("nor on a locked one",
+        sketchInBox({ ...drawing, layers: [{ name: "PLAN", locked: true }] },
+                    box, { crossing: true }).join(",") === "half");
+
+  // Measured to the element rather than to the points it was sampled at. A
+  // line's outline is its two ends, so this is the difference between being
+  // able to take hold of a line and only being able to take hold of its ends.
+  const long = { id: "x", type: "line", a: [0, 0], b: [400, 0] };
+  check("halfway along a line is ON the line",
+        sketchDistanceTo(long, [200, 0]) < 1e-9, String(sketchDistanceTo(long, [200, 0])));
+  check("and three millimetres off it is three millimetres away",
+        Math.abs(sketchDistanceTo(long, [200, 3]) - 3) < 1e-9,
+        String(sketchDistanceTo(long, [200, 3])));
+  check("past the end it is measured from the end",
+        Math.abs(sketchDistanceTo(long, [404, 3]) - 5) < 1e-9,
+        String(sketchDistanceTo(long, [404, 3])));
+  // A circle is its rim, not its centre: a millimetre outside the rim is a
+  // millimetre away, and the middle of it is fifty.
+  const ring = { id: "o", type: "circle", c: [0, 0], r: 50 };
+  check("and a circle is its rim", Math.abs(sketchDistanceTo(ring, [0, 51]) - 1) < 0.02,
+        String(sketchDistanceTo(ring, [0, 51])));
+  check("with nothing in the middle of it to take hold of",
+        Math.abs(sketchDistanceTo(ring, [0, 0]) - 50) < 0.15,
+        String(sketchDistanceTo(ring, [0, 0])));
+
+  check("everything on a layer, by name", sketchOnLayer(drawing, "PLAN").join(",") === "a,b,c");
+  check("including what is on the drawing's own by saying nothing",
+        sketchOnLayer({ elements: [{ id: "x", type: "point", p: [0, 0] }] }, "0").join(",") === "x");
+
+  // Moved bodily: an arc keeps its radius and its sweep, because it moves by
+  // its centre rather than by each end.
+  const arc = { id: "r", type: "arc", c: [10, 10], r: 5, a0: 0, a1: 1.2 };
+  sketchMoveElement(arc, [7, -3]);
+  check("an arc moves by its centre and is the same arc",
+        arc.c.join(",") === "17,7" && arc.r === 5 && arc.a1 === 1.2,
+        JSON.stringify(arc));
+
+  // And through the edit language, which is what the window drag writes.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const id = (await mdl.run({ op: "add", type: "Sketch", name: "Plan" })).id;
+  await mdl.run({ op: "sketch", id, drawing });
+  const held = async () => readSketch((await at(id)).sketch.drawing);
+
+  await mdl.run({ op: "nudge", id, of: ["a", "b", "c"], by: [100, 0] });
+  const moved = await held();
+  check("a nudge moves every element it names by the same amount",
+        moved.elements.find(el => el.id === "a").a.join(",") === "100,0"
+        && moved.elements.find(el => el.id === "c").c.join(",") === "120,20",
+        JSON.stringify(moved.elements.slice(0, 3).map(el => el.id + ":" + JSON.stringify(el.a || el.c))));
+  check("and leaves everything it does not",
+        moved.elements.find(el => el.id === "far").a.join(",") === "200,200");
+  check("the corner they were holding is still a corner",
+        moved.elements.find(el => el.id === "a").b.join(",")
+          === moved.elements.find(el => el.id === "b").a.join(","));
+
+  await mdl.run({ op: "relayer", id, of: ["a", "b"], to: "SETTING OUT" });
+  const sorted = await held();
+  check("relayer moves elements onto a layer",
+        sorted.elements.filter(el => el.layer === "SETTING OUT").map(el => el.id).join(",") === "a,b",
+        sorted.elements.map(el => el.id + ":" + el.layer).join(" "));
+  check("a layer nobody had used is made by moving something onto it",
+        sorted.layers.some(l => l.name === "SETTING OUT"),
+        sorted.layers.map(l => l.name).join(","));
+  check("and the sketch still builds", (await at(id)).built, String((await at(id)).error));
+
+  let refused = "";
+  try { await mdl.run({ op: "relayer", id, of: ["nope"], to: "PLAN" }); }
+  catch (err) { refused = err.message; }
+  check("naming an element that is not there says so",
+        /no element called nope/.test(refused), refused);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

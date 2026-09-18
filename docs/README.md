@@ -149,6 +149,7 @@ and the channel they all go through; nothing else may touch the kernel.
 | `undo` `redo` | walk the stack of documents. Edits like any other, so they are recorded and can be sent from outside |
 | `unrelate` | take a relation off a sketch — what deleting its mark in the sketcher writes |
 | `layer` `unlayer` | one layer of a drawing: made by naming it, shown, locked, renamed, made current — or deleted with everything on it |
+| `relayer` `nudge` | elements of a sketch moved onto another layer, or moved bodily — what a window selection is dragged out for |
 | `construct` | mark elements construction geometry, or make them output again |
 | `appearance` | a finish; redraws, does not rebuild |
 | `model` | the whole document at once — every one above is a small edit of the text this one writes wholesale |
@@ -513,6 +514,33 @@ ok   and the other end came with it, all the way  — [140,-30]
 ok   while the far ends stayed put
 ```
 
+### A window takes several, and several move together
+
+Drag a window out on empty paper and it picks what is in it. Which *what* is the
+direction: **left to right takes only what is wholly inside**, **right to left
+takes anything it crosses** — the distinction every CAD package has drawn since
+AutoCAD, and drawn the same way round. The window says which it is while you
+drag: a solid outline for one, dashed for the other.
+
+Then press on any of what is picked and drag, and the whole selection moves
+together — one `nudge` edit, one step to undo. An arc and a circle move by their
+centre, so a drag of six elements redraws none of them. Delete takes all of it.
+
+Measuring what is under the cursor is done to the *element*, not to the points
+it happened to be sampled at. A line's outline is its two ends and nothing in
+between, so measuring to the samples meant the middle of a long line — most of
+a line, and exactly where you take hold of one — was never under the cursor at
+all.
+
+### Layers are a place to put things, not just a switch
+
+Every layer row will select everything on it, and right-clicking one opens the
+rest: select, **move the selection here**, turn off, lock, draw on it, delete.
+Below the rows the panel lists the drawing's elements — what is picked when
+anything is, the first hundred and twenty otherwise — each with the layer it is
+on as a dropdown and a dashed-line button that makes it construction. So a
+window round twelve lines and one dropdown moves twelve lines to a new layer.
+
 ### Select first, then draw
 
 A sketch opens in **Select**, not armed with a tool — the first thing anyone
@@ -608,7 +636,9 @@ a mark anybody can read. Locking leaves a layer drawn and built but deaf to the
 cursor, which is what you want of a survey you are drawing over.
 
 **Construction geometry** is a fact about one element rather than about where
-it came from: `construction: true`, drawn dashed, and never built. It is the
+it came from: `construction: true`, drawn dashed, and never built. The dashed
+button beside **Done** turns it on and off for whatever is picked, and reads the
+selection: all of it construction already means it makes all of it real again. It is the
 centreline two kerbs were struck from, the diagonal that holds a rectangle
 square, the circle three holes sit on. It is picked, constrained and solved
 exactly like anything else — it is the *reason* the real geometry is where it

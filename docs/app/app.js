@@ -18,10 +18,11 @@ import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
          productNames, readable, sniffFormat, toBase64, whyNot } from "./exchange.js";
-import { SKETCH_CLICKS, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer, elementLocked,
-         elementShown, isConstruction, sketchLayers, nextSketchId, readSketch,
-         sketchCrossings, sketchDirectionAt, sketchElement, sketchHandleAt, sketchHandles,
-         sketchMoveHandle, sketchOutline, sketchRelationMarks,
+import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer,
+         elementLocked, elementShown, isConstruction, nextSketchId, readSketch,
+         sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
+         sketchHandleAt, sketchHandles, sketchInBox, sketchLayers, sketchMoveElement,
+         sketchMoveHandle, sketchOnLayer, sketchOutline, sketchRelationMarks,
          sketchTangentArc } from "./sketch.js";
 
 "use strict";
@@ -336,7 +337,12 @@ function measureScene() {
       // Inside a sketch, shift means "and this one too", not "pan" - so the
       // left button always draws or picks and panning is on the other buttons.
       if (event.button !== 0) mode = "pan";
-      else mode = grabSketchHandle(event) ? "handle" : "draw";
+      else if (grabSketchHandle(event)) mode = "handle";
+      // A press that lands on something already picked takes hold of the whole
+      // selection; a press on empty paper pulls a window out of it.
+      else if (grabSketchMove(event)) mode = "move";
+      else if (sketcher.tool === "select") { startSketchBand(event); mode = "band"; }
+      else mode = "draw";
     }
     else mode = (event.shiftKey || event.button === 1 || event.button === 2) ? "pan" : "orbit";
     lastX = event.clientX; lastY = event.clientY; moved = 0;
@@ -351,8 +357,16 @@ function measureScene() {
     if (!mode) return;
     if (mode === "gizmo") { dragGizmo(event); return; }
     if (mode === "handle") { dragSketchHandle(event); return; }
-    if (mode === "draw") { moved += Math.abs(event.clientX - lastX) + Math.abs(event.clientY - lastY);
-                           lastX = event.clientX; lastY = event.clientY; return; }
+    if (mode === "move" || mode === "band" || mode === "draw") {
+      moved += Math.abs(event.clientX - lastX) + Math.abs(event.clientY - lastY);
+      lastX = event.clientX; lastY = event.clientY;
+      // Under the wobble a hand makes holding still, nothing has moved yet -
+      // so a click on a picked element stays a click rather than a nudge of
+      // three hundredths of a millimetre.
+      if (moved >= 4 && mode === "move") dragSketchMove(event);
+      if (moved >= 4 && mode === "band") dragSketchBand(event);
+      return;
+    }
     const dx = event.clientX - lastX, dy = event.clientY - lastY;
     lastX = event.clientX; lastY = event.clientY; moved += Math.abs(dx) + Math.abs(dy);
     if (mode === "orbit") {
@@ -366,6 +380,9 @@ function measureScene() {
   el.addEventListener("pointerup", event => {
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
+    else if (mode === "move") dropSketchMove(event);
+    else if (mode === "band") { if (moved < 4) { dropSketchBand(null); sketchClick(event); }
+                                else dropSketchBand(event); }
     else if (mode === "draw") { if (moved < 4) sketchClick(event); }
     // Shift-drag pans, but shift-click still picks - a click is a drag that
     // went nowhere, and holding shift should not stop you choosing things.
@@ -384,7 +401,11 @@ function measureScene() {
   });
   el.addEventListener("pointercancel", () => {
     meshEdit.axis = null;
-    if (sketcher.drag) { sketcher.drag = null; sketcher.preview = null; refreshSketch(); }
+    if (sketcher.drag || sketcher.band || sketcher.move) {
+      sketcher.drag = sketcher.band = sketcher.move = null;
+      sketcher.preview = null;
+      refreshSketch();
+    }
     mode = null;
   });
   //! Double-clicking a sketch opens it - the way a CAD modeller does, and the
@@ -848,6 +869,8 @@ const sketcher = {
   relation: -1,      // the relation marker under the cursor's last click, if any
   snapped: null,     // the handle the last click landed on, for coincidence
   drag: null,        // the handle under the cursor, mid-drag
+  band: null,        // the window being dragged out: { from, to }
+  move: null,        // a whole selection being dragged: { from, by, ids, on }
   preview: null,     // the drawing as the drag would leave it, not yet written
   group: null,       // the overlay: handles, the band, what is picked
   orbit: null,       // the view to put back on the way out
@@ -972,11 +995,12 @@ function nearestElement(uv, drawing = sketchDrawing()) {
   let best = null, reach = snapReach() * 1.6;
   for (const el of drawing.elements) {
     if (!elementShown(drawing, el) || elementLocked(drawing, el)) continue;
-    const line = sketchOutline(el, 48);
-    for (const p of line) {
-      const away = Math.hypot(p[0] - uv[0], p[1] - uv[1]);
-      if (away < reach) { reach = away; best = el.id; }
-    }
+    // To the element, not to the points it was sampled at. A line is sampled
+    // as its two ends and nothing between them, so measuring to the samples
+    // meant the middle of a long line was never under the cursor at all -
+    // which is most of a line, and exactly where you take hold of one.
+    const away = sketchDistanceTo(el, uv, 48);
+    if (away < reach) { reach = away; best = el.id; }
   }
   return best;
 }
@@ -996,6 +1020,8 @@ function enterSketch(id) {
   sketcher.relation = -1;
   sketcher.snapped = null;
   sketcher.drag = null;
+  sketcher.band = null;
+  sketcher.move = null;
   sketcher.preview = null;
   sketcher.hover = null;
   sketcher.orbit = { yaw: view.yaw, pitch: view.pitch, distance: view.distance,
@@ -1020,6 +1046,8 @@ function leaveSketch() {
   sketcher.from = null;
   sketcher.picked = [];
   sketcher.drag = null;
+  sketcher.band = null;
+  sketcher.move = null;
   sketcher.preview = null;
   if (sketcher.orbit) {
     Object.assign(view, { yaw: sketcher.orbit.yaw, pitch: sketcher.orbit.pitch,
@@ -1076,9 +1104,17 @@ function refreshSketch() {
   // pressing it again makes all of it real.
   const toggle = document.getElementById("sketch-construct");
   const picked = pickedElements();
-  toggle.hidden = !picked.length;
+  toggle.disabled = !picked.length;
   toggle.setAttribute("aria-pressed", picked.length && picked.every(isConstruction)
     ? "true" : "false");
+  toggle.title = !picked.length
+    ? "Construction geometry — pick elements first. Drawn dashed, drives the drawing, "
+      + "and never built."
+    : picked.every(isConstruction)
+      ? "Make " + (picked.length === 1 ? "this" : "these " + picked.length)
+        + " real again — built, and out in the solid"
+      : "Make " + (picked.length === 1 ? "this" : "these " + picked.length)
+        + " construction: dashed, and never built";
 
   const frame = sketchFrame();
   if (!frame) { draw(); return; }
@@ -1170,6 +1206,32 @@ function refreshSketch() {
       new THREE.LineBasicMaterial({ color: THEME.accent, depthTest: false }));
     shown.renderOrder = 7;
     group.add(shown);
+  }
+
+  // The window being dragged out. Solid when it takes only what is wholly
+  // inside it and dashed when it takes anything it touches, which is the one
+  // piece of feedback that makes the two directions worth having.
+  if (sketcher.band) {
+    const b = sketchBox(sketcher.band.from, sketcher.band.to);
+    const crossing = sketcher.band.to[0] < sketcher.band.from[0];
+    const corner = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]]
+      .map(p => sketchToWorld(p, frame));
+    const edge = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([...corner, corner[0]]),
+      crossing
+        ? new THREE.LineDashedMaterial({ color: THEME.accent, depthTest: false,
+                                         dashSize: snapReach() * 0.6, gapSize: snapReach() * 0.4 })
+        : new THREE.LineBasicMaterial({ color: THEME.accent, depthTest: false }));
+    if (crossing) edge.computeLineDistances();
+    edge.renderOrder = 9;
+    group.add(edge);
+    const fill = new THREE.Mesh(
+      new THREE.BufferGeometry().setFromPoints(
+        [corner[0], corner[1], corner[2], corner[0], corner[2], corner[3]]),
+      new THREE.MeshBasicMaterial({ color: THEME.accent, depthTest: false, transparent: true,
+                                    opacity: 0.09, side: THREE.DoubleSide }));
+    fill.renderOrder = 9;
+    group.add(fill);
   }
 
   // The element being drawn, following the cursor. Made the same way the real
@@ -1392,6 +1454,94 @@ function dragSketchHandle(event) {
   const found = sketchHandleAt(preview, sketcher.drag.ref);
   if (found) { sketchMoveHandle(found.el, found.key, uv); sketcher.preview = preview; }
   refreshSketch();
+}
+
+/* ------------------------------------------------- windows and whole moves
+
+   The two gestures that make a selection worth having. Drag out a window on
+   empty paper and it takes what is in it - left to right, only what is wholly
+   inside; right to left, anything it crosses, which is how every CAD package
+   has read those two directions since AutoCAD. Then press on any of what is
+   picked and drag, and the whole lot moves together.                        */
+
+function startSketchBand(event) {
+  const uv = sketchAt(event);
+  sketcher.band = uv ? { from: uv, to: uv.slice() } : null;
+}
+
+function dragSketchBand(event) {
+  const uv = sketchAt(event);
+  if (!uv || !sketcher.band) return;
+  sketcher.band.to = uv;
+  refreshSketch();
+}
+
+//! Let go of the window. Without an event it was only ever a click, so the
+//! band is taken down and nothing is chosen.
+function dropSketchBand(event) {
+  const band = sketcher.band;
+  sketcher.band = null;
+  if (!band || !event) { refreshSketch(); return; }
+  const drawing = sketchDrawing();
+  const crossing = band.to[0] < band.from[0];
+  const found = sketchInBox(drawing, sketchBox(band.from, band.to), { crossing });
+  sketcher.relation = -1;
+  if (event.shiftKey) {
+    const have = new Set(sketcher.picked.map(ref => String(ref).split(".")[0]));
+    for (const id of found) if (!have.has(id)) sketcher.picked.push(id);
+  } else sketcher.picked = found;
+  const n = sketcher.picked.length;
+  say(n ? n + (n === 1 ? " picked" : " picked") + " · "
+        + (crossing ? "crossing window" : "window")
+        + " · drag any of them to move, Delete to erase"
+      : "that " + (crossing ? "crossing window" : "window") + " caught nothing");
+  refreshSketch();
+  buildPanel();
+}
+
+//! A press on something already picked takes hold of all of it. Asked after
+//! the handles, so dragging one end of a picked line still moves that end -
+//! the handle is the finer gesture and it wins where both are on offer.
+function grabSketchMove(event) {
+  if (!sketching() || sketcher.tool !== "select" || !sketcher.picked.length) return false;
+  const uv = sketchAt(event);
+  if (!uv) return false;
+  const drawing = sketchDrawing();
+  const on = nearestElement(uv, drawing);
+  if (!on) return false;
+  const ids = [...new Set(sketcher.picked.map(ref => String(ref).split(".")[0]))];
+  if (!ids.includes(on)) return false;
+  sketcher.move = { from: uv, by: [0, 0], ids, on, moved: false };
+  return true;
+}
+
+function dragSketchMove(event) {
+  const uv = sketchAt(event);
+  if (!uv || !sketcher.move) return;
+  const by = [uv[0] - sketcher.move.from[0], uv[1] - sketcher.move.from[1]];
+  sketcher.move.by = by;
+  sketcher.move.moved = true;
+  // Shown from the drawing as it would be, without writing anything yet - the
+  // same way one handle's drag is shown.
+  const preview = sketchDrawing();
+  const want = new Set(sketcher.move.ids);
+  for (const el of preview.elements) if (want.has(el.id)) sketchMoveElement(el, by);
+  sketcher.preview = preview;
+  refreshSketch();
+}
+
+function dropSketchMove(event) {
+  const move = sketcher.move;
+  sketcher.move = null;
+  sketcher.preview = null;
+  if (!move) return;
+  if (!move.moved) {
+    // Taken hold of and let go without moving: a click, and a click picks.
+    sketcher.relation = -1;
+    pickInSketch(move.on, !!(event && event.shiftKey));
+    return;
+  }
+  edit({ op: "nudge", id: sketcher.id, of: move.ids, by: move.by });
 }
 
 function dropSketchHandle(event) {
@@ -1766,6 +1916,12 @@ const LAYER_ICONS = {
   layerOpen: '<rect x="3.6" y="7" width="8.8" height="6.4" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/><path d="M5.6 7V5.4a2.4 2.4 0 014.8-.4" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>',
   // A pencil: this is the one being drawn on.
   layerCurrent: '<path d="M3 13l1-3 6.6-6.6 2 2L6 12z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
+  // A window drawn round things: what "select everything on this layer" does.
+  layerSelect: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="2.4 1.8"/><circle cx="5.6" cy="5.6" r="1.5" fill="currentColor"/><circle cx="10.4" cy="10.4" r="1.5" fill="currentColor"/>',
+  // Things going into a layer.
+  layerInto: '<path d="M8 2v7" stroke="currentColor" stroke-width="1.3"/><path d="M5.2 6.6L8 9.6l2.8-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path d="M2.6 11.6h10.8v2.2H2.6z" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+  // The dashed line itself. The toolbar button, and the one on every row.
+  dashed: '<path d="M1.6 8h3M6.5 8h3M11.4 8h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   layerDelete: '<path d="M3.4 4.6h9.2M6.4 4.6V3.2h3.2v1.4M4.6 4.6l.7 8.2h5.4l.7-8.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
 };
 
@@ -2850,6 +3006,22 @@ function layerList(entry, drawing) {
       edit({ op: "layer", id: entry.id, name: layer.name, current: true }));
     row.appendChild(pick);
 
+    // Everything on it, picked. The one action here that is about the drawing
+    // rather than about the layer, and the one people reach for most - so it
+    // is a button rather than only a line in the menu.
+    const take = document.createElement("button");
+    take.type = "button";
+    take.className = "layer-icon";
+    take.innerHTML = svg(ICONS.layerSelect);
+    take.disabled = !layer.count || !layer.on || layer.locked;
+    take.title = !layer.count ? "Nothing is on this layer"
+      : !layer.on ? "This layer is off - turn it on to pick what is on it"
+      : layer.locked ? "This layer is locked - nothing on it can be picked up"
+      : "Select the " + layer.count + (layer.count === 1 ? " element" : " elements")
+        + " on this layer";
+    take.addEventListener("click", () => selectLayer(entry, layer.name));
+    row.appendChild(take);
+
     const gone = document.createElement("button");
     gone.type = "button";
     gone.className = "layer-icon layer-gone";
@@ -2863,8 +3035,189 @@ function layerList(entry, drawing) {
       edit({ op: "unlayer", id: entry.id, name: layer.name }));
     row.appendChild(gone);
 
+    row.addEventListener("contextmenu", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openLayerMenu(event, entry, layer, layers, drawing);
+    });
     box.appendChild(row);
   }
+  return box;
+}
+
+//! Everything on a layer, picked. Opens the sketcher if it is not already
+//! open, because picking things is something you do in it - and a layer whose
+//! elements cannot be picked up says why rather than quietly choosing nothing.
+function selectLayer(entry, name) {
+  if (sketcher.id !== entry.id) enterSketch(entry.id);
+  const drawing = sketchDrawing();
+  const found = sketchOnLayer(drawing, name).filter(id => {
+    const el = drawing.elements.find(e => e.id === id);
+    return el && elementShown(drawing, el) && !elementLocked(drawing, el);
+  });
+  sketcher.picked = found;
+  sketcher.relation = -1;
+  refreshSketch();
+  buildPanel();
+  say(found.length
+    ? found.length + (found.length === 1 ? " element" : " elements") + " picked on " + name
+      + " · drag any of them to move, Delete to erase"
+    : "nothing on " + name + " can be picked - it is empty, off, or locked");
+}
+
+//! Right-click on a layer. Everything the row's buttons do, said in words -
+//! plus the two things that are about what is picked rather than about the
+//! layer, which is what a menu is the right place for.
+function openLayerMenu(event, entry, layer, layers, drawing) {
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  menuHead(layer.name);
+
+  const here = sketcher.id === entry.id;
+  const picked = here ? pickedElements(drawing).map(el => el.id) : [];
+  menuItem("Select everything on this layer",
+    layer.count ? layer.count + (layer.count === 1 ? " element" : " elements") : "it is empty",
+    layer.count && layer.on && !layer.locked ? () => selectLayer(entry, layer.name) : null);
+  menuItem("Move the selection to this layer",
+    picked.length ? picked.length + (picked.length === 1 ? " element" : " elements")
+                  : "nothing is picked in the sketcher",
+    picked.length ? () => {
+      edit({ op: "relayer", id: entry.id, of: picked, to: layer.name });
+      say(picked.length + (picked.length === 1 ? " element" : " elements") + " moved to " + layer.name);
+    } : null);
+  menuRule();
+
+  menuItem(layer.on ? "Turn it off" : "Turn it on",
+    layer.on ? "not drawn, and not built either" : "drawn and built again",
+    () => edit({ op: "layer", id: entry.id, name: layer.name, show: !layer.on }));
+  menuItem(layer.locked ? "Unlock it" : "Lock it",
+    layer.locked ? "so it can be picked up again" : "still drawn and built, but never picked up",
+    () => edit({ op: "layer", id: entry.id, name: layer.name, lock: !layer.locked }));
+  menuItem("Draw on this layer", "new elements land here",
+    () => edit({ op: "layer", id: entry.id, name: layer.name, current: true }));
+  menuRule();
+  menuItem("Delete this layer",
+    layers.length < 2 ? "a drawing is always on one"
+      : layer.count ? "and the " + layer.count + (layer.count === 1 ? " element" : " elements")
+          + " on it" : "it is empty",
+    layers.length < 2 ? null : () => edit({ op: "unlayer", id: entry.id, name: layer.name }));
+
+  placeMenu(event.clientX, event.clientY);
+}
+
+//! The drawing's elements, one row each: which layer it is on, from a list,
+//! and whether it is construction. The sketcher is where you pick things; this
+//! is where you say what they ARE, which is a different job and wants a list.
+//!
+//! What is picked is what is shown, when anything is - so a window dragged
+//! round twelve lines and a look at this panel is the whole gesture. With
+//! nothing picked it lists the drawing from the top and says how far it got,
+//! because a road layout has five hundred elements and a panel is not a place
+//! to put five hundred rows.
+const ELEMENT_ROWS = 120;
+
+function elementList(entry, drawing) {
+  const box = document.createElement("div");
+  box.className = "elements";
+  const all = drawing.elements || [];
+  if (!all.length) return box;
+  const layers = sketchLayers(drawing);
+  const here = sketcher.id === entry.id;
+  const picked = new Set(here ? pickedElements(drawing).map(el => el.id) : []);
+  const chosen = picked.size ? all.filter(el => picked.has(el.id)) : all;
+  const shown = chosen.slice(0, ELEMENT_ROWS);
+
+  const head = document.createElement("div");
+  head.className = "elements-head";
+  head.innerHTML = "<span>Elements</span><span>" + chosen.length
+    + (picked.size ? " picked" : " in all") + "</span>";
+  box.appendChild(head);
+
+  // One choice for all of them, when several are picked: the move that a
+  // window selection is usually dragged out for in the first place.
+  if (picked.size > 1) {
+    const together = document.createElement("div");
+    together.className = "elements-all";
+    const label = document.createElement("span");
+    label.textContent = "Move all " + picked.size + " to";
+    const onto = document.createElement("select");
+    onto.className = "element-layer";
+    onto.style.flex = "1";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "a layer…";
+    onto.appendChild(blank);
+    for (const one of layers) {
+      const option = document.createElement("option");
+      option.value = option.textContent = one.name;
+      onto.appendChild(option);
+    }
+    onto.addEventListener("change", () => {
+      if (!onto.value) return;
+      edit({ op: "relayer", id: entry.id, of: [...picked], to: onto.value });
+      say(picked.size + " elements moved to " + onto.value);
+    });
+    together.append(label, onto);
+    box.appendChild(together);
+  }
+
+  if (shown.length < chosen.length) {
+    const note = document.createElement("div");
+    note.className = "elements-note";
+    note.textContent = "The first " + shown.length + " of " + chosen.length
+      + " — pick elements in the sketcher and only those are listed.";
+    box.appendChild(note);
+  }
+
+  const list = document.createElement("div");
+  list.className = "elements-list";
+  for (const el of shown) {
+    const row = document.createElement("div");
+    row.className = "element-row";
+    row.classList.toggle("picked", picked.has(el.id));
+
+    const who = document.createElement("button");
+    who.type = "button";
+    who.className = "element-who";
+    // "Polyline" is the name of the TOOL; one element the tool made is a line.
+    const kind = el.type === "line" ? "Line" : SKETCH_LABELS[el.type] || el.type;
+    who.innerHTML = "<b>" + escapeHtml(kind) + "</b><span>" + escapeHtml(el.id) + "</span>";
+    who.title = here ? "Pick it in the sketcher" : "Open the sketcher to pick it";
+    who.addEventListener("click", () => {
+      if (!here) { enterSketch(entry.id); }
+      pickInSketch(el.id, false);
+      buildPanel();
+    });
+    row.appendChild(who);
+
+    const onto = document.createElement("select");
+    onto.className = "element-layer";
+    onto.title = "Which layer it is on";
+    for (const one of layers) {
+      const option = document.createElement("option");
+      option.value = option.textContent = one.name;
+      onto.appendChild(option);
+    }
+    onto.value = el.layer || SKETCH_LAYER;
+    onto.addEventListener("change", () =>
+      edit({ op: "relayer", id: entry.id, of: [el.id], to: onto.value }));
+    row.appendChild(onto);
+
+    const dash = document.createElement("button");
+    dash.type = "button";
+    dash.className = "element-dash";
+    dash.innerHTML = svg(ICONS.dashed);
+    dash.setAttribute("aria-pressed", String(isConstruction(el)));
+    dash.title = isConstruction(el)
+      ? "Construction: drawn dashed, never built. Click to make it real."
+      : "Make it construction: dashed, and never built";
+    dash.addEventListener("click", () =>
+      edit({ op: "construct", id: entry.id, of: [el.id], on: !isConstruction(el) }));
+    row.appendChild(dash);
+
+    list.appendChild(row);
+  }
+  box.appendChild(list);
   return box;
 }
 
@@ -2885,6 +3238,7 @@ function sketchField(entry, arg) {
   field.appendChild(open);
 
   field.appendChild(layerList(entry, drawing));
+  field.appendChild(elementList(entry, drawing));
 
   const area = document.createElement("textarea");
   area.className = "code";
@@ -3631,7 +3985,9 @@ mdl.watch(() => refreshSteps());
 
 document.getElementById("sketch-done").addEventListener("click", leaveSketch);
 document.getElementById("sketch-unrelate").addEventListener("click", dropRelation);
-document.getElementById("sketch-construct").addEventListener("click", toggleConstruction);
+const constructButton = document.getElementById("sketch-construct");
+constructButton.innerHTML = svg(ICONS.dashed);
+constructButton.addEventListener("click", toggleConstruction);
 document.getElementById("sketch-tangent").addEventListener("click", () => {
   sketcher.tangent = !sketcher.tangent;
   refreshSketch();
