@@ -452,6 +452,15 @@ export function sketchLoops(drawing, tolerance = 0.05) {
 //! index is what an edit uses to name one.
 export function sketchRelationMarks(drawing) {
   const map = byId(drawing);
+  // A relation is drawn beside what it holds, so it goes off with it: turning
+  // a layer off used to leave its coincidences hanging in the air over nothing.
+  // A relation that reaches onto a layer that is off goes too - half a
+  // coincidence is not a mark anybody can read.
+  const off = new Set(sketchLayers(drawing).filter(l => !l.on).map(l => l.name));
+  const hiddenRef = name => {
+    const el = map.get(String(name || "").split(".")[0]);
+    return !!el && off.has(layerName(el));
+  };
   const spot = name => {
     const [id, key] = String(name || "").split(".");
     const el = map.get(id);
@@ -471,6 +480,7 @@ export function sketchRelationMarks(drawing) {
     return [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2];
   };
   return (drawing.constraints || []).map((c, at) => {
+    if (off.size && (c.of || []).some(hiddenRef)) return null;
     const points = (c.of || []).map(spot).filter(Boolean);
     if (!points.length) return null;
     // Most marks sit between what they govern. An intersection sits ON its
@@ -928,6 +938,37 @@ export function shownDrawing(drawing) {
   return { ...drawing, elements, constraints };
 }
 
+/* ------------------------------------------------------------ construction */
+
+/* Construction geometry is the second half of a sketcher, and the half that
+   makes it a drawing board rather than a profile editor. A centreline two arcs
+   are tangent to, a diagonal that holds a rectangle square, a circle three
+   holes sit on: every one of them is the REASON the real geometry is where it
+   is, and none of them is part of what gets built. CATIA draws them dashed and
+   builds only the rest; so does this.
+
+   It is one flag on the element - construction: true - because that is all it
+   is. It is drawn, it is picked, it is constrained and it is solved exactly
+   like anything else. The only thing it never does is come out of the sketch. */
+
+//! Is this element scaffolding rather than output?
+export const isConstruction = el => !!(el && el.construction);
+
+//! The drawing as it will be BUILT: what is showing, less the construction
+//! geometry, less the relations that only held construction geometry. Relations
+//! are dropped rather than kept because a relation naming an element that is
+//! not there is not a relation - and by this point the solver has already run,
+//! so everything they had to say has been said.
+export function builtDrawing(drawing) {
+  const shown = shownDrawing(drawing);
+  const elements = (shown.elements || []).filter(el => !isConstruction(el));
+  if (elements.length === (shown.elements || []).length) return shown;
+  const kept = new Set(elements.map(el => el.id));
+  const constraints = (shown.constraints || [])
+    .filter(c => c.of.every(name => kept.has(String(name).split(".")[0])));
+  return { ...shown, elements, constraints };
+}
+
 /* ------------------------------------------------------------- housekeeping */
 
 //! Reads a drawing out of whatever was stored, dropping anything malformed
@@ -944,7 +985,7 @@ export function readSketch(source) {
     if (seen.has(el.id)) return false;
     seen.add(el.id);
     return sketchHandles(el).every(([, p]) => Array.isArray(p) && p.every(Number.isFinite));
-  });
+  }).map(el => el.construction ? { ...el, construction: true } : el);
   const known = new Set(SKETCH_RELATIONS.map(r => r.key));
   const constraints = (Array.isArray(raw.constraints) ? raw.constraints : [])
     .filter(c => {
@@ -984,10 +1025,13 @@ export function sketchSummary(drawing) {
   // built - a summary that promises three loops while one of them is on a
   // layer that is off is a summary of a different drawing.
   const shown = shownDrawing(drawing);
-  const { loops } = sketchLoops(shown);
+  const built = builtDrawing(drawing);
+  const { loops } = sketchLoops(built);
   const hidden = n - shown.elements.length;
+  const drawn = shown.elements.length - built.elements.length;
   return n + (n === 1 ? " element" : " elements")
        + (hidden ? " · " + hidden + " hidden" : "")
+       + (drawn ? " · " + drawn + " construction" : "")
        + (c ? " · " + c + (c === 1 ? " relation" : " relations") : "")
        + (loops.length ? " · " + loops.length + (loops.length === 1 ? " loop" : " loops") : "");
 }

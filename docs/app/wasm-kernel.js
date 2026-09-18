@@ -24,9 +24,9 @@
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshFaces,
          parseNumbers, schemaJson,
          typeSpec } from "./ocaf.js";
-import { bsplinePoints, reversedBspline, shownDrawing, sketchArcPoint, sketchChainEnds,
-         sketchEnds, sketchLoops, sketchNesting, sketchOutline, solveSketch, splinePoints,
-         wholeEllipse } from "./sketch.js";
+import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
+         sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
+         solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
@@ -1329,8 +1329,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
   const round4 = v => Math.round(v * 1e6) / 1e6;
 
+  //! An edge between two points on the plane - or nothing, when they are the
+  //! same point. A surveyed DXF is full of lines of no length: duplicates
+  //! nobody ever saw because they are drawn on top of the line beside them.
+  //! BRepBuilderAPI_MakeEdge answers one of those by raising "BRep_API: command
+  //! not done", and that raise used to come up through the whole Sketch build,
+  //! so six invisible lines in a drawing of five hundred meant none of it
+  //! appeared outside the sketcher.
   const straight = (frame, a, b) =>
-    new oc.BRepBuilderAPI_MakeEdge(pnt(frame.at(a)), pnt(frame.at(b))).Edge();
+    Math.hypot(b[0] - a[0], b[1] - a[1]) > CONFUSION
+      ? new oc.BRepBuilderAPI_MakeEdge(pnt(frame.at(a)), pnt(frame.at(b))).Edge() : null;
 
   //! An arc through three of its own points. Its ends are exactly the ones the
   //! chain welded, whatever that did to the radius.
@@ -1344,7 +1352,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     const out = [];
     for (let i = 0; i + 1 < list.length; i++) {
       const [a, b] = [list[i], list[i + 1]];
-      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > CONFUSION) out.push(straight(frame, a, b));
+      const edge = straight(frame, a, b);
+      if (edge) out.push(edge);
     }
     return out;
   };
@@ -1353,6 +1362,15 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   //! are the welded ends; a closed element has neither and is built from its
   //! own numbers.
   function sketchEdgesOf(el, frame, a, b) {
+    // Nothing one element is wrong about is allowed to reach the rest of the
+    // drawing. A zero-length line, a circle of no radius, an arc the weld made
+    // degenerate: each of them is one element that cannot be built, and the
+    // answer is to build the other five hundred.
+    try { return edgesOfElement(el, frame, a, b).filter(Boolean); }
+    catch (e) { return []; }
+  }
+
+  function edgesOfElement(el, frame, a, b) {
     switch (el.type) {
       case "point": return [];
       case "line":  return [straight(frame, a, b)];
@@ -1361,8 +1379,10 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         return [arcThrough(frame, a, via, b)];
       }
       case "circle":
+        if (!(el.r > CONFUSION)) return [];
         return [new oc.BRepBuilderAPI_MakeEdge(new oc.gp_Circ(frame.frame(el.c), el.r)).Edge()];
       case "ellipse": {
+        if (!(el.rx > CONFUSION) || !(el.ry > CONFUSION)) return [];
         // gp_Elips insists the major radius is the larger one; a taller
         // ellipse is the same ellipse turned a quarter turn.
         const tall = (el.ry || 0) > (el.rx || 0);
@@ -1373,9 +1393,11 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         // An arc of one. Turning the frame a quarter turn moved the parameter
         // with it, so the two ends move by the same quarter turn.
         const shift = tall ? -Math.PI / 2 : 0;
+        if (Math.abs(el.a1 - el.a0) < CONFUSION) return [];
         return [new oc.BRepBuilderAPI_MakeEdge(conic, el.a0 + shift, el.a1 + shift).Edge()];
       }
       case "oblong": {
+        if (!(el.r > CONFUSION)) return [];
         // Two straights and a half turn at either end - built through points so
         // the four meet exactly.
         const along = V.norm([el.b[0] - el.a[0], el.b[1] - el.a[1], 0]) || [1, 0, 0];
@@ -1423,9 +1445,12 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       edges.push(...sketchEdgesOf(walked, frame, step.a, step.b));
     }
     if (!edges.length) return null;
-    const maker = new oc.BRepBuilderAPI_MakeWire();
-    for (const edge of edges) maker.Add(edge);
-    if (maker.IsDone()) return maker.Wire();
+    const joined = (() => {
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      for (const edge of edges) maker.Add(edge);
+      return maker.IsDone() ? maker.Wire() : null;
+    })();
+    if (joined) return joined;
 
     const walk = [];
     for (const step of run) {
@@ -1438,6 +1463,14 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     const fallback = new oc.BRepBuilderAPI_MakeWire();
     for (const edge of runOfEdges(frame, closed ? [...walk, walk[0]] : walk)) fallback.Add(edge);
     return fallback.IsDone() ? fallback.Wire() : null;
+  }
+
+  //! sketchWire, and never a raise. One chain of a drawing that will not become
+  //! a wire is one chain missing from what the sketch builds; the rest of the
+  //! drawing has done nothing wrong.
+  function sketchWireOrNothing(drawing, chain, frame, closed) {
+    try { return sketchWire(drawing, chain, frame, closed); }
+    catch (e) { return null; }
   }
 
   //! An element walked backwards.
@@ -1478,13 +1511,21 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       // marks or of a plan that never closed came in as a feature in error.
       if (!shownDrawing(drawing).elements.length)
         return "every layer in this sketch is turned off - turn one on to see it";
+      // And construction geometry is not output, so a drawing of nothing but
+      // construction geometry outputs nothing. Said here rather than raised
+      // from the build, because it is a state somebody meant to be in on the
+      // way to drawing the real thing over the top of it.
+      if (!builtDrawing(drawing).elements.length)
+        return "everything in this sketch is construction geometry - it drives the "
+          + "drawing, but nothing is built from it";
       return null;
     },
     build: f => {
       const api = shapeApi();
       // Solved over the whole drawing - a relation may hold something on a
-      // layer that is off - and built over what is showing.
-      const drawing = shownDrawing(sketchDrawing(f));
+      // layer that is off, and construction geometry is exactly the thing that
+      // holds the rest where it is - and built over what is left after both.
+      const drawing = builtDrawing(sketchDrawing(f));
       const frame = sketchFrame(f);
       const { loops, open } = sketchLoops(drawing, 0.05);
       const wanted = Feature_choice(f, "faces") === 0;
@@ -1494,7 +1535,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       // anyone asking for a surface. A loop drawn inside another is a hole in
       // it rather than a second plate, and a loop inside a hole is solid again:
       // the nesting is counted, not guessed.
-      const wires = loops.map(loop => sketchWire(drawing, loop, frame, true));
+      const wires = loops.map(loop => sketchWireOrNothing(drawing, loop, frame, true));
       const nesting = sketchNesting(drawing, loops);
       const shapes = [];
       for (let i = 0; i < loops.length; i++) {
@@ -1517,7 +1558,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         } catch (e) { shapes.push(wire); }
       }
       for (const chain of open) {
-        const wire = sketchWire(drawing, chain, frame, false);
+        const wire = sketchWireOrNothing(drawing, chain, frame, false);
         if (wire) shapes.push(wire);
       }
 
@@ -1528,7 +1569,9 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       // than being a feature that failed.
       const marks = (drawing.elements || []).filter(el => el.type === "point")
         .map(el => frame.at(el.p));
-      for (const mark of marks) shapes.push(vertexAt(mark));
+      for (const mark of marks) {
+        try { shapes.push(vertexAt(mark)); } catch (e) { /* one mark, not the drawing */ }
+      }
       if (!shapes.length)
         throw new Error("nothing in this drawing could be built - every element in it is "
           + "a line of no length or a circle of no radius");
@@ -3842,6 +3885,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           + (report.joints ? ", " + report.joints + " corners held together" : "")
           + (said ? " · not brought in: " + said : "")
           + (report.tilted ? " · " + report.tilted + " out of plane" : "")
+          + (report.collapsed ? " · " + report.collapsed
+             + " of no length at all, left out" : "")
           + (report.full ? " · the file has more than " + report.limit
              + " entities and that is as many as a sketch holds - turn layers off and export again"
              : "");
@@ -3894,7 +3939,9 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         return { ok: true, text: written.text, parts: written.layers,
                  name: doc.title, units: doc.units,
                  note: written.entities + " entities on " + written.layers
-                   + (written.layers === 1 ? " layer" : " layers") + ", in millimetres · "
+                   + (written.layers === 1 ? " layer" : " layers") + ", in millimetres"
+                   + (written.construction
+                       ? " · " + written.construction + " construction held back" : "") + " · "
                    + sketches.map(one => one.name + ": " + describeDrawing(one.drawing))
                      .join(" · ") };
       }

@@ -513,5 +513,52 @@ console.log("\n13. a drawing that closes nothing, and the layers it came on");
         sketchLayers(back).map(l => l.name).join(","));
 }
 
+console.log("\n14. a surveyed drawing full of lines that are not there");
+{
+  // Straight off a real site plan: duplicate LINE entities with the same start
+  // and end, invisible in any viewer and impossible to make an edge of. Six of
+  // them in a road layout of five hundred and eighty-one elements used to stop
+  // the whole sketch with "BRep_API: command not done", so NONE of the drawing
+  // appeared once you left the sketcher.
+  const kernel = await createWasmKernel({ initModule: init,
+                                          wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {}, readLayout: () => ({}),
+                        select: () => {}, selected: () => null, picked: () => [] });
+  const roads = dxf(
+    t(0, "LINE"), t(8, "ROADS"), t(10, 0), t(20, 0), t(11, 40), t(21, 0),
+    t(0, "LINE"), t(8, "ROADS"), t(10, 40), t(20, 0), t(11, 40), t(21, 30),
+    // The ones that are not there.
+    t(0, "LINE"), t(8, "ROADS"), t(10, 12.5), t(20, 7.25), t(11, 12.5), t(21, 7.25),
+    t(0, "LINE"), t(8, "ROADS"), t(10, 12.5), t(20, 7.25), t(11, 12.5), t(21, 7.25),
+    t(0, "LINE"), t(8, "ROADS"), t(10, 31), t(20, 2), t(11, 31), t(21, 2),
+    t(0, "CIRCLE"), t(8, "ROADS"), t(10, 20), t(20, 20), t(40, 0),
+    t(0, "ARC"), t(8, "ROADS"), t(10, 5), t(20, 25), t(40, 4), t(50, 0), t(51, 90),
+    // And one the file wrote at full precision that four decimal places of a
+    // millimetre cannot tell apart: thirty nanometres long, drawn in metres.
+    t(0, "LINE"), t(8, "ROADS"), t(10, 8), t(20, 8), t(11, 8.00000003), t(21, 8),
+  );
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  await mdl.run({ op: "import", format: "dxf", name: "roads.dxf", data: roads, units: "m" });
+  const sketch = (await kernel.tree()).tree.features.find(f => f.type === "Sketch");
+  check("the lines that are not there are not brought in - including the one "
+        + "only rounding makes a point",
+        readSketch(sketch.sketch.drawing).elements.map(el => el.type).join(",")
+          === "line,line,arc",
+        readSketch(sketch.sketch.drawing).elements.map(el => el.type).join(","));
+  check("and what IS there builds", sketch.built && !sketch.error, String(sketch.error));
+
+  // Measured, not assumed: the two real lines are in the built shape, at the
+  // length they were drawn - so what came through is the drawing, not a stump
+  // of it.
+  const gauge = (await kernel.addFeature("Measure", { shape: sketch.id })).id;
+  await kernel.setParameter(gauge, "quantity", 0);
+  const entry = (await kernel.tree()).tree.features.find(f => f.id === gauge);
+  const want = (40 + 30) * 1000 + 4000 * Math.PI / 2;   // metres, held in mm
+  check("with every line in it at the length it was drawn",
+        Math.abs(Number(entry.data.preview) - want) < 60,
+        entry.data && entry.data.preview + " vs " + want.toFixed(0));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

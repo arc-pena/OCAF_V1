@@ -148,6 +148,8 @@ and the channel they all go through; nothing else may touch the kernel.
 | `draw` `erase` `relate` `drag` | one element of a drawing, one relation over it, or one end moved — what a click and a drag in the sketcher write |
 | `undo` `redo` | walk the stack of documents. Edits like any other, so they are recorded and can be sent from outside |
 | `unrelate` | take a relation off a sketch — what deleting its mark in the sketcher writes |
+| `layer` `unlayer` | one layer of a drawing: made by naming it, shown, locked, renamed, made current — or deleted with everything on it |
+| `construct` | mark elements construction geometry, or make them output again |
 | `appearance` | a finish; redraws, does not rebuild |
 | `model` | the whole document at once — every one above is a small edit of the text this one writes wholesale |
 | `move` `select` | view state, through the same channel, recorded and marked as not rebuilding anything |
@@ -592,6 +594,47 @@ each element's own arithmetic. An arc is built with `GC_MakeArcOfCircle`
 through three of its own points, which means its ends are exactly the welded
 ones whatever that did to its radius, and it is still a real arc rather than a
 run of segments.
+
+### Layers, and construction geometry
+
+Two different ways of saying "not this", because they are two different things.
+
+A **layer** is where an element came from. A DXF arrives on the layers it was
+drawn on and they travel in the drawing, so a site plan is a site plan and not
+a soup. Turning one off takes it off the screen *and* out of what is built —
+that is how a plan full of furniture becomes a profile — and the relations
+drawn beside anything on it go off with it, because half a coincidence is not
+a mark anybody can read. Locking leaves a layer drawn and built but deaf to the
+cursor, which is what you want of a survey you are drawing over.
+
+**Construction geometry** is a fact about one element rather than about where
+it came from: `construction: true`, drawn dashed, and never built. It is the
+centreline two kerbs were struck from, the diagonal that holds a rectangle
+square, the circle three holes sit on. It is picked, constrained and solved
+exactly like anything else — it is the *reason* the real geometry is where it
+is — and the only thing it never does is leave the sketch. It does not go into
+the solid and it does not go into an exported DXF. What you see dashed is what
+does not come out, which is how CATIA has always drawn it.
+
+`shownDrawing` drops what is on a layer that is off; `builtDrawing` drops the
+construction geometry as well, and the relations that only held it. The kernel
+builds the second one, the sketcher draws the first.
+
+### One bad element is one element
+
+A surveyed DXF is full of lines that are not there: duplicates laid over a
+corner, three hundredths of a micron long, invisible in any viewer. Each one is
+an edge `BRepBuilderAPI_MakeEdge` answers with `BRep_API: command not done` —
+and that raise used to come up through the whole `Sketch` build, so a road
+layout of five hundred and eighty-one elements showed **none** of them once you
+left the sketcher.
+
+Two answers, because it needed both. The DXF reader rounds to a tenth of a
+micron and then looks again, so an element rounding has collapsed never reaches
+the document. And the builder refuses to let one element speak for the rest:
+every element's edges are made inside a `try`, a chain that will not become a
+wire is a chain missing rather than a sketch failed, and a drawing that cannot
+build anything at all says so in words instead of raising OpenCascade's.
 
 ### Solid or surface is a real choice
 

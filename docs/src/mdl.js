@@ -351,6 +351,30 @@ export const MDL_OPS = [
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 
+  modelOp("construct", ["id", "of", "on?"],
+    "Make elements of a sketch construction geometry, or make them real again. "
+    + "Construction geometry is drawn dashed, is picked and constrained and solved "
+    + "like anything else, and is never built: it is the centreline two arcs are "
+    + "tangent to, not part of the profile. on: false turns it back into output.",
+    { op: "construct", id: "SK1", of: ["e1", "e2"], on: true },
+    async (ctx, edit) => {
+      const of = (Array.isArray(edit.of) ? edit.of : [edit.of])
+        .map(name => String(name || "").split(".")[0]).filter(Boolean);
+      if (!of.length) throw new Error('"of" names the elements to mark');
+      const on = edit.on === undefined ? true : !!edit.on;
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const wanted = new Set(of);
+      const found = drawing.elements.filter(el => wanted.has(el.id));
+      if (found.length !== wanted.size) {
+        const missing = [...wanted].filter(id => !found.some(el => el.id === id));
+        throw new Error("that sketch has no element called " + missing.join(", "));
+      }
+      // Written as a flag or not written at all: a drawing nobody has marked
+      // anything in stays a drawing with no construction key in it.
+      for (const el of found) { if (on) el.construction = true; else delete el.construction; }
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
   modelOp("erase", ["id", "element"],
     "Take one element off a sketch, and any relation that named it.",
     { op: "erase", id: "SK1", element: "e3" },

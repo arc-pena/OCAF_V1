@@ -19,7 +19,7 @@ import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
          productNames, readable, toBase64, whyNot } from "./exchange.js";
 import { SKETCH_CLICKS, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer, elementLocked,
-         elementShown, sketchLayers, nextSketchId, readSketch,
+         elementShown, isConstruction, sketchLayers, nextSketchId, readSketch,
          sketchCrossings, sketchDirectionAt, sketchElement, sketchHandleAt, sketchHandles,
          sketchMoveHandle, sketchOutline, sketchRelationMarks,
          sketchTangentArc } from "./sketch.js";
@@ -1071,6 +1071,14 @@ function refreshSketch() {
   // Only offered when there is one in hand, because it is the one button here
   // that takes something away.
   document.getElementById("sketch-unrelate").hidden = sketcher.relation < 0;
+  // Construction is a question about what is picked, so it is only asked while
+  // something is. Pressed means everything picked is already construction, and
+  // pressing it again makes all of it real.
+  const toggle = document.getElementById("sketch-construct");
+  const picked = pickedElements();
+  toggle.hidden = !picked.length;
+  toggle.setAttribute("aria-pressed", picked.length && picked.every(isConstruction)
+    ? "true" : "false");
 
   const frame = sketchFrame();
   if (!frame) { draw(); return; }
@@ -1086,13 +1094,25 @@ function refreshSketch() {
     // is there to draw against, not to be picked up.
     if (!elementShown(drawing, el)) continue;
     const held = elementLocked(drawing, el);
+    const scaffold = isConstruction(el);
     const line = sketchOutline(el, 64).map(p => sketchToWorld(p, frame));
     if (line.length < 2) continue;
+    // Dashed, and only in here. Construction geometry is drawn the way every
+    // drawing board has drawn it, and the dashes are the promise that it will
+    // not turn up in the solid: what you see dashed is what does not come out.
     const over = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(line),
-      new THREE.LineBasicMaterial({ color: held ? THEME["shape-edge"] : THEME.curve,
-                                    depthTest: false,
-                                    transparent: true, opacity: held ? 0.4 : 0.85 }));
+      scaffold
+        ? new THREE.LineDashedMaterial({ color: THEME.datum, depthTest: false,
+                                         transparent: true, opacity: held ? 0.4 : 0.9,
+                                         dashSize: snapReach() * 0.7,
+                                         gapSize: snapReach() * 0.45 })
+        : new THREE.LineBasicMaterial({ color: held ? THEME["shape-edge"] : THEME.curve,
+                                        depthTest: false,
+                                        transparent: true, opacity: held ? 0.4 : 0.85 }));
+    // A dashed material measures its dashes along the line, and the line has to
+    // be asked to work out how far along each of its points is.
+    if (scaffold) over.computeLineDistances();
     over.renderOrder = 5;
     group.add(over);
   }
@@ -1400,6 +1420,24 @@ function dropPicked() {
   if (!gone.length) return;
   sketcher.picked = [];
   mdl.runAll(gone.map(element => ({ op: "erase", id: sketcher.id, element })));
+}
+
+//! The elements behind what is picked - a handle belongs to an element, and
+//! construction is a fact about the element rather than about one of its ends.
+function pickedElements(drawing = sketchDrawing()) {
+  const ids = [...new Set(sketcher.picked.map(ref => String(ref).split(".")[0]))];
+  return ids.map(id => drawing.elements.find(el => el.id === id)).filter(Boolean);
+}
+
+//! Construction on or off over everything picked. All of it construction
+//! already means the button turns it back into geometry; anything else means
+//! make all of it construction - so one button reads the selection and does
+//! the thing that is left to do.
+function toggleConstruction() {
+  const picked = pickedElements();
+  if (!picked.length) return;
+  const on = !picked.every(isConstruction);
+  edit({ op: "construct", id: sketcher.id, of: picked.map(el => el.id), on });
 }
 
 function pickInSketch(want, add) {
@@ -3593,6 +3631,7 @@ mdl.watch(() => refreshSteps());
 
 document.getElementById("sketch-done").addEventListener("click", leaveSketch);
 document.getElementById("sketch-unrelate").addEventListener("click", dropRelation);
+document.getElementById("sketch-construct").addEventListener("click", toggleConstruction);
 document.getElementById("sketch-tangent").addEventListener("click", () => {
   sketcher.tangent = !sketcher.tangent;
   refreshSketch();

@@ -26,7 +26,7 @@
 //   sketch has no meaning for - text, dimensions, hatches, viewports - and
 //   the one unacceptable answer is to drop them silently.
 
-import { SKETCH_TYPES, sketchOutline, sketchRound } from "./sketch.js";
+import { SKETCH_TYPES, isConstruction, sketchOutline, sketchRound } from "./sketch.js";
 
 /* ------------------------------------------------------------------ units */
 
@@ -621,7 +621,20 @@ export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMI
       if (typeof el[key] === "number") el[key] = Math.round(el[key] * 1e6) / 1e6;
   }
 
+  // And then read again, because rounding can make an element vanish. A line
+  // eight microns long is a line until it is written to a tenth of a micron,
+  // and after that it is one point drawn twice. A surveyed road layout is full
+  // of them - duplicates laid over a corner that nobody has ever seen - and
+  // every one of them is an edge OpenCascade will not make, so they are taken
+  // out here rather than left for the kernel to trip over.
+  const vanished = new Set();
+  for (const el of elements) if (collapsed(el)) vanished.add(el);
+  const drawn = elements.filter(el => !vanished.has(el));
+  elements.length = 0;
+  elements.push(...drawn);
+
   const constraints = note.joints
+    .filter(([one, two]) => !vanished.has(one) && !vanished.has(two))
     .map(([one, two]) => joint(one, two))
     .filter(Boolean);
 
@@ -652,12 +665,31 @@ export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMI
       blocks: note.blocks,
       joints: constraints.length,
       tilted: note.tilted,
+      collapsed: vanished.size,
       deep: note.deep,
       skipped: note.skipped,
       full: elements.length >= limit,
       limit,
     },
   };
+}
+
+//! Has rounding left nothing here? Asked of an element that has already been
+//! rounded, so what it measures is what the document will hold - not what the
+//! file said.
+function collapsed(el) {
+  const nothing = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-9;
+  switch (el.type) {
+    case "point":   return false;
+    case "line":    return nothing(el.a, el.b);
+    case "oblong":  return !(el.r > 0) || nothing(el.a, el.b);
+    case "circle":  return !(el.r > 0);
+    case "arc":     return !(el.r > 0) || Math.abs(el.a1 - el.a0) < 1e-9;
+    case "ellipse": return !(el.rx > 0) || !(el.ry > 0);
+    case "spline":  return (el.pts || []).every(p => nothing(p, (el.pts || [])[0]));
+    case "bspline": return (el.ctrl || []).every(p => nothing(p, (el.ctrl || [])[0]));
+    default:        return false;
+  }
 }
 
 //! Which end of one element meets which end of the next. A bulge may have
@@ -783,14 +815,27 @@ export function openKnots(count, degree) {
 
 //! Sketches out, as one DXF. Each drawing goes on its own layer, named after
 //! the sketch, because that is how a drawing office expects to find them.
-export function writeDxf(drawings, { units = "mm", name = "sketch" } = {}) {
+export function writeDxf(drawings, { units = "mm", name = "sketch",
+                                     construction = false } = {}) {
   const unit = unitsNamed(units);
+  // Construction geometry is scaffolding, and a DXF is what came off the
+  // drawing board. The centreline two kerbs were struck from is the reason
+  // they are where they are and it is not a kerb, so it does not go - the same
+  // rule the solid is built by, kept by the file that leaves the program.
+  let held = 0;
   const list = (Array.isArray(drawings) ? drawings : [drawings])
-    .map((d, i) => ({ name: (d.name || "SKETCH" + (i + 1)).replace(/[<>/\\":;?*|=`,]/g, "_"),
-                      elements: (d.drawing || d).elements || [],
-                      layers: (d.drawing || d).layers || [] }))
+    .map((d, i) => {
+      const all = (d.drawing || d).elements || [];
+      const elements = construction ? all : all.filter(el => !isConstruction(el));
+      held += all.length - elements.length;
+      return { name: (d.name || "SKETCH" + (i + 1)).replace(/[<>/\\":;?*|=`,]/g, "_"),
+               elements, layers: (d.drawing || d).layers || [] };
+    })
     .filter(d => d.elements.length);
-  if (!list.length) throw new Error("there is nothing in those sketches to write");
+  if (!list.length) throw new Error(held
+    ? "there is nothing in those sketches but construction geometry, and that is not "
+      + "drawing - it is what the drawing was struck from"
+    : "there is nothing in those sketches to write");
 
   // An element that came from a DXF remembers which layer it was on, and goes
   // back out on it. Everything drawn here goes out on the sketch's own name,
@@ -829,15 +874,20 @@ export function writeDxf(drawings, { units = "mm", name = "sketch" } = {}) {
     }
   text += tag(0, "ENDSEC") + tag(0, "EOF");
 
-  return { text, entities: written, layers: named.size, units: unit };
+  return { text, entities: written, layers: named.size, units: unit, construction: held };
 }
 
 //! What a sketch is, said in one line - for the note an export prints.
 export function describeDrawing(drawing) {
   const counts = new Map();
-  for (const el of (drawing.elements || [])) counts.set(el.type, (counts.get(el.type) || 0) + 1);
-  return [...counts.entries()].map(([type, n]) => n + " " + type + (n === 1 ? "" : "s")).join(", ")
-    || "nothing";
+  let held = 0;
+  for (const el of (drawing.elements || [])) {
+    if (isConstruction(el)) { held++; continue; }
+    counts.set(el.type, (counts.get(el.type) || 0) + 1);
+  }
+  const said = [...counts.entries()]
+    .map(([type, n]) => n + " " + type + (n === 1 ? "" : "s")).join(", ") || "nothing";
+  return held ? said + " (" + held + " construction held back)" : said;
 }
 
 //! Everything the sketcher can hold that DXF has a word for. Exported so the

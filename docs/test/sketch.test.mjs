@@ -6,7 +6,8 @@
 // loops it closes really are faces - measured, not assumed - and that a pad
 // off a sketch is a solid with a volume you can predict on paper.
 import { createWasmKernel } from "../src/wasm-kernel.js";
-import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, currentLayer, elementLocked,
+import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, builtDrawing, currentLayer,
+         elementLocked, isConstruction,
          elementShown, readSketch, shownDrawing, sketchDirectionAt, sketchCrossings,
          sketchElement, sketchEnds, sketchLayers, sketchLoops, sketchRelation,
          sketchRelationMarks, sketchSummary, sketchTangentArc,
@@ -498,6 +499,27 @@ console.log("\n14. layers");
         /2 hidden/.test(sketchSummary({ ...drawing,
           layers: [{ name: "OUTLINE", on: false }] })),
         sketchSummary({ ...drawing, layers: [{ name: "OUTLINE", on: false }] }));
+  // The relations go off with what they hold. A coincidence drawn beside two
+  // ends that are no longer on the screen is a glyph hanging over nothing, and
+  // that is what the sketcher used to show.
+  const relations = { ...drawing,
+    constraints: [{ type: "coincident", of: ["a.b", "b.a"] },
+                  { type: "horizontal", of: ["c"] }] };
+  const marksWith = (outline, furniture) => sketchRelationMarks({ ...relations,
+    layers: [{ name: "OUTLINE", on: outline }, { name: "FURNITURE", on: furniture }] });
+  check("every relation is marked while every layer is on",
+        marksWith(true, true).length === 2, String(marksWith(true, true).length));
+  check("one whose element is on a layer that is off is not drawn either",
+        marksWith(true, false).map(m => m.type).join() === "coincident",
+        marksWith(true, false).map(m => m.type).join());
+  check("a relation reaching onto a layer that is off goes with it",
+        marksWith(false, true).map(m => m.type).join() === "horizontal",
+        marksWith(false, true).map(m => m.type).join());
+  check("and the marks that stay keep their place in the constraints list",
+        marksWith(false, true).every(m => m.at === 1));
+  check("with every layer off there is nothing to mark",
+        marksWith(false, false).length === 0);
+
   check("a locked layer is still shown, and still built",
         elementShown({ ...drawing, layers: [{ name: "OUTLINE", locked: true }] },
                      drawing.elements[0]));
@@ -553,6 +575,115 @@ console.log("\n14. layers");
   catch (err) { refused = err.message; }
   check("and the last layer cannot go - a drawing is always on one",
         /only layer/.test(refused), refused);
+}
+
+console.log("\n15. construction geometry drives the drawing and is never built");
+{
+  // The measurement that says it worked: a square with a diagonal drawn across
+  // it closes TWO loops and pads into two triangles. Mark the diagonal
+  // construction and the same drawing is one square again - the line is still
+  // there, still solved, still holding what is tangent to it, and the solid
+  // has never heard of it.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const id = (await mdl.run({ op: "add", type: "Sketch", name: "Plate" })).id;
+  const cut = square(100);
+  cut.elements.push({ id: "d", type: "circle", c: [50, 50], r: 20 },
+                    { id: "m", type: "point", p: [50, 50] });
+  cut.constraints.push({ type: "coincident", of: ["m.p", "d.c"] });
+  await mdl.run({ op: "sketch", id, drawing: cut });
+
+  const rise = (await kernel.addFeature("Vector", {})).id;
+  await kernel.setParameter(rise, "dx", 0);
+  await kernel.setParameter(rise, "dz", 1);
+  const slab = (await kernel.addFeature("Extrude", { profile: id, direction: rise })).id;
+  await kernel.setParameter(slab, "distance", 10);
+  const rule = (await kernel.addFeature("Measure", { shape: slab })).id;
+  await kernel.setParameter(rule, "quantity", 2);
+  const volume = async () => {
+    const entry = await at(rule);
+    return entry && entry.data ? Number(entry.data.preview) : NaN;
+  };
+  check("a circle drawn inside a square is a hole through the slab",
+        Math.abs(await volume() - (100 * 100 - Math.PI * 400) * 10) < 60,
+        String(await volume()));
+
+  await mdl.run({ op: "construct", id, of: ["d"] });
+  const marked = readSketch((await at(id)).sketch.drawing);
+  check("marking it construction is one flag on the element",
+        isConstruction(marked.elements.find(el => el.id === "d")),
+        JSON.stringify(marked.elements.find(el => el.id === "d")));
+  check("the circle is still in the drawing - it is scaffolding, not rubbish",
+        marked.elements.length === 6 && marked.constraints.length === 1,
+        marked.elements.length + "/" + marked.constraints.length);
+  check("and what is built no longer knows about it",
+        builtDrawing(marked).elements.length === 5
+        && !builtDrawing(marked).elements.some(el => el.id === "d"),
+        builtDrawing(marked).elements.map(el => el.id).join(","));
+  check("so the relation that held the centre to it goes too",
+        builtDrawing(marked).constraints.length === 0,
+        String(builtDrawing(marked).constraints.length));
+  check("and the slab is solid where the hole was",
+        Math.abs(await volume() - 100 * 100 * 10) < 20, String(await volume()));
+
+  // And the other way: it comes back.
+  await mdl.run({ op: "construct", id, of: ["d"], on: false });
+  check("and it can be made real again",
+        !isConstruction(readSketch((await at(id)).sketch.drawing)
+          .elements.find(el => el.id === "d")));
+
+  await mdl.run({ op: "construct", id, of: ["e1", "e2", "e3", "e4", "d", "m"] });
+  const all = await at(id);
+  check("a drawing of nothing but construction says so rather than failing oddly",
+        /construction geometry/.test(all.error || ""), String(all.error));
+
+  // It survives the document, and it does not leave in the DXF.
+  await mdl.run({ op: "construct", id, of: ["e1", "e2", "e3", "e4", "m"], on: false });
+  const written = await kernel.exportShapes("dxf");
+  check("a DXF of the sketch is the geometry, without the scaffolding",
+        (written.text.match(/\nLINE\r?\n/g) || []).length === 4,
+        String((written.text.match(/\nLINE\r?\n/g) || []).length));
+  check("and the note says what it held back",
+        /1 construction held back/.test(written.note), written.note);
+  check("the summary counts it", /1 construction/.test(
+          sketchSummary(readSketch((await at(id)).sketch.drawing))),
+        sketchSummary(readSketch((await at(id)).sketch.drawing)));
+}
+
+console.log("\n16. one element nothing can be made of is one element");
+{
+  // What the road survey did: six duplicate lines of no length, invisible in
+  // any viewer, each of which BRepBuilderAPI_MakeEdge answers with "BRep_API:
+  // command not done". That raise came up through the whole build, so a
+  // drawing of five hundred and eighty-one elements showed none of them.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const id = (await mdl.run({ op: "add", type: "Sketch", name: "Survey" })).id;
+  const rough = square(100);
+  rough.elements.push({ id: "z1", type: "line", a: [40, 40], b: [40, 40] },
+                      { id: "z2", type: "line", a: [-20, -20], b: [-20, -20] },
+                      { id: "z3", type: "circle", c: [60, 60], r: 0 },
+                      { id: "z4", type: "arc", c: [10, 90], r: 5, a0: 1, a1: 1 });
+  await mdl.run({ op: "sketch", id, drawing: rough });
+  const entry = await at(id);
+  check("a drawing carrying four degenerate elements still builds",
+        entry.built && !entry.error, String(entry.error));
+
+  const rise = (await kernel.addFeature("Vector", {})).id;
+  await kernel.setParameter(rise, "dx", 0);
+  await kernel.setParameter(rise, "dz", 1);
+  const slab = (await kernel.addFeature("Extrude", { profile: id, direction: rise })).id;
+  await kernel.setParameter(slab, "distance", 10);
+  const rule = (await kernel.addFeature("Measure", { shape: slab })).id;
+  await kernel.setParameter(rule, "quantity", 2);
+  const made = await at(rule);
+  check("and the square around them is built, whole",
+        Math.abs(Number(made.data.preview) - 100 * 100 * 10) < 20,
+        made.data && made.data.preview);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
