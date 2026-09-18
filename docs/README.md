@@ -150,6 +150,7 @@ and the channel they all go through; nothing else may touch the kernel.
 | `unrelate` | take a relation off a sketch — what deleting its mark in the sketcher writes |
 | `layer` `unlayer` | one layer of a drawing: made by naming it, shown, locked, renamed, made current — or deleted with everything on it |
 | `relayer` `nudge` | elements of a sketch moved onto another layer, or moved bodily — what a window selection is dragged out for |
+| `weld` | hold every pair of ends that lie on top of one another together, with a coincidence each |
 | `construct` | mark elements construction geometry, or make them output again |
 | `appearance` | a finish; redraws, does not rebuild |
 | `model` | the whole document at once — every one above is a small edit of the text this one writes wholesale |
@@ -602,6 +603,41 @@ otherwise reads it as a second outline and hands back a face that is bigger
 rather than smaller. A 200 mm square with two 18 mm circles in it padded 40 mm
 measures 1 518 570 mm³, which is the square less the two circles, times the
 thickness, to four significant figures.
+
+### The same point, at any scale
+
+Two ends are the same point below some distance, and that distance cannot be a
+fixed number of millimetres, because the drawings are not all the same size. A
+site boundary seven hundred metres across, drawn in millimetres on survey
+coordinates, arrives with corners that miss each other by four tenths of a
+millimetre — **six parts in ten million**, which is nothing on a survey and was
+more than enough to stop the outline closing against a flat 0.05 mm.
+
+So the loop walker takes the larger of the tolerance it was given and a
+millionth of the drawing's own diagonal. On a hundred-millimetre bracket that
+is a fraction of a micron and changes nothing; on a site plan it is two thirds
+of a millimetre, and the outline closes. It only ever loosens, and only where a
+number of millimetres has stopped meaning anything.
+
+### A DXF says where things are, never that they meet
+
+A DXF is a heap of separate `LINE` and `ARC` entities. An outline drawn as
+eight of them *looks* closed and is eight loose pieces the moment anybody drags
+a corner. So on arrival every pair of ends lying on top of one another is
+written down as a `coincident` relation — once, while the drawing is still
+exactly as it came, so nothing moves. Three ends meeting at one corner is one
+corner and gets two relations, not three; the two ends of one element are never
+joined to each other, because an arc that nearly closes on itself is an arc.
+
+After that the corners are real: turn the solver on, drag one, and what is held
+to it comes along — and the outline is still an outline. A drawing that arrived
+before this did can be given the same treatment from its panel, or with
+`{"op":"weld","id":"SK1"}`.
+
+And a coincidence outranks the geometry: two ends a relation holds together
+**are** one point, however far apart the numbers still say they are. The loop
+walker asks the relations as well as the distances, so a drawing that has been
+told its corners meet does not have to be moved before it will close.
 
 ### A closed loop is a face
 

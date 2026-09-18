@@ -3882,7 +3882,9 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           .map(([type, n]) => ignoredName(type, n)).join(", ");
         note = report.elements + " elements from " + report.entities + " entities"
           + (report.blocks ? ", " + report.blocks + " block placements flattened" : "")
-          + (report.joints ? ", " + report.joints + " corners held together" : "")
+          + (report.joints ? ", " + report.joints + " corners held together"
+             + (report.welded ? " (" + report.welded
+                + " of them ends that only happened to meet)" : "") : "")
           + (said ? " · not brought in: " + said : "")
           + (report.tilted ? " · " + report.tilted + " out of plane" : "")
           + (report.collapsed ? " · " + report.collapsed

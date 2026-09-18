@@ -560,5 +560,52 @@ console.log("\n14. a surveyed drawing full of lines that are not there");
         entry.data && entry.data.preview + " vs " + want.toFixed(0));
 }
 
+console.log("\n15. entities that only happen to meet arrive held together");
+{
+  // A DXF says where each entity is and never that two of them meet. An
+  // outline drawn as four separate LINE and ARC entities LOOKS closed and is
+  // four loose pieces the moment anybody drags a corner - so the corners are
+  // written down on arrival, while the drawing is still exactly as it came.
+  const kernel = await createWasmKernel({ initModule: init,
+                                          wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {}, readLayout: () => ({}),
+                        select: () => {}, selected: () => null, picked: () => [] });
+  const plot = dxf(
+    t(0, "LINE"), t(8, "PLOT"), t(10, 0), t(20, 0), t(11, 60), t(21, 0),
+    t(0, "LINE"), t(8, "PLOT"), t(10, 60), t(20, 0), t(11, 60), t(21, 40),
+    t(0, "LINE"), t(8, "PLOT"), t(10, 60), t(20, 40), t(11, 0), t(21, 40),
+    t(0, "LINE"), t(8, "PLOT"), t(10, 0), t(20, 40), t(11, 0), t(21, 0),
+  );
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  await mdl.run({ op: "import", format: "dxf", name: "plot.dxf", data: plot, units: "m" });
+  const sketch = (await kernel.tree()).tree.features.find(f => f.type === "Sketch");
+  const drawing = readSketch(sketch.sketch.drawing);
+  check("four loose lines arrive with their four corners held",
+        drawing.constraints.length === 4,
+        drawing.constraints.map(c => c.of.join("=")).join(" "));
+  check("so the outline closes into a face without anybody asking",
+        /1 loop/.test(sketch.sketch.summary), sketch.sketch.summary);
+
+  // Measured: the face is the rectangle, in millimetres, from a file in metres.
+  const gauge = (await kernel.addFeature("Measure", { shape: sketch.id })).id;
+  await kernel.setParameter(gauge, "quantity", 1);
+  const area = Number((await kernel.tree()).tree.features.find(f => f.id === gauge).data.preview);
+  check("and it is the area the outline encloses",
+        Math.abs(area - 60000 * 40000) < 1, String(area));
+
+  // Dragging a corner takes what is held to it, which is the whole point of
+  // saying so: the outline is still an outline afterwards.
+  await kernel.setParameter(sketch.id, "solve", 0);          // Relax, not Ignore
+  await mdl.run({ op: "drag", id: sketch.id, handle: "d1.b", to: [80000, 0] });
+  const pulled = readSketch((await kernel.tree()).tree.features
+    .find(f => f.type === "Sketch").sketch.drawing);
+  const corner = pulled.elements.find(el => el.id === "d2");
+  check("dragging a corner brings the line held to it along",
+        Math.abs(corner.a[0] - 80000) < 1, JSON.stringify(corner.a));
+  check("and the outline is still one loop", sketchLoops(pulled).loops.length === 1,
+        JSON.stringify(sketchLoops(pulled).open));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

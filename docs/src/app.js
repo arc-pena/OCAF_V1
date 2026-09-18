@@ -22,8 +22,8 @@ import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLay
          elementLocked, elementShown, isConstruction, nextSketchId, readSketch,
          sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
          sketchHandleAt, sketchHandles, sketchInBox, sketchLayers, sketchMoveElement,
-         sketchMoveHandle, sketchOnLayer, sketchOutline, sketchRelationMarks,
-         sketchTangentArc } from "./sketch.js";
+         sketchMoveHandle, sketchOnLayer, sketchOutline, sketchOverlaps,
+         sketchRelationMarks, sketchTangentArc } from "./sketch.js";
 
 "use strict";
 
@@ -3236,6 +3236,22 @@ function sketchField(entry, arg) {
   open.addEventListener("click", () =>
     (sketcher.id === entry.id ? leaveSketch() : enterSketch(entry.id)));
   field.appendChild(open);
+
+  // Holding the corners together. Offered whenever there is a pair of ends in
+  // the same place that nothing is holding - which is every drawing that came
+  // out of a DXF before the import started doing it on arrival.
+  const loose = sketchOverlaps(readSketch(drawing));
+  if (loose.length) {
+    const join = document.createElement("button");
+    join.className = "row-btn";
+    join.type = "button";
+    join.textContent = "Hold " + loose.length + " overlapping "
+      + (loose.length === 1 ? "end" : "ends") + " together";
+    join.title = "Ends that lie on top of one another get a coincidence each, so the "
+      + "outline stays joined when it is pulled about - and closes into a face.";
+    join.addEventListener("click", () => edit({ op: "weld", id: entry.id }));
+    field.appendChild(join);
+  }
 
   field.appendChild(layerList(entry, drawing));
   field.appendChild(elementList(entry, drawing));

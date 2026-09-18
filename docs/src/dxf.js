@@ -26,7 +26,8 @@
 //   sketch has no meaning for - text, dimensions, hatches, viewports - and
 //   the one unacceptable answer is to drop them silently.
 
-import { SKETCH_TYPES, isConstruction, sketchOutline, sketchRound } from "./sketch.js";
+import { SKETCH_TYPES, isConstruction, sketchOutline, sketchOverlaps,
+         sketchRound } from "./sketch.js";
 
 /* ------------------------------------------------------------------ units */
 
@@ -638,6 +639,14 @@ export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMI
     .map(([one, two]) => joint(one, two))
     .filter(Boolean);
 
+  // And then every other pair of ends that lie on top of one another. A DXF is
+  // a heap of separate LINE and ARC entities: the file says where each one is
+  // and never that two of them meet, so an outline that LOOKS closed is eight
+  // loose pieces the moment anybody drags a corner. The corners are written
+  // down here instead, once, while the drawing is still exactly as it arrived.
+  const welded = sketchOverlaps({ elements, constraints });
+  constraints.push(...welded);
+
   // The layers come across with the drawing, in the order they were busiest,
   // all of them showing. A plan arrives as the plan it was drawn as, and what
   // to do about the furniture is then a switch rather than a re-export.
@@ -664,6 +673,7 @@ export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMI
       entities: note.taken,
       blocks: note.blocks,
       joints: constraints.length,
+      welded: welded.length,
       tilted: note.tilted,
       collapsed: vanished.size,
       deep: note.deep,

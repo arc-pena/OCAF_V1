@@ -403,6 +403,57 @@ export function sketchEnds(el) {
    one; the rest have to be walked, end to end, until the walk comes back to
    where it started. Anything left over stays a wire.                        */
 
+//! Which handle of an element is the end the walk calls a, and which is b.
+//! sketchEnds answers where they are; this answers what they are CALLED, which
+//! is what a coincidence has to name.
+export function sketchEndKeys(el) {
+  switch (el.type) {
+    case "line":    return { a: "a", b: "b" };
+    case "arc":
+    case "ellipse": return { a: "start", b: "end" };
+    case "spline":  return { a: "p0", b: "p" + Math.max(0, (el.pts || []).length - 1) };
+    case "bspline": return { a: "p0", b: "p" + Math.max(0, (el.ctrl || []).length - 1) };
+    default:        return null;
+  }
+}
+
+//! The size of the drawing, corner to corner - of what is DRAWN, which is not
+//! the same as where its numbers are. A shallow arc a kilometre in radius has
+//! its centre a kilometre off the paper, and a drawing measured to that is
+//! five times the size of the drawing.
+export function sketchExtent(drawing) {
+  let box = null;
+  for (const el of (drawing.elements || []))
+    for (const p of sketchOutline(el, 8)) {
+      if (!box) box = [p[0], p[1], p[0], p[1]];
+      else {
+        box[0] = Math.min(box[0], p[0]); box[1] = Math.min(box[1], p[1]);
+        box[2] = Math.max(box[2], p[0]); box[3] = Math.max(box[3], p[1]);
+      }
+    }
+  return box ? Math.hypot(box[2] - box[0], box[3] - box[1]) : 0;
+}
+
+//! Below what distance two points in THIS drawing are the same point.
+//!
+//! It has to be a fraction of the drawing rather than a number of millimetres,
+//! because the drawings are not all the same size. A site plan seven hundred
+//! metres across, drawn in millimetres, arrives with corners that miss each
+//! other by four tenths of a millimetre - six parts in ten million, which is
+//! nothing at all on a survey and was more than enough to stop the outline
+//! closing. On a bracket a hundred millimetres across the same fraction is a
+//! tenth of a micron, and the flat tolerance the caller asked for wins.
+export const sketchGrain = drawing => Math.max(1e-4, sketchExtent(drawing) * 1e-6);
+
+//! The coincidences a drawing already holds, as a set of unordered pairs.
+function heldTogether(drawing) {
+  const held = new Set();
+  for (const c of (drawing.constraints || []))
+    if (c.type === "coincident" && (c.of || []).length === 2)
+      held.add([c.of[0], c.of[1]].sort().join("|"));
+  return held;
+}
+
 export function sketchLoops(drawing, tolerance = 0.05) {
   const elements = (drawing.elements || []).filter(el => sketchEnds(el));
   const loops = [], open = [];
@@ -414,34 +465,169 @@ export function sketchLoops(drawing, tolerance = 0.05) {
     else spare.push(el);
   }
 
-  const near = (p, q) => p && q && Math.hypot(p[0] - q[0], p[1] - q[1]) <= tolerance;
-  const used = new Set();
+  const reach = Math.max(tolerance, sketchGrain(drawing));
 
+  // Everything the walk asks about an element, worked out once. The walk is a
+  // pass over every element for every element it grows by, so anything done
+  // per comparison is done a quarter of a million times on a road layout -
+  // including, if you are careless, building two strings and sorting them.
+  const at = new Map();
+  for (const el of spare) {
+    const ends = sketchEnds(el);
+    const keys = sketchEndKeys(el);
+    at.set(el.id, { a: ends.a, b: ends.b,
+                    refA: keys ? el.id + "." + keys.a : null,
+                    refB: keys ? el.id + "." + keys.b : null });
+  }
+  // Two ends a coincidence holds together ARE one point, however far apart the
+  // numbers still say they are. Said once and honoured everywhere: a drawing
+  // that has been told its corners meet does not have to be moved before it
+  // will close.
+  const held = new Map();
+  for (const c of (drawing.constraints || [])) {
+    if (c.type !== "coincident" || (c.of || []).length !== 2) continue;
+    for (const [one, two] of [[c.of[0], c.of[1]], [c.of[1], c.of[0]]]) {
+      if (!held.has(one)) held.set(one, new Set());
+      held.get(one).add(two);
+    }
+  }
+  const refKey = which => (which === "a" ? "refA" : "refB");
+  const meets = (from, to) => {
+    const p = at.get(from.id)[from.which], q = at.get(to.id)[to.which];
+    if (p && q && Math.hypot(p[0] - q[0], p[1] - q[1]) <= reach) return true;
+    if (!held.size) return false;
+    const one = at.get(from.id)[refKey(from.which)], two = at.get(to.id)[refKey(to.which)];
+    return !!(one && two && held.has(one) && held.get(one).has(two));
+  };
+
+  // Where the ends are, on a grid a tolerance wide, and which end each named
+  // handle belongs to. Both so that growing a chain asks about the handful of
+  // ends NEAR the one in hand rather than about all six hundred: the walk is a
+  // pass over everything for every element it grows by, and a road layout
+  // grows five hundred times.
+  const cell = Math.max(reach, 1e-9);
+  const grid = new Map();
+  const byRef = new Map();
+  for (const el of spare) for (const which of ["a", "b"]) {
+    const end = at.get(el.id)[which];
+    if (end) {
+      const key = Math.floor(end[0] / cell) + "," + Math.floor(end[1] / cell);
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push({ id: el.id, which });
+    }
+    const ref = at.get(el.id)[refKey(which)];
+    if (ref) byRef.set(ref, { id: el.id, which });
+  }
+  const around = end => {
+    const out = [];
+    const p = at.get(end.id)[end.which];
+    if (p) {
+      const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
+        for (const one of (grid.get((cx + dx) + "," + (cy + dy)) || [])) out.push(one);
+    }
+    // And whatever a coincidence says meets it, wherever that happens to be.
+    const ref = at.get(end.id)[refKey(end.which)];
+    for (const other of (held.get(ref) || [])) {
+      const found = byRef.get(other);
+      if (found) out.push(found);
+    }
+    return out;
+  };
+
+  const used = new Set();
   for (const seed of spare) {
     if (used.has(seed.id)) continue;
     const chain = [{ id: seed.id, reversed: false }];
     used.add(seed.id);
-    let head = sketchEnds(seed).a, tail = sketchEnds(seed).b;
+    let head = { id: seed.id, which: "a" }, tail = { id: seed.id, which: "b" };
 
     let grew = true;
     while (grew) {
       grew = false;
-      for (const el of spare) {
-        if (used.has(el.id)) continue;
-        const ends = sketchEnds(el);
-        if (near(tail, ends.a))      { chain.push({ id: el.id, reversed: false }); tail = ends.b; }
-        else if (near(tail, ends.b)) { chain.push({ id: el.id, reversed: true });  tail = ends.a; }
-        else if (near(head, ends.b)) { chain.unshift({ id: el.id, reversed: false }); head = ends.a; }
-        else if (near(head, ends.a)) { chain.unshift({ id: el.id, reversed: true });  head = ends.b; }
-        else continue;
-        used.add(el.id);
+      for (const next of around(tail)) {
+        if (used.has(next.id) || !meets(tail, next)) continue;
+        chain.push({ id: next.id, reversed: next.which === "b" });
+        tail = { id: next.id, which: next.which === "a" ? "b" : "a" };
+        used.add(next.id);
         grew = true;
+        break;
+      }
+      if (grew) continue;
+      for (const next of around(head)) {
+        if (used.has(next.id) || !meets(head, next)) continue;
+        chain.unshift({ id: next.id, reversed: next.which === "a" });
+        head = { id: next.id, which: next.which === "a" ? "b" : "a" };
+        used.add(next.id);
+        grew = true;
+        break;
       }
     }
-    if (chain.length >= 2 && near(head, tail)) loops.push(chain);
+    if (chain.length >= 2 && meets(head, tail)) loops.push(chain);
     else open.push(chain);
   }
   return { loops, open };
+}
+
+//! Every pair of ends that lie on top of one another, as the coincidences they
+//! ought to be. A DXF is a heap of separate LINE and ARC entities that happen
+//! to meet; nothing in the file says they meet, and after the first drag they
+//! no longer do. Saying it - once, on arrival - is what turns a heap of
+//! entities into a profile you can pull about.
+//!
+//! Pairs already held are not offered again, and the two ends of one element
+//! are never joined to each other: an arc that nearly closes on itself is an
+//! arc, not a mistake.
+export function sketchOverlaps(drawing, tolerance) {
+  const reach = tolerance === undefined ? sketchGrain(drawing) : tolerance;
+  const ends = [];
+  for (const el of (drawing.elements || [])) {
+    const found = sketchEnds(el);
+    const keys = sketchEndKeys(el);
+    if (!found || found.closed || !keys) continue;
+    if (found.a) ends.push({ id: el.id, ref: el.id + "." + keys.a, p: found.a });
+    if (found.b) ends.push({ id: el.id, ref: el.id + "." + keys.b, p: found.b });
+  }
+  // Grouped rather than paired: three ends meeting at a corner is one corner,
+  // and wants two relations holding it, not three.
+  const cell = Math.max(reach, 1e-9);
+  const grid = new Map();
+  ends.forEach((end, at) => {
+    const key = Math.floor(end.p[0] / cell) + "," + Math.floor(end.p[1] / cell);
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(at);
+  });
+  const parent = ends.map((_, i) => i);
+  const root = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < ends.length; i++) {
+    const cx = Math.floor(ends[i].p[0] / cell), cy = Math.floor(ends[i].p[1] / cell);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
+      for (const j of (grid.get((cx + dx) + "," + (cy + dy)) || [])) {
+        if (j <= i || ends[i].id === ends[j].id) continue;
+        if (Math.hypot(ends[i].p[0] - ends[j].p[0], ends[i].p[1] - ends[j].p[1]) > reach) continue;
+        const a = root(i), b = root(j);
+        if (a !== b) parent[a] = b;
+      }
+  }
+  const groups = new Map();
+  for (let i = 0; i < ends.length; i++) {
+    const at = root(i);
+    if (!groups.has(at)) groups.set(at, []);
+    groups.get(at).push(i);
+  }
+  const held = heldTogether(drawing);
+  const out = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (let i = 0; i + 1 < group.length; i++) {
+      const of = [ends[group[i]].ref, ends[group[i + 1]].ref];
+      const key = of.slice().sort().join("|");
+      if (held.has(key)) continue;
+      held.add(key);
+      out.push({ type: "coincident", of });
+    }
+  }
+  return out;
 }
 
 //! Where each relation should be drawn, and what it is holding. A relation is

@@ -9,8 +9,8 @@ import { createWasmKernel } from "../src/wasm-kernel.js";
 import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, builtDrawing, currentLayer,
          elementLocked, isConstruction,
          elementShown, readSketch, shownDrawing, sketchBox, sketchDirectionAt, sketchCrossings,
-         sketchDistanceTo, sketchElement, sketchEnds, sketchInBox, sketchLayers, sketchLoops,
-         sketchMoveElement,
+         sketchDistanceTo, sketchElement, sketchEndKeys, sketchEnds, sketchExtent, sketchGrain,
+         sketchInBox, sketchLayers, sketchLoops, sketchMoveElement, sketchOverlaps,
          sketchOnLayer, sketchRelation,
          sketchRelationMarks, sketchSummary, sketchTangentArc,
          solveSketch } from "../src/sketch.js";
@@ -799,6 +799,107 @@ console.log("\n17. a window, a layer, and everything picked moved at once");
   catch (err) { refused = err.message; }
   check("naming an element that is not there says so",
         /no element called nope/.test(refused), refused);
+}
+
+console.log("\n18. corners that only happen to meet, held together");
+{
+  // A site boundary off a DXF: eight arcs and lines that close, drawn in
+  // millimetres on survey coordinates six hundred and fifty metres across.
+  // Two of its eight corners miss by a third of a millimetre - six parts in
+  // ten million, which is nothing on a survey and was more than enough to stop
+  // the outline closing at a flat five hundredths of a millimetre.
+  const site = { elements: [
+    { id: "d1", type: "arc", c: [138645.9216, 720885.4224], r: 14000, a0: 1.523152, a1: 3.138084 },
+    { id: "d2", type: "arc", c: [1033837.0172, 717744.7755], r: 909196.604815,
+      a0: 3.138084, a1: 3.771894 },
+    { id: "d3", type: "arc", c: [310652.7433, 190126.0995], r: 14000, a0: -2.511291, a1: -0.784433 },
+    { id: "d4", type: "line", a: [455448.894, 315383.8425], b: [320561.7863, 180236.1618] },
+    { id: "d5", type: "arc", c: [445539.851, 325273.7802], r: 14000, a0: -0.784433, a1: 0.588324 },
+    { id: "d6", type: "arc", c: [1033837.0172, 717744.7755], r: 693196.604827,
+      a0: -3.133357, a1: -2.553269 },
+    { id: "d7", type: "arc", c: [326664.3954, 711920.6168], r: 13999.999998,
+      a0: 0.008236, a1: 1.523152 },
+    { id: "d8", type: "line", a: [139312.6904, 734869.5355], b: [327331.1642, 725904.7299] },
+  ], constraints: [] };
+  check("the drawing is six hundred and fifty metres across",
+        Math.abs(sketchExtent(site) - 651120) < 10, sketchExtent(site).toFixed(0));
+  check("so what counts as the same point on it is two thirds of a millimetre",
+        Math.abs(sketchGrain(site) - 0.651) < 0.01, sketchGrain(site).toFixed(4));
+  check("and the outline closes into one loop", sketchLoops(site, 0.05).loops.length === 1,
+        JSON.stringify(sketchLoops(site, 0.05)).slice(0, 80));
+  // On anything of an ordinary size the grain is far below the tolerance the
+  // caller asks for, so it changes nothing: it only ever loosens, and only for
+  // drawings big enough that a flat number of millimetres stops meaning
+  // anything.
+  check("while on a hundred-millimetre drawing it is a fraction of a micron, "
+        + "so the tolerance asked for is the one that counts",
+        sketchGrain(square(100)) < 0.0002 && sketchGrain(square(100)) < 0.05,
+        String(sketchGrain(square(100))));
+
+  // Every corner said out loud, so the drawing survives being pulled about.
+  const welds = sketchOverlaps(site);
+  check("every one of the eight corners is found", welds.length === 8, String(welds.length));
+  check("and each one names two ends of two different elements",
+        welds.every(w => w.type === "coincident" && w.of.length === 2
+          && w.of[0].split(".")[0] !== w.of[1].split(".")[0]),
+        JSON.stringify(welds[0]));
+  check("an arc's ends are called start and end, which is what a coincidence names",
+        JSON.stringify(sketchEndKeys({ type: "arc" })) === JSON.stringify({ a: "start", b: "end" }));
+  check("asking twice does not say it twice",
+        sketchOverlaps({ ...site, constraints: welds }).length === 0);
+
+  // Three ends at one corner is one corner: two relations, not three.
+  const tee = { elements: [
+    { id: "a", type: "line", a: [0, 0], b: [50, 0] },
+    { id: "b", type: "line", a: [50, 0], b: [50, 50] },
+    { id: "c", type: "line", a: [50, 0], b: [100, 0] },
+  ], constraints: [] };
+  check("three ends meeting at a corner want two relations, not three",
+        sketchOverlaps(tee, 0.01).length === 2,
+        String(sketchOverlaps(tee, 0.01).length));
+  const nearly = { elements: [{ id: "o", type: "arc", c: [0, 0], r: 50, a0: 0, a1: 6.28 }],
+                   constraints: [] };
+  check("and an arc that nearly closes on itself is an arc, not a mistake",
+        sketchOverlaps(nearly, 1).length === 0, String(sketchOverlaps(nearly, 1).length));
+
+  // A coincidence is the truth about a corner, whatever the numbers still say.
+  const apart = { elements: [
+    { id: "a", type: "line", a: [0, 0], b: [100, 0] },
+    { id: "b", type: "line", a: [100, 4], b: [100, 100] },
+    { id: "c", type: "line", a: [100, 100], b: [0, 0] },
+  ], constraints: [{ type: "coincident", of: ["a.b", "b.a"] }] };
+  check("a gap a coincidence holds is not a gap",
+        sketchLoops(apart, 0.05).loops.length === 1,
+        JSON.stringify(sketchLoops(apart, 0.05).open));
+  check("and without the coincidence it is one",
+        sketchLoops({ ...apart, constraints: [] }, 0.05).loops.length === 0);
+
+  // Through the edit language, and then through the kernel: a face.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const id = (await mdl.run({ op: "add", type: "Sketch", name: "Boundary" })).id;
+  await mdl.run({ op: "sketch", id, drawing: site });
+  await mdl.run({ op: "weld", id });
+  const welded = readSketch((await at(id)).sketch.drawing);
+  check("weld writes the corners into the drawing", welded.constraints.length === 8,
+        String(welded.constraints.length));
+  check("and the sketch builds one loop", /1 loop/.test((await at(id)).sketch.summary),
+        (await at(id)).sketch.summary);
+
+  const rule = (await kernel.addFeature("Measure", { shape: id })).id;
+  await kernel.setParameter(rule, "quantity", 1);
+  const area = Number((await at(rule)).data.preview);
+  // Measured against the same outline walked as a polygon: within a hundredth
+  // of one per cent, which is the polygon under-measuring the arcs.
+  check("and the face it makes is the area the outline encloses",
+        Math.abs(area - 111.5e9) / 111.5e9 < 0.001, (area / 1e6).toFixed(0) + " m2");
+
+  let refused = "";
+  try { await mdl.run({ op: "weld", id }); } catch (err) { refused = err.message; }
+  check("welding twice says there is nothing left to hold",
+        /already held together/.test(refused), refused);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

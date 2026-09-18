@@ -1,7 +1,8 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, nextSketchId, readSketch,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
-         sketchMoveHandle, sketchRelation, sketchTangentArc, solveSketch } from "./sketch.js";
+         sketchMoveHandle, sketchOverlaps, sketchRelation, sketchTangentArc,
+         solveSketch } from "./sketch.js";
 
 // The model description language.
 //
@@ -420,6 +421,26 @@ export const MDL_OPS = [
       const found = drawing.elements.filter(el => wanted.has(el.id));
       if (!found.length) throw new Error("that sketch has none of those elements on it");
       for (const el of found) sketchMoveElement(el, by);
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("weld", ["id", "within?"],
+    "Hold together every pair of ends in a sketch that lie on top of one another, "
+    + "with a coincidence each. What a DXF import does on arrival, offered again for a "
+    + "drawing that arrived before it did - or for one that has been drawn into since. "
+    + "within is how close counts, in the plane's units; left out it is a millionth of "
+    + "the drawing's own size, which is the same point at any scale.",
+    { op: "weld", id: "SK1" },
+    async (ctx, edit) => {
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const within = edit.within === undefined ? undefined : Number(edit.within);
+      if (within !== undefined && !(within >= 0))
+        throw new Error('"within" must be a distance, and not a negative one');
+      const found = sketchOverlaps(drawing, within);
+      if (!found.length)
+        throw new Error("nothing in that sketch has two ends in the same place that are "
+          + "not already held together");
+      drawing.constraints.push(...found);
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 
