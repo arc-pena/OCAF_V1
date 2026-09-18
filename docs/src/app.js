@@ -14,6 +14,7 @@ import { acceptsFrom, dataLines, lightenModel, round, SAMPLES, sliderSpan } from
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost } from "./plugin.js";
+import { makePie, pieMenu } from "./pie.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
@@ -5382,6 +5383,223 @@ addEventListener("keydown", event => {
   }
 });
 
+/* ------------------------------------------------- full screen, and the pie */
+
+/*  Two things, and they are one thing.
+ *
+ *  Full screen (Tab) takes every panel, rail, bar and readout off the screen
+ *  and leaves the model. That is only worth having if nothing becomes
+ *  unreachable while they are gone - so the marking menu (Space) is not a
+ *  shortcut to some of the interface, it is the whole of it, and it works the
+ *  same whether the panels are there or not.
+ *
+ *  What the menu offers is worked out in pie.js from a description of the
+ *  document, not written out here by hand. Everything below is that
+ *  description and the table of things to do: one place to read for "what can
+ *  this program do", and one place for a new command to be added to.
+ */
+
+//! The ring covers the whole window while it is up, which is what keeps a
+//! drag under it from orbiting the very model the menu is about.
+const pie = makePie(document.getElementById("pie-host"));
+let bare = false;
+
+//! Full screen on or off. The panels are not removed, only faded out and made
+//! deaf: a panel that is rebuilt while it is invisible is a panel that is
+//! already right when it comes back, and every mode, sheet and dialog keeps
+//! working exactly as it did.
+function setBare(on) {
+  bare = !!on;
+  document.body.classList.toggle("bare", bare);
+  const hint = document.getElementById("bare-hint");
+  hint.hidden = false;
+  hint.innerHTML = bare
+    ? "<b>Space</b> for the menu · <b>Tab</b> for the panels"
+    : "<b>Tab</b> for full screen";
+  hint.classList.add("on");
+  clearTimeout(setBare.fading);
+  setBare.fading = setTimeout(() => hint.classList.remove("on"), 2600);
+  remember("ocafcad/bare", bare ? "on" : "off");
+}
+
+//! What can be done to the drawing, in the order the rail draws it - so a flick
+//! into the Draw ring lands on the tool the same button would.
+const sketchToolList = () => ["select", ...SKETCH_TYPES].map(key => ({
+  key,
+  label: key === "select" ? "Select" : key === "line" ? "Polyline" : SKETCH_LABELS[key] || key,
+  hint: key === "select" ? "drag an end, or pick things to relate"
+      : SKETCH_CLICKS[key] ? SKETCH_CLICKS[key] + " clicks"
+      : "click points, Enter to finish",
+}));
+
+//! The document as the menu needs to see it. Read once, when the menu opens:
+//! it is a snapshot of a thing that is about to be acted on, and a menu built
+//! from live getters would be a menu whose items change while it is up.
+function pieWorld() {
+  const selected = feature(state.selected);
+  const drawing = sketching() ? sketchDrawing() : null;
+  const picked = drawing ? pickedElements(drawing) : [];
+  return {
+    selected,
+    hidden: selected ? state.hidden.has(selected.id) : false,
+    containers: (state.tree ? state.tree.features : []).filter(f =>
+      f.category === "container" && (!selected
+        || (f.id !== selected.id && !within(selected.id, f.id)))),
+    types: (state.schema && state.schema.types) || [],
+    categories: (state.schema && state.schema.categories) || [],
+    accepts: acceptsFrom,
+    formats: FORMATS,
+    styles: VIEW_STYLES,
+    style: state.style,
+    modes: modes.map(m => ({ key: m.key, label: m.label, title: m.title })),
+    mode: openMode ? { key: openMode.key, label: openMode.label } : null,
+    packages: packages.schema(),
+    staging,
+    sketching: sketching(),
+    sketchTools: sketchToolList(),
+    sketchTool: sketcher.tool,
+    sketchPicked: picked.length,
+    sketchRelation: sketcher.relation,
+    construction: picked.length > 0 && picked.every(isConstruction),
+    relations: SKETCH_RELATIONS,
+    stage: {
+      ground: pressed("btn-stage-ground"),
+      reflect: pressed("btn-stage-reflect"),
+      spin: !!showroom.turntable,
+    },
+    bare,
+    tree: !treePanel.hidden,
+    panel: !!state.edited,
+    graph: graph.showing,
+    ai: !aiBar.hidden,
+    can: { undo: !!mdl.undoable, redo: !!mdl.redoable },
+    act: PIE_ACTS,
+  };
+}
+
+const pressed = id => document.getElementById(id).getAttribute("aria-pressed") === "true";
+const clickOn = id => document.getElementById(id).click();
+
+//! Every command the menu can run, and every one of them is the same call the
+//! button that used to be the only way to it makes. Nothing here is a second
+//! implementation of anything: a command with two bodies is a command that
+//! behaves two ways.
+const PIE_ACTS = {
+  add: type => addFeature(type),
+  openDef: () => select(state.selected, true),
+  del: () => deleteFeature(state.selected),
+  visible: was => {
+    was ? state.hidden.delete(state.selected) : state.hidden.add(state.selected);
+    buildTree(); applyVisibility(); draw();
+  },
+  moveInto: into => edit({ op: "group", id: state.selected, into }),
+  takeOut: () => edit({ op: "group", id: state.selected }),
+
+  fit: () => (sketching() ? lookAtSketch() : fitView()),
+  look: name => { Object.assign(view, STANDARD_VIEWS[name]); placeCamera(); draw(); },
+  lookAtSketch: () => lookAtSketch(),
+  style: key => setStyle(key),
+
+  showroom: () => enterShowroom(),
+  leaveShowroom: () => leaveShowroom(),
+  stageGround: () => clickOn("btn-stage-ground"),
+  stageReflect: () => clickOn("btn-stage-reflect"),
+  stageSpin: () => clickOn("btn-stage-spin"),
+
+  nodes: () => graph.toggle(),
+  ai: () => openAI(aiBar.hidden),
+  shelf: () => togglePackages(true),
+  loadPackage: id => packages.toggle(id).catch(err => showError(err.message)),
+  mode: key => { const found = modes.find(m => m.key === key); if (found) enterMode(found); },
+  leaveMode: () => leaveMode(),
+
+  importFile: () => fileInput.click(),
+  exportAs: key => exportAs(key),
+  modelFile: () => openModelDialog(),
+  samples: () => clickOn("btn-sample"),
+  undo: () => step(true),
+  redo: () => step(false),
+
+  bare: on => setBare(on),
+  tree: () => toggleTree(),
+  panel: () => { state.edited = state.edited ? null : state.selected; buildPanel(); },
+
+  sketchTool: key => pickSketchTool(key),
+  relation: key => putRelation(key),
+  dropRelation: () => dropRelation(),
+  construction: () => toggleConstruction(),
+  sketchDelete: () => dropPicked(),
+  sketchDone: () => leaveSketch(),
+};
+
+//! Where the ring opens: under the cursor, the way a marking menu always has -
+//! so the flick starts from where the hand already is rather than from the
+//! middle of the screen.
+let pointerAt = { x: innerWidth / 2, y: innerHeight / 2 };
+addEventListener("pointermove", event => {
+  if (pie.isOpen()) return;
+  pointerAt = { x: event.clientX, y: event.clientY };
+}, true);
+
+function openPie() {
+  const items = pieMenu(pieWorld());
+  pie.open(items, pointerAt.x, pointerAt.y);
+}
+
+addEventListener("keydown", event => {
+  // A field being typed into owns its keys, and so does a dialog: Tab in a
+  // form is Tab in a form, and taking it away would leave a modal nobody can
+  // move around with a keyboard.
+  if (event.target.matches("input, textarea, select")) return;
+  if (event.target.closest("dialog") || document.querySelector("dialog[open]")) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+  if (event.key === "Tab") {
+    event.preventDefault();
+    setBare(!bare);
+    return;
+  }
+  if (event.code === "Space" || event.key === " ") {
+    event.preventDefault();
+    event.stopPropagation();
+    // Held down: the menu is already up and the hand is mid-flick.
+    if (event.repeat) return;
+    if (pie.isOpen()) pie.close(); else openPie();
+    return;
+  }
+  if (!pie.isOpen()) return;
+  // While it is up the menu owns the keyboard. A shortcut firing behind a ring
+  // that is about to be chosen from would be two commands for one press.
+  if (event.key === "Escape") pie.close();
+  else if (event.key === "Backspace") pie.back();
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
+
+addEventListener("keyup", event => {
+  if (event.code === "Space" || event.key === " ") pie.release();
+}, true);
+
+//! A phone has no space bar and no keyboard at all. A long press on the model
+//! is the same gesture - press, drag, let go - and it opens the same ring.
+(function touchPie() {
+  let timer = 0, from = null;
+  const viewport = document.getElementById("viewport");
+  viewport.addEventListener("pointerdown", event => {
+    if (event.pointerType !== "touch" || pie.isOpen()) return;
+    from = { x: event.clientX, y: event.clientY };
+    clearTimeout(timer);
+    timer = setTimeout(() => { pointerAt = from; openPie(); }, 480);
+  }, true);
+  const drop = event => {
+    if (from && event && Math.hypot(event.clientX - from.x, event.clientY - from.y) < 12) return;
+    clearTimeout(timer);
+  };
+  viewport.addEventListener("pointermove", drop, true);
+  viewport.addEventListener("pointerup", () => clearTimeout(timer), true);
+  viewport.addEventListener("pointercancel", () => clearTimeout(timer), true);
+})();
+
 (async function start() {
   readTheme();
   buildGround();
@@ -5389,6 +5607,10 @@ addEventListener("keydown", event => {
   resize();
 
   if (recall("ocafcad/tree") === "off") treePanel.hidden = true;
+  // Full screen survives a reload, because it is how somebody prefers to work.
+  // The hint that comes up with it is what stops that being a page with no
+  // interface on it and no way of knowing why.
+  if (recall("ocafcad/bare") === "on") setBare(true);
   foldAI(recall("ocafcad/ai-fold") === "shut");
 
   const params = new URLSearchParams(location.search);

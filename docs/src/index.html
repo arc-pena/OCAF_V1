@@ -1353,9 +1353,108 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   #dock button { padding: 10px 2px; }
 }
 
+/* ------------------------------------------------- full screen, and the pie */
+/* Full screen is not a bigger window. It is the model with nothing in front of
+   it: every panel, rail, readout and bar gone, and one way back to all of them
+   - the marking menu on the space bar. So everything that floats over the
+   viewport is listed here, and anything added later that is chrome belongs in
+   this list too. A command that can only be reached from a panel is a command
+   that does not exist in full screen. */
+body.bare .fades,
+body.bare #view-tools,
+body.bare #dock,
+body.bare #ai-bar,
+body.bare #stage-ui,
+body.bare .an-bar, body.bare .an-panel,
+body.bare .fl-bar, body.bare .fl-panel { opacity: 0; pointer-events: none; }
+body.bare .an-bar, body.bare .an-panel, body.bare .fl-bar, body.bare .fl-panel,
+body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
+/* The hint on the way in, and only on the way in: it says how to get back out
+   and then stops saying it. */
+#bare-hint {
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+  font-size: 11px; letter-spacing: .02em; color: var(--ink-2);
+  z-index: 60; opacity: 0; pointer-events: none;
+  transition: opacity .35s cubic-bezier(.4,0,.2,1);
+  zoom: var(--ui);
+}
+#bare-hint.on { opacity: 1; }
+#bare-hint b { color: var(--ink-1); font-weight: 600; }
+
+/* The marking menu. It is over everything, including the showroom, because it
+   is how you leave the showroom. */
+.pie-veil {
+  position: fixed; inset: 0; z-index: 400;
+  touch-action: none; cursor: crosshair;
+  background: radial-gradient(ellipse at var(--pie-x, 50%) var(--pie-y, 50%),
+              rgba(0,0,0,.05), rgba(0,0,0,.16));
+}
+.pie-ring { position: fixed; zoom: var(--ui); }
+.pie-heart {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  min-width: 10px; padding: 4px 9px; border-radius: 999px;
+  background: var(--accent); color: #fff;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+  white-space: nowrap; box-shadow: var(--shadow);
+}
+.pie-heart:empty { min-width: 9px; min-height: 9px; padding: 0; }
+.pie-item {
+  position: absolute; display: flex; flex-direction: column; align-items: flex-start;
+  gap: 1px; max-width: 168px; padding: 6px 11px;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--panel); box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: transform .09s ease-out, background .09s ease-out, border-color .09s;
+}
+.pie-item .pie-label {
+  font-size: 12.5px; font-weight: 560; color: var(--ink-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 146px;
+}
+.pie-item.live .pie-label { color: #fff; }
+.pie-item .pie-more { position: absolute; right: 4px; top: 5px; font-size: 9px; color: var(--ink-3); }
+/* A thin line from the middle to each word, so the ring reads as directions
+   out of one place rather than as labels scattered over the model. */
+.pie-spoke {
+  position: absolute; left: 0; top: 0; height: 1px;
+  transform-origin: 0 50%; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0 18px, var(--line) 18px, transparent);
+  opacity: .8;
+}
+.pie-spoke.live { background: linear-gradient(90deg, transparent 0 14px, var(--accent) 14px, transparent); opacity: 1; }
+/* What the one under the hand is for, said once. */
+.pie-say {
+  position: absolute; left: 0; top: 24px; transform: translateX(-50%);
+  white-space: nowrap; font-size: 10.5px; color: var(--ink-2);
+  text-shadow: 0 1px 0 var(--panel), 0 -1px 0 var(--panel),
+               1px 0 0 var(--panel), -1px 0 0 var(--panel);
+}
+.pie-item.branch { padding-right: 16px; }
+.pie-item.on { border-color: var(--accent); }
+.pie-item.on .pie-label { color: var(--accent); }
+.pie-item.live {
+  background: var(--accent); border-color: var(--accent);
+  box-shadow: 0 6px 22px rgba(0,0,0,.22);
+}
+.pie-item.live .pie-label, .pie-item.live .pie-note, .pie-item.live .pie-more { color: #fff; }
+.pie-foot {
+  position: absolute; left: 0; top: 196px; transform: translateX(-50%);
+  white-space: nowrap; font-size: 9.5px; color: var(--ink-3);
+  text-shadow: 0 1px 0 var(--panel);
+}
+/* A phone has no space bar. The ring is reached by a long press instead, and
+   it wants room: fewer pixels across means the chips have to come in. */
+@media (max-width: 900px) { .pie-ring { zoom: calc(var(--ui) * .86); } }
+
+
 </style>
 
 <div id="viewport"></div>
+<div id="pie-host"></div>
+<div id="bare-hint" hidden></div>
 
 <div id="boot">
   <div class="ring"></div>
