@@ -1,7 +1,7 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
-import { SKETCH_CLICKS, nextSketchId, readSketch, sketchDirectionAt, sketchElement,
-         sketchHandleAt, sketchMoveHandle, sketchRelation, sketchTangentArc,
-         solveSketch } from "./sketch.js";
+import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, nextSketchId, readSketch,
+         sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveHandle,
+         sketchRelation, sketchTangentArc, solveSketch } from "./sketch.js";
 
 // The model description language.
 //
@@ -286,6 +286,68 @@ export const MDL_OPS = [
             + (least === 1 ? " point" : " points") + ' in "at"');
         drawing.elements.push(sketchElement(type, id, clicks));
       }
+      // On whichever layer is current, when the drawing has any. A drawing
+      // that has never heard of layers stays that way rather than gaining a
+      // "0" on everything.
+      if (Array.isArray(drawing.layers) && drawing.layers.length) {
+        const on = currentLayer(drawing);
+        drawing.elements[drawing.elements.length - 1].layer = on;
+      }
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("layer", ["id", "name", "show?", "lock?", "rename?", "current?"],
+    "One layer of a sketch. A name nobody has used yet makes the layer; show turns it "
+    + "on and off - and off means not drawn AND not built, which is how a plan full of "
+    + "furniture becomes a profile; lock leaves it drawn and built but stops it being "
+    + "picked up; rename carries everything on it across; current says which layer new "
+    + "elements go on.",
+    { op: "layer", id: "SK1", name: "FURNITURE", show: false },
+    async (ctx, edit) => {
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const name = needText(edit, "name");
+      const layers = sketchLayers(drawing).map(({ name: had, on, locked }) =>
+        ({ name: had, on, locked }));
+      let row = layers.find(l => l.name === name);
+      if (!row) { row = { name, on: true, locked: false }; layers.push(row); }
+      if (edit.show !== undefined) row.on = !!edit.show;
+      if (edit.lock !== undefined) row.locked = !!edit.lock;
+      if (typeof edit.rename === "string" && edit.rename && edit.rename !== name) {
+        const to = edit.rename.trim();
+        if (!to) throw new Error("a layer needs a name");
+        if (layers.some(l => l.name === to))
+          throw new Error('there is already a layer called "' + to + '"');
+        // Everything on it comes with it, including the elements that were on
+        // it by saying nothing.
+        for (const el of drawing.elements)
+          if ((el.layer || SKETCH_LAYER) === name) el.layer = to;
+        if (drawing.current === name) drawing.current = to;
+        row.name = to;
+      }
+      if (edit.current) drawing.current = row.name;
+      drawing.layers = layers;
+      return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("unlayer", ["id", "name"],
+    "Delete a layer of a sketch AND everything drawn on it. The last layer cannot go: "
+    + "a drawing is always on one.",
+    { op: "unlayer", id: "SK1", name: "FURNITURE" },
+    async (ctx, edit) => {
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const name = needText(edit, "name");
+      const layers = sketchLayers(drawing);
+      if (!layers.some(l => l.name === name))
+        throw new Error('this sketch has no layer called "' + name + '"');
+      if (layers.length < 2) throw new Error("that is the only layer - a drawing is on one");
+      const gone = new Set(drawing.elements
+        .filter(el => (el.layer || SKETCH_LAYER) === name).map(el => el.id));
+      drawing.elements = drawing.elements.filter(el => !gone.has(el.id));
+      drawing.constraints = drawing.constraints
+        .filter(c => !c.of.some(at => gone.has(String(at).split(".")[0])));
+      drawing.layers = layers.filter(l => l.name !== name)
+        .map(({ name: had, on, locked }) => ({ name: had, on, locked }));
+      if (drawing.current === name) drawing.current = drawing.layers[0].name;
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 

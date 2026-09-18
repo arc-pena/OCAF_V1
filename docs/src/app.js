@@ -18,7 +18,8 @@ import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
          productNames, readable, toBase64, whyNot } from "./exchange.js";
-import { SKETCH_CLICKS, SKETCH_RELATIONS, SKETCH_TYPES, nextSketchId, readSketch,
+import { SKETCH_CLICKS, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer, elementLocked,
+         elementShown, sketchLayers, nextSketchId, readSketch,
          sketchCrossings, sketchDirectionAt, sketchElement, sketchHandleAt, sketchHandles,
          sketchMoveHandle, sketchOutline, sketchRelationMarks,
          sketchTangentArc } from "./sketch.js";
@@ -928,6 +929,9 @@ const snapReach = () => view.distance * 0.018;
 function nearestHandle(uv, drawing = sketchDrawing()) {
   let best = null, reach = snapReach();
   for (const el of drawing.elements) {
+    // Nothing on a layer that is off or locked is ever under the cursor. That
+    // is what locking is FOR: a survey to draw over that never grabs the drag.
+    if (!elementShown(drawing, el) || elementLocked(drawing, el)) continue;
     for (const [key, p] of sketchHandles(el)) {
       const away = Math.hypot(p[0] - uv[0], p[1] - uv[1]);
       if (away < reach) { reach = away; best = { ref: el.id + "." + key, p, id: el.id }; }
@@ -967,6 +971,7 @@ function nearestRelation(uv, drawing = sketchDrawing()) {
 function nearestElement(uv, drawing = sketchDrawing()) {
   let best = null, reach = snapReach() * 1.6;
   for (const el of drawing.elements) {
+    if (!elementShown(drawing, el) || elementLocked(drawing, el)) continue;
     const line = sketchOutline(el, 48);
     for (const p of line) {
       const away = Math.hypot(p[0] - uv[0], p[1] - uv[1]);
@@ -1077,12 +1082,17 @@ function refreshSketch() {
   // sketch was padded into, and a line you cannot see is a line you cannot
   // draw against.
   for (const el of drawing.elements) {
+    // A layer that is off is not drawn, and a locked one is drawn quietly: it
+    // is there to draw against, not to be picked up.
+    if (!elementShown(drawing, el)) continue;
+    const held = elementLocked(drawing, el);
     const line = sketchOutline(el, 64).map(p => sketchToWorld(p, frame));
     if (line.length < 2) continue;
     const over = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(line),
-      new THREE.LineBasicMaterial({ color: THEME.curve, depthTest: false,
-                                    transparent: true, opacity: 0.85 }));
+      new THREE.LineBasicMaterial({ color: held ? THEME["shape-edge"] : THEME.curve,
+                                    depthTest: false,
+                                    transparent: true, opacity: held ? 0.4 : 0.85 }));
     over.renderOrder = 5;
     group.add(over);
   }
@@ -1090,8 +1100,10 @@ function refreshSketch() {
   // Every end of everything, as a dot. These are what a click snaps to and
   // what a coincidence is put between.
   const dots = [];
-  for (const el of drawing.elements)
+  for (const el of drawing.elements) {
+    if (!elementShown(drawing, el) || elementLocked(drawing, el)) continue;
     for (const [, p] of sketchHandles(el)) dots.push(sketchToWorld(p, frame));
+  }
   if (dots.length) {
     const cloud = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints(dots),
@@ -1707,6 +1719,18 @@ const RELATION_GLYPH = {
   intersect:  [[-0.85, -0.85], [0.85, 0.85], [-0.85, 0.85], [0.85, -0.85]],
 };
 
+// The layer panel's six small buttons. Drawn rather than lettered, because a
+// row of six words in a 300 px panel is a row nobody reads.
+const LAYER_ICONS = {
+  layerOn: '<path d="M1.6 8s2.4-4.2 6.4-4.2S14.4 8 14.4 8s-2.4 4.2-6.4 4.2S1.6 8 1.6 8z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/>',
+  layerOff: '<path d="M1.6 8s2.4-4.2 6.4-4.2S14.4 8 14.4 8s-2.4 4.2-6.4 4.2S1.6 8 1.6 8z" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".45"/><path d="M2.8 13.2L13.2 2.8" stroke="currentColor" stroke-width="1.3"/>',
+  layerLocked: '<rect x="3.6" y="7" width="8.8" height="6.4" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5.6 7V5.4a2.4 2.4 0 014.8 0V7" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+  layerOpen: '<rect x="3.6" y="7" width="8.8" height="6.4" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/><path d="M5.6 7V5.4a2.4 2.4 0 014.8-.4" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>',
+  // A pencil: this is the one being drawn on.
+  layerCurrent: '<path d="M3 13l1-3 6.6-6.6 2 2L6 12z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
+  layerDelete: '<path d="M3.4 4.6h9.2M6.4 4.6V3.2h3.2v1.4M4.6 4.6l.7 8.2h5.4l.7-8.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
+};
+
 const SKETCH_ICONS = {
   // The cursor itself: what the sketcher hands you before you ask for a tool.
   select: '<path d="M3.4 2.2l9.4 5.1-4 1-1.6 4.2z" fill="currentColor" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>',
@@ -1737,6 +1761,8 @@ const SKETCH_ICONS = {
 };
 
 const ICONS = {
+  ...LAYER_ICONS,
+
   Point: '<circle cx="8" cy="8" r="2.4" fill="currentColor"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.2"/>',
   Vector: '<path d="M2 13L12 4" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 2.5L9 3.6l3.4 3.2z" fill="currentColor"/>',
   Line: '<path d="M2 13L14 3" stroke="currentColor" stroke-width="1.5"/><circle cx="2.6" cy="12.6" r="1.6" fill="currentColor"/><circle cx="13.4" cy="3.4" r="1.6" fill="currentColor"/>',
@@ -2697,6 +2723,113 @@ function textField(entry, arg) {
 //! The drawing, in the panel. It says what is in the sketch, opens the
 //! sketcher, and shows the JSON - which is the drawing itself, not a report of
 //! it, so editing the text here is editing the sketch.
+//! The layers of a drawing, as a drawing office has always had them.
+//!
+//! On is not a decoration. An element on a layer that is off is not drawn and
+//! not built, which is what turns a plan full of furniture, text and survey
+//! into the profile of a slab: bring the whole DXF in, then switch off
+//! everything that is not the outline. Locked is the other way round - drawn
+//! and built, but nothing on it can be picked up, which is what you want of a
+//! survey you are drawing over.
+function layerList(entry, drawing) {
+  const box = document.createElement("div");
+  box.className = "layers";
+  const layers = sketchLayers(drawing);
+  const current = currentLayer(drawing);
+
+  const head = document.createElement("div");
+  head.className = "layers-head";
+  head.innerHTML = "<span>Layers</span>";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "layer-add";
+  add.textContent = "+ New";
+  add.title = "A new layer, and everything drawn from now on goes on it";
+  add.addEventListener("click", () => {
+    let name = "Layer 1";
+    for (let i = 1; layers.some(l => l.name === name); i++) name = "Layer " + i;
+    edit({ op: "layer", id: entry.id, name, current: true });
+  });
+  head.appendChild(add);
+  box.appendChild(head);
+
+  for (const layer of layers) {
+    const row = document.createElement("div");
+    row.className = "layer-row";
+    row.classList.toggle("current", layer.name === current);
+
+    const eye = document.createElement("button");
+    eye.type = "button";
+    eye.className = "layer-icon";
+    eye.innerHTML = svg(layer.on ? ICONS.layerOn : ICONS.layerOff);
+    eye.title = layer.on ? "Showing - and being built. Click to turn it off."
+      : "Off: not drawn, and not built either. Click to turn it on.";
+    eye.setAttribute("aria-pressed", String(layer.on));
+    eye.addEventListener("click", () =>
+      edit({ op: "layer", id: entry.id, name: layer.name, show: !layer.on }));
+    row.appendChild(eye);
+
+    const lock = document.createElement("button");
+    lock.type = "button";
+    lock.className = "layer-icon";
+    lock.innerHTML = svg(layer.locked ? ICONS.layerLocked : ICONS.layerOpen);
+    lock.title = layer.locked ? "Locked: drawn and built, but nothing on it can be picked up."
+      : "Unlocked. Click to lock it.";
+    lock.setAttribute("aria-pressed", String(layer.locked));
+    lock.addEventListener("click", () =>
+      edit({ op: "layer", id: entry.id, name: layer.name, lock: !layer.locked }));
+    row.appendChild(lock);
+
+    const name = document.createElement("input");
+    name.className = "layer-name";
+    name.value = layer.name;
+    name.spellcheck = false;
+    name.title = "The layer's name. Everything on it comes with it.";
+    name.addEventListener("keydown", event => event.stopPropagation());
+    name.addEventListener("change", () => {
+      const to = name.value.trim();
+      if (!to || to === layer.name) { name.value = layer.name; return; }
+      edit({ op: "layer", id: entry.id, name: layer.name, rename: to });
+    });
+    row.appendChild(name);
+
+    const count = document.createElement("b");
+    count.className = "layer-count";
+    count.textContent = layer.count;
+    count.title = layer.count + (layer.count === 1 ? " element" : " elements") + " on it";
+    row.appendChild(count);
+
+    // What new elements land on. A radio rather than a click on the row,
+    // because a row here has four things on it that all do something.
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "layer-icon layer-current";
+    pick.innerHTML = svg(ICONS.layerCurrent);
+    pick.title = layer.name === current ? "New elements go on this layer"
+      : "Draw on this layer from now on";
+    pick.setAttribute("aria-pressed", String(layer.name === current));
+    pick.addEventListener("click", () =>
+      edit({ op: "layer", id: entry.id, name: layer.name, current: true }));
+    row.appendChild(pick);
+
+    const gone = document.createElement("button");
+    gone.type = "button";
+    gone.className = "layer-icon layer-gone";
+    gone.innerHTML = svg(ICONS.layerDelete);
+    gone.disabled = layers.length < 2;
+    gone.title = layers.length < 2 ? "A drawing is always on one layer"
+      : layer.count ? "Delete this layer AND the " + layer.count
+          + (layer.count === 1 ? " element" : " elements") + " on it"
+        : "Delete this empty layer";
+    gone.addEventListener("click", () =>
+      edit({ op: "unlayer", id: entry.id, name: layer.name }));
+    row.appendChild(gone);
+
+    box.appendChild(row);
+  }
+  return box;
+}
+
 function sketchField(entry, arg) {
   const field = document.createElement("div");
   field.className = "field";
@@ -2712,6 +2845,8 @@ function sketchField(entry, arg) {
   open.addEventListener("click", () =>
     (sketcher.id === entry.id ? leaveSketch() : enterSketch(entry.id)));
   field.appendChild(open);
+
+  field.appendChild(layerList(entry, drawing));
 
   const area = document.createElement("textarea");
   area.className = "code";

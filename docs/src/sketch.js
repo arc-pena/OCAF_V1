@@ -847,6 +847,87 @@ function segmentsMeet(p1, p2, p3, p4) {
   return add(p1, mul(r, t));
 }
 
+/* ------------------------------------------------------------------ layers
+
+   A drawing is a drawing, and drawings have layers. They arrive with a DXF and
+   they are worth having on one drawn here: the outline on one, the setting-out
+   on another, the survey nobody wants in the geometry on a third.
+
+   Three facts about a layer and no more. Its name, whether it is SHOWN, and
+   whether it is LOCKED. Shown is not a decoration: an element on a layer that
+   is off is not drawn AND not built, which is what makes turning a layer off
+   the way to get a profile out of a plan full of furniture. Locked is the
+   other way round - it builds and it draws, it just cannot be picked up, which
+   is what you want of a survey you are drawing over.                         */
+
+//! What a drawing with nothing said about layers is on. DXF's own name for it,
+//! because half of these drawings come from DXF and the other half will go
+//! back out as one.
+export const SKETCH_LAYER = "0";
+
+const layerName = el => (el && typeof el.layer === "string" && el.layer) || SKETCH_LAYER;
+
+//! Every layer in a drawing: the ones it declares, then any an element names
+//! that nobody declared, with how many things are on each. A drawing that has
+//! never heard of layers has one, and everything is on it.
+export function sketchLayers(drawing) {
+  const out = [];
+  const at = new Map();
+  const add = one => {
+    const name = String(one.name);
+    if (at.has(name)) return at.get(name);
+    const row = { name, on: one.on !== false, locked: !!one.locked, count: 0 };
+    at.set(name, row);
+    out.push(row);
+    return row;
+  };
+  for (const one of (Array.isArray(drawing.layers) ? drawing.layers : []))
+    if (one && typeof one.name === "string" && one.name) add(one);
+  for (const el of (drawing.elements || [])) add({ name: layerName(el) }).count++;
+  if (!out.length) add({ name: SKETCH_LAYER });
+  return out;
+}
+
+//! The layer new elements go on. Whatever the drawing says, as long as it is a
+//! layer that exists and is not locked; otherwise the first one that will take
+//! them.
+export function currentLayer(drawing) {
+  const layers = sketchLayers(drawing);
+  const said = layers.find(l => l.name === drawing.current);
+  if (said && !said.locked && said.on) return said.name;
+  const free = layers.find(l => !l.locked && l.on);
+  return (free || layers[0]).name;
+}
+
+//! Is this element on a layer that is showing? Everything else in the program
+//! asks this rather than reading el.layer, so a drawing with no layers at all
+//! answers yes to all of it.
+export function elementShown(drawing, el) {
+  const layers = sketchLayers(drawing);
+  const on = layers.find(l => l.name === layerName(el));
+  return !on || on.on;
+}
+
+export function elementLocked(drawing, el) {
+  const layers = sketchLayers(drawing);
+  const on = layers.find(l => l.name === layerName(el));
+  return !!on && on.locked;
+}
+
+//! The drawing as it is showing: the elements on layers that are on, and the
+//! relations that still have both ends. What gets BUILT, so that turning a
+//! layer off takes its geometry out of the solid as well as off the screen.
+export function shownDrawing(drawing) {
+  const layers = sketchLayers(drawing);
+  const hidden = new Set(layers.filter(l => !l.on).map(l => l.name));
+  if (!hidden.size) return drawing;
+  const elements = (drawing.elements || []).filter(el => !hidden.has(layerName(el)));
+  const kept = new Set(elements.map(el => el.id));
+  const constraints = (drawing.constraints || [])
+    .filter(c => c.of.every(name => kept.has(String(name).split(".")[0])));
+  return { ...drawing, elements, constraints };
+}
+
 /* ------------------------------------------------------------- housekeeping */
 
 //! Reads a drawing out of whatever was stored, dropping anything malformed
@@ -873,7 +954,18 @@ export function readSketch(source) {
         && c.of.every(name => typeof name === "string" && name);
     })
     .map(c => ({ type: c.type, of: c.of.slice() }));
-  return { elements, constraints };
+
+  // Layers travel with the drawing. Only the three facts about one are kept,
+  // and a layer nobody declared but something is drawn on is not written down
+  // here - sketchLayers finds those, so an element carrying a layer name is
+  // never a layer that does not exist.
+  const layers = (Array.isArray(raw.layers) ? raw.layers : [])
+    .filter(one => one && typeof one.name === "string" && one.name)
+    .map(one => ({ name: one.name, on: one.on !== false, locked: !!one.locked }));
+  const out = { elements, constraints };
+  if (layers.length) out.layers = layers;
+  if (typeof raw.current === "string" && raw.current) out.current = raw.current;
+  return out;
 }
 
 //! The next free id, so two elements never collide however the drawing was
@@ -888,8 +980,14 @@ export function sketchSummary(drawing) {
   const n = (drawing.elements || []).length;
   const c = (drawing.constraints || []).length;
   if (!n) return "empty";
-  const { loops } = sketchLoops(drawing);
+  // The loops are counted over what is SHOWING, because that is what will be
+  // built - a summary that promises three loops while one of them is on a
+  // layer that is off is a summary of a different drawing.
+  const shown = shownDrawing(drawing);
+  const { loops } = sketchLoops(shown);
+  const hidden = n - shown.elements.length;
   return n + (n === 1 ? " element" : " elements")
+       + (hidden ? " · " + hidden + " hidden" : "")
        + (c ? " · " + c + (c === 1 ? " relation" : " relations") : "")
        + (loops.length ? " · " + loops.length + (loops.length === 1 ? " loop" : " loops") : "");
 }

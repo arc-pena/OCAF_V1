@@ -10,8 +10,8 @@ import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
 import { DXF_ENTITIES, DXF_UNITS, bulgeArc, describeDrawing, dxfDrawing, dxfSurvey,
          ignoredName, parseDxf, writeDxf } from "../src/dxf.js";
-import { SKETCH_TYPES, bsplinePoints, sketchEnds, sketchLoops, sketchOutline, wholeEllipse }
-  from "../src/sketch.js";
+import { SKETCH_TYPES, bsplinePoints, readSketch, shownDrawing, sketchEnds, sketchLayers,
+         sketchLoops, sketchOutline, wholeEllipse } from "../src/sketch.js";
 import { formatFor, whyNot } from "../src/exchange.js";
 import { readFileSync } from "fs";
 
@@ -428,6 +428,89 @@ console.log("\n12. through the kernel: a drawing in, a solid out");
   check("with the rounded corner still an arc",
         again.elements.filter(el => el.type === "arc").length === 1,
         describeDrawing(again));
+}
+
+console.log("\n13. a drawing that closes nothing, and the layers it came on");
+{
+  const kernel = await createWasmKernel({ initModule: init,
+                                          wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {}, readLayout: () => ({}),
+                        select: () => {}, selected: () => null, picked: () => [] });
+
+  // A survey: stray lines, spot levels, an open kerb line, an arc. Nothing in
+  // it closes, which used to be enough to make the sketch a feature in error.
+  const survey = dxf(
+    t(0, "LINE"), t(8, "SURVEY"), t(10, 0), t(20, 0), t(11, 4), t(21, 3),
+    t(0, "LINE"), t(8, "SURVEY"), t(10, 9), t(20, 1), t(11, 12), t(21, 6),
+    t(0, "POINT"), t(8, "LEVELS"), t(10, 2), t(20, 8),
+    t(0, "POINT"), t(8, "LEVELS"), t(10, 6), t(20, 9),
+    t(0, "LWPOLYLINE"), t(8, "KERB"), t(90, 3), t(70, 0),
+      t(10, 0), t(20, 12), t(10, 8), t(20, 13), t(10, 14), t(20, 11),
+    t(0, "ARC"), t(8, "KERB"), t(10, 18), t(20, 8), t(40, 3), t(50, 20), t(51, 200),
+  );
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  await mdl.run({ op: "import", format: "dxf", name: "survey.dxf", data: survey, units: "m" });
+  const sketchOf = async () => (await kernel.tree()).tree.features.find(f => f.type === "Sketch");
+  let sketch = await sketchOf();
+  check("a drawing that closes nothing builds without complaint",
+        sketch && sketch.built && !sketch.error, String(sketch && sketch.error));
+
+  const held = () => readSketch(sketch.sketch.drawing);
+  check("and it arrives on the layers it was drawn on",
+        sketchLayers(held()).map(l => l.name + ":" + l.count).join(" ") === "KERB:3 SURVEY:2 LEVELS:2",
+        sketchLayers(held()).map(l => l.name + ":" + l.count).join(" "));
+
+  // Turning one off takes it out of the geometry as well as off the screen,
+  // which is what makes a plan full of furniture into a profile.
+  await mdl.run({ op: "layer", id: sketch.id, name: "SURVEY", show: false });
+  sketch = await sketchOf();
+  check("turning a layer off leaves the sketch built",
+        sketch.built && !sketch.error, String(sketch.error));
+  check("and takes its elements out of what is built",
+        shownDrawing(held()).elements.length === 5, sketch.sketch.summary);
+  check("which the summary says out loud", /2 hidden/.test(sketch.sketch.summary),
+        sketch.sketch.summary);
+
+  // Points alone, on their own layer, still a sketch.
+  await mdl.run({ op: "layer", id: sketch.id, name: "KERB", show: false });
+  sketch = await sketchOf();
+  check("even with nothing left but the spot levels", sketch.built && !sketch.error,
+        String(sketch.error));
+
+  await mdl.run({ op: "layer", id: sketch.id, name: "LEVELS", show: false });
+  sketch = await sketchOf();
+  check("and with every layer off it says so rather than failing silently",
+        /every layer/.test(sketch.error || ""), String(sketch.error));
+
+  // Out and back: the layers are still the layers.
+  await mdl.run({ op: "layer", id: sketch.id, name: "LEVELS", show: true });
+  await mdl.run({ op: "layer", id: sketch.id, name: "KERB", show: true });
+  await mdl.run({ op: "layer", id: sketch.id, name: "SURVEY", show: true });
+  const out = await kernel.exportShapes("dxf");
+  const back = dxfDrawing(out.text).drawing;
+  // A layer that was off or locked when it was drawn arrives that way, and
+  // goes back out that way: DXF writes "off" as a negative colour and "locked"
+  // as a flag, and both survive the trip.
+  {
+    const drawing = { elements: [
+      { id: "a", type: "line", a: [0, 0], b: [10, 0], layer: "ON" },
+      { id: "b", type: "line", a: [0, 5], b: [10, 5], layer: "OFF" },
+      { id: "c", type: "line", a: [0, 9], b: [10, 9], layer: "LOCKED" }], constraints: [],
+      layers: [{ name: "ON", on: true, locked: false },
+               { name: "OFF", on: false, locked: false },
+               { name: "LOCKED", on: true, locked: true }] };
+    const again = dxfDrawing(writeDxf([{ name: "S", drawing }]).text).drawing;
+    check("a layer that is off goes out off and comes back off",
+          JSON.stringify(again.layers) === JSON.stringify(drawing.layers),
+          JSON.stringify(again.layers));
+    check("and the one that is current is one you can draw on",
+          again.current === "ON", again.current);
+  }
+
+  check("and a round trip keeps them", 
+        sketchLayers(back).map(l => l.name).sort().join(",") === "KERB,LEVELS,SURVEY",
+        sketchLayers(back).map(l => l.name).join(","));
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

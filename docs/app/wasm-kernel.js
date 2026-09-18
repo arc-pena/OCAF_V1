@@ -24,8 +24,8 @@
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshFaces,
          parseNumbers, schemaJson,
          typeSpec } from "./ocaf.js";
-import { bsplinePoints, reversedBspline, sketchArcPoint, sketchChainEnds, sketchEnds,
-         sketchLoops, sketchNesting, sketchOutline, solveSketch, splinePoints,
+import { bsplinePoints, reversedBspline, shownDrawing, sketchArcPoint, sketchChainEnds,
+         sketchEnds, sketchLoops, sketchNesting, sketchOutline, solveSketch, splinePoints,
          wholeEllipse } from "./sketch.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
@@ -1472,13 +1472,19 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       const drawing = F.sketch(f, "drawing");
       const elements = drawing.elements || [];
       if (!elements.length) return "the sketch is empty - draw something on it";
-      if (!elements.some(el => sketchEnds(el)))
-        return "the sketch has only points in it - draw a line, an arc or a circle";
+      // And that is the only thing it refuses. A drawing of loose lines that
+      // close nothing is a drawing; so is one of nothing but points, which is
+      // a setting-out. Both used to be turned away here, and a DXF of survey
+      // marks or of a plan that never closed came in as a feature in error.
+      if (!shownDrawing(drawing).elements.length)
+        return "every layer in this sketch is turned off - turn one on to see it";
       return null;
     },
     build: f => {
       const api = shapeApi();
-      const drawing = sketchDrawing(f);
+      // Solved over the whole drawing - a relation may hold something on a
+      // layer that is off - and built over what is showing.
+      const drawing = shownDrawing(sketchDrawing(f));
       const frame = sketchFrame(f);
       const { loops, open } = sketchLoops(drawing, 0.05);
       const wanted = Feature_choice(f, "faces") === 0;
@@ -1514,12 +1520,19 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         const wire = sketchWire(drawing, chain, frame, false);
         if (wire) shapes.push(wire);
       }
-      if (!shapes.length) throw new Error("nothing in the sketch could be built");
 
       // The points someone put in the sketch come out as points, so a sketch
-      // is also a way of laying out a row of locations on a plane.
+      // is also a way of laying out a row of locations on a plane - and a
+      // drawing of nothing but points is a perfectly good sketch. They are
+      // built as vertices, so that one has a shape like anything else rather
+      // than being a feature that failed.
       const marks = (drawing.elements || []).filter(el => el.type === "point")
         .map(el => frame.at(el.p));
+      for (const mark of marks) shapes.push(vertexAt(mark));
+      if (!shapes.length)
+        throw new Error("nothing in this drawing could be built - every element in it is "
+          + "a line of no length or a circle of no radius");
+
       const shape = shapes.length === 1 ? shapes[0] : api.compound(shapes);
       return marks.length ? { shape, data: points(marks) } : shape;
     },
@@ -3796,11 +3809,18 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           layers: Array.isArray(layers) && layers.length ? layers : null,
           limit: DXF_LIMIT,
         });
-        if (!drawing.elements.length)
-          throw new Error(report.skippedCount
-            ? "nothing in that file is geometry a sketch can hold"
-            : "no lines, arcs or curves in that file"
-              + (report.tilted ? " - " + report.tilted + " entities are drawn out of plane" : ""));
+        if (!drawing.elements.length) {
+          // Nothing came in, and the only useful thing to say is what IS in
+          // the file: a drawing of nothing but text and dimensions is a common
+          // thing to be sent, and "no geometry" on its own reads like a fault.
+          const had = Object.entries(report.skipped)
+            .map(([type, n]) => ignoredName(type, n)).join(", ");
+          throw new Error("there is no geometry in that file for a sketch to hold"
+            + (had ? " - what is in it is " + had : "")
+            + (report.tilted ? (had ? ", and " : " - ") + report.tilted
+                + " entities are drawn out of plane" : "")
+            + (layers && layers.length ? " (on the layers you kept)" : ""));
+        }
 
         const plane = doc.features().find(f => F.spec(f).type === "Plane") || this.datumPlane(stem);
         const sketch = doc.addFeature("Sketch", null, stem);

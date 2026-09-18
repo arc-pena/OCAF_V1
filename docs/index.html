@@ -666,6 +666,45 @@ select {
 .pick-layer b { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); font-weight: 400; }
 .pick-note { margin-top: 10px; font-size: 11px; color: var(--ink-3); line-height: 1.5; }
 
+/* The layers of a drawing. Six things per row and none of them a word: the
+   panel is 300 px wide and a row of labels would be a row nobody reads. */
+.layers { margin-top: 8px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.layers-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 4px;
+}
+.layer-add {
+  border: 0; background: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px;
+}
+.layer-add:hover { background: var(--accent-soft); }
+.layer-row {
+  display: flex; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 6px;
+}
+.layer-row:hover { background: var(--panel-2); }
+.layer-row.current { background: var(--accent-soft); }
+.layer-icon {
+  flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px;
+  background: none; color: var(--ink-3); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.layer-icon svg { width: 14px; height: 14px; display: block; }
+.layer-icon:hover { background: var(--panel-2); color: var(--ink); }
+.layer-icon[aria-pressed="true"] { color: var(--accent); }
+.layer-icon:disabled { opacity: .3; cursor: default; }
+.layer-icon.layer-gone:hover { color: var(--bad); background: var(--bad-soft); }
+.layer-name {
+  flex: 1; min-width: 0; background: none; border: 1px solid transparent;
+  border-radius: 5px; color: inherit; font: inherit; font-size: 12px; padding: 2px 5px;
+}
+.layer-name:hover { border-color: var(--line); }
+.layer-name:focus { border-color: var(--accent); background: var(--panel-2); outline: none; }
+.layer-count {
+  flex: none; font-family: var(--mono); font-size: 10px; font-weight: 400;
+  color: var(--ink-3); padding: 0 3px;
+}
+
 /* the code editor: a Script feature needs more room than a slider does */
 #def-panel.wide { width: 460px; }
 .editor { padding: 10px 12px 12px; border-top: 1px solid var(--line-soft); }

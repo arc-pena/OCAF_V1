@@ -109,6 +109,7 @@ export function parseDxf(text) {
   const header = {};
   const blocks = new Map();
   const entities = [];
+  const table = new Map();                // the layer table: name -> what it says
 
   let section = "";
   let holder = entities;                  // where entities are being collected
@@ -120,6 +121,14 @@ export function parseDxf(text) {
     if (!current) return;
     // A POLYLINE owns the VERTEXes that follow it, up to SEQEND. They are
     // written as separate entities and they are not separate things.
+    if (current.type === "LAYER" && section === "TABLES") {
+      const name = current.first(2, "");
+      if (name) table.set(name, { name,
+        on: current.first(62, 7) >= 0 && !(current.first(70, 0) & 1),
+        locked: !!(current.first(70, 0) & 4) });
+      current = null;
+      return;
+    }
     const last = holder.length ? holder[holder.length - 1] : null;
     if (current.type === "VERTEX" && last && last.type === "POLYLINE") last.vertices.push(current);
     else if (current.type === "SEQEND") { /* nothing: the run has ended */ }
@@ -148,6 +157,10 @@ export function parseDxf(text) {
         continue;
       }
       if (section === "ENTITIES" || section === "BLOCKS") current = entity(value, []);
+      // A LAYER row of the table says whether the layer is off (its colour is
+      // written negative) and whether it is frozen or locked. That is the
+      // state a drawing carries, and it is worth keeping.
+      if (section === "TABLES" && value === "LAYER") current = entity("LAYER", []);
       continue;
     }
 
@@ -171,7 +184,7 @@ export function parseDxf(text) {
   }
   close();
 
-  return { header, blocks, entities };
+  return { header, blocks, entities, table };
 }
 
 /* ------------------------------------------------------------- the survey
@@ -539,7 +552,7 @@ function polyline(run, closed, put, make, note) {
 //! \p units is the key of a DXF_UNITS row - what one unit in the file means -
 //! and \p layers, when it is given, is the only layers to take.
 export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMIT } = {}) {
-  const { blocks, entities } = parseDxf(text);
+  const { blocks, entities, table } = parseDxf(text);
   const scale = unitsNamed(units).mm;
   const wanted = layers ? new Set(layers) : null;
 
@@ -612,10 +625,29 @@ export function dxfDrawing(text, { units = "mm", layers = null, limit = DXF_LIMI
     .map(([one, two]) => joint(one, two))
     .filter(Boolean);
 
+  // The layers come across with the drawing, in the order they were busiest,
+  // all of them showing. A plan arrives as the plan it was drawn as, and what
+  // to do about the furniture is then a switch rather than a re-export.
+  const tally = new Map();
+  for (const el of elements) tally.set(el.layer, (tally.get(el.layer) || 0) + 1);
+  const order = [...tally.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  const drawing = { elements, constraints };
+  if (order.length) {
+    // On unless the file says otherwise: a layer that was off or locked in
+    // AutoCAD arrives off or locked here, because that state is part of the
+    // drawing and not an accident of how it was exported.
+    drawing.layers = order.map(name => {
+      const said = table.get(name);
+      return { name, on: said ? said.on : true, locked: said ? said.locked : false };
+    });
+    drawing.current = (drawing.layers.find(l => l.on && !l.locked) || drawing.layers[0]).name;
+  }
+
   return {
-    drawing: { elements, constraints },
+    drawing,
     report: {
       elements: elements.length,
+      layers: order.length,
       entities: note.taken,
       blocks: note.blocks,
       joints: constraints.length,
@@ -755,16 +787,22 @@ export function writeDxf(drawings, { units = "mm", name = "sketch" } = {}) {
   const unit = unitsNamed(units);
   const list = (Array.isArray(drawings) ? drawings : [drawings])
     .map((d, i) => ({ name: (d.name || "SKETCH" + (i + 1)).replace(/[<>/\\":;?*|=`,]/g, "_"),
-                      elements: (d.drawing || d).elements || [] }))
+                      elements: (d.drawing || d).elements || [],
+                      layers: (d.drawing || d).layers || [] }))
     .filter(d => d.elements.length);
   if (!list.length) throw new Error("there is nothing in those sketches to write");
 
   // An element that came from a DXF remembers which layer it was on, and goes
   // back out on it. Everything drawn here goes out on the sketch's own name,
   // which is the only sensible layer for a drawing that never had any.
-  const named = new Set();
-  for (const one of list)
-    for (const el of one.elements) named.add(el.layer || one.name);
+  const named = new Map();
+  for (const one of list) {
+    const said = new Map((one.layers || []).map(l => [l.name, l]));
+    for (const el of one.elements) {
+      const name = el.layer || one.name;
+      if (!named.has(name)) named.set(name, said.get(name) || { name, on: true, locked: false });
+    }
+  }
 
   let text = tag(0, "SECTION") + tag(2, "HEADER")
            + tag(9, "$ACADVER") + tag(1, "AC1015")
@@ -774,9 +812,12 @@ export function writeDxf(drawings, { units = "mm", name = "sketch" } = {}) {
 
   text += tag(0, "SECTION") + tag(2, "TABLES")
         + tag(0, "TABLE") + tag(2, "LAYER") + tag(70, named.size);
-  for (const layer of named)
+  for (const [name, state] of named)
     text += tag(0, "LAYER") + tag(100, "AcDbSymbolTableRecord") + tag(100, "AcDbLayerTableRecord")
-          + tag(2, layer) + tag(70, 0) + tag(62, 7) + tag(6, "CONTINUOUS");
+          + tag(2, name) + tag(70, state.locked ? 4 : 0)
+          // A layer that is off is written as a negative colour, which is how
+          // DXF has always said it.
+          + tag(62, state.on === false ? -7 : 7) + tag(6, "CONTINUOUS");
   text += tag(0, "ENDTAB") + tag(0, "ENDSEC");
 
   text += tag(0, "SECTION") + tag(2, "ENTITIES");

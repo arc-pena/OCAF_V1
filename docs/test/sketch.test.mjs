@@ -6,10 +6,11 @@
 // loops it closes really are faces - measured, not assumed - and that a pad
 // off a sketch is a solid with a volume you can predict on paper.
 import { createWasmKernel } from "../src/wasm-kernel.js";
-import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, readSketch, sketchDirectionAt,
-         sketchCrossings, sketchElement, sketchEnds, sketchLoops, sketchRelation,
-         sketchRelationMarks, sketchSummary,
-         sketchTangentArc, solveSketch } from "../src/sketch.js";
+import { EMPTY_SKETCH, SKETCH_CLICKS, SKETCH_TYPES, currentLayer, elementLocked,
+         elementShown, readSketch, shownDrawing, sketchDirectionAt, sketchCrossings,
+         sketchElement, sketchEnds, sketchLayers, sketchLoops, sketchRelation,
+         sketchRelationMarks, sketchSummary, sketchTangentArc,
+         solveSketch } from "../src/sketch.js";
 import { Mdl } from "../src/mdl.js";
 import { readFileSync } from "fs";
 
@@ -415,6 +416,143 @@ console.log("\n13. a point held where two curves cross");
   check("the crossings are found by id as well",
     sketchCrossings(drawing, "L1", "C1").length === 2,
     JSON.stringify(sketchCrossings(drawing, "L1", "C1")));
+}
+
+console.log("\n13. a drawing that closes nothing is still a drawing");
+{
+  // The thing that was wrong: a sketch of loose lines, or of nothing but
+  // points, came in as a feature in error. A survey closes nothing and is
+  // still a survey; setting-out is points and nothing else.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  const build = async drawing => {
+    await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                             units: "mm", features: [] });
+    const id = (await mdl.run({ op: "add", type: "Sketch", name: "Loose" })).id;
+    await mdl.run({ op: "sketch", id, drawing });
+    return await at(id);
+  };
+
+  const loose = await build({ elements: [
+    { id: "a", type: "line", a: [0, 0], b: [100, 30] },
+    { id: "b", type: "line", a: [200, 0], b: [260, 90] },
+    { id: "c", type: "arc", c: [400, 0], r: 50, a0: 0, a1: 2 },
+  ], constraints: [] });
+  check("loose lines and an arc that close nothing build",
+        loose.built && !loose.error, String(loose.error));
+
+  const marks = await build({ elements: [
+    { id: "p", type: "point", p: [10, 10] },
+    { id: "q", type: "point", p: [90, 40] },
+  ], constraints: [] });
+  check("and a drawing of nothing but points builds too",
+        marks.built && !marks.error, String(marks.error));
+  check("with the points published, so they can be pointed at",
+        marks.data && marks.data.count === 2, JSON.stringify(marks.data));
+
+  const open = await build({ elements: [
+    { id: "a", type: "line", a: [0, 0], b: [100, 0] },
+    { id: "b", type: "line", a: [100, 0], b: [100, 80] },
+  ], constraints: [{ type: "coincident", of: ["a.b", "b.a"] }] });
+  check("an open chain builds as the wire it is", open.built && !open.error, String(open.error));
+
+  const empty = await build({ elements: [], constraints: [] });
+  check("an empty sketch is the one thing still refused",
+        !empty.built && /empty/.test(empty.error || ""), String(empty.error));
+}
+
+console.log("\n14. layers");
+{
+  const drawing = {
+    elements: [
+      { id: "a", type: "line", a: [0, 0], b: [100, 0], layer: "OUTLINE" },
+      { id: "b", type: "line", a: [100, 0], b: [100, 80], layer: "OUTLINE" },
+      { id: "c", type: "circle", c: [50, 40], r: 12, layer: "FURNITURE" },
+      { id: "d", type: "point", p: [5, 5] },
+    ],
+    constraints: [{ type: "coincident", of: ["a.b", "b.a"] }],
+    layers: [{ name: "OUTLINE", on: true, locked: false },
+             { name: "FURNITURE", on: false, locked: false }],
+    current: "OUTLINE",
+  };
+  const layers = sketchLayers(drawing);
+  check("every layer is found, declared or not",
+        layers.map(l => l.name).join(",") === "OUTLINE,FURNITURE,0",
+        layers.map(l => l.name).join(","));
+  check("with what is on each of them",
+        layers.map(l => l.count).join(",") === "2,1,1", layers.map(l => l.count).join(","));
+  check("an element that names no layer is on the drawing's own",
+        elementShown(drawing, drawing.elements[3]));
+  check("and a drawing that has never heard of layers has one",
+        sketchLayers({ elements: [{ id: "x", type: "point", p: [0, 0] }] })
+          .map(l => l.name + ":" + l.count).join() === "0:1");
+
+  const shown = shownDrawing(drawing);
+  check("off means off: the elements on it are not there to be built",
+        shown.elements.map(el => el.id).join(",") === "a,b,d",
+        shown.elements.map(el => el.id).join(","));
+  check("and a relation whose other end went off with it goes too",
+        shownDrawing({ ...drawing,
+          layers: [{ name: "OUTLINE", on: false }] }).constraints.length === 0);
+  check("the summary counts what is hidden",
+        /2 hidden/.test(sketchSummary({ ...drawing,
+          layers: [{ name: "OUTLINE", on: false }] })),
+        sketchSummary({ ...drawing, layers: [{ name: "OUTLINE", on: false }] }));
+  check("a locked layer is still shown, and still built",
+        elementShown({ ...drawing, layers: [{ name: "OUTLINE", locked: true }] },
+                     drawing.elements[0]));
+  check("but nothing on it answers to the cursor",
+        elementLocked({ ...drawing, layers: [{ name: "OUTLINE", locked: true }] },
+                      drawing.elements[0]));
+  check("new elements go on the current layer", currentLayer(drawing) === "OUTLINE");
+  check("and never on one that is off or locked",
+        currentLayer({ ...drawing, current: "FURNITURE" }) === "OUTLINE",
+        currentLayer({ ...drawing, current: "FURNITURE" }));
+  check("layers survive being written into the document",
+        readSketch(JSON.stringify(drawing)).layers.length === 2
+        && readSketch(JSON.stringify(drawing)).current === "OUTLINE");
+
+  // And through the edit language, which is what the panel's buttons write.
+  const mdl = new Mdl({ kernel, apply: () => {}, setNode: () => {},
+                        readLayout: () => ({}), select: () => {}, selected: () => null });
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const id = (await mdl.run({ op: "add", type: "Sketch", name: "Plan" })).id;
+  await mdl.run({ op: "sketch", id, drawing });
+  const held = async () => readSketch((await at(id)).sketch.drawing);
+
+  await mdl.run({ op: "layer", id, name: "FURNITURE", show: true, lock: true });
+  const locked = (await held()).layers.find(l => l.name === "FURNITURE");
+  check("a layer can be shown and locked in one edit",
+        locked.on && locked.locked, JSON.stringify(locked));
+
+  await mdl.run({ op: "layer", id, name: "OUTLINE", rename: "Slab edge" });
+  const renamed = await held();
+  check("renaming a layer carries everything on it across",
+        renamed.elements.filter(el => el.layer === "Slab edge").length === 2
+        && renamed.current === "Slab edge",
+        JSON.stringify(renamed.layers.map(l => l.name)));
+
+  await mdl.run({ op: "layer", id, name: "Setting out", current: true });
+  check("a layer nobody has used yet is made by naming it",
+        (await held()).layers.some(l => l.name === "Setting out"));
+
+  await mdl.run({ op: "unlayer", id, name: "FURNITURE" });
+  const after = await held();
+  check("deleting a layer takes what was drawn on it",
+        after.elements.length === 3 && !after.elements.some(el => el.layer === "FURNITURE"),
+        after.elements.map(el => el.id).join(","));
+
+  let refused = "";
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const only = (await mdl.run({ op: "add", type: "Sketch", name: "One" })).id;
+  await mdl.run({ op: "sketch", id: only, drawing: { elements: [
+    { id: "a", type: "line", a: [0, 0], b: [10, 0] }], constraints: [] } });
+  try { await mdl.run({ op: "unlayer", id: only, name: "0" }); }
+  catch (err) { refused = err.message; }
+  check("and the last layer cannot go - a drawing is always on one",
+        /only layer/.test(refused), refused);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
