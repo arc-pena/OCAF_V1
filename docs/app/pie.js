@@ -99,6 +99,140 @@ const branch = (label, note, items) => ({ label, note, items });
 //! a promise that something can be done; a gap is the truth.
 const only = (when, item) => (when ? [item] : []);
 
+//! WHAT YOU DO TO A THING OF THIS KIND, in the order you most often do it.
+//!
+//! This is the table the whole contextual ring turns on, and it is a table on
+//! purpose. "Every node whose input happens to accept a solid" is a list of
+//! twenty and it is not an answer: pick a solid in any modeller and the four
+//! things you want are a fillet, a boolean, a measurement and a move, and they
+//! want to be under your hand rather than two flicks inside an alphabet. The
+//! long list is still there, one wedge along, and nothing is hidden - but the
+//! first four places belong to the four things.
+//!
+//! Each row says which node to make and WHICH INPUT OF IT the selected thing
+//! goes into, because that is what makes "point on a curve" different from
+//! "curve through points" when both of them wire a curve to a Point. `kind`,
+//! where there is one, is the setting that node has to be on for the input to
+//! mean what the label says.
+//!
+//! A row is offered only when the schema really has that node and that node's
+//! input really does accept what is selected, so a row that stops being true -
+//! a package taken off the shelf, an argument renamed - stops being offered
+//! rather than becoming a wedge that fails.
+export const COMMON = {
+  point: [
+    { type: "Plane", into: "origin", kind: 0, label: "Plane here",
+      note: "a plane standing on this point" },
+    { type: "Line", into: "origin", kind: 0, label: "Line from here",
+      note: "along a direction" },
+    { type: "Cube", into: "origin", label: "Cube here", note: "a box with a corner on it" },
+    { type: "Sphere", into: "center", label: "Sphere here", note: "centred on it" },
+    { type: "Measure", into: "shape", label: "Measure", note: "where it is" },
+    { type: "Polyline", into: "points", label: "Polyline", note: "through this point and more" },
+    { type: "Interpolate", into: "points", label: "Spline", note: "a smooth curve through points" },
+  ],
+  curve: [
+    { type: "Extrude", into: "profile", label: "Extrude", note: "a pad out of this profile" },
+    { type: "Point", into: "curve", kind: 1, label: "Point on it",
+      note: "a point along the curve" },
+    { type: "Plane", into: "curve", kind: 1, label: "Plane across it",
+      note: "square across the curve" },
+    { type: "Loft", into: "sections", label: "Loft", note: "through this and the next section" },
+    { type: "Sweep", into: "spine", label: "Sweep along it", note: "run a profile down it" },
+    { type: "ParallelCurve", into: "curve", label: "Offset", note: "a curve parallel to it" },
+    { type: "DivideCurve", into: "curve", label: "Divide", note: "points evenly along it" },
+    { type: "Project", into: "curve", label: "Project", note: "onto a plane or a solid" },
+    { type: "Measure", into: "shape", label: "Measure", note: "how long it is" },
+  ],
+  plane: [
+    { type: "Sketch", into: "plane", label: "Sketch on it", note: "draw a profile" },
+    { type: "Cube", into: "plane", label: "Cube on it", note: "standing on this plane" },
+    { type: "Extrude", into: "profile", label: "Extrude", note: "a pad off this face" },
+    { type: "Plane", into: "from", kind: 2, label: "Offset plane",
+      note: "parallel, a distance away" },
+    { type: "Circle", into: "plane", label: "Circle on it", note: "" },
+    { type: "MeshGrid", into: "plane", label: "Mesh grid", note: "a grid to push about" },
+    { type: "Measure", into: "shape", label: "Measure", note: "" },
+  ],
+  solid: [
+    { type: "Fillet", into: "body", label: "Fillet", note: "round its edges" },
+    { type: "Boolean", into: "a", label: "Boolean", note: "cut, fuse, or what is common" },
+    { type: "Measure", into: "shape", label: "Measure", note: "volume, area, extents" },
+    { type: "Move", into: "shape", label: "Move", note: "along a direction, or point to point" },
+    { type: "Mirror", into: "shape", label: "Mirror", note: "about a plane" },
+    { type: "Array", into: "source", label: "Array", note: "a row or a ring of it" },
+    { type: "ThickSurface", into: "surface", label: "Shell", note: "give it a wall thickness" },
+    { type: "Draft", into: "body", label: "Draft", note: "taper its walls" },
+    { type: "MeshFromShape", into: "shape", label: "To mesh", note: "tessellate it" },
+    { type: "Rotate", into: "shape", label: "Rotate", note: "about an axis" },
+    { type: "Scale", into: "shape", label: "Scale", note: "" },
+  ],
+  mesh: [
+    { type: "EditMesh", into: "mesh", label: "Edit mesh", note: "push and pull its vertices" },
+    { type: "Subdivide", into: "mesh", label: "Subdivide", note: "smooth it, Catmull-Clark" },
+    { type: "Weld", into: "mesh", label: "Weld", note: "join vertices that sit together" },
+    { type: "FillHoles", into: "mesh", label: "Fill holes", note: "close what is open" },
+    { type: "MeshDisplace", into: "mesh", label: "Displace", note: "along the normals" },
+    { type: "MeshTransform", into: "mesh", label: "Transform", note: "move, turn, scale" },
+    { type: "MeshMerge", into: "a", label: "Merge", note: "with another mesh" },
+    { type: "Measure", into: "shape", label: "Measure", note: "" },
+  ],
+  vector: [
+    { type: "Line", into: "direction", kind: 0, label: "Line along it", note: "from a point" },
+    { type: "Plane", into: "normal", kind: 0, label: "Plane square to it", note: "on a point" },
+    { type: "Extrude", into: "direction", label: "Extrude along it", note: "" },
+    { type: "AxisSystem", into: "xdir", kind: 0, label: "Axis system", note: "X along it" },
+  ],
+  axis: [
+    { type: "AxisToAxis", into: "from", label: "Axis to axis", note: "place a part by it" },
+    { type: "Rotate", into: "axis", label: "Rotate about it", note: "" },
+  ],
+  number: [
+    { type: "Panel", into: "input", label: "Panel", note: "print what it computes" },
+  ],
+};
+
+//! The rows of \ref COMMON that really apply, in their table order. The arg has
+//! to exist, it has to accept what is selected, and a body something has
+//! already eaten cannot be fed to anything else.
+export function commonFor(world) {
+  const { selected, types = [], accepts } = world;
+  if (!selected) return [];
+  const out = [];
+  for (const row of COMMON[selected.produces] || []) {
+    const spec = types.find(t => t.type === row.type);
+    if (!spec || spec.hidden) continue;
+    const arg = (spec.args || []).find(a => a.key === row.into
+      && (a.kind === "ref" || a.kind === "refs"));
+    if (!arg || !accepts(arg.accepts, selected)) continue;
+    if (arg.consumes && selected.consumedBy) continue;
+    out.push({ ...row, many: arg.kind === "refs", summary: spec.summary });
+  }
+  return out;
+}
+
+//! And EVERYTHING else the selected thing can be wired into: every node with an
+//! input that accepts it, at the first input that does. This is the long
+//! honest list - the one that cannot go stale, because it is read off the
+//! schema - and it lives one wedge along from the four that matter.
+export function derivationsFor(world) {
+  const { selected, types = [], accepts } = world;
+  if (!selected) return [];
+  const already = new Set(commonFor(world).map(row => row.type));
+  const out = [];
+  for (const spec of types) {
+    if (spec.hidden || already.has(spec.type) || spec.type === selected.type
+        && spec.category === "container") continue;
+    const arg = (spec.args || []).find(a => (a.kind === "ref" || a.kind === "refs")
+      && accepts(a.accepts, selected));
+    if (!arg) continue;
+    if (arg.consumes && selected.consumedBy) continue;
+    out.push({ type: spec.type, into: arg.key, many: arg.kind === "refs",
+               label: spec.type, note: spec.summary || "" });
+  }
+  return out;
+}
+
 //! Which operations would take what is selected. The same test the rail makes
 //! to un-grey its buttons, asked of the same schema - so what the menu offers
 //! and what the rail offers can never drift apart.
@@ -265,20 +399,17 @@ function modeRing(world) {
   ];
 }
 
-//! And the modelling ring, which is the one this is mostly about. Fixed order,
-//! so the flick that adds a node is the same flick whatever is selected: what
-//! a selection adds goes in the middle, between the things that are always
-//! there, and never at the front.
-function modelRing(world) {
-  const { selected, act } = world;
-  const ops = operationsFor(world);
+//! How many of a kind's commonest operations go on the root ring. Four, which
+//! is what is left of twelve places once Add, the long list, the housekeeping
+//! and the five rings that are always there have theirs.
+export const COMMON_ON_RING = 4;
+
+//! The modelling ring with nothing selected: the program itself, in one fixed
+//! order that never changes while nothing is picked.
+function idleRing(world) {
+  const { act } = world;
   return [
     addBranch(world),
-    ...only(!!selected && ops.length > 0,
-      branch("Apply", selected ? "to " + selected.name : "",
-        paged(ops.map(spec => leaf(spec.type, short(spec.summary || ""),
-                                   () => act.add(spec.type)))))),
-    ...only(!!selected, selected ? editBranch(world) : null),
     viewBranch(world),
     styleBranch(world),
     packagesBranch(world),
@@ -288,6 +419,48 @@ function modelRing(world) {
     documentBranch(world),
     interfaceBranch(world),
   ];
+}
+
+//! And with something selected, which is the ring this is all for.
+//!
+//! Pick a solid and Fillet, Boolean, Measure and Move are under your hand.
+//! Pick a sketch and the first of them is Extrude. Pick a point and it is a
+//! plane on the point; a mesh and it is Edit mesh and Subdivide. That is what
+//! contextual has to mean - not "a branch called Apply that lists whatever
+//! happens to typecheck", which is a list you read rather than a place you
+//! flick to.
+//!
+//! Twelve places, and the four at the front are the only ones that change with
+//! what is picked. What is always there keeps its order behind them, and the
+//! long list of everything else is one wedge rather than gone.
+function pickedRing(world) {
+  const { selected, act } = world;
+  const common = commonFor(world);
+  const first = common.slice(0, COMMON_ON_RING);
+  const rest = [...common.slice(COMMON_ON_RING), ...derivationsFor(world)];
+  return [
+    addBranch(world),
+    ...first.map(row => leaf(row.label, row.note || short(row.summary || ""),
+                             () => act.make(row.type, row.into, row.kind, row.many))),
+    ...only(rest.length > 0, branch("More", "everything else it feeds",
+      paged(rest.map(row => leaf(row.label, row.note ? short(row.note) : "",
+                                 () => act.make(row.type, row.into, row.kind, row.many)))))),
+    editBranch(world),
+    viewBranch(world),
+    styleBranch(world),
+    branch("Workspace", "the rest of the program", [
+      leaf("Showroom", "see it as a product", () => act.showroom()),
+      leaf("Nodes", "edit it as a graph", () => act.nodes(), { on: !!world.graph }),
+      leaf("AI", "ask Claude to build it", () => act.ai(), { on: !!world.ai }),
+      packagesBranch(world),
+    ]),
+    documentBranch(world),
+    interfaceBranch(world),
+  ];
+}
+
+function modelRing(world) {
+  return world.selected ? pickedRing(world) : idleRing(world);
 }
 
 //! The root ring for the world as it stands. One question, asked fresh every

@@ -9,7 +9,7 @@ import { ENVIRONMENTS, Showroom } from "./showroom.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { Arctic, FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf,
          makeSky, materialOf, rgbOf } from "./styles.js";
-import { Mdl } from "./mdl.js";
+import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, dataLines, lightenModel, round, SAMPLES, sliderSpan } from "./ocaf.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
@@ -5486,6 +5486,32 @@ const clickOn = id => document.getElementById(id).click();
 //! behaves two ways.
 const PIE_ACTS = {
   add: type => addFeature(type),
+  //! The contextual half of the ring: make a node AND wire what is picked into
+  //! the input the menu said it would go into. "Point on it" and "Spline
+  //! through it" both feed a curve to a Point node - which input decides which
+  //! of them you asked for, so the input is what the item carries.
+  //!
+  //! Everything else on the new node is wired the way the toolbar would wire
+  //! it, so a plane made on a point still gets a normal and is built rather
+  //! than born broken. The two edits are one undo: adding a node and putting
+  //! it on the setting the label promised are not two things that happened.
+  make: async (type, into, kind, many) => {
+    const refs = await defaultRefs({ kernel, selected: () => state.selected,
+                                     picked: () => state.picked }, type);
+    // Several things shift-clicked are several sections of a loft, and the one
+    // selected is only the last of them.
+    if (many) {
+      const all = state.picked.length > 1 ? state.picked.slice() : [state.selected];
+      refs[into] = all.filter(Boolean);
+    } else refs[into] = state.selected;
+    const born = await edit({ op: "add", type, refs });
+    if (!born) return;
+    if (kind !== undefined)
+      await mdl.runAll([{ op: "set", id: born.id, key: "kind", value: kind }])
+               .catch(err => showError(err.message));
+    select(born.id, true);
+    if (schemaType(type) && schemaType(type).category !== "datum") fitView();
+  },
   openDef: () => select(state.selected, true),
   del: () => deleteFeature(state.selected),
   visible: was => {

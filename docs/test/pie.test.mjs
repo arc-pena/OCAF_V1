@@ -6,8 +6,9 @@
 // in the middle has to mean nothing. The second is what is IN it - because the
 // claim being made is that the whole program is reachable from here, and that
 // is a claim you can check item by item rather than believe.
-import { PIE_DEAD, PIE_MAX, chipAt, operationsFor, paged, pieAngle, pieMenu,
-         ringLayout, wedgeAt } from "../src/pie.js";
+import { COMMON, COMMON_ON_RING, PIE_DEAD, PIE_MAX, chipAt, commonFor, derivationsFor,
+         operationsFor, paged, pieAngle, pieMenu, ringLayout, wedgeAt } from "../src/pie.js";
+import { CATALOGUE, acceptsFrom } from "../src/ocaf.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -90,10 +91,10 @@ const SCHEMA = [
   { type: "Plane", category: "datum", summary: "A planar datum" },
   { type: "Sketch", category: "curve", summary: "A 2D drawing on a plane" },
   { type: "Cube", category: "body", summary: "A box" },
-  { type: "Pad", category: "operation", summary: "Extrude a profile",
+  { type: "Extrude", category: "operation", summary: "Extrude a profile",
     args: [{ key: "profile", kind: "ref", accepts: "curve", consumes: true }] },
   { type: "Fillet", category: "operation", summary: "Round the edges",
-    args: [{ key: "of", kind: "ref", accepts: "solid", consumes: true }] },
+    args: [{ key: "body", kind: "ref", accepts: "solid", consumes: true }] },
   { type: "Imported", category: "body", hidden: true, summary: "never offered" },
 ];
 const ran = [];
@@ -141,36 +142,120 @@ console.log("\n3. with nothing selected, everything the program does is in there
   check("a node nobody adds by hand is not offered", !has(ring, "Imported"));
   check("redo is not offered when there is nothing to redo", !has(ring, "Redo"));
   check("and nothing about a selection is offered when there is none",
-        !has(ring, "Delete") && !has(ring, "Apply"));
+        !has(ring, "Delete") && !has(ring, "More") && !has(ring, "Edit"));
 
   // The items are places, so the order they come in is the whole contract.
   check("Add is always the first place", ring[0].label === "Add", ring[0].label);
 }
 
-console.log("\n4. and it is contextual");
+console.log("\n4. and it is contextual - the first places are about what is picked");
 {
   const profile = { id: "SK1", name: "Sketch.1", produces: "curve", category: "curve" };
   const ring = pieMenu(world({ selected: profile,
     containers: [{ id: "BO1", name: "PartBody", type: "Body" },
                  { id: "GS1", name: "Set.1", type: "GeometricalSet" }] }));
-  check("what can be done to it comes with it", has(ring, "Apply.*Pad"), labels(ring).join(" · "));
-  check("and what cannot does not", !has(ring, "Apply.*Fillet"),
-        "a Fillet takes a solid, and this is a curve");
+  check("what a curve is for is on the ring itself, not inside a branch",
+        labels(ring).includes("Extrude"), labels(ring).join(" · "));
+  check("and it is the first thing after Add",
+        ring[0].label === "Add" && ring[1].label === "Extrude");
+  check("what a curve is NOT for is not offered", !labels(ring).includes("Fillet"));
+  // And no long list here, because in a schema this small nothing else takes a
+  // curve. A wedge that leads to an empty ring is worse than no wedge.
+  check("and no More wedge when there is no more", !labels(ring).includes("More"),
+        labels(ring).join(" · "));
   check("its definition is one flick away", has(ring, "Edit.*Definition"));
   check("so is deleting it", has(ring, "Edit.*Delete"));
   check("so is filing it in a set", has(ring, "Edit.*Move into.*PartBody"));
   check("hiding it is there too", has(ring, "Edit.*Hide"));
-  check("and Add has not moved", ring[0].label === "Add");
+  check("the rest of the program keeps its place behind it",
+        has(ring, "Workspace.*Showroom") && has(ring, "Document.*Undo"));
+  check("and the ring still fits", ring.length <= PIE_MAX, String(ring.length));
 
   const solid = { id: "PA1", name: "Pad.1", produces: "solid", category: "body" };
   const onSolid = pieMenu(world({ selected: solid }));
-  check("a solid is offered the operations a solid takes", has(onSolid, "Apply.*Fillet"));
-  check("and not the ones it does not", !has(onSolid, "Apply.*Pad"));
+  check("a solid gets a fillet on the ring", labels(onSolid).includes("Fillet"),
+        labels(onSolid).join(" · "));
+  check("and not an extrude", !labels(onSolid).includes("Extrude"));
   check("a body already eaten by something is offered nothing to do to it",
         operationsFor(world({ selected: { ...solid, consumedBy: "FI1" } })).length === 0);
+  check("and nothing to make from it either",
+        commonFor(world({ selected: { ...solid, consumedBy: "FI1" },
+                          types: SCHEMA })).length === 0);
 
   const shown = pieMenu(world({ selected: solid, hidden: true }));
   check("something hidden is offered showing, not hiding", has(shown, "Edit.*Show"));
+
+  // With nothing picked the ring is the program, and its order never changes.
+  const idle = pieMenu(world());
+  check("nothing picked is a different ring, and a settled one",
+        labels(idle).join() === "Add,View,Style,Packages,Showroom,Nodes,AI,Document,Interface",
+        labels(idle).join(" · "));
+}
+
+console.log("\n4b. against the real catalogue, which is the claim being made");
+{
+  const types = CATALOGUE;
+  const on = produces => world({ types, accepts: acceptsFrom,
+    selected: { id: "X", name: "It", produces, category: "body" } });
+  const first = produces => commonFor(on(produces))
+    .slice(0, COMMON_ON_RING).map(r => r.label);
+  const all = produces => commonFor(on(produces)).map(r => r.label);
+
+  check("a sketch, or any curve, offers Extrude first", first("curve")[0] === "Extrude",
+        first("curve").join(" · "));
+  check("and a point along the curve", all("curve").includes("Point on it"));
+  check("and a plane square across it", all("curve").includes("Plane across it"));
+  check("a solid offers Fillet, Boolean and Measure",
+        ["Fillet", "Boolean", "Measure"].every(w => first("solid").includes(w)),
+        first("solid").join(" · "));
+  check("a mesh offers editing it and subdividing it",
+        ["Edit mesh", "Subdivide"].every(w => first("mesh").includes(w)),
+        first("mesh").join(" · "));
+  check("a point offers a plane on the point", first("point")[0] === "Plane here",
+        first("point").join(" · "));
+  check("a plane offers a sketch on it", first("plane")[0] === "Sketch on it",
+        first("plane").join(" · "));
+  check("a vector offers a line along it and a plane square to it",
+        ["Line along it", "Plane square to it"].every(w => all("vector").includes(w)),
+        all("vector").join(" · "));
+
+  // Every row in the table has to be true of the catalogue as it stands, or it
+  // is a wedge that would fail when pressed.
+  const wrong = [];
+  for (const [kind, rows] of Object.entries(COMMON))
+    for (const row of rows) {
+      const spec = types.find(t => t.type === row.type);
+      if (!spec) { wrong.push(kind + "/" + row.type + ": no such node"); continue; }
+      const arg = (spec.args || []).find(a => a.key === row.into
+        && (a.kind === "ref" || a.kind === "refs"));
+      if (!arg) { wrong.push(kind + "/" + row.type + "." + row.into + ": no such input"); continue; }
+      if (!acceptsFrom(arg.accepts, { produces: kind }))
+        wrong.push(kind + "/" + row.type + "." + row.into + " takes " + arg.accepts);
+      if (row.kind !== undefined) {
+        const choice = (spec.args || []).find(a => a.key === "kind" && a.kind === "choice");
+        if (!choice) wrong.push(kind + "/" + row.type + ": has no kind to set");
+        else if (!choice.options[row.kind])
+          wrong.push(kind + "/" + row.type + ": no kind " + row.kind);
+        // And the input has to be the one that setting actually reads.
+        else if (arg.showWhen && arg.showWhen.key === "kind" && arg.showWhen.equals !== row.kind)
+          wrong.push(kind + "/" + row.type + "." + row.into + " belongs to kind "
+                     + arg.showWhen.equals + ", not " + row.kind);
+      }
+    }
+  check("every row of the table is true of the catalogue", wrong.length === 0,
+        wrong.join(" | "));
+
+  // And the ring built from the real thing still fits in twelve places.
+  for (const produces of ["point", "curve", "plane", "solid", "mesh", "vector"]) {
+    const ring = pieMenu(on(produces));
+    check("a " + produces + " makes a ring that fits", ring.length <= PIE_MAX,
+          ring.length + ": " + labels(ring).join(" · "));
+  }
+  const curve = pieMenu(on("curve"));
+  check("and the long list under More is read off the schema, not the table",
+        has(curve, "More.*Panel"), "Panel takes anything, so it is always in there");
+  check("with nothing repeated between the ring and the list",
+        derivationsFor(on("curve")).every(d => !labels(curve).includes(d.label)));
 }
 
 console.log("\n5. a sketch is its own interface, and so is its ring");
