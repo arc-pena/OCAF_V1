@@ -275,5 +275,125 @@ console.log("\n8. the model file says which kind, in words");
     JSON.stringify(back.report.failed.map(f => f.message)));
 }
 
+console.log("\n9. a direction read off the model, at a point rather than a parameter");
+{
+  // The tangent of a circle is perpendicular to its radius. That is the whole
+  // check, and it is the one worth making: "a vector appeared" and "the vector
+  // is tangent there" are different statements, and only the second is the
+  // reason for the node.
+  await fresh();
+  await point("O", "Centre", 0, 0, 0);
+  await mdl.run({ op: "add", type: "Vector", id: "UP", name: "Up" });
+  await mdl.run({ op: "set", id: "UP", key: "dz", value: 1 });
+  await mdl.run({ op: "add", type: "Plane", id: "PL", name: "XY" });
+  await mdl.run({ op: "connect", id: "PL", key: "origin", from: "O", mode: "only" });
+  await mdl.run({ op: "connect", id: "PL", key: "normal", from: "UP", mode: "only" });
+  await mdl.run({ op: "add", type: "Circle", id: "CI", name: "Ring" });
+  await mdl.run({ op: "connect", id: "CI", key: "plane", from: "PL", mode: "only" });
+  await mdl.run({ op: "set", id: "CI", key: "radius", value: 100 });
+
+  await mdl.run({ op: "add", type: "Point", id: "ON", name: "On the ring" });
+  await mdl.run({ op: "set", id: "ON", key: "kind", value: 1 });
+  await mdl.run({ op: "connect", id: "ON", key: "curve", from: "CI", mode: "only" });
+  await mdl.run({ op: "set", id: "ON", key: "at", value: 0.3 });
+
+  await mdl.run({ op: "add", type: "Vector", id: "TG", name: "Tangent" });
+  await mdl.run({ op: "set", id: "TG", key: "kind", value: 1 });
+  await mdl.run({ op: "connect", id: "TG", key: "curve", from: "CI", mode: "only" });
+  await mdl.run({ op: "connect", id: "TG", key: "at", from: "ON", mode: "only" });
+
+  const spoke = await where("ON");
+  const tangent = await where("TG");
+  const dot = spoke[0] * tangent[0] + spoke[1] * tangent[1] + spoke[2] * tangent[2];
+  check("the tangent of a circle is square to its radius",
+        Math.abs(dot) < 0.1, "radius · tangent = " + dot.toFixed(4)
+        + " at " + spoke.map(v => v.toFixed(2)).join(", "));
+  check("and it is a direction, not a length",
+        Math.abs(Math.hypot(...tangent) - 1) < 1e-3, String(Math.hypot(...tangent)));
+
+  // The point is what it is taken AT, so moving the point moves the tangent.
+  // That is the difference from a parameter: a number typed into the vector
+  // would still be pointing at where the point used to be.
+  await mdl.run({ op: "set", id: "ON", key: "at", value: 0.55 });
+  const moved = await where("ON");
+  const after = await where("TG");
+  check("move the point and the tangent moves with it",
+        Math.abs(moved[0] * after[0] + moved[1] * after[1] + moved[2] * after[2]) < 0.5,
+        "radius · tangent = "
+        + (moved[0] * after[0] + moved[1] * after[1] + moved[2] * after[2]).toFixed(4));
+  check("and it really did move", Math.hypot(after[0] - tangent[0], after[1] - tangent[1],
+                                             after[2] - tangent[2]) > 0.1);
+}
+
+console.log("\n10. a plane on a curve, and a sketch that starts where the plane does");
+{
+  // The whole of what a curve-mounted plane is for: put a point on a spline,
+  // take the tangent there, stand a plane on the two of them, and draw on it.
+  // The sketch's origin has to be the point, because the point is the plane's
+  // origin - draw a profile at 0, 0 and it belongs on the curve.
+  await fresh();
+  const spine = [];
+  for (const [i, c] of [[0, 0, 0], [100, 60, 20], [220, 20, 60], [320, 120, 40]].entries()) {
+    await point("S" + i, "Spine " + i, ...c);
+    spine.push("S" + i);
+  }
+  await mdl.run({ op: "add", type: "Interpolate", id: "SP", name: "Spine",
+                  refs: { points: spine } });
+  await mdl.run({ op: "add", type: "Point", id: "ON", name: "Station" });
+  await mdl.run({ op: "set", id: "ON", key: "kind", value: 1 });
+  await mdl.run({ op: "connect", id: "ON", key: "curve", from: "SP", mode: "only" });
+  await mdl.run({ op: "set", id: "ON", key: "at", value: 0.35 });
+  await mdl.run({ op: "add", type: "Vector", id: "TG", name: "Tangent" });
+  await mdl.run({ op: "set", id: "TG", key: "kind", value: 1 });
+  await mdl.run({ op: "connect", id: "TG", key: "curve", from: "SP", mode: "only" });
+  await mdl.run({ op: "connect", id: "TG", key: "at", from: "ON", mode: "only" });
+  await mdl.run({ op: "add", type: "Plane", id: "PL", name: "Section" });
+  await mdl.run({ op: "connect", id: "PL", key: "origin", from: "ON", mode: "only" });
+  await mdl.run({ op: "connect", id: "PL", key: "normal", from: "TG", mode: "only" });
+  await mdl.run({ op: "add", type: "Sketch", id: "SK", name: "Profile",
+                  refs: { plane: "PL" } });
+
+  check("the plane builds on a point and a tangent", (await at("PL")).built,
+        String((await at("PL")).error));
+  const frame = (await at("SK")).sketch.frame;
+  const station = await where("ON");
+  check("and the sketch starts at the point on the curve",
+        near(frame.origin, station, 1e-4),
+        frame.origin.map(v => v.toFixed(3)).join(", ") + " vs "
+        + station.map(v => v.toFixed(3)).join(", "));
+  const tangent = await where("TG");
+  check("square across the curve, so the profile is a section of it",
+        near(frame.normal, tangent, 1e-4),
+        frame.normal.map(v => v.toFixed(4)).join(", "));
+
+  // Drawn at 0, 0 on the paper, the element lands on the curve.
+  await mdl.run({ op: "draw", id: "SK", type: "circle", at: [[0, 0], [30, 0]] });
+  check("and a circle drawn about the paper's origin is a circle about the point",
+        (await at("SK")).built, String((await at("SK")).error));
+
+  // Move the station and the whole mounting follows it.
+  await mdl.run({ op: "set", id: "ON", key: "at", value: 0.8 });
+  const later = await where("ON");
+  check("move the station and the sketch goes with it",
+        near((await at("SK")).sketch.frame.origin, later, 1e-4),
+        (await at("SK")).sketch.frame.origin.map(v => v.toFixed(2)).join(", "));
+
+  // A line is a direction too. Refusing one meant a plane square to a tangent
+  // LINE could not be asked for at all.
+  await mdl.run({ op: "add", type: "Line", id: "LN", name: "Rail" });
+  await mdl.run({ op: "set", id: "LN", key: "kind", value: 3 });
+  await mdl.run({ op: "connect", id: "LN", key: "curve", from: "SP", mode: "only" });
+  await mdl.run({ op: "set", id: "LN", key: "along", value: 0.8 });
+  await mdl.run({ op: "connect", id: "PL", key: "normal", from: "LN", mode: "only" });
+  check("a plane takes a line for its normal as readily as a vector",
+        (await at("PL")).built, String((await at("PL")).error));
+  const byLine = (await at("SK")).sketch.frame.normal;
+  const byVector = await where("TG");
+  check("and the line it was given is the tangent it was standing on",
+        near(byLine, byVector, 1e-3),
+        byLine.map(v => v.toFixed(4)).join(", ") + " vs "
+        + byVector.map(v => v.toFixed(4)).join(", "));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

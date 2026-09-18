@@ -1521,11 +1521,27 @@ export const CATALOGUE = [
            when(choice("end", "Which end", ["Furthest along", "Furthest back"], 0), "kind", 3),
            when(ref("first", "First curve", ["curve"]), "kind", 4),
            when(ref("second", "Second curve", ["curve"]), "kind", 4)] },
+  //! And one vector node, the same way the point node works. A direction typed
+  //! in and a direction read off the model are the same thing to everything
+  //! downstream, so they are two settings of one node.
+  //!
+  //! The tangent is asked for AT A POINT rather than at a parameter. A point is
+  //! already a thing in the document - one mounted on the curve, the centre of
+  //! something, the end of something else - and it moves when the model moves.
+  //! A parameter is a number that has to be kept in step with it by hand, and a
+  //! plane standing on the point with a normal taken at some other parameter is
+  //! a plane that is not square to the curve at the point it is standing on.
   { type: "Vector", guid: "9a1b2c30-0002-4c00-9e00-caf000000002", category: "datum",
     produces: "vector",
-    summary: "A direction. Orients lines, planes and the solids placed on them.",
-    args: [real("dx", "dX", 0, -100, 100, 0.1, ""), real("dy", "dY", 0, -100, 100, 0.1, ""),
-           real("dz", "dZ", 1, -100, 100, 0.1, "")] },
+    summary: "A direction, typed in or read off the model: three components, or the "
+           + "tangent to a curve at a point on it. Orients lines, planes and the "
+           + "solids placed on them.",
+    args: [choice("kind", "Vector", ["Components", "Tangent at a point"], 0),
+           when(real("dx", "dX", 0, -100, 100, 0.1, ""), "kind", 0),
+           when(real("dy", "dY", 0, -100, 100, 0.1, ""), "kind", 0),
+           when(real("dz", "dZ", 1, -100, 100, 0.1, ""), "kind", 0),
+           when(ref("curve", "Curve", ["curve"]), "kind", 1),
+           when(ref("at", "Point on it", ["point"]), "kind", 1)] },
   //! One line node, the same way. What it runs between is a choice; how far it
   //! runs is another. A line may be cut by a length either side of where it
   //! starts, or stopped dead on a plane - which is what a construction line
@@ -1560,12 +1576,14 @@ export const CATALOGUE = [
     produces: "plane",
     summary: "A planar datum, found whichever way suits: an origin and a normal, square "
            + "across a curve, offset from another plane, halfway between two, or one "
-           + "turned about an axis.",
+           + "turned about an axis. The normal takes a line as readily as a vector - a "
+           + "direction is a direction - so a plane stands square to a tangent by "
+           + "being given it.",
     args: [choice("kind", "Plane", ["Origin and normal", "Normal to a curve",
                                     "Offset from a plane", "Between two planes",
                                     "Turned about an axis"], 0),
            when(ref("origin", "Origin", ["point"]), "kind", 0),
-           when(ref("normal", "Normal", ["vector"]), "kind", 0),
+           when(ref("normal", "Normal", ["vector", "curve"]), "kind", 0),
            when(ref("curve", "Curve", ["curve"]), "kind", 1),
            when(real("at", "Along it", 0.5, 0, 1, 0.01, ""), "kind", 1),
            when(ref("from", "Plane", ["plane"]), "kind", 2),

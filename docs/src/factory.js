@@ -292,6 +292,48 @@ export function makeFactories(oc, kit) {
         return { at: [p.X(), p.Y(), p.Z()], tangent: V.norm([d.X(), d.Y(), d.Z()]) };
       } },
 
+    { name: "curveAtPoint", takes: "curve, point", gives: "{ at, tangent, ratio }",
+      summary: "The nearest place on a curve to a point, with the direction the curve "
+             + "is going there. The same answer pointOnCurve gives, asked the other "
+             + "way round: a point you have already put on the curve says where it is "
+             + "on it, so nothing downstream has to carry a parameter that has to be "
+             + "kept in step with the point by hand.",
+      run: (curve, point) => {
+        const adaptor = new oc.BRepAdaptor_CompCurve(wireOf(curve));
+        const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+        if (!(last > first)) throw new Error("that curve cannot be walked along");
+        const away = u => {
+          const p = adaptor.Value(u);
+          return V.length([p.X() - point[0], p.Y() - point[1], p.Z() - point[2]]);
+        };
+        // Coarse first, then squeezed: a composite curve has no closed form for
+        // this and OpenCascade's projector wants a single Geom_Curve, which a
+        // chained profile is not. A hundred samples finds the right edge of the
+        // chain; forty halvings of the bracket take the rest to floating point.
+        const STEPS = 100;
+        let lo = first, hi = last, best = first, score = Infinity;
+        for (let i = 0; i <= STEPS; i++) {
+          const u = first + ((last - first) * i) / STEPS;
+          const d = away(u);
+          if (d < score) { score = d; best = u; }
+        }
+        const span = (last - first) / STEPS;
+        lo = Math.max(first, best - span);
+        hi = Math.min(last, best + span);
+        for (let i = 0; i < 40 && hi - lo > 1e-12; i++) {
+          const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+          if (away(a) < away(b)) hi = b; else lo = a;
+        }
+        const u = (lo + hi) / 2;
+        const p = adaptor.Value(u);
+        const d = new oc.gp_Vec();
+        adaptor.D1(u, new oc.gp_Pnt(), d);
+        const tangent = V.norm([d.X(), d.Y(), d.Z()]);
+        if (!tangent) throw new Error("the curve has no direction there");
+        return { at: [p.X(), p.Y(), p.Z()], tangent,
+                 ratio: (u - first) / (last - first) };
+      } },
+
     { name: "pointCenter", takes: "shape", gives: "point",
       summary: "The centre of a circular or elliptical edge, taken from the curve "
              + "itself rather than from a bounding box - so half an arc still says "

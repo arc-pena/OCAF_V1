@@ -140,12 +140,38 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       }
       default: {                                  // an origin and a normal
         const origin = readPoint(F.reference(f, "origin"));
-        const normal = readVector(F.reference(f, "normal"));
+        // A direction is a direction. A vector says which way it points and so
+        // does a line, an edge or the axis of a cylinder - and refusing the
+        // second kind means a plane square to a tangent line cannot be asked
+        // for at all, which is the one thing a curve-mounted plane is for.
+        const way = axisOf(F.reference(f, "normal"));
+        const normal = way && way.along;
         if (!origin) return no("origin point is missing");
         if (!normal || length(normal) < CONFUSION) return no("normal vector is missing or null");
         return frame(origin, normal);
       }
     }
+  }
+
+  //! A vector datum resolved, whichever way it was asked for - the same shape
+  //! of answer as the plane and the line, for the same reason. The direction,
+  //! and where to draw it: a tangent belongs on the curve it was taken from,
+  //! not at the world origin, or it is a direction nobody can see the sense of.
+  function resolveVector(f) {
+    const no = why => ({ along: null, at: [0, 0, 0], why });
+    if (Feature_choice(f, "kind") === 1) {
+      const curve = F.reference(f, "curve");
+      if (!F.shape(curve)) return no("no curve to be tangent to");
+      const on = readPoint(F.reference(f, "at"));
+      if (!on) return no("a point on the curve is needed");
+      try {
+        const found = HSF.curveAtPoint(F.shape(curve), on);
+        return { along: found.tangent, at: found.at, why: null };
+      } catch (e) { return no(describeError(e)); }
+    }
+    const along = [F.real(f, "dx"), F.real(f, "dy"), F.real(f, "dz")];
+    if (length(along) < CONFUSION) return no("a vector needs a non-zero direction");
+    return { along, at: [0, 0, 0], why: null };
   }
 
   //! The frame, or null - what every driver that stands something on a plane
@@ -400,14 +426,21 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       },
     },
 
+    //! One vector node, two ways of having a direction, and nothing downstream
+    //! knows the difference - a plane's normal reads what this COMPUTED, not
+    //! what was typed into it, so a tangent orients a plane exactly the way
+    //! three numbers do.
     Vector: {
-      precondition: f => length([F.real(f, "dx"), F.real(f, "dy"), F.real(f, "dz")]) < CONFUSION
-        ? "a vector needs a non-zero direction" : null,
-      // Drawn at a readable length along the direction; the magnitude stays in
-      // the parameters, where it is read from.
+      precondition: f => resolveVector(f).why,
+      // Drawn at a readable length along the direction, from where the
+      // direction was found: at the origin when it was typed in, and on the
+      // curve when it was read off one. The magnitude stays in the parameters,
+      // where it is read from.
       build: f => {
-        const v = [F.real(f, "dx"), F.real(f, "dy"), F.real(f, "dz")];
-        return { shape: HSF.lineFrom([0, 0, 0], v, 0, 100), data: vectors([v]) };
+        const answer = resolveVector(f);
+        if (!answer.along) throw new Error(answer.why);
+        const v = answer.along;
+        return { shape: HSF.lineFrom(answer.at, v, 0, 100), data: vectors([v]) };
       },
     },
 
