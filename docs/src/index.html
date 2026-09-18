@@ -807,6 +807,29 @@ input.line:focus { outline: none; border-color: var(--accent); }
 .btn:disabled { opacity: .4; cursor: default; }
 .btn svg { width: 14px; height: 14px; }
 
+/* ---------------------------------------------------------- dropping in
+
+   A file dragged onto the page is the shortest way there is to open one, and
+   the page already knows what to do with every kind it reads - so the only
+   thing this adds is somewhere obvious to let go. The veil never takes the
+   pointer: the drop is caught on the window, and an overlay that swallowed
+   events would only make dragenter and dragleave fight each other.         */
+#drop-veil {
+  position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 108, 176, .07);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+#drop-veil[hidden] { display: none; }
+#drop-veil .drop-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 34px; border-radius: 16px; text-align: center;
+  border: 2px dashed var(--accent); background: var(--panel);
+  box-shadow: 0 18px 60px rgba(8, 20, 30, .18);
+}
+#drop-veil strong { font-size: 15px; font-weight: 600; color: var(--ink); }
+#drop-veil span { font-size: 11.5px; color: var(--ink-2); max-width: 30em; line-height: 1.6; }
+
 /* -------------------------------------------------------- bottom status */
 #status {
   left: var(--edge); bottom: var(--edge); z-index: 3;
@@ -1519,6 +1542,16 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   </div>
 </dialog>
 <input type="file" id="file-input" hidden>
+
+<!-- Where a dragged file lands. Shown while one is over the page and never
+     otherwise; it takes no pointer events, so it cannot get between the drag
+     and the window that is listening for it. -->
+<div id="drop-veil" hidden>
+  <div class="drop-card">
+    <strong id="drop-what">Drop to open</strong>
+    <span id="drop-note"></span>
+  </div>
+</div>
 
 <dialog id="modal-link">
   <div class="dhead">

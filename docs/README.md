@@ -803,12 +803,35 @@ the document as a file is in it.
 | **BREP** | ✓ | ✓ | OpenCascade's own format: exact, fast, and understood by nothing else |
 | **OBJ** | ✓ | ✓ | polygon meshes, grouped by name. Carries several parts |
 | **STL** | ✓ | ✓ | triangles, ASCII or binary in, ASCII out |
+| **DXF** | ✓ | ✓ | 2D drawings — in as a *sketch*, out one layer per sketch |
 | **Model file** | ✓ | ✓ | the parametric model itself — opening one replaces the document |
 
-IGES, 3DM, IFC, SAT and DXF are named too, and refused with the reason: the IGES
+IGES, 3DM, IFC and SAT are named too, and refused with the reason: the IGES
 reader is not in this OCCT build, Rhino's reader is a library the page may not
 fetch, and the rest are formats OpenCascade does not read at all. A file that is
 picked on purpose gets an answer, not silence.
+
+### Or just drop it on the page
+
+Drag a file anywhere onto the window and let go. It goes through exactly the
+same reader the menu uses, so a model file **opens** as the document and
+everything else **imports** as features — and a DXF still asks its two
+questions, because units and layers are things only you know.
+
+The name is asked first: a file called `.step` is read as STEP whatever is
+inside it, because a name and its contents disagreeing is a rare thing to go
+second-guessing. Only when the name says nothing this build reads is the file
+itself asked, and every format here answers in its first few lines — `ISO-10303`
+for STEP, `CASCADE Topology` for BREP, group code `0`/`SECTION` for DXF,
+`"format": "ocaf-parametric-model"` for a model, `solid` *and* a facet for an
+ASCII STL, and a binary STL by being exactly `84 + 50n` bytes long. So a drawing
+that arrived from a mail client as `attachment.dat` still opens.
+
+Several files at once go in order, with one rule: a model file **is** the
+document, so it goes first and only one of them goes at all — opening a second
+would throw away the first along with whatever had just been imported into it.
+A file that stops to ask something holds up the rest, because there is one
+dialog and it can only be answered once.
 
 ### One rule about structure
 

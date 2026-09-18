@@ -17,7 +17,7 @@ import { PluginHost } from "./plugin.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
-         productNames, readable, toBase64, whyNot } from "./exchange.js";
+         productNames, readable, sniffFormat, toBase64, whyNot } from "./exchange.js";
 import { SKETCH_CLICKS, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer, elementLocked,
          elementShown, isConstruction, sketchLayers, nextSketchId, readSketch,
          sketchCrossings, sketchDirectionAt, sketchElement, sketchHandleAt, sketchHandles,
@@ -4525,24 +4525,40 @@ function partsNamed(key, text) {
   return 1;
 }
 
+//! One file, read and taken for whatever it is. Says back which of three
+//! things happened, because a drop of several files has to know whether this
+//! one has stopped to ask a question: "asked" means a dialog is up and the
+//! rest must wait, "no" means nothing was taken.
 async function takeFile(file) {
   const excuse = whyNot(file.name);
-  if (excuse) { say(file.name + " is " + excuse.name + ", and " + excuse.reason); return; }
-  const format = formatFor(file.name);
-  if (!format || !format.read) {
-    say("nothing here reads " + file.name + " — try "
-      + FORMATS.filter(f => f.read).map(f => f.name).join(", "));
-    return;
-  }
+  if (excuse) { say(file.name + " is " + excuse.name + ", and " + excuse.reason); return "no"; }
+  // Asked before the file is read rather than after, because reading it is the
+  // expensive part and the limit is about what the document can hold.
   if (file.size > IMPORT_LIMIT) {
     say(file.name + " is " + readable(file.size) + ", and the limit is "
       + readable(IMPORT_LIMIT) + " — the whole file is kept in the model, and in every "
       + "step of the undo stack with it");
-    return;
+    return "no";
   }
 
   say("reading " + file.name + " · " + readable(file.size) + "…");
   const bytes = new Uint8Array(await file.arrayBuffer());
+
+  // The name first, and the contents only if the name said nothing. A file
+  // called .step is read as STEP whatever is inside it; a file dragged off a
+  // mail client as "attachment" has no name to go on, and every format here
+  // says what it is in its first few lines.
+  let format = formatFor(file.name);
+  if (!format || !format.read) {
+    const sniffed = sniffFormat(bytes);
+    format = sniffed ? FORMATS.find(f => f.key === sniffed) : null;
+    if (!format) {
+      say("nothing here reads " + file.name + " — try "
+        + FORMATS.filter(f => f.read).map(f => f.name).join(", "));
+      return "no";
+    }
+    say(file.name + " does not say what it is, and it reads as " + format.name);
+  }
 
   // A model file is not an import: it IS the document, so it replaces it.
   if (format.key === "model") {
@@ -4550,8 +4566,8 @@ async function takeFile(file) {
       await mdl.run({ op: "model", model: new TextDecoder().decode(bytes) });
       fitView();
       say(file.name + " opened");
-    } catch (err) { say("could not open " + file.name + " — " + err.message); }
-    return;
+    } catch (err) { say("could not open " + file.name + " — " + err.message); return "no"; }
+    return "done";
   }
 
   // A binary STL travels as base64; everything else is text and travels as
@@ -4566,13 +4582,104 @@ async function takeFile(file) {
   // read, so the file is surveyed first and converted afterwards.
   if (format.key === "dxf") {
     try { askDxf(request, format, dxfSurvey(request.data)); }
-    catch (err) { say("could not read " + file.name + " — " + err.message); }
-    return;
+    catch (err) { say("could not read " + file.name + " — " + err.message); return "no"; }
+    return "asked";
   }
 
   const several = format.structure && !binary ? partsNamed(format.key, request.data) : 1;
-  if (several > 1) askImport(request, format, several);
-  else runImport({ ...request, as: "single" });
+  if (several > 1) { askImport(request, format, several); return "asked"; }
+  await runImport({ ...request, as: "single" });
+  return "done";
+}
+
+/* --------------------------------------------------------- dropping a file
+
+   The shortest way there is to open something: drag it onto the page and let
+   go. Nothing new happens to the file afterwards - it goes through exactly the
+   same takeFile as the picker, so a model file opens, a STEP imports, a DXF
+   asks its two questions. The only thing here is catching the drop and saying
+   where to let go.                                                          */
+
+const dropVeil = document.getElementById("drop-veil");
+const dropNote = document.getElementById("drop-note");
+
+//! A drag is only ours if it is carrying files. Dragging selected text about,
+//! or a handle inside the page, must go on working - so a drag whose types do
+//! not include "Files" is left entirely alone.
+const draggingFiles = event =>
+  !!event.dataTransfer && [...(event.dataTransfer.types || [])].includes("Files");
+
+// dragenter and dragleave fire for every element the cursor crosses, so the
+// veil is counted in and out rather than switched: one leave inside the page
+// is a child being left, not the page.
+let overPage = 0;
+const showDrop = on => {
+  dropVeil.hidden = !on;
+  if (on) dropNote.textContent = "a model file opens as the document · "
+    + FORMATS.filter(f => f.read && f.key !== "model").map(f => f.name).join(", ")
+    + " come in as features";
+};
+
+window.addEventListener("dragenter", event => {
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  if (++overPage === 1) showDrop(true);
+});
+window.addEventListener("dragover", event => {
+  if (!draggingFiles(event)) return;
+  // Without this the browser takes the drop itself and navigates to the file,
+  // which loses the document.
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+// Counted down on any leave rather than only on a file's: the count only ever
+// went up for a file, and a browser that declines to say what a leaving drag
+// was carrying would otherwise leave the veil up for good.
+window.addEventListener("dragleave", () => {
+  if (overPage && --overPage <= 0) { overPage = 0; showDrop(false); }
+});
+// At the drop the files themselves are there to be counted, which is a surer
+// answer than the types list - and getting this wrong means the browser takes
+// the drop and navigates to the file, losing the document.
+window.addEventListener("drop", event => {
+  const files = event.dataTransfer && event.dataTransfer.files;
+  if (!files || !files.length) return;
+  event.preventDefault();
+  overPage = 0;
+  showDrop(false);
+  takeFiles(files);
+});
+// A drag abandoned outside the window, or called off with Escape, never sends
+// the leave that would put the veil down - so the end of the drag does it.
+window.addEventListener("dragend", () => { overPage = 0; showDrop(false); });
+
+//! Several files at once. A model file IS the document, so it goes first and
+//! only one of them can go at all - opening a second would throw away the
+//! first, along with whatever was imported into it.
+async function takeFiles(list) {
+  const files = [...(list || [])];
+  if (!files.length) return;
+  const isModel = file => {
+    const format = formatFor(file.name);
+    return !!format && format.key === "model";
+  };
+  const models = files.filter(isModel);
+  const order = [...models.slice(0, 1), ...files.filter(file => !isModel(file))];
+  if (models.length > 1)
+    say(models.length + " model files at once — " + models[0].name + " is the document, "
+      + "and a model file replaces it, so the rest are left");
+
+  for (let i = 0; i < order.length; i++) {
+    const how = await takeFile(order[i]);
+    const left = order.length - i - 1;
+    // A file that stopped to ask something holds up the queue, because the
+    // question is answered by one dialog and there is one of it.
+    if (how === "asked" && left) {
+      say("answer that first — " + left + (left === 1 ? " more file is" : " more files are")
+        + " still to come, drop them again after");
+      return;
+    }
+  }
 }
 
 const importDialog = document.getElementById("modal-import");

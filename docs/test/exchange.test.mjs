@@ -8,7 +8,7 @@
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
 import { FORMATS, formatFor, isBinaryStl, parseObj, parseStl, productNames,
-         toBase64, whyNot, writeObj, writeStl } from "../src/exchange.js";
+         sniffFormat, toBase64, whyNot, writeObj, writeStl } from "../src/exchange.js";
 import { isElided, lightenModel } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 
@@ -445,6 +445,45 @@ console.log("13. what cannot be rounded says so, rather than faulting");
   // no explanation in it. The precondition is what turns it into a sentence.
   check("and a fillet on it is refused by name, not by a fault",
         !refused.built && /no solid to round/.test(refused.error || ""), refused.error || "built!");
+}
+
+console.log("14. a file dropped on the page, read from its own first lines");
+{
+  // Only ever asked when the NAME said nothing - so what is checked here is
+  // that each format really does declare itself, and that nothing is guessed
+  // at when there is nothing to go on.
+  const of = text => sniffFormat(new TextEncoder().encode(text));
+  check("a model file says so in its own first key",
+        of('{ "format": "ocaf-parametric-model", "version": 1, "features": [] }') === "model");
+  check("a STEP file says ISO-10303 before anything else",
+        of("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n") === "step");
+  check("a BREP file is OpenCascade's own header",
+        of("DBRep_DrawableShape\n\nCASCADE Topology V1, (c) Matra-Datavision\n") === "brep");
+  check("an ASCII STL is the word solid AND a facet",
+        of("solid box\n facet normal 0 0 1\n  outer loop\n") === "stl");
+  check("the word solid on its own is not an STL", of("solid ground, no facets here") === null);
+  check("a DXF is group code 0 and the word SECTION",
+        of("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n") === "dxf");
+  check("an OBJ is vertices and something that uses them",
+        of("# blender\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n") === "obj");
+  check("and a file that says nothing is not guessed at",
+        of("the quick brown fox jumps over the lazy dog") === null);
+  check("nor is an empty one", sniffFormat(new Uint8Array(0)) === null);
+
+  // A binary STL has no words at all: it says what it is by being exactly as
+  // long as its own triangle count claims.
+  const bytes = new Uint8Array(84 + 50 * 3);
+  new DataView(bytes.buffer).setUint32(80, 3, true);
+  check("a binary STL is recognised by its arithmetic", sniffFormat(bytes) === "stl");
+  const short = new Uint8Array(84 + 50 * 3 - 1);
+  new DataView(short.buffer).setUint32(80, 3, true);
+  check("and one that does not add up is not claimed", sniffFormat(short) === null);
+
+  // The name still wins when there is one. A .step is read as STEP whatever
+  // is inside it, which is why the sniff is a fallback and not a vote.
+  check("the name is what is asked first", formatFor("bracket.step").key === "step");
+  check("and the sniff only has anything to say when it said nothing",
+        formatFor("attachment.dat") === null);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall good");

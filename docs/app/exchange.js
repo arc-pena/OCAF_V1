@@ -105,6 +105,36 @@ export function whyNot(filename) {
 export const acceptList = () =>
   FORMATS.filter(f => f.read).flatMap(f => f.extensions).join(",");
 
+//! What a file is, read from the file itself. Asked ONLY when the name has
+//! said nothing this build reads - a .step that says STEP is taken at its
+//! word, because a name and its contents disagreeing is a rare and confusing
+//! thing to go second-guessing. A file dropped on the page is the case this
+//! exists for: a drawing that came out of a mail client as "attachment.dat",
+//! or a model somebody saved without an extension, is still the file they
+//! meant, and every one of these formats says what it is in its first lines.
+export function sniffFormat(bytes) {
+  if (!bytes || !bytes.length) return null;
+  // Binary STL says its own length: eighty bytes of header, a triangle count,
+  // and fifty bytes per triangle, exactly.
+  if (bytes.length >= 84) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (84 + view.getUint32(80, true) * 50 === bytes.length) return "stl";
+  }
+  // Everything else declares itself in its first few thousand characters.
+  const head = utf8(bytes.slice(0, 4096));
+  const start = head.replace(/^[\uFEFF\s]+/, "");
+  if (/ISO-10303|FILE_SCHEMA/.test(head)) return "step";
+  if (/CASCADE Topology V|DBRep_DrawableShape/.test(head)) return "brep";
+  if (/^solid\b/.test(start) && /facet\s+normal/.test(head)) return "stl";
+  // A DXF is group codes: a line holding a number, then a line holding what it
+  // means. The first pair of every DXF ever written is 0 / SECTION.
+  if (/^0\s*[\r\n]+\s*SECTION\b/.test(start)) return "dxf";
+  if (start.startsWith("{") && /"format"\s*:\s*"ocaf-parametric-model"/.test(head))
+    return "model";
+  if (/^v\s+-?[\d.]/m.test(head) && /^(f|vn|vt|g|o|usemtl)\s/m.test(head)) return "obj";
+  return null;
+}
+
 /* ==========================================================================
    Wavefront OBJ.
 
