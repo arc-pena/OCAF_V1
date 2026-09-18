@@ -242,7 +242,7 @@ export const MIN_HEADROOM = 1500;
 //! what comes back is either nothing or a ring of noise - the one case that
 //! looks like an empty building rather than like a bug.
 export function bandsOf(mesh, { storey = 3500, minHeadroom = MIN_HEADROOM, base = null,
-                                weld = 0.5 } = {}) {
+                                weld = 0.5, quick = false } = {}) {
   const box = meshBounds(mesh);
   if (!box || !(storey > 0)) return [];
   const bottom = base === null ? box.lo[2] : base;
@@ -258,7 +258,7 @@ export function bandsOf(mesh, { storey = 3500, minHeadroom = MIN_HEADROOM, base 
     //! candidate position.
     const cuts = new Map();
     const band = {
-      z, top: Math.min(z + storey, top), storey, minHeadroom, floor,
+      z, top: Math.min(z + storey, top), storey, minHeadroom, floor, quick,
       plate: ringsArea(floor),
       cut(height) {
         const at = Math.round(Math.max(minHeadroom, height));
@@ -282,6 +282,7 @@ export function bandsOf(mesh, { storey = 3500, minHeadroom = MIN_HEADROOM, base 
 //! a cell of the truth - and it is only ever used to SAY how much room there
 //! is, never to decide whether something fits. That decision is exact.
 export function usableArea(band, samples = 120) {
+  if (band.quick) samples = 40;
   const box = ringsBounds(band.floor);
   if (!box) return 0;
   const w = box.hi[0] - box.lo[0], h = box.hi[1] - box.lo[1];
@@ -368,8 +369,8 @@ export function randomFrom(seed) {
 //! being asked for - a bigger envelope gets more rooms, which is the behaviour
 //! that makes it useful on an odd shape.
 export function sampleBrief(mesh, { seed = 1, storey = 3500, minHeadroom = MIN_HEADROOM,
-                                    fill = 0.8, smallest = 0.02, biggest = 0.15,
-                                    least = 8e6, most = 400e6 } = {}) {
+                                    fill = 0.55, smallest = 0.05, biggest = 0.18,
+                                    least = 20e6, most = 400e6 } = {}) {
   const bands = bandsOf(mesh, { storey, minHeadroom });
   if (!bands.length) return [];
   const random = randomFrom(seed);
@@ -443,69 +444,127 @@ const overlaps = (a, b, gap) =>
 //! the section at the room's own head height, and clear of everything already
 //! placed by at least the gap.
 function findSpot(band, size, taken, { gap = 0, grain = 0, strategy = "corner",
-                                       height = 0 } = {}) {
+                                       height = 0, quick = false, budget = 20000 } = {}) {
   const box = ringsBounds(band.floor);
   if (!box) return null;
   const ceiling = band.cut(height || band.minHeadroom);
-  const step = grain > 0 ? grain : Math.max(250, Math.min(size.w, size.h) / 4);
+  // How finely the plate is walked. Half a room while a hand is still moving,
+  // a quarter of one when it has stopped: the coarse pass is for watching the
+  // massing change and the fine one is for the answer.
+  const part = quick ? 2 : 4;
+  const step = grain > 0 ? grain : Math.max(250, Math.min(size.w, size.h) / part);
+  let tried = 0;
   const fits = (x, y) => {
+    // A budget, so a brief nobody could pack cannot take the page with it. A
+    // room that runs out of tries goes to the backlog, which is where a room
+    // that does not fit goes anyway - so the worst this can do is be pessimistic,
+    // never wrong about a room it did place.
+    if (++tried > budget) return false;
     const rect = { x, y, w: size.w, h: size.h };
+    if (near.hits(rect, gap)) return false;
     if (!rectInRings(band.floor, rect)) return false;
     if (!rectInRings(ceiling, rect)) return false;
-    for (const other of taken) if (overlaps(rect, other, gap)) return false;
     return true;
   };
+  //! What is already on this storey, on a grid, so "does this overlap anything"
+  //! is a look at the few squares under it rather than a walk of everything
+  //! placed so far. Two hundred rooms is forty thousand comparisons a candidate
+  //! position without it, and that is where a slow pack goes.
+  const near = neighbourhood(taken, box, Math.max(step * 2, 2000));
 
-  const xs = [], ys = [];
-  for (let x = box.lo[0]; x <= box.hi[0] - size.w + step; x += step) xs.push(x);
-  for (let y = box.lo[1]; y <= box.hi[1] - size.h + step; y += step) ys.push(y);
-  if (!xs.length || !ys.length) return null;
+  const xs = new Set(), ys = new Set();
+  for (let x = box.lo[0]; x <= box.hi[0] - size.w + step; x += step) xs.add(x);
+  for (let y = box.lo[1]; y <= box.hi[1] - size.h + step; y += step) ys.add(y);
+  if (!xs.size || !ys.size) return null;
   // Against what is already there as well as against the grid: a room sitting
   // exactly beside its neighbour is the whole of what bottom-left is for, and
   // a grid alone would leave a gap of up to one step between every pair.
-  for (const other of taken) {
-    xs.push(other.x + other.w + gap, other.x - size.w - gap);
-    ys.push(other.y + other.h + gap, other.y - size.h - gap);
-  }
-  const inside = v => v >= box.lo[0] - step && v <= box.hi[0] + step;
-  const downside = v => v >= box.lo[1] - step && v <= box.hi[1] + step;
-  const useX = [...new Set(xs.filter(inside))];
-  const useY = [...new Set(ys.filter(downside))];
+  if (strategy !== "rows")
+    for (const other of taken) {
+      xs.add(other.x + other.w + gap); xs.add(other.x - size.w - gap);
+      ys.add(other.y + other.h + gap); ys.add(other.y - size.h - gap);
+    }
+  const useX = [...xs].filter(v => v >= box.lo[0] - step && v <= box.hi[0] + step)
+    .sort((a, b) => a - b);
+  const useY = [...ys].filter(v => v >= box.lo[1] - step && v <= box.hi[1] + step)
+    .sort((a, b) => a - b);
 
   if (strategy === "centre") {
+    // The nearest to the middle, found by walking rather than by sorting every
+    // pair of coordinates into a list first.
     const mid = [(box.lo[0] + box.hi[0]) / 2, (box.lo[1] + box.hi[1]) / 2];
-    const near = (a, b) => (Math.hypot(a.x + size.w / 2 - mid[0], a.y + size.h / 2 - mid[1])
-                          - Math.hypot(b.x + size.w / 2 - mid[0], b.y + size.h / 2 - mid[1]));
-    const spots = [];
-    for (const y of useY) for (const x of useX) spots.push({ x, y });
-    spots.sort(near);
-    for (const spot of spots) if (fits(spot.x, spot.y)) return spot;
-    return null;
+    let best = null, nearest = Infinity;
+    for (const y of useY) for (const x of useX) {
+      const away = Math.hypot(x + size.w / 2 - mid[0], y + size.h / 2 - mid[1]);
+      if (away >= nearest) continue;
+      if (!fits(x, y)) continue;
+      nearest = away; best = { x, y };
+    }
+    return best;
   }
-  if (strategy === "rows") {
-    // Across before up, so a row fills before the next one starts.
-    useY.sort((a, b) => a - b);
-    useX.sort((a, b) => a - b);
-    for (const y of useY) for (const x of useX) if (fits(x, y)) return { x, y };
-    return null;
-  }
-  // corner: lowest, then leftmost - the classic bottom-left heuristic.
-  const spots = [];
-  for (const y of useY) for (const x of useX) spots.push({ x, y });
-  spots.sort((a, b) => (a.y - b.y) || (a.x - b.x));
-  for (const spot of spots) if (fits(spot.x, spot.y)) return spot;
+  // corner and rows: lowest, then leftmost. Sorted ONCE, by walking the two
+  // axes in order - which is the same answer the old cross-product-and-sort
+  // gave for a great deal less work.
+  for (const y of useY) for (const x of useX) if (fits(x, y)) return { x, y };
   return null;
 }
 
+//! A uniform grid over what is already placed. Only ever asked one question -
+//! is anything within \p gap of this rectangle - and only ever looks in the
+//! squares the rectangle actually touches.
+function neighbourhood(taken, box, cell) {
+  const wide = Math.max(1, Math.ceil((box.hi[0] - box.lo[0]) / cell) + 2);
+  const deep = Math.max(1, Math.ceil((box.hi[1] - box.lo[1]) / cell) + 2);
+  const cells = new Map();
+  const key = (i, j) => i * 100000 + j;
+  const at = (x, y) => [Math.floor((x - box.lo[0]) / cell) + 1,
+                        Math.floor((y - box.lo[1]) / cell) + 1];
+  const clamp = (v, hi) => Math.max(0, Math.min(hi - 1, v));
+  const span = (rect, pad) => {
+    const [i0, j0] = at(rect.x - pad, rect.y - pad);
+    const [i1, j1] = at(rect.x + rect.w + pad, rect.y + rect.h + pad);
+    return [clamp(i0, wide), clamp(j0, deep), clamp(i1, wide), clamp(j1, deep)];
+  };
+  for (const room of taken) {
+    const [i0, j0, i1, j1] = span(room, 0);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = key(i, j);
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(room);
+    }
+  }
+  return {
+    hits(rect, gap) {
+      const [i0, j0, i1, j1] = span(rect, gap);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const here = cells.get(key(i, j));
+        if (!here) continue;
+        for (const other of here) if (overlaps(rect, other, gap)) return true;
+      }
+      return false;
+    },
+  };
+}
+
 //! One room into one storey, or a plain no.
-export function placeIn(band, row, taken, options = {}) {
+//!
+//! \p beaten is what has already been proved not to fit on this storey, and it
+//! is the difference between a pack that takes a fifth of a second and one
+//! that takes two. Proving a room does not fit is the expensive case - every
+//! candidate position on the plate has to be tried and rejected - and a room
+//! no smaller than one that has already failed, in BOTH directions, cannot fit
+//! either: the storey only ever gets fuller. So it is not tried.
+export function placeIn(band, row, taken, options = {}, beaten = null) {
   const height = row.height || band.minHeadroom;
   // A room taller than the storey does not go in the storey. Saying so is
   // better than quietly squashing it, which is what an area-only packer does.
   if (height > band.top - band.z + 1) return null;
   for (const size of shapesFor(row, options)) {
+    if (beaten && beaten.some(was => size.w >= was.w - 1 && size.h >= was.h - 1
+                                     && height >= was.height - 1)) continue;
     const spot = findSpot(band, size, taken, { ...options, height });
     if (spot) return { x: spot.x, y: spot.y, w: size.w, h: size.h, z: band.z, height };
+    if (beaten) beaten.push({ ...size, height });
   }
   return null;
 }
@@ -520,11 +579,12 @@ export function packAll(bands, rows, options = {}) {
   const order = rows.map((row, at) => ({ ...row, at })).sort(
     (a, b) => (b.priority - a.priority) || (b.area - a.area) || (a.at - b.at));
   const taken = bands.map(() => []);
+  const beaten = bands.map(() => []);
   const placed = [], unplaced = [];
   for (const row of order) {
     let landed = null;
     for (let b = 0; b < bands.length; b++) {
-      const spot = placeIn(bands[b], row, taken[b], options);
+      const spot = placeIn(bands[b], row, taken[b], options, beaten[b]);
       if (!spot) continue;
       taken[b].push(spot);
       landed = { ...row, status: "placed", band: b, ...spot };
@@ -587,11 +647,12 @@ export function reflow(before, bands, options = {}) {
   const queue = [...(before.unplaced || []).map(r => ({ ...r })).sort(bySize),
                  ...evicted.sort(bySize)];
   const placed = [...kept], unplaced = [];
+  const beaten = bands.map(() => []);
   const moved = [];
   for (const row of queue) {
     let landed = null;
     for (let b = 0; b < bands.length; b++) {
-      const spot = placeIn(bands[b], row, taken[b], options);
+      const spot = placeIn(bands[b], row, taken[b], options, beaten[b]);
       if (!spot) continue;
       taken[b].push(spot);
       landed = { ...row, status: "placed", band: b, ...spot };

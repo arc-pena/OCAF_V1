@@ -346,7 +346,6 @@ function editBranch(world) {
       branch("Move into", "a set", paged(containers.filter(c => c.id !== selected.parent)
         .map(set => leaf(set.name, set.type === "Body" ? "solids" : "wireframe",
                          () => act.moveInto(set.id)))))),
-    leaf(many ? "Delete " + picked : "Delete", many ? "all of them" : "", () => act.del()),
   ]);
 }
 
@@ -437,7 +436,7 @@ function idleRing(world) {
 //! what is picked. What is always there keeps its order behind them, and the
 //! long list of everything else is one wedge rather than gone.
 function pickedRing(world) {
-  const { selected, act } = world;
+  const { selected, act, picked = 1 } = world;
   const common = commonFor(world);
   const first = common.slice(0, COMMON_ON_RING);
   const rest = [...common.slice(COMMON_ON_RING), ...derivationsFor(world)];
@@ -445,20 +444,29 @@ function pickedRing(world) {
     addBranch(world),
     ...first.map(row => leaf(row.label, row.note || short(row.summary || ""),
                              () => act.make(row.type, row.into, row.kind, row.many))),
-    ...only(rest.length > 0, branch("More", "everything else it feeds",
+    ...only(rest.length > 0, branch("Build", "everything else it feeds",
       paged(rest.map(row => leaf(row.label, row.note ? short(row.note) : "",
                                  () => act.make(row.type, row.into, row.kind, row.many)))))),
     editBranch(world),
+    // Delete has a place of its own. It is the commonest thing anybody does to
+    // a thing they have selected, and a command that common does not belong
+    // behind another flick - the ring exists so that what you do most is one
+    // gesture rather than two.
+    leaf(picked > 1 ? "Delete " + picked : "Delete",
+         picked > 1 ? "all of them" : selected.name, () => act.del()),
     viewBranch(world),
     styleBranch(world),
+    // The rest of the program, one flick down, because with something selected
+    // you are modelling rather than switching to the showroom - and because
+    // the eleven places above are worth more than a flat list of twenty.
     branch("Workspace", "the rest of the program", [
       leaf("Showroom", "see it as a product", () => act.showroom()),
       leaf("Nodes", "edit it as a graph", () => act.nodes(), { on: !!world.graph }),
       leaf("AI", "ask Claude to build it", () => act.ai(), { on: !!world.ai }),
       packagesBranch(world),
+      documentBranch(world),
+      interfaceBranch(world),
     ]),
-    documentBranch(world),
-    interfaceBranch(world),
   ];
 }
 

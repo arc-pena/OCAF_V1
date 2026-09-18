@@ -142,7 +142,7 @@ console.log("\n3. with nothing selected, everything the program does is in there
   check("a node nobody adds by hand is not offered", !has(ring, "Imported"));
   check("redo is not offered when there is nothing to redo", !has(ring, "Redo"));
   check("and nothing about a selection is offered when there is none",
-        !has(ring, "Delete") && !has(ring, "More") && !has(ring, "Edit"));
+        !has(ring, "Delete") && !has(ring, "Build") && !has(ring, "Edit"));
 
   // The items are places, so the order they come in is the whole contract.
   check("Add is always the first place", ring[0].label === "Add", ring[0].label);
@@ -161,14 +161,15 @@ console.log("\n4. and it is contextual - the first places are about what is pick
   check("what a curve is NOT for is not offered", !labels(ring).includes("Fillet"));
   // And no long list here, because in a schema this small nothing else takes a
   // curve. A wedge that leads to an empty ring is worse than no wedge.
-  check("and no More wedge when there is no more", !labels(ring).includes("More"),
-        labels(ring).join(" · "));
+  check("and no Build wedge when there is nothing else to build from it",
+        !labels(ring).includes("Build"), labels(ring).join(" · "));
   check("its definition is one flick away", has(ring, "Edit.*Definition"));
-  check("so is deleting it", has(ring, "Edit.*Delete"));
+  check("and deleting it is a place of its own, not two flicks down",
+        ring.some(i => i.label === "Delete"), labels(ring).join(" · "));
   check("so is filing it in a set", has(ring, "Edit.*Move into.*PartBody"));
   check("hiding it is there too", has(ring, "Edit.*Hide"));
-  check("the rest of the program keeps its place behind it",
-        has(ring, "Workspace.*Showroom") && has(ring, "Document.*Undo"));
+  check("the rest of the program is one flick behind it",
+        has(ring, "Workspace.*Showroom") && has(ring, "Workspace.*Document.*Undo"));
   check("and the ring still fits", ring.length <= PIE_MAX, String(ring.length));
 
   const solid = { id: "PA1", name: "Pad.1", produces: "solid", category: "body" };
@@ -252,8 +253,8 @@ console.log("\n4b. against the real catalogue, which is the claim being made");
           ring.length + ": " + labels(ring).join(" · "));
   }
   const curve = pieMenu(on("curve"));
-  check("and the long list under More is read off the schema, not the table",
-        has(curve, "More.*Panel"), "Panel takes anything, so it is always in there");
+  check("and the long list under Build is read off the schema, not the table",
+        has(curve, "Build.*Panel"), "Panel takes anything, so it is always in there");
   check("with nothing repeated between the ring and the list",
         derivationsFor(on("curve")).every(d => !labels(curve).includes(d.label)));
 }

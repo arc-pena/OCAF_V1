@@ -25,6 +25,7 @@
 // that is all it says.
 
 import { ARG } from "./ocaf.js";
+import { materialOf } from "./styles.js";
 import { offerPlugin } from "./plugin.js";
 import { MIN_HEADROOM, STRATEGIES, bandsOf, meshBounds, meshVolume, packAll, parkOf,
          readBrief, reflow, ringsArea, sampleBrief, summarise, writeBrief } from "./packing.js";
@@ -372,18 +373,28 @@ PackingView.prototype = {
   },
 
   //! Pack again, keeping what is already placed. This is the live one.
-  reflowNow() {
+  //!
+  //! Twice, and that is on purpose. A hand dragging a face sends an edit a
+  //! frame, and each one wants an answer NOW rather than a good answer in a
+  //! moment: so a coarse pass runs immediately - half as fine a grid, a
+  //! quarter as many probes for the usable area - and the accurate one is
+  //! booked for three hundred milliseconds after the hand stops. Drag, and the
+  //! massing keeps up; let go, and the numbers settle to the real ones.
+  reflowNow(quick = false) {
     const mesh = this.envelopeMeshNow();
     if (!mesh || !this.run) { this.repack(true); return; }
     const started = performance.now();
-    const bands = bandsOf(mesh, this.options);
-    const out = reflow(this.run, bands, this.options);
-    this.run = { ...out, bands, rows: this.run.rows, bounds: meshBounds(mesh),
+    const options = { ...this.options, quick };
+    const bands = bandsOf(mesh, options);
+    const out = reflow(this.run, bands, options);
+    this.run = { ...out, bands, rows: this.run.rows, bounds: meshBounds(mesh), quick,
                  report: summarise(out, this.run.rows), ms: Math.round(performance.now() - started) };
     this.stale = false;
     this.bar.querySelector("#sp-rerun").classList.remove("waiting");
     this.draw();
     this.report();
+    clearTimeout(this.settling);
+    if (quick) this.settling = setTimeout(() => { if (this.on) this.reflowNow(false); }, 300);
   },
 
   //! One re-pack a frame however many times a slider says it moved.
@@ -445,17 +456,31 @@ PackingView.prototype = {
     // while this mode is open - an opaque massing block with the rooms inside
     // it is a picture of a block - so it is drawn here instead, see-through,
     // with a line on every edge so the shape still reads.
+    //
+    // In WHATEVER it was given in the model. A finish and an opacity assigned
+    // to a body are properties of that body, not of the mode somebody happens
+    // to be looking at it in: an envelope set to 30% glass has been set to 30%
+    // glass everywhere. Only when nothing has been said does this pick the
+    // neutral case, and even then it never goes more opaque than it can be
+    // seen through - the rooms are the thing being looked at.
     const shell = this.envelopeMeshNow();
     if (shell) {
+      const said = (this.kit.tree().features.find(f => f.id === this.envelope) || {}).appearance;
+      const worn = said ? materialOf(said) : null;
+      const colour = worn ? new THREE.Color(worn.color[0], worn.color[1], worn.color[2])
+                          : new THREE.Color("#8fa3b8");
+      // What was asked for, capped: a solid envelope drawn solid would hide
+      // the packing, which is the one thing this mode is for.
+      const clear = worn ? Math.min(worn.opacity, 0.35) : 0.07;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(shell.positions, 3));
       geometry.setIndex(Array.from(shell.index));
       geometry.computeVertexNormals();
       this.group.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        color: new THREE.Color("#8fa3b8"), transparent: true, opacity: 0.07,
+        color: colour, transparent: true, opacity: clear,
         side: THREE.DoubleSide, depthWrite: false })));
       this.group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20),
-        new THREE.LineBasicMaterial({ color: new THREE.Color("#6d7d8f"),
+        new THREE.LineBasicMaterial({ color: colour.clone().multiplyScalar(0.7),
                                       transparent: true, opacity: 0.5 })));
     }
 
@@ -558,6 +583,7 @@ PackingView.prototype = {
       </div>`;
     this.say(this.run.placed.length + " placed · " + this.run.unplaced.length + " outstanding · "
       + bands.length + (bands.length === 1 ? " storey" : " storeys") + " · " + this.run.ms + " ms"
+      + (this.run.quick ? " · rough, while the model is moving" : "")
       + (this.stale ? " · the envelope has moved" : ""));
   },
 
@@ -617,7 +643,7 @@ PackingView.prototype = {
   invalidate() {
     if (!this.on) { this.stale = true; return; }
     this.fillEnvelopes();
-    if (this.auto) { this.reflowNow(); return; }
+    if (this.auto) { this.reflowNow(true); return; }
     this.stale = true;
     const again = this.bar.querySelector("#sp-rerun");
     again.hidden = false;
@@ -626,6 +652,7 @@ PackingView.prototype = {
   },
 
   dispose() {
+    clearTimeout(this.settling);
     this.leave();
     this.bar.remove();
     this.panel.remove();

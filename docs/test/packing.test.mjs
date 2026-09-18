@@ -374,5 +374,59 @@ console.log("\n10. the ones that did not fit, parked where they can be seen");
   check("nothing to park is nothing drawn", parkOf(bounds, [], {}).length === 0);
 }
 
+console.log("\n11. rough while it moves, right when it stops - and never for ever");
+{
+  const block = boxMesh([0, 0, 0], [40000, 28000, 14000]);
+  const rows = readBrief(Array.from({ length: 60 },
+    (_, i) => "R" + i + ", 55, 3.0, 1.3, 1").join("\n"));
+
+  // The coarse pass is the same pack with a wider net. It has to be FASTER and
+  // it has to give an answer of the same kind - not a different building.
+  const fine = packAll(bandsOf(block, { storey: 3500 }), rows, { gap: 300 });
+  const rough = packAll(bandsOf(block, { storey: 3500, quick: true }), rows,
+                        { gap: 300, quick: true });
+  check("the rough pass places about as much as the fine one",
+        Math.abs(rough.placed.length - fine.placed.length) <= fine.placed.length * 0.25,
+        rough.placed.length + " rough vs " + fine.placed.length + " fine");
+  check("and it is still a real answer - nothing overlaps, nothing is off the plate",
+        (() => {
+          const bands = bandsOf(block, { storey: 3500 });
+          for (let b = 0; b < bands.length; b++) {
+            const here = rough.placed.filter(r => r.band === b);
+            for (const room of here) {
+              if (!rectInRings(bands[b].floor, room)) return false;
+              for (const other of here)
+                if (other !== room && room.x < other.x + other.w && other.x < room.x + room.w
+                    && room.y < other.y + other.h && other.y < room.y + room.h) return false;
+            }
+          }
+          return true;
+        })());
+  check("and nothing is lost either way",
+        rough.placed.length + rough.unplaced.length === 60
+        && fine.placed.length + fine.unplaced.length === 60);
+
+  // The budget. A brief that cannot be packed must not be able to take the
+  // page with it: every room gets a bounded number of tries and then joins the
+  // backlog, which is where it was going anyway.
+  const hopeless = readBrief(Array.from({ length: 300 },
+    (_, i) => "X" + i + ", 900, 3.0, 1, 1").join("\n"));
+  const started = Date.now();
+  const out = packAll(bandsOf(block, { storey: 3500 }), hopeless, { gap: 300 });
+  const took = Date.now() - started;
+  check("three hundred rooms that cannot fit still comes back, quickly", took < 3000,
+        took + " ms");
+  check("and says so rather than placing them", out.unplaced.length > 250,
+        out.placed.length + " placed, " + out.unplaced.length + " not");
+  check("nothing lost even then", out.placed.length + out.unplaced.length === 300);
+
+  // A budget of one is the extreme case: it must still be honest.
+  const starved = packAll(bandsOf(block, { storey: 3500 }), rows, { gap: 300, budget: 1 });
+  check("a budget of one tries one place and admits it could not",
+        starved.placed.length + starved.unplaced.length === 60
+        && starved.unplaced.length > 0,
+        starved.placed.length + " placed on a budget of one try");
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

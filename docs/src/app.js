@@ -100,6 +100,13 @@ const mdl = new Mdl({
   apply: (payload, hint) => applyState(payload, hint),
   setNode: (id, x, y) => graph.setNode(id, x, y),
   readLayout: block => (block === undefined ? graph.layoutJson() : graph.readLayout(block)),
+  //! What is hidden, both ways: asked for with nothing, set with a list. The
+  //! same shape as readLayout, and in the file for the same reason.
+  readHidden: list => {
+    if (list === undefined) return [...state.hidden];
+    state.hidden = new Set(Array.isArray(list) ? list : []);
+    return null;
+  },
   select: id => select(id, false),
   selected: () => state.selected,
   onStack: () => refreshSteps(),
@@ -110,9 +117,23 @@ const mdl = new Mdl({
 
 //! Runs an edit and redraws from the answer. Refusals land in the definition
 //! panel and in the graph console, both.
+//! Every edit, with a watchdog on it.
+//!
+//! OpenCascade runs in this page, on this thread. A boolean between two
+//! two-hundred-thousand-triangle imports takes as long as it takes and nothing
+//! can be drawn while it does - that is the cost of a kernel in a tab, and
+//! pretending otherwise would be worse than saying it. What can be done is to
+//! stop the page looking DEAD while it happens: after a second of no answer
+//! the status bar says what it is working on, so a long edit reads as a long
+//! edit rather than as a crash. And whatever happens, the last document is in
+//! the browser's own store - see keepModel - so a tab that really does die
+//! takes nothing with it.
 async function edit(command, options = {}) {
+  const watch = setTimeout(() => say("still working on " + (command.op || "that")
+    + " - OpenCascade is in this page, so a big one takes the page with it"), 1000);
   try { return await mdl.run(command, options); }
   catch (err) { showError(err.message); return null; }
+  finally { clearTimeout(watch); }
 }
 
 //! Several edits that are one thing that happened: four features filed into a
@@ -731,6 +752,24 @@ async function syncShapes() {
   if (following) fitView();
   draw();
   if (staging && showroom.ready) showroom.setScene(state.tree.features, streams);
+}
+
+//! Show or hide a feature in the 3D view - one function, because there are
+//! four ways to ask for it (the tree's eye, the ring, the tree's menu, a
+//! script) and four copies of "add to a Set and redraw" is four places for the
+//! file to stop being told.
+//!
+//! WHAT IS HIDDEN IS PART OF THE DOCUMENT. It is not a property of the
+//! geometry - `visible` on a feature already means "not consumed by an
+//! operation", and is recomputed on every rebuild - so it rides in the file
+//! beside the graph's layout, under its own key. The alternative is a hide
+//! that a reload forgets, which is a tree saying one thing and a viewport
+//! saying another.
+function showFeature(id, on) {
+  const ids = Array.isArray(id) ? id : [id];
+  for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
+  buildTree(); applyVisibility(); draw();
+  keepModel();
 }
 
 function applyVisibility() {
@@ -2392,7 +2431,10 @@ function treeNode(entry) {
     : entry.sketch ? (entry.sketch.drawing.elements.length || "empty")
         + (entry.sketch.drawing.elements.length === 1 ? " element"
            : entry.sketch.drawing.elements.length ? " elements" : "")
-    : consumed ? "hidden"
+    // A consumed feature is drawn struck through and says what ate it in its
+    // tooltip; the word "hidden" here said the same word the eye says about a
+    // different thing entirely, which is two meanings for one word in one row.
+    : consumed ? "in " + ((feature(entry.consumedBy) || {}).name || "another feature")
     : entry.data && !entry.built
       ? entry.data.count + " " + entry.data.kind + (entry.data.count === 1 ? "" : "s")
       : entry.type.toLowerCase();
@@ -2400,15 +2442,17 @@ function treeNode(entry) {
   li.append(glyph, label, kind);
 
   if (!consumed && entry.built) {
+    // The same switch a sketch layer has: always there, pressed or not, one
+    // click either way. An eye that only appears on hover is a control you
+    // have to know about before you can find it.
     const eye = document.createElement("button");
+    eye.type = "button";
     eye.className = "eye" + (hidden ? " off" : "");
     eye.innerHTML = svg(hidden ? ICONS.eyeOff : ICONS.eye);
-    eye.title = hidden ? "Show in 3D" : "Hide in 3D";
-    eye.addEventListener("click", event => {
-      event.stopPropagation();
-      hidden ? state.hidden.delete(entry.id) : state.hidden.add(entry.id);
-      buildTree(); applyVisibility(); draw();
-    });
+    eye.title = hidden ? "Hidden in the 3D view. Click to show it."
+      : "Showing. Click to hide it in the 3D view.";
+    eye.setAttribute("aria-pressed", String(!hidden));
+    eye.addEventListener("click", event => { event.stopPropagation(); showFeature(entry.id, hidden); });
     li.appendChild(eye);
   }
 
@@ -2617,11 +2661,7 @@ function openMenu(event, entry) {
   // at a time, so it is here too.
   const dark = many.filter(id => state.hidden.has(id));
   item(dark.length === many.length ? "Show " + about("it") : "Hide " + about("it"),
-    "in the 3D view, not in the document", () => {
-      const showing = dark.length === many.length;
-      for (const id of many) showing ? state.hidden.delete(id) : state.hidden.add(id);
-      buildTree(); applyVisibility(); draw();
-    });
+    "in the 3D view, and in the file", () => showFeature(many, dark.length === many.length));
 
   if (!several) item("Open definition", "", () => select(entry.id, true));
   item(several ? "Delete " + many.length + " features"
@@ -3915,6 +3955,100 @@ function applyState(payload, options = {}) {
   refreshToolbar();
   graph.sync();
   syncShapes().then(buildLog).catch(err => showError(err.message));
+  keepModel();
+}
+
+/* --------------------------------------------------------- the spare copy
+
+   A tab can go away without asking: a reload, a crash, a phone deciding the
+   page has been in the background long enough. The document is text - that is
+   the whole design - so there is no reason for any of that to cost anything,
+   and this keeps the last one in the browser's own store beside the page.
+
+   It is NOT a save. The file is what the Model dialog writes and what Export
+   produces; this is the thing that is there when you come back and find the
+   tab did not survive the night. It is kept per document, it is written after
+   the edit rather than during it, and it never gets in the way of an edit: a
+   store that is full or switched off is a store that quietly does nothing.   */
+
+const SPARE = "ocafcad/spare";
+//! Four megabytes. localStorage is about five in every browser that has it,
+//! and a model carrying an imported STEP file can be bigger than that - so
+//! the size is checked and the truth is told rather than a quota error being
+//! thrown into the middle of somebody's edit.
+const SPARE_LIMIT = 4e6;
+let sparePending = 0, spareSaid = false, spareBusy = false;
+
+function keepModel() {
+  if (!ready || !mdl) return;
+  // After the edit, not during it, and never two at once. Serialising the
+  // document asks the kernel for the whole of it, and the kernel answers one
+  // question at a time: a spare copy taken while an edit is still in flight
+  // would be a second caller in there, which is the one way a background
+  // convenience could take the page down with it.
+  clearTimeout(sparePending);
+  sparePending = setTimeout(async () => {
+    if (spareBusy || inFlight) { keepModel(); return; }
+    spareBusy = true;
+    try {
+      const text = await mdl.modelText(0);
+      if (text.length > SPARE_LIMIT) {
+        if (!spareSaid) {
+          spareSaid = true;
+          say("this model is too big to keep a spare copy of in the browser - "
+            + "export it, or keep the model file");
+        }
+        try { localStorage.removeItem(SPARE); } catch (e) { /* nothing to remove */ }
+        return;
+      }
+      spareSaid = false;
+      localStorage.setItem(SPARE, JSON.stringify({ at: Date.now(), text }));
+    } catch (err) { /* a full or private store keeps nothing, and says nothing */ }
+    finally { spareBusy = false; }
+  }, 900);
+}
+
+//! What was left in the browser last time, if anything, and how long ago.
+function spareModel() {
+  try {
+    const said = JSON.parse(localStorage.getItem(SPARE) || "null");
+    return said && typeof said.text === "string" && said.text.length > 40 ? said : null;
+  } catch (e) { return null; }
+}
+
+//! Offered, never forced. A model that opens by itself over the one somebody
+//! wanted is worse than one that has to be asked for - so this is a line in
+//! the status bar with a button on it, and doing nothing loses nothing.
+function offerSpare() {
+  const spare = spareModel();
+  if (!spare) return;
+  const old = Date.now() - spare.at;
+  // Something from ten seconds ago is this session reloading, not a crash.
+  if (old < 8000) return;
+  const bar = document.getElementById("status-sel");
+  const ago = old < 90e3 ? Math.round(old / 1000) + " s"
+    : old < 5400e3 ? Math.round(old / 60e3) + " min"
+    : Math.round(old / 3600e3) + " h";
+  bar.innerHTML = "";
+  bar.append("a model from " + ago + " ago was left open  ");
+  const open = document.createElement("button");
+  open.className = "btn primary";
+  open.textContent = "Recover it";
+  open.addEventListener("click", async () => {
+    try {
+      await mdl.run({ op: "model", model: JSON.parse(spare.text) });
+      say("recovered the model that was open " + ago + " ago");
+      fitView();
+    } catch (err) { showError(err.message); }
+  });
+  const no = document.createElement("button");
+  no.className = "btn";
+  no.textContent = "Discard";
+  no.addEventListener("click", () => {
+    try { localStorage.removeItem(SPARE); } catch (e) { /* already gone */ }
+    say("the spare copy is gone");
+  });
+  bar.append(open, no);
 }
 
 function updateStamp() {
@@ -4529,8 +4663,15 @@ const packageKit = {
   //! The model's own meshes, hidden while something is drawn over them. Not the
   //! whole world group: a package's own drawing is in there too, and hiding
   //! that would hide the thing being looked at.
+  //!
+  //! Coming BACK is not "show everything". A mode that turned the model off
+  //! and then turned every mesh on again would show the things somebody has
+  //! hidden and the things an operation has consumed - the tree would say
+  //! hidden and the viewport would say otherwise, and the tree is right. So
+  //! the way back is the same function every other redraw uses, which reads
+  //! the document and the hide set rather than setting a flag.
   setModelVisible(on) {
-    for (const { group } of shapes.values()) group.visible = on;
+    if (on) applyVisibility(); else for (const { group } of shapes.values()) group.visible = false;
     draw();
   },
 
@@ -5952,10 +6093,8 @@ const PIE_ACTS = {
   },
   openDef: () => select(state.selected, true),
   del: () => deleteFeature(state.picked.length > 1 ? state.picked.slice() : state.selected),
-  visible: was => {
-    was ? state.hidden.delete(state.selected) : state.hidden.add(state.selected);
-    buildTree(); applyVisibility(); draw();
-  },
+  visible: was => showFeature(state.picked.length > 1 ? state.picked.slice()
+                              : state.selected, was),
   moveInto: into => edit({ op: "group", id: state.selected, into }),
   takeOut: () => edit({ op: "group", id: state.selected }),
 
@@ -6092,6 +6231,7 @@ addEventListener("keyup", event => {
       boot("connecting to the kernel");
       await useNativeKernel(candidate);
       document.getElementById("boot").hidden = true;
+      offerSpare();
       return;
     } catch (err) { /* fall through to the kernel in this page */ }
   }
@@ -6104,4 +6244,5 @@ addEventListener("keyup", event => {
     return;
   }
   document.getElementById("boot").hidden = true;
+  offerSpare();
 })();

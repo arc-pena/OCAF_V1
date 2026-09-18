@@ -201,6 +201,7 @@ export const MDL_OPS = [
       // The layout block is the graph's, not the kernel's; it travels in the
       // same file so a model opens looking the way it was left.
       if (model.layout && typeof model.layout === "object") ctx.readLayout(model.layout);
+      if (ctx.readHidden) ctx.readHidden(model.hidden);
       return await ctx.kernel.loadModel(model);
     }),
 
@@ -641,15 +642,23 @@ export class Mdl {
   }
 
   //! The document as it stands, layout and all - one entry on the stack.
+  //!
+  //! What is HIDDEN travels with it, for the same reason the graph's layout
+  //! does: it is part of how the document was left, and a step of undo that
+  //! put the geometry back but not what was showing would be a step that only
+  //! half happened.
   async snapshot() {
     const model = await this.ctx.kernel.model();
     const layout = this.ctx.readLayout ? this.ctx.readLayout() : null;
     if (layout && Object.keys(layout).length) model.layout = layout;
+    const hidden = this.ctx.readHidden ? this.ctx.readHidden() : null;
+    if (hidden && hidden.length) model.hidden = hidden;
     return model;
   }
 
   async restore(model) {
     if (model.layout && this.ctx.readLayout) this.ctx.readLayout(model.layout);
+    if (this.ctx.readHidden) this.ctx.readHidden(model.hidden);
     return await this.ctx.kernel.loadModel(model);
   }
 
@@ -813,9 +822,6 @@ export class Mdl {
   //! The document as text, with the graph's layout folded in. This is the file:
   //! what the sliders write, what the graph writes, what rebuilds the part.
   async modelText(space = 2) {
-    const model = await this.ctx.kernel.model();
-    const layout = this.ctx.readLayout();
-    if (layout && Object.keys(layout).length) model.layout = layout;
-    return JSON.stringify(model, null, space);
+    return JSON.stringify(await this.snapshot(), null, space);
   }
 }

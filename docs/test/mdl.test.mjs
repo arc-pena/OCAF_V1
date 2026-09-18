@@ -33,6 +33,7 @@ const kernel = await createWasmKernel({
 // The channel, with the graph's two view hooks stubbed by a plain map.
 const layout = new Map();
 let selected = null;
+let hidden = new Set();
 const mdl = new Mdl({
   kernel,
   setNode: (id, x, y) => layout.set(id, { x, y }),
@@ -44,6 +45,11 @@ const mdl = new Mdl({
   },
   select: id => { selected = id; },
   selected: () => selected,
+  readHidden: list => {
+    if (list === undefined) return [...hidden];
+    hidden = new Set(Array.isArray(list) ? list : []);
+    return null;
+  },
 });
 
 console.log("1. the language describes itself");
@@ -160,6 +166,38 @@ await mdl.runAll([
 ]);
 check("both edits ran", mdl.history.length === n + 2);
 check("in order", mdl.history[n].edit.id === "PT1" && mdl.history[n + 1].edit.id === "VZ");
+
+
+console.log("\nwhat is hidden is part of the document");
+{
+  // Hiding a body is not a property of the geometry - `visible` on a feature
+  // already means "not consumed by an operation" and is recomputed on every
+  // rebuild - so it rides in the file beside the graph's layout. A hide the
+  // file forgets is a tree saying one thing and a viewport saying another,
+  // and the tree is the document.
+  await mdl.run({ op: "model", model: { format: "ocaf-parametric-model", version: 1,
+                                        name: "H", units: "mm", features: [] } });
+  await mdl.run({ op: "add", type: "Point", id: "P1" });
+  await mdl.run({ op: "add", type: "Point", id: "P2" });
+  hidden = new Set(["P2"]);
+
+  const text = await mdl.modelText(0);
+  check("the file says what is hidden", JSON.parse(text).hidden.join() === "P2",
+        JSON.stringify(JSON.parse(text).hidden));
+
+  hidden = new Set();
+  await mdl.run({ op: "model", model: JSON.parse(text) });
+  check("and reading it back puts it back", [...hidden].join() === "P2", [...hidden].join());
+
+  // And undo walks it, because a step that put the geometry back but not what
+  // was showing would be a step that only half happened.
+  await mdl.run({ op: "add", type: "Point", id: "P3" });
+  hidden = new Set(["P1", "P3"]);
+  await mdl.run({ op: "add", type: "Point", id: "P4" });
+  await mdl.run({ op: "undo" });
+  check("undo takes what was hidden back with it", [...hidden].sort().join() === "P1,P3",
+        [...hidden].join());
+}
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);
