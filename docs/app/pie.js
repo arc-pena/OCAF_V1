@@ -336,6 +336,8 @@ function editBranch(world) {
   const home = selected.parent ? containers.find(c => c.id === selected.parent) : null;
   return branch("Edit", selected.name, [
     leaf("Definition", "open its arguments", () => act.openDef()),
+    ...only(!!world.lead, leaf("Set " + (world.lead || "").toLowerCase(),
+      "by hand, against the model", () => act.drag())),
     leaf(hidden ? "Show" : "Hide", "in the 3D view", () => act.visible(!!hidden), { on: !!hidden }),
     ...only(!!home, leaf("Take out of " + (home ? home.name : ""), "to the top level",
                          () => act.takeOut())),

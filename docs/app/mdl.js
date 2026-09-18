@@ -631,6 +631,8 @@ export class Mdl {
     this.past = [];
     this.future = [];
     this.restoring = false;
+    // What the document said when a hand went down, held until it comes up.
+    this.gesturing = null;
     this.ctx.undo = () => this.step(this.past, this.future);
     this.ctx.redo = () => this.step(this.future, this.past);
     // Told whenever the stacks move, which is not the same as an edit running:
@@ -728,6 +730,34 @@ export class Mdl {
       this.announce(record);
       throw err;
     }
+  }
+
+  //! A GESTURE: many edits over time that are one thing that happened.
+  //!
+  //! runAll knows its edits before it starts. A hand does not - a pad dragged
+  //! out across the screen is ninety `set`s that arrive one frame at a time,
+  //! and every one of them is a real edit that has to be run for the model to
+  //! be rebuilt under the cursor. What they are not is ninety things to undo.
+  //! So the snapshot is taken when the hand goes down and kept until it comes
+  //! up, exactly as a list does it, with the edits in between running against
+  //! a channel that is not recording.
+  //!
+  //! Nested gestures do nothing, which is what makes it safe to begin one
+  //! without first asking whether anything else already has.
+  async beginGesture() {
+    if (this.gesturing || this.restoring) return;
+    this.gesturing = await this.snapshot();
+    this.restoring = true;
+  }
+
+  //! The hand comes up. \p changed says whether anything actually moved: a
+  //! press and release that set nothing is not a step to undo.
+  endGesture(changed = true) {
+    const before = this.gesturing;
+    if (!before) return;
+    this.gesturing = null;
+    this.restoring = false;
+    if (changed) this.remember(before, { op: "set" });
   }
 
   //! A list of edits applied in order, carrying on past any that are refused

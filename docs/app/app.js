@@ -15,6 +15,12 @@ import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
+// No `as` here, nor anywhere else in this tree. The single-file build strips
+// the imports and lets every module share one scope, so a name renamed on the
+// way in is a name that does not exist in the page that gets published - and
+// it is fine in the served build, which is the one nobody publishes.
+import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
+         onPlane, rulerAt, vUnit } from "./handle.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
@@ -329,6 +335,10 @@ function measureScene() {
   const el = renderer.domElement;
 
   el.addEventListener("pointerdown", event => {
+    // A number being dragged out owns the viewport until it is let go. The
+    // press that lets go of it is the press that sets it, and nothing else:
+    // it must not also orbit the model or pick whatever is behind the cursor.
+    if (dropHeads()) { event.preventDefault(); return; }
     // An axis of the handle takes the drag before the camera does.
     if (event.button === 0 && !event.shiftKey && grabGizmo(event)) mode = "gizmo";
     // A sketch is looked at square on, and stays that way: the drag that would
@@ -350,6 +360,9 @@ function measureScene() {
     el.setPointerCapture(event.pointerId);
   });
   el.addEventListener("pointermove", event => {
+    // The ruler first. A pad being dragged out is not an orbit, and while it
+    // is being dragged out nothing else in here gets a look at the pointer.
+    if (driveHeads(event)) return;
     if (sketching()) {
       const uv = sketchAt(event);
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
@@ -1753,13 +1766,13 @@ const raycaster = new THREE.Raycaster();
 
 //! Where a ray comes closest to an axis through a point - the whole of what
 //! dragging one arrow means.
+//! The three.js spelling of the ruler in handle.js. One sum, in one place:
+//! the mesh gizmo and the parameter under the hand are measuring the same
+//! thing and must not be able to disagree about it.
 function alongAxis(ray, origin, dir) {
-  const w = new THREE.Vector3().subVectors(origin, ray.origin);
-  const a = dir.dot(dir), b = dir.dot(ray.direction), c = ray.direction.dot(ray.direction);
-  const d = dir.dot(w), e = ray.direction.dot(w);
-  const denominator = a * c - b * b;
-  if (Math.abs(denominator) < 1e-9) return 0;
-  return (b * e - c * d) / denominator;
+  return rulerAt([ray.origin.x, ray.origin.y, ray.origin.z],
+                      [ray.direction.x, ray.direction.y, ray.direction.z],
+                      [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z]);
 }
 
 function rayFrom(event) {
@@ -3720,6 +3733,7 @@ async function addFeature(type) {
     await mdl.runAll(taking.map(id => ({ op: "group", id, into: payload.id })));
   select(payload.id, true);
   if (spec.category !== "datum" && spec.category !== "container") fitView();
+  offerHeads(payload.id);
 }
 
 async function deleteFeature(id) {
@@ -5358,6 +5372,13 @@ addEventListener("keydown", event => {
     return;
   }
   if (event.key === "Enter" && sketching()) { endSketchRun(); return; }
+  if (event.key === "Escape" && headsOpen()) { closeHeads(true); return; }
+  // One key for "let me set this by hand", on whatever is selected. The panel
+  // is the other way to the same number and neither is the proper one.
+  if ((event.key === "d" || event.key === "D") && state.selected && !headsOpen()) {
+    openHeads(state.selected, pointerAt.x, pointerAt.y);
+    return;
+  }
   if (event.key === "Escape") {
     sampleMenu.hidden = true;
     const shelf = document.getElementById("packages");
@@ -5382,6 +5403,304 @@ addEventListener("keydown", event => {
     state.edited = null; buildPanel(); logPop.hidden = true;
   }
 });
+
+/* ------------------------------------------- the parameter under the hand */
+
+/*  A fillet has a radius, a pad has a distance, a point has somewhere to be.
+ *  Making one and then going to look for that number in a panel is two actions
+ *  where there is one thought, so the number comes up under the cursor the
+ *  moment the feature exists - and the mouse drives it against the model,
+ *  which is how every modeller worth the name has done it for thirty years.
+ *
+ *  The panel is not replaced and nothing is hidden from it. Both write the
+ *  same `set` through the same channel, so a value dragged in the viewport
+ *  moves the panel's slider as it goes and a value typed in the panel moves
+ *  the model - they are two hands on one number rather than two numbers.
+ *
+ *  What the pointer MEANS is in handle.js, with the table of which argument
+ *  each feature leads with. What is here is the pill, the ray, and the rule
+ *  that a whole drag is one thing to undo.
+ */
+
+const headsBar = document.getElementById("heads");
+const heads = {
+  id: null,        // the feature being set
+  lead: null,      // which argument, and how a hand drives it
+  ruler: null,     // { at, dir } in the model's own space
+  from: 0,         // where along the ruler the drag started
+  was: null,       // what it said before, for Escape
+  driving: false,  // is the pointer still setting it
+  changed: false,
+};
+
+//! What a feature is drawn as, for the sums: the triangles and the lines the
+//! viewport already has. Nothing is asked of the kernel - the ruler is read
+//! off the thing you can see, which is the thing you are pointing at.
+const drawnOf = id => (id ? streams.get(id) || null : null);
+
+//! Where a feature IS: a point says so itself, and anything else is taken as
+//! the middle of its extents.
+function spotOf(id) {
+  const entry = feature(id);
+  if (entry && entry.data && entry.data.kind === "point" && entry.data.preview) {
+    const said = entry.data.preview.replace(/[()]/g, "").split(",").map(Number);
+    if (said.length >= 3 && said.every(Number.isFinite)) return said.slice(0, 3);
+  }
+  const drawn = drawnOf(id);
+  if (!drawn) return null;
+  return middleOf(drawn.positions) || middleOf(drawn.edges) || middleOf(drawn.points) || null;
+}
+
+//! Which way a feature points: along it if it is a line, out of it if it is a
+//! face. A vector and a plane both answer this, which is what lets a pad know
+//! which way it grows without being told.
+function wayOf(id) {
+  const drawn = drawnOf(id);
+  if (!drawn) return null;
+  return lineWay(drawn.edges) || faceWay(drawn.positions, drawn.index) || null;
+}
+
+//! The ruler for a feature: anchored on one of its inputs and running along
+//! another, whichever of them it actually has. Falling back, in order, to the
+//! feature's own geometry and then to the screen - because a ruler you cannot
+//! work out is better as a ruler across the view than as no drag at all.
+function rulerFor(entry) {
+  const named = RULERS[entry.type] || {};
+  const refs = entry.refs || {};
+  let at = null, dir = null;
+  for (const key of named.at || []) { at = at || spotOf(refs[key]); }
+  for (const key of named.dir || []) { dir = dir || wayOf(refs[key]); }
+  at = at || spotOf(entry.id);
+  dir = dir || wayOf(entry.id);
+  if (!at) return null;
+  if (!dir) {
+    // Across the view: the drag still measures millimetres in the model, they
+    // are just millimetres towards the camera's right.
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    dir = [right.x, right.y, right.z];
+  }
+  return { at, dir: vUnit(dir) || [0, 0, 1] };
+}
+
+const rayOf = event => {
+  const ray = rayFrom(event).ray;
+  return { from: [ray.origin.x, ray.origin.y, ray.origin.z],
+           way: [ray.direction.x, ray.direction.y, ray.direction.z] };
+};
+
+//! Where a pointer is, in the model, for a point being placed: on whatever is
+//! under it, snapped to a curve if that is what is under it, and on the ground
+//! otherwise. This is the "click a plane and the point goes there" rule, and
+//! the reason it is one function is that "there" has three answers.
+function placeAt(event) {
+  const { from, way } = rayOf(event);
+  const hits = rayFrom(event).intersectObjects(
+    pickable.filter(m => m.parent && m.parent.visible), false);
+  // A curve first, wherever the ray passed near one: a point dropped on a
+  // curve belongs ON it, not on whatever is behind it.
+  let best = null;
+  for (const entry of state.tree.features) {
+    if (entry.produces !== "curve" || state.hidden.has(entry.id)) continue;
+    const drawn = drawnOf(entry.id);
+    const near = drawn && nearestOnEdges(drawn.edges, from, way);
+    if (near && (!best || near.gap < best.gap)) best = { ...near, id: entry.id };
+  }
+  const reach = view.span * 0.02;
+  if (best && best.gap < reach) return { at: best.at, on: best.id, what: "curve" };
+  if (hits.length) {
+    const p = hits[0].point;
+    return { at: [p.x, p.y, p.z], on: hits[0].object.userData.id, what: "surface" };
+  }
+  // Nothing under it: the plane the view is looking at, through the middle of
+  // what is being looked at, so a point always lands somewhere sensible.
+  const facing = new THREE.Vector3();
+  camera.getWorldDirection(facing);
+  const at = onPlane(from, way, [view.target.x, view.target.y, view.target.z],
+                     [facing.x, facing.y, facing.z]);
+  return at ? { at, on: null, what: "view" } : null;
+}
+
+//! The number the pointer is asking for, given what kind of drag this is.
+function headsValue(event) {
+  const { from, way } = rayOf(event);
+  const lead = heads.lead, ruler = heads.ruler;
+  if (lead.drag === "place") {
+    const found = placeAt(event);
+    return found ? { keys: lead.keys, values: found.at, said: found.what } : null;
+  }
+  if (lead.drag === "curve") {
+    const entry = feature(heads.id);
+    const curve = entry && entry.refs ? entry.refs.curve : null;
+    const drawn = drawnOf(curve);
+    const near = drawn && nearestOnEdges(drawn.edges, from, way);
+    return near ? { key: lead.key, value: Math.max(0, Math.min(1, near.t)) } : null;
+  }
+  if (lead.drag === "radius") {
+    const facing = new THREE.Vector3();
+    camera.getWorldDirection(facing);
+    const hit = onPlane(from, way, ruler.at, [facing.x, facing.y, facing.z]);
+    if (!hit) return null;
+    const now = Math.hypot(hit[0] - ruler.at[0], hit[1] - ruler.at[1], hit[2] - ruler.at[2]);
+    return { key: lead.key, value: heads.was + (now - heads.from) };
+  }
+  if (lead.drag === "axis") {
+    const now = rulerAt(from, way, ruler.at, ruler.dir);
+    return { key: lead.key, value: heads.was + (now - heads.from) };
+  }
+  return null;
+}
+
+//! Where the drag starts from, so the first pixel of movement is the first
+//! millimetre of change rather than a jump.
+function headsAnchor(event) {
+  const { from, way } = rayOf(event);
+  if (heads.lead.drag === "axis")
+    return rulerAt(from, way, heads.ruler.at, heads.ruler.dir);
+  if (heads.lead.drag === "radius") {
+    const facing = new THREE.Vector3();
+    camera.getWorldDirection(facing);
+    const hit = onPlane(from, way, heads.ruler.at, [facing.x, facing.y, facing.z]);
+    return hit ? Math.hypot(hit[0] - heads.ruler.at[0], hit[1] - heads.ruler.at[1],
+                            hit[2] - heads.ruler.at[2]) : 0;
+  }
+  return 0;
+}
+
+//! Open it on a feature. \p x, \p y is where the cursor was, which is where the
+//! pill goes; \p live says whether the pointer starts out driving it, which it
+//! does when the feature has only just been made.
+function openHeads(id, x, y, live = true) {
+  const entry = feature(id);
+  const spec = entry && schemaType(entry.type);
+  const lead = entry && spec ? leadFor(entry, spec) : null;
+  if (!lead) { closeHeads(); return false; }
+  heads.id = id;
+  heads.lead = lead;
+  heads.ruler = lead.drag === "axis" || lead.drag === "radius" ? rulerFor(entry) : null;
+  heads.was = lead.keys ? lead.values.slice() : lead.value;
+  heads.from = 0;
+  heads.changed = false;
+  heads.driving = !!live && !!lead.drag && (lead.drag !== "axis" || !!heads.ruler);
+  drawHeads(x, y);
+  if (heads.driving) mdl.beginGesture();
+  return true;
+}
+
+function drawHeads(x, y) {
+  const lead = heads.lead;
+  if (!lead) return;
+  if (x !== undefined) {
+    headsBar.style.left = Math.max(120, Math.min(innerWidth - 120, x)) + "px";
+    headsBar.style.top = Math.max(60, Math.min(innerHeight - 24, y)) + "px";
+  }
+  headsBar.hidden = false;
+  headsBar.classList.toggle("driving", heads.driving);
+  const entry = feature(heads.id);
+  if (lead.keys) {
+    // Three numbers is not a slider. A point being placed says where it is and
+    // what it landed on, and the click is the whole of the interaction.
+    const at = lead.keys.map(key => round(entry.values[key]));
+    headsBar.innerHTML = '<span class="hd-name"></span><span class="hd-said"></span>'
+      + '<span class="hd-hint">click to drop · Esc to put it back</span>';
+    headsBar.querySelector(".hd-name").textContent = lead.label;
+    headsBar.querySelector(".hd-said").textContent = at.join(", ");
+    return;
+  }
+  const value = entry.values[lead.key];
+  const span = sliderSpan({ min: lead.min, max: lead.max, step: lead.step }, value);
+  headsBar.innerHTML = '<span class="hd-name"></span>'
+    + '<input type="range" min="' + span.min + '" max="' + span.max
+    + '" step="' + lead.step + '" value="' + value + '">'
+    + '<span class="hd-box"><input type="number" step="' + lead.step
+    + '" value="' + round(value) + '"><span class="hd-unit"></span></span>';
+  headsBar.querySelector(".hd-name").textContent = lead.label;
+  headsBar.querySelector(".hd-unit").textContent = lead.unit || "";
+  const slider = headsBar.querySelector('input[type="range"]');
+  const box = headsBar.querySelector('input[type="number"]');
+  const put = (raw, redraw) => {
+    const asked = Number(raw);
+    if (!Number.isFinite(asked)) return;
+    heads.changed = true;
+    heads.driving = false;
+    headsBar.classList.remove("driving");
+    pushParameter(heads.id, lead.key, asked);
+    if (redraw) slider.value = String(asked); else box.value = String(round(asked));
+  };
+  slider.addEventListener("input", () => put(slider.value, false));
+  box.addEventListener("change", () => put(box.value, true));
+  box.addEventListener("keydown", event => {
+    event.stopPropagation();
+    if (event.key === "Enter") { put(box.value, true); closeHeads(); }
+    if (event.key === "Escape") closeHeads(true);
+  });
+}
+
+//! Live, as the pointer moves. One edit a frame at most, and the model is
+//! rebuilt under the cursor rather than after it - watching the pad grow is
+//! the entire point.
+function driveHeads(event) {
+  if (!heads.driving || !heads.lead) return false;
+  const asked = headsValue(event);
+  if (!asked) return true;
+  heads.changed = true;
+  if (asked.keys) {
+    // Three numbers, one edit each, and the panel is left alone between them.
+    const edits = asked.keys.map((key, i) =>
+      ({ op: "set", id: heads.id, key, value: Math.round(asked.values[i] * 1e3) / 1e3 }));
+    if (!headsBusy) {
+      headsBusy = true;
+      mdl.runAll(edits, { keepPanel: true })
+         .catch(err => showError(err.message))
+         .finally(() => { headsBusy = false; drawHeads(); });
+    }
+  } else {
+    pushParameter(heads.id, asked.key, Math.round(asked.value * 1e3) / 1e3);
+    const slider = headsBar.querySelector('input[type="range"]');
+    const box = headsBar.querySelector('input[type="number"]');
+    if (slider) slider.value = String(asked.value);
+    if (box) box.value = String(round(asked.value));
+  }
+  return true;
+}
+let headsBusy = false;
+
+//! The pointer lets go of it. The pill stays - the slider and the box are
+//! still there to tune what the drag roughed out.
+function dropHeads() {
+  if (!heads.driving) return false;
+  heads.driving = false;
+  headsBar.classList.remove("driving");
+  mdl.endGesture(heads.changed);
+  drawHeads();
+  return true;
+}
+
+//! And away. \p revert puts back what it said before, which is what Escape is
+//! for: a drag you did not mean should leave nothing behind.
+function closeHeads(revert = false) {
+  const lead = heads.lead, id = heads.id;
+  const driving = heads.driving;
+  headsBar.hidden = true;
+  headsBar.innerHTML = "";
+  heads.id = null; heads.lead = null; heads.driving = false;
+  if (driving) mdl.endGesture(heads.changed && !revert);
+  if (revert && lead && heads.changed) {
+    const back = lead.keys
+      ? lead.keys.map((key, i) => ({ op: "set", id, key, value: heads.was[i] }))
+      : [{ op: "set", id, key: lead.key, value: heads.was }];
+    mdl.runAll(back).catch(() => {});
+  }
+  heads.changed = false;
+}
+
+const headsOpen = () => !!heads.lead;
+
+//! Offered the moment a feature is made, from the rail, the ring or a script -
+//! one rule, so a pad made any of those ways comes up ready to be dragged out.
+function offerHeads(id) {
+  if (!id) return;
+  openHeads(id, pointerAt.x, pointerAt.y);
+}
 
 /* ------------------------------------------------- full screen, and the pie */
 
@@ -5439,8 +5758,12 @@ function pieWorld() {
   const selected = feature(state.selected);
   const drawing = sketching() ? sketchDrawing() : null;
   const picked = drawing ? pickedElements(drawing) : [];
+  const spec = selected ? schemaType(selected.type) : null;
+  const lead = selected && spec ? leadFor(selected, spec) : null;
   return {
     selected,
+    // The one number this thing is about, so the ring can offer to set it.
+    lead: lead ? lead.label : null,
     hidden: selected ? state.hidden.has(selected.id) : false,
     containers: (state.tree ? state.tree.features : []).filter(f =>
       f.category === "container" && (!selected
@@ -5511,6 +5834,7 @@ const PIE_ACTS = {
                .catch(err => showError(err.message));
     select(born.id, true);
     if (schemaType(type) && schemaType(type).category !== "datum") fitView();
+    offerHeads(born.id);
   },
   openDef: () => select(state.selected, true),
   del: () => deleteFeature(state.selected),
@@ -5545,6 +5869,8 @@ const PIE_ACTS = {
   samples: () => clickOn("btn-sample"),
   undo: () => step(true),
   redo: () => step(false),
+
+  drag: () => openHeads(state.selected, pointerAt.x, pointerAt.y),
 
   bare: on => setBare(on),
   tree: () => toggleTree(),
