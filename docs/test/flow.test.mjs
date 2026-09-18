@@ -970,6 +970,164 @@ console.log("\na slab is a slab: the plate is the geometry, and nothing beside i
   }
 }
 
+console.log("\na wall is solid, and a building has an inside nobody walks in");
+{
+  // Two bugs of the same kind, and both of them come of a solid being nothing
+  // but its skin. A wall's faces are vertical, so seen from above they are
+  // lines that cover no cell middle at all; and the inside of a box has no
+  // triangle in it, so a cell in the middle of a building's footprint had
+  // nothing at head height over it and read as open floor.
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const point = async (x, y, z) => {
+    const id = (await kernel.addFeature("Point", {})).id;
+    for (const [k, v] of [["x", x], ["y", y], ["z", z]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+  const cube = async (at, dx, dy, dz) => {
+    const id = (await kernel.addFeature("Cube", { origin: at })).id;
+    for (const [k, v] of [["dx", dx], ["dy", dy], ["dz", dz]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+
+  // A 20 x 10 m slab with a 150 mm wall 3 m tall straight across the middle.
+  const slab = await cube(await point(0, 0, -200), 20000, 10000, 200);
+  const wall = await cube(await point(9000, 0, 0), 150, 10000, 3000);
+  const room = (await kernel.mesh([slab, wall])).features.filter(m => m.positions && m.index);
+  const split = plateOf(room, 1100, 250, {});
+  const grid = split.grid;
+  // Every cell the wall passes through, and the wall is 150 mm in a 250 mm
+  // grid: it is thinner than a cell, which is the case this has to survive.
+  let onWall = 0, stopped = 0;
+  for (let j = 0; j < grid.height; j++)
+    for (let i = 0; i < grid.width; i++) {
+      const [x, y] = toWorld(grid, i, j);
+      if (x < 8900 || x > 9250 || y < 0 || y > 10000) continue;
+      onWall++;
+      if (grid.blocked[cellIndex(grid, i, j)]) stopped++;
+    }
+  check("a wall thinner than a cell blocks every cell it passes through",
+        stopped === onWall, stopped + " of " + onWall + " cells");
+  check("so the room it crosses really is two rooms",
+        split.read.islands.pieces === 2, String(split.read.islands.pieces));
+  // Measured by walking it: a field swept from one side of the wall reaches
+  // nothing on the other side, however far round it looks.
+  const across = flowField(grid, [[2000, 5000]]);
+  check("and there is no way round it",
+        walkDistance(across, 18000, 5000) === null,
+        String(walkDistance(across, 18000, 5000)));
+  check("while this side of it is a walk of sixteen metres",
+        near(walkDistance(across, 8000, 5000), 6000, 400),
+        String(walkDistance(across, 8000, 5000)));
+
+  // A masterplan: a site slab with two staggered buildings standing on it.
+  // Their footprints are not public realm, and their roofs are not either.
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const site = await cube(await point(0, 0, -300), 60000, 40000, 300);
+  const one = await cube(await point(5000, 5000, 0), 20000, 12000, 14000);
+  const two = await cube(await point(32000, 20000, 0), 20000, 12000, 18000);
+  const town = (await kernel.mesh([site, one, two])).features.filter(m => m.positions && m.index);
+  const plan = plateOf(town, 1100, 500, {});
+  let free = 0;
+  for (let k = 0; k < plan.grid.blocked.length; k++) if (!plan.grid.blocked[k]) free++;
+  const area = free * plan.grid.cell * plan.grid.cell / 1e6;
+  // 60 x 40 is 2400 m2; the two buildings stand on 2 x 240 of it.
+  check("the ground between the buildings is walkable and the buildings are not",
+        near(area, 1920, 60), area.toFixed(0) + " m² of a 2400 m² site with 480 m² built on");
+  check("the middle of a building is not a place to stand",
+        isBlocked(plan.grid, 15000, 11000) && isBlocked(plan.grid, 42000, 26000));
+  check("and the pavement beside it is", !isBlocked(plan.grid, 2000, 2000));
+
+  // The roofs are flat, horizontal and fourteen metres up. Cut above them and
+  // they are walkable - and unreachable, which is the point: the destinations
+  // a plan is given by default have to land on the floor people are standing
+  // on, or everybody is stranded from the first frame.
+  const high = plateOf(town, 16000, 500, {});
+  check("with the cut above a roof the roof is walkable",
+        !isBlocked(high.grid, 15000, 11000));
+  check("but the floor people are on is still the ground, and it is the bigger piece",
+        high.main && !high.main[cellIndex(high.grid, ...toCell(high.grid, 15000, 11000))]
+        && !!high.main[cellIndex(high.grid, ...toCell(high.grid, 2000, 2000))]);
+  check("so the box the destinations are spread over is the ground, not the roof",
+        high.inside.lo[0] < 3000 && high.inside.hi[0] > 55000,
+        JSON.stringify(high.inside));
+}
+
+console.log("\na site whose ground nobody drew, arriving as one compound");
+{
+  // What a STEP file of a masterplan actually is: several solids in ONE mesh,
+  // standing on ground that is not in the file because the ground is not a
+  // thing anybody models. Two rules met over it and both of them got it wrong.
+  //
+  // The first: "a floor above the cut is still a floor". True of a slab at
+  // 120 mm with the slider at 100; nonsense about a roof at fourteen metres.
+  // Every cell borrowed the lowest roof over it, so the plate came back as the
+  // roofscape - one island per building, no streets between them - and a whole
+  // crowd was spawned on rooftops with nowhere to walk to.
+  //
+  // The second: a solid is closed when every edge has two triangles on it.
+  // Two solids that TOUCH share a face, and the edges round it carry four. The
+  // site read as open, the inside-of-a-solid test never ran, and the buildings
+  // were walkable ground.
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "Site",
+                           units: "mm", features: [] });
+  const point = async (x, y, z) => {
+    const id = (await kernel.addFeature("Point", {})).id;
+    for (const [k, v] of [["x", x], ["y", y], ["z", z]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+  const cube = async (at, dx, dy, dz) => {
+    const id = (await kernel.addFeature("Cube", { origin: at })).id;
+    for (const [k, v] of [["dx", dx], ["dy", dy], ["dz", dz]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+  const left = await cube(await point(5000, 5000, 0), 20000, 12000, 14000);
+  const mid = await cube(await point(25000, 5000, 0), 12000, 12000, 18000);   // touches left
+  const off = await cube(await point(45000, 20000, 0), 14000, 12000, 22000);
+  const parts = (await kernel.mesh([left, mid, off])).features
+    .filter(m => m.positions && m.index);
+
+  // Merged into one mesh, which is how an import of a site arrives: one
+  // Imported node carrying a compound of every building on it.
+  const site = { positions: [], index: [] };
+  for (const part of parts) {
+    const base = site.positions.length / 3;
+    for (const v of part.positions) site.positions.push(v);
+    for (const i of part.index) site.index.push(base + i);
+  }
+  site.positions = Float32Array.from(site.positions);
+  site.index = Uint32Array.from(site.index);
+
+  const plan = plateOf([site], 1100, 500, {});
+  const grid = plan.grid;
+  check("the ground is the ground, not the roof of the building standing on it",
+        surfaceAt(grid, 40000, 11000) === 0, String(surfaceAt(grid, 40000, 11000)));
+  check("the middle of every building is solid",
+        isBlocked(grid, 15000, 11000) && isBlocked(grid, 30000, 11000)
+        && isBlocked(grid, 52000, 26000),
+        "including the two that touch, which share a face and so share edges "
+        + "between four triangles rather than two");
+  check("and the street around them is one piece of public realm",
+        plan.read.islands.pieces === 1, String(plan.read.islands.pieces));
+  let free = 0;
+  for (let k = 0; k < grid.blocked.length; k++) if (!grid.blocked[k]) free++;
+  const area = free * grid.cell * grid.cell / 1e6;
+  // 56 x 29 m of site inside the skirt, 552 m2 of it built on.
+  check("which measures the site less what is built on it",
+        near(area, 1072, 50), area.toFixed(0) + " m² of 1624 m² with 552 m² built on");
+  check("every corner of it is somewhere to stand",
+        !isBlocked(grid, 4500, 4500) && !isBlocked(grid, 20000, 30000));
+
+  // And the walk holds: a field swept from one corner of the street reaches
+  // the far corner of it, round three buildings. Everybody cut off from
+  // everywhere is what this looked like before.
+  const round = flowField(grid, [[4500, 4500]]);
+  check("and you can walk from one end of it to the other",
+        walkDistance(round, 20000, 30000) !== null,
+        String(walkDistance(round, 20000, 30000)));
+}
+
 console.log("\na doubly curved floor: a dome, and what happens as it is squashed");
 {
   // The case is the one a sphere makes obvious. On a ball of any size only the

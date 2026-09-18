@@ -323,6 +323,53 @@ function facing(a, b, c) {
   return len > 1e-9 ? nz / len : 0;
 }
 
+//! Is this mesh closed - does it have an inside? Every edge of a closed
+//! surface is shared by an EVEN number of triangles; an edge with one triangle
+//! on it is a rim, and a rim means a sheet rather than a solid.
+//!
+//! Even, not exactly two, because one mesh is very often several solids. A
+//! STEP import of a masterplan arrives as one compound of boxes that sit on
+//! and against each other, and where two of them share a face the edges round
+//! it carry four triangles, or six where three meet. Insisting on two called
+//! that open, the inside test below never ran, and every building on the site
+//! read as walkable ground - 243,000 m2 of a 245,000 m2 plate, the buildings
+//! included. 141 edges out of 4313 were enough to do it.
+//!
+//! Matched on the CORNERS rather than on the indices, because a tessellated
+//! solid does not share its vertices between faces: OpenCascade meshes a box
+//! as twenty-four vertices, three copies of each of its eight corners, and by
+//! index no two faces of it touch at all.
+function isClosed(mesh) {
+  const p = mesh.positions, index = mesh.index;
+  if (!p || !index || index.length < 12) return false;
+  if (mesh.closed !== undefined) return !!mesh.closed;
+  const spot = new Map();
+  const at = i => {
+    // A tenth of a millimetre: finer than any tessellation writes, coarser
+    // than the last bit of a float.
+    const key = Math.round(p[i * 3] * 10) + "," + Math.round(p[i * 3 + 1] * 10)
+              + "," + Math.round(p[i * 3 + 2] * 10);
+    let found = spot.get(key);
+    if (found === undefined) { found = spot.size; spot.set(key, found); }
+    return found;
+  };
+  const corner = new Int32Array(p.length / 3);
+  for (let i = 0; i < corner.length; i++) corner[i] = at(i);
+  const edges = new Map();
+  for (let t = 0; t + 2 < index.length; t += 3) {
+    const v = [corner[index[t]], corner[index[t + 1]], corner[index[t + 2]]];
+    for (let e = 0; e < 3; e++) {
+      const one = v[e], two = v[(e + 1) % 3];
+      if (one === two) return false;                    // a degenerate triangle
+      const key = one < two ? one * 1e7 + two : two * 1e7 + one;
+      edges.set(key, (edges.get(key) || 0) + 1);
+    }
+  }
+  for (const n of edges.values()) if (n % 2) return false;
+  mesh.closed = true;
+  return true;
+}
+
 //! Reads the walkable surface out of the triangles and into the grid.
 //!
 //! Two passes, and they cannot be one. The first finds the highest walkable
@@ -409,9 +456,25 @@ function readSurface(grid, meshes, {
     // A storey whose floor is above the cut still has a floor. Refusing to see
     // it because a slider is in the wrong place is the interface arguing with
     // the geometry.
+    //
+    // WITHIN REACH of the cut, though - no more than head height over it. A
+    // slab at 120 mm with the slider at 100 is the floor the slider was
+    // pointing at and missed. The roof of a six storey building is not,
+    // however flat it is and however little else there is at 1.6 m.
+    //
+    // That distinction is the whole of a bug on an imported masterplan: a site
+    // of staggered boxes standing on ground nobody modelled has no horizontal
+    // face at all below the cut, so every cell borrowed the lowest ROOF over
+    // it - six, twelve, thirty metres up. The floor plate came back as the
+    // roofscape, in as many islands as there were buildings, with the streets
+    // between them missing, and four thousand people were spawned on rooftops
+    // that led nowhere. With the roofs out of reach nothing is borrowed, and
+    // the rule below puts the ground where the buildings are standing on it.
+    const reach = cut + headroom;
     for (let k = 0; k < surface.length; k++) {
-      if (Number.isNaN(surface[k])) surface[k] = above[k];
-      if (!Number.isNaN(surface[k])) covered++;
+      if (!Number.isNaN(surface[k]) || !(above[k] <= reach)) continue;
+      surface[k] = above[k];
+      covered++;
     }
 
     // Walls standing on nothing stand on the ground.
@@ -434,17 +497,81 @@ function readSurface(grid, meshes, {
         if (Number.isNaN(surface[k])) surface[k] = ground;
   }
 
+  // 50 mm of tolerance so the floor does not obstruct itself, and a person's
+  // height above it: anything in that band is in the way. A SPAN rather than a
+  // height, because a wall is not at a height - it goes from the floor to the
+  // ceiling, and asking whether one point of it is at head height is asking
+  // the wrong question.
+  const blockBetween = (k, lo, hi) => {
+    const floor = surface[k];
+    if (Number.isNaN(floor)) return;
+    if (hi > floor + 50 && lo < floor + headroom) blocked[k] = 1;
+  };
   eachTriangle(meshes, (a, b, c) => {
-    const blockIf = (k, z) => {
-      const floor = surface[k];
-      if (Number.isNaN(floor)) return;
-      // 50 mm of tolerance so the floor does not obstruct itself, and a
-      // person's height above it: anything in that band is in the way.
-      if (z > floor + 50 && z < floor + headroom) blocked[k] = 1;
-    };
-    overTriangle(grid, a, b, c, blockIf);
-    alongEdges(grid, a, b, c, blockIf);
+    const at = (k, z) => blockBetween(k, z, z);
+    overTriangle(grid, a, b, c, at);
+    // Seen from above a WALL is a line: it covers no cell middle at all, so
+    // the cells it passes through have to be walked instead. And the height
+    // that matters along that line is the whole span of the face, not the
+    // height of whichever point on the edge was walked.
+    //
+    // That was the whole of a bug that put holes through solid walls. A wall
+    // face is a rectangle split into two triangles, and the only edges of
+    // those that cross head height are the two diagonals - each of which
+    // ramps from the floor to the top over the wall's whole length. So a cell
+    // was blocked only where the diagonal happened to pass between 50 mm and
+    // 2 m: on a 3 m wall, two thirds of it, in a band, with the rest open. A
+    // 20 m room with a wall straight across it came out as one room.
+    const up = facing(a, b, c);
+    if (Math.abs(up) < 0.1) {
+      const lo = Math.min(a[2], b[2], c[2]), hi = Math.max(a[2], b[2], c[2]);
+      alongEdges(grid, a, b, c, k => blockBetween(k, lo, hi));
+    } else alongEdges(grid, a, b, c, at);
   });
+
+  // And then the inside of anything solid.
+  //
+  // A box standing on a slab is six rectangles and nothing in between: the
+  // triangles are its SKIN, and a cell in the middle of its footprint has no
+  // triangle at head height over it at all. So the floor under a building read
+  // as walkable, people were spawned inside it, and they could not get out
+  // past the walls - which is what four thousand people standing in the
+  // buildings with nowhere to go looks like.
+  //
+  // The test is the oldest one there is: shoot a ray straight up from just
+  // above the floor and count what it crosses. It is only asked of a mesh
+  // that is CLOSED, because an open one has no inside to be in - and a canopy
+  // drawn as a single sheet would otherwise put everything under it indoors.
+  //
+  // Counted with a SIGN rather than counted odd-or-even: a face you leave
+  // through is +1 and one you enter through is -1, so passing under a
+  // building gives nought and standing in one gives one. Plain parity is the
+  // textbook test and it is the wrong one here, because these meshes are
+  // several solids at once: a box sitting on another box shares a face with
+  // it, a ray through the pair meets that face twice, and two cancels to
+  // outside. The sign does not care how many surfaces are stacked at a
+  // height, only how many the ray has gone in through and out of.
+  const winding = new Int32Array(surface.length);
+  const touched = [];
+  for (const mesh of meshes) {
+    if (!isClosed(mesh)) continue;
+    touched.length = 0;
+    eachTriangle([mesh], (a, b, c) => {
+      const up = facing(a, b, c);
+      if (!up) return;                           // edge-on: the ray grazes it
+      const way = up > 0 ? 1 : -1;
+      overTriangle(grid, a, b, c, (k, z) => {
+        const floor = surface[k];
+        if (Number.isNaN(floor) || z <= floor + 100) return;
+        if (winding[k] === 0) touched.push(k);
+        winding[k] += way;
+      });
+    });
+    for (const k of touched) {
+      if (winding[k]) blocked[k] = 1;
+      winding[k] = 0;
+    }
+  }
 
   // No triangle to stand on is not "blocked by something" - it is a void, the
   // edge of the world, the middle of an atrium. Either way nobody walks there.
@@ -503,7 +630,16 @@ export function pruneIslands(grid, minArea = 4e6) {
     blocked[k] = 1;
     dropped++;
   }
-  return { pieces: pieces.length, dropped };
+  // And which piece is THE floor. On a masterplan the roofs are walkable too -
+  // flat, horizontal, and nobody can get to them - so spreading destinations
+  // over everything walkable puts one on a roof and everybody standing in the
+  // street can reach nothing. The biggest piece is the one people are on.
+  let big = -1;
+  for (let id = 0; id < pieces.length; id++)
+    if (pieces[id] >= cells && (big < 0 || pieces[id] > pieces[big])) big = id;
+  const main = big < 0 ? null : new Uint8Array(blocked.length);
+  if (main) for (let k = 0; k < blocked.length; k++) if (!blocked[k] && seen[k] === big) main[k] = 1;
+  return { pieces: pieces.length, dropped, main, biggest: big < 0 ? 0 : pieces[big] };
 }
 
 export function plateOf(meshes, cut, grain, {
@@ -552,18 +688,23 @@ export function plateOf(meshes, cut, grain, {
   // too steep at the edges - they land on the walkable cap rather than in the
   // ring of nothing around it, and a crowd that had nowhere to go now has four
   // corners to go to.
+  // Over the piece people are actually ON, where there is one: a roof is
+  // walkable and unreachable, and a destination on one is a destination
+  // nobody can walk to.
+  const main = read.islands && read.islands.main;
   let flo = [Infinity, Infinity], fhi = [-Infinity, -Infinity];
   for (let j = 0; j < grid.height; j++)
-    for (let i = 0; i < grid.width; i++)
-      if (!grid.blocked[j * grid.width + i]) {
-        const [x, y] = toWorld(grid, i, j);
-        flo = [Math.min(flo[0], x), Math.min(flo[1], y)];
-        fhi = [Math.max(fhi[0], x), Math.max(fhi[1], y)];
-      }
+    for (let i = 0; i < grid.width; i++) {
+      const k = j * grid.width + i;
+      if (grid.blocked[k] || (main && !main[k])) continue;
+      const [x, y] = toWorld(grid, i, j);
+      flo = [Math.min(flo[0], x), Math.min(flo[1], y)];
+      fhi = [Math.max(fhi[0], x), Math.max(fhi[1], y)];
+    }
   const walkable = Number.isFinite(flo[0]) ? { lo: flo, hi: fhi } : walls;
 
   return {
-    grid, read,
+    grid, read, main,
     // What to draw: the edge of the walkable surface, wherever it is - the
     // outside of the plate, the lip of a void, the face of a wall, the line
     // where a ramp turns into a climb. One rule, and it draws all of them.
@@ -1441,14 +1582,21 @@ Object.assign(FlowView.prototype, {
     for (const [fx, fy, name] of [[0.12, 0.12, "south-west"], [0.88, 0.12, "south-east"],
                                   [0.88, 0.88, "north-east"], [0.12, 0.88, "north-west"]]) {
       const want = [inside.lo[0] + span[0] * fx, inside.lo[1] + span[1] * fy];
-      const spot = isBlocked(grid, want[0], want[1]) ? this.nearestFreeAt(want) : want;
+      // On the floor people are standing on, not on a roof that happens to be
+      // horizontal: a destination nobody can walk to is not a destination.
+      const [ci, cj] = toCell(grid, want[0], want[1]);
+      const onFloor = this.plate.main
+        ? inGrid(grid, ci, cj) && this.plate.main[cellIndex(grid, ci, cj)]
+        : !isBlocked(grid, want[0], want[1]);
+      const spot = onFloor ? want : this.nearestFreeAt(want, true);
       if (spot) corners.push({ name, dwell: 6, at: [spot] });
     }
     return corners;
   },
 
-  nearestFreeAt(want) {
+  nearestFreeAt(want, onMain = false) {
     const { grid } = this.plate;
+    const main = onMain ? this.plate.main : null;
     const [i, j] = toCell(grid, want[0], want[1]);
     // As far as the grid goes. Stopping at forty cells was a limit of 10 m on a
     // 250 mm grid, and on a plate whose walkable part is a cap in the middle of
@@ -1459,7 +1607,8 @@ Object.assign(FlowView.prototype, {
         const angle = d / (8 * r) * Math.PI * 2;
         const ni = i + Math.round(Math.cos(angle) * r), nj = j + Math.round(Math.sin(angle) * r);
         if (ni < 0 || nj < 0 || ni >= grid.width || nj >= grid.height) continue;
-        if (!grid.blocked[nj * grid.width + ni]) return toWorld(grid, ni, nj);
+        const nk = nj * grid.width + ni;
+        if (!grid.blocked[nk] && (!main || main[nk])) return toWorld(grid, ni, nj);
       }
     return null;
   },
