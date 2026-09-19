@@ -3451,6 +3451,128 @@ const elidedMark = length => "<" + ELIDED + ": " + Math.round(length / 1024) + "
 export const isElided = value =>
   typeof value === "string" && value.startsWith("<" + ELIDED + ":");
 
+/* ================================================== a branch, on its own
+
+   THE POINT OF FILING THINGS. A set is a boundary, and a boundary is only
+   worth drawing if you can pick the thing up by it: take the massing out of
+   this document and into its own, take the core and the stairs into a file to
+   send somebody, split a study that has grown into three studies.
+
+   What comes back is a MODEL FILE, not a fragment. Everything filed under the
+   branch comes, and so does everything those features READ FROM - wherever it
+   was filed - because a file that will not rebuild is not a file, it is a
+   list. A point three sets away that the branch depends on arrives with it and
+   lands at the top level, which is where a thing whose set did not come
+   belongs.
+
+   Pure, and over the model file rather than the document: this is the
+   operation a person means when they say "open this JSON and give me that
+   branch", and it should not need a kernel to answer.                       */
+
+//! Every container in a model file, with what is in each - the tree a person
+//! browses before picking. The document itself is the first row, because the
+//! whole thing is a branch too, and the only one that is always there.
+export function branchesIn(model) {
+  const features = (model && model.features) || [];
+  const rows = [{ id: null, name: model.name || "Part", type: "Document",
+                  holds: features.length, whole: true }];
+  for (const f of features) {
+    if (f.type !== "GeometricalSet" && f.type !== "Body") continue;
+    rows.push({ id: f.id, name: f.name || f.id, type: f.type,
+                holds: featuresUnder(features, f.id).length, whole: false });
+  }
+  return rows;
+}
+
+//! Everything filed under a set, however deep - a set inside a set is inside
+//! the outer one too, which is what nesting means and what the tree draws.
+function featuresUnder(features, setId) {
+  const held = new Set([setId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of features) {
+      if (held.has(f.id) || !f.parent || !held.has(f.parent)) continue;
+      held.add(f.id);
+      grew = true;
+    }
+  }
+  held.delete(setId);
+  return features.filter(f => held.has(f.id));
+}
+
+//! THE BRANCH AS A DOCUMENT. \p pick is a set's id, or a list of them, or null
+//! for the whole thing.
+export function branchOf(model, pick) {
+  const features = (model && model.features) || [];
+  const wanted = (Array.isArray(pick) ? pick : [pick]).filter(id => id !== undefined);
+  if (!wanted.length || wanted.every(id => id === null))
+    return { ...model, features: features.map(f => ({ ...f })) };
+
+  const keep = new Set();
+  const sets = [];
+  for (const id of wanted) {
+    const set = features.find(f => f.id === id);
+    if (!set) continue;
+    sets.push(set);
+    keep.add(set.id);
+    for (const f of featuresUnder(features, set.id)) keep.add(f.id);
+  }
+  if (!keep.size) return null;
+
+  // And then everything those read from, transitively. A branch that arrives
+  // without the plane its sketch is on is a branch that arrives broken.
+  const brought = new Set();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of features) {
+      if (!keep.has(f.id)) continue;
+      for (const target of refsOf(f))
+        if (!keep.has(target) && features.some(other => other.id === target)) {
+          keep.add(target);
+          brought.add(target);
+          grew = true;
+        }
+    }
+  }
+
+  // In the order the document had them, which is an order that rebuilds.
+  const taken = features.filter(f => keep.has(f.id)).map(f => {
+    const copy = { ...f };
+    // A parent that did not come cannot be filed under: the feature lands at
+    // the top of the new document, which is where it now is.
+    if (copy.parent && !keep.has(copy.parent)) delete copy.parent;
+    return copy;
+  });
+  const named = sets.length === 1 ? (sets[0].name || sets[0].id)
+    : (model.name || "Part") + " (" + sets.length + " branches)";
+  return { ...model, name: named, features: taken, branch: {
+    of: model.name || "Part", sets: sets.map(set => set.id),
+    brought: [...brought],
+  } };
+}
+
+//! WHICH FEATURES A FEATURE POINTS AT, in a model file.
+//!
+//! A reference is written as `{ "ref": "P0" }` inside the arguments, and a list
+//! of them as an array of those - which is what makes the file readable and
+//! what makes this two lines rather than a schema lookup. The tree says the
+//! same thing a different way, as a plain `refs` map, so both shapes are read
+//! and a caller can hand in either.
+function refsOf(feature) {
+  const out = [];
+  const take = value => {
+    if (!value) return;
+    if (Array.isArray(value)) { for (const one of value) take(one); return; }
+    if (typeof value === "string") { out.push(value); return; }
+    if (typeof value === "object" && typeof value.ref === "string") out.push(value.ref);
+  };
+  for (const value of Object.values((feature && feature.args) || {})) take(value);
+  for (const value of Object.values((feature && feature.refs) || {})) take(value);
+  return out;
+}
+
 //! The model file with imported geometry taken out and its size put in its
 //! place. A copy, for reading: what the text box shows when a document carries
 //! a few megabytes of B-Rep, and what the assistant is briefed with - because

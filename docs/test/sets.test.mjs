@@ -7,6 +7,7 @@
 // change the part, so that is measured too.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
+import { branchOf, branchesIn } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 
 const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
@@ -158,6 +159,78 @@ console.log("\n6. one undo puts a set back where it was");
   check("undo takes it out again", !(await at("CI")).parent, (await at("CI")).parent);
   await mdl.run({ op: "redo" });
   check("redo puts it back", (await at("CI")).parent === "G2", (await at("CI")).parent);
+}
+
+console.log("\n7. a branch, taken out into a file of its own");
+{
+  // THE REASON A THING IS FILED ANYWHERE. A massing set that depends on a
+  // plane filed somewhere else has to arrive with that plane, or what comes
+  // out is a list rather than a document.
+  await mdl.run({ op: "model", model: { format: "ocaf-parametric-model", version: 1,
+    name: "Scheme", units: "mm", features: [] } });
+  await mdl.run({ op: "add", type: "Point", id: "P0", name: "Datum point" });
+  await mdl.run({ op: "add", type: "Vector", id: "VZ", name: "Up" });
+  await mdl.run({ op: "set", id: "VZ", key: "dz", value: 1 });
+  await mdl.run({ op: "add", type: "Plane", id: "PL", name: "Ground",
+                  refs: { origin: "P0", normal: "VZ" } });
+  await mdl.run({ op: "add", type: "GeometricalSet", id: "MASS", name: "Massing" });
+  await mdl.run({ op: "add", type: "GeometricalSet", id: "SITE", name: "Site" });
+  await mdl.run({ op: "add", type: "Cube", id: "TOWER", name: "Tower",
+                  refs: { origin: "P0", plane: "PL" } });
+  await mdl.run({ op: "add", type: "Cube", id: "PODIUM", name: "Podium",
+                  refs: { origin: "P0", plane: "PL" } });
+  await mdl.run({ op: "add", type: "Cube", id: "WALL", name: "Site wall",
+                  refs: { origin: "P0" } });
+  for (const [id, into] of [["TOWER", "MASS"], ["PODIUM", "MASS"],
+                            ["WALL", "SITE"], ["P0", "SITE"], ["VZ", "SITE"], ["PL", "SITE"]])
+    await mdl.run({ op: "group", id, into });
+
+  const model = await mdl.snapshot();
+  const rows = branchesIn(model);
+  check("the document itself is the first branch, and it is named after the part",
+        rows[0].whole && rows[0].name === "Scheme" && rows[0].holds === 8,
+        JSON.stringify(rows[0]));
+  check("and every set is a row under it, with what it holds",
+        rows.length === 3
+        && rows.find(r => r.id === "MASS").holds === 2
+        && rows.find(r => r.id === "SITE").holds === 4,
+        rows.map(r => r.name + ":" + r.holds).join(", "));
+
+  const massing = branchOf(model, "MASS");
+  check("taking the massing out gives a model file named after the set",
+        massing.name === "Massing" && massing.format === model.format, massing.name);
+  const ids = massing.features.map(f => f.id).sort();
+  check("with the set, what is in it, AND what those read from",
+        ids.join(",") === "MASS,P0,PL,PODIUM,TOWER,VZ", ids.join(","));
+  check("and it says which ones it had to bring in from outside",
+        massing.branch.brought.sort().join(",") === "P0,PL,VZ",
+        massing.branch.brought.join(","));
+  check("the site wall, which the massing does not read from, is left behind",
+        !ids.includes("WALL"));
+  check("what came from another set lands at the top rather than under a set that did not come",
+        !massing.features.find(f => f.id === "PL").parent,
+        String(massing.features.find(f => f.id === "PL").parent));
+  check("while what was in the branch keeps its filing",
+        massing.features.find(f => f.id === "TOWER").parent === "MASS");
+
+  // AND IT REBUILDS, which is the whole claim.
+  await mdl.run({ op: "model", model: massing });
+  const rebuilt = await tree();
+  check("the branch opens as a document and every feature in it builds",
+        rebuilt.length === 6 && rebuilt.every(f => !f.error),
+        rebuilt.map(f => f.name + (f.error ? " FAILED: " + f.error : "")).join(" | "));
+  check("and the tower is still on the plane it was on",
+        (await at("TOWER")).built && !(await at("TOWER")).error);
+
+  check("asking for the whole thing gives the whole thing back",
+        branchOf(model, null).features.length === model.features.length);
+  check("asking for a set that is not there gives nothing rather than an empty file",
+        branchOf(model, "NOPE") === null);
+  check("two branches at once come out together",
+        branchOf(model, ["MASS", "SITE"]).features.length === 8,
+        String(branchOf(model, ["MASS", "SITE"]).features.length));
+  check("and a model with no sets in it lists only itself",
+        branchesIn({ name: "Bare", features: [] }).length === 1);
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

@@ -10,7 +10,8 @@ import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { Arctic, FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf,
          makeSky, materialOf, rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
-import { acceptsFrom, dataLines, lightenModel, round, SAMPLES, sliderSpan } from "./ocaf.js";
+import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
+         sliderSpan } from "./ocaf.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost } from "./plugin.js";
@@ -813,6 +814,9 @@ function showFeature(id, on) {
   const ids = Array.isArray(id) ? id : [id];
   for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
   buildTree(); applyVisibility(); draw();
+  // The panel says whether the thing it is showing is showing, so it has to
+  // hear about this too - the eye is in two places and they must agree.
+  if (ids.includes(state.edited)) buildPanel();
   keepModel();
 }
 
@@ -2934,10 +2938,52 @@ function openDocMenu() {
 
   menuHead("Document");
   menuItem("Model file as text…", "read it, or paste one in", () => openModelDialog());
+  menuItem("A branch as its own file…", "pick a set and take it out",
+           () => openBranchMenu());
   menuItem("Packages…", "what is on the shelf", () => togglePackages(true));
   placeMenu(8, 44);
   const button = document.getElementById("btn-menu");
   button.setAttribute("aria-expanded", "true");
+}
+
+/* ---------------------------------------------- a branch out into a file
+
+   The reason a thing is filed anywhere. The sets are listed with what each
+   holds; picking one writes a model file containing that set, everything under
+   it, and everything those read from - so what comes out opens and rebuilds
+   rather than arriving as a list of orphans.                               */
+
+async function openBranchMenu() {
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  const model = await mdl.snapshot();
+  const rows = branchesIn(model);
+  menu.textContent = "";
+  menuHead("Take a branch out");
+  for (const row of rows)
+    menuItem(row.name, row.whole ? "the whole document · " + row.holds + " features"
+               : (row.type === "Body" ? "body" : "set") + " · " + row.holds
+                 + (row.holds === 1 ? " feature" : " features"),
+             row.holds ? () => saveBranch(model, row) : null);
+  if (rows.length === 1)
+    menuItem("No sets yet", "file things under a Geometrical Set or a Body first", null);
+  placeMenu(8, 44);
+}
+
+async function saveBranch(model, row) {
+  const taken = row.whole ? model : branchOf(model, row.id);
+  if (!taken) { say("that branch is not in the document any more"); return; }
+  const filename = String(taken.name || "branch").replace(/[^\w.-]+/g, "-") + ".model.json";
+  const brought = (taken.branch && taken.branch.brought.length) || 0;
+  const note = taken.features.length + " features"
+    + (brought ? ", " + brought + " of them brought in from outside the set because "
+        + "something in it reads from them" : "");
+  const how = await offerFile(filename, JSON.stringify(taken, null, 2),
+    "Take out " + row.name,
+    "A model file of its own: " + note + ". Open it here, or send it on.");
+  if (how === "saved") say(filename + " saved · " + note);
+  else if (how === "shown") say(filename + " · " + note);
+  else say("not saved");
 }
 
 //! Deepest first. A feature something else reads from cannot go until the
@@ -3028,6 +3074,54 @@ function openMenu(event, entry) {
 
 //! Is \p id inside the set \p setId, at any depth? Asked so a set cannot be
 //! offered a home inside something it already contains.
+/* ------------------------------------------------- where a feature LIVES
+
+   Two questions that every node has and that had nowhere to be asked: is it
+   showing, and what is it filed under. Both were reachable - the eye in the
+   tree, the right-click menu - and neither was where you are when you are
+   looking at the thing, which is the panel.
+
+   THE TOP OF THE TREE IS A SET TOO. A document is a branch like any other: it
+   is the one everything is in until it is put somewhere else, and calling it
+   by the part's own name rather than "none" is what makes the structure read
+   as a structure rather than as a flat list with some folders in it. That is
+   what makes "take this branch into a file of its own" a sensible thing to ask
+   of any row of the dropdown, including the first.                         */
+
+function placeField(entry) {
+  const field = document.createElement("div");
+  field.className = "field def-place";
+  const hidden = state.hidden.has(entry.id);
+  const sets = ((state.tree && state.tree.features) || []).filter(f =>
+    f.category === "container" && f.id !== entry.id && !within(entry.id, f.id));
+  const part = (state.tree && state.tree.name) || "Part";
+  field.innerHTML = '<div class="place-row">'
+    + '<button class="place-eye" id="place-eye" aria-pressed="' + (hidden ? "false" : "true")
+    + '" title="' + (hidden ? "Show it" : "Hide it") + '">'
+    + '<span class="place-dot"></span>' + (hidden ? "Hidden" : "Shown") + "</button>"
+    + '<span class="place-tag">in</span>'
+    + '<select id="place-set" aria-label="Which set it is filed under">'
+    + '<option value=""' + (entry.parent ? "" : " selected") + ">" + escapeHtml(part)
+    + " \u00b7 the whole document</option>"
+    + sets.map(set => '<option value="' + escapeAttr(set.id) + '"'
+        + (entry.parent === set.id ? " selected" : "") + ">" + escapeHtml(set.name)
+        + " \u00b7 " + (set.type === "Body" ? "body" : "set") + "</option>").join("")
+    + "</select></div>"
+    // A mesh is the one kind of thing with a MODE of its own, so it gets the
+    // way in here as well as on a double-click and in the ring. Three ways to
+    // one place is not three features; it is one feature you can find.
+    + (entry.produces === "mesh" ? '<button class="btn place-edit" id="place-edit">'
+        + (entry.type === "EditMesh" ? "Enter edit mode" : "Edit its cage") + "</button>" : "");
+
+  field.querySelector("#place-eye").addEventListener("click", () =>
+    showFeature(entry.id, state.hidden.has(entry.id)));
+  field.querySelector("#place-set").addEventListener("change", event =>
+    edit({ op: "group", id: entry.id, into: event.target.value || undefined }));
+  const enter = field.querySelector("#place-edit");
+  if (enter) enter.addEventListener("click", () => enterMeshEdit(entry.id));
+  return field;
+}
+
 function within(setId, id) {
   for (let f = feature(id); f; f = feature(f.parent))
     if (f.parent === setId) return true;
@@ -3084,6 +3178,8 @@ function buildPanel() {
   summary.className = "summary";
   summary.textContent = spec.summary;
   host.appendChild(summary);
+
+  host.appendChild(placeField(entry));
 
   const slot = document.createElement("div");
   slot.id = "def-notice";
@@ -6428,6 +6524,10 @@ function pieWorld() {
     // Edit mode, and what it is looking at. The ring is built from the same
     // two tables the bar is - LEVEL_OPS and PICKS - so the menu and the bar
     // can never offer different things.
+    // A mesh is the one thing with a mode of its own, so the ring offers the
+    // way in - and says whether it is opening what is there or making it.
+    meshEdit: selected && selected.produces === "mesh"
+      ? { already: selected.type === "EditMesh" } : null,
     meshing: meshing(),
     meshLevel: meshEditor.level,
     meshPicked: meshEditor.on ? meshEditor.tally().picked : 0,
@@ -6470,6 +6570,7 @@ const clickOn = id => document.getElementById(id).click();
 //! behaves two ways.
 const PIE_ACTS = {
   add: type => addFeature(type),
+  meshEnter: () => { if (state.selected) enterMeshEdit(state.selected); },
   meshLevel: level => meshEditor.setLevel(level),
   meshSelect: what => meshEditor.select(what),
   meshOp: op => meshEditor.begin(op),

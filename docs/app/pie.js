@@ -441,12 +441,22 @@ function idleRing(world) {
 //! what is picked. What is always there keeps its order behind them, and the
 //! long list of everything else is one wedge rather than gone.
 function pickedRing(world) {
-  const { selected, act, picked = 1 } = world;
-  const common = commonFor(world);
-  const first = common.slice(0, COMMON_ON_RING);
-  const rest = [...common.slice(COMMON_ON_RING), ...derivationsFor(world)];
+  const { selected, act, picked = 1, meshEdit } = world;
+  // A MESH HAS A MODE, so the first flick on one is the way into it rather
+  // than a node that would put another Edit Mesh on top of the one already
+  // there. Adding a node and entering the editor are not the same gesture and
+  // should not be the same word.
+  const already = meshEdit && meshEdit.already;
+  const common = commonFor(world)
+    .filter(row => !(already && row.type === "EditMesh"));
+  const first = common.slice(0, COMMON_ON_RING - (meshEdit ? 1 : 0));
+  const rest = [...common.slice(first.length), ...derivationsFor(world)];
   return [
     addBranch(world),
+    ...only(!!meshEdit, leaf("Edit mode",
+      already ? "its cage: vertices, edges, faces"
+              : "put an Edit Mesh on it and open its cage",
+      () => act.meshEnter())),
     ...first.map(row => leaf(row.label, row.note || short(row.summary || ""),
                              () => act.make(row.type, row.into, row.kind, row.many))),
     ...only(rest.length > 0, branch("Build", "everything else it feeds",

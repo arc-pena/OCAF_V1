@@ -338,5 +338,46 @@ console.log("\n8. full screen says the way back out of itself");
   check("and out of it, full screen", has(inn, "Interface.*Full screen"));
 }
 
+console.log("\n9. a mesh has a mode, and the ring says which one it is offering");
+{
+  // ALREADY AN EDIT MESH: the first flick opens what is there. Offering a node
+  // that would put a second Edit Mesh on the first is offering to make a mess.
+  const open = pieMenu(world({
+    selected: { id: "ED1", type: "EditMesh", name: "Edit", produces: "mesh",
+                category: "mesh" },
+    meshEdit: { already: true },
+  }));
+  check("with an Edit Mesh picked, Edit mode is on the ring",
+        labels(open).includes("Edit mode"), labels(open).join(", "));
+  check("and it says it is opening the one that is there",
+        leaves(open).find(l => l.label === "Edit mode").item.note === "its cage: vertices, edges, faces");
+  check("while the node that would stack another is not offered at all",
+        !has(open, "Edit mesh"), labels(open).join(", "));
+
+  // ANY OTHER MESH: the same first flick, but it says it is making one.
+  const plain = pieMenu(world({
+    selected: { id: "MB1", type: "MeshBox", name: "Cage", produces: "mesh",
+                category: "mesh" },
+    meshEdit: { already: false },
+  }));
+  check("with any other mesh picked it is still the first flick",
+        labels(plain).includes("Edit mode"), labels(plain).join(", "));
+  check("and it says it is making the node first",
+        /put an Edit Mesh/.test(leaves(plain).find(l => l.label === "Edit mode").item.note));
+  check("and running it asks the page to enter, rather than adding a node",
+        typeof leaves(plain).find(l => l.label === "Edit mode").item.run === "function");
+
+  // A solid has no mode, so nothing is added and nothing is taken away.
+  const solid = pieMenu(world({
+    selected: { id: "CB1", type: "Cube", name: "Block", produces: "solid",
+                category: "body" },
+  }));
+  check("a solid gets no Edit mode, because a solid has no cage",
+        !labels(solid).includes("Edit mode"), labels(solid).join(", "));
+  check("and the ring is still twelve places at most",
+        solid.length <= PIE_MAX && open.length <= PIE_MAX,
+        solid.length + " and " + open.length);
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
