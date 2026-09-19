@@ -66,11 +66,11 @@ STAGE_FILE = "build/playcanvas.min.js"
 # The site build copies the same files and lets the browser resolve the imports,
 # so this order is only the order they are stapled together in.
 MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
-           "ocaf.js", "wasm-kernel.js",
+           "ocaf.js", "polymesh.js", "wasm-kernel.js",
            "http-kernel.js", "mdl.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
-           "handle.js", "pie.js", "app.js"]
+           "handle.js", "pie.js", "meshedit.js", "app.js"]
 
 # The one module the page loads; everything else is reached through its imports.
 ENTRY = "app.js"

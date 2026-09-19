@@ -21,9 +21,11 @@
 // A feature that fails keeps its last good shape and records the message, so
 // one bad radius never takes the model, or the page, down with it.
 
-import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshFaces,
-         parseNumbers, schemaJson,
+import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshCreases,
+         meshFaces, meshSharpness, parseNumbers, schemaJson,
          typeSpec } from "./ocaf.js";
+import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
+         templateMesh, topologyOf } from "./polymesh.js";
 import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
          solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
@@ -1782,7 +1784,10 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   const packMesh = mesh => ({
     kind: "mesh",
     values: mesh.points.flat(),
-    faces: mesh.faces.flatMap(face => [face.length, ...face]),
+    // The creases ride on the end of the face list - see meshSharpness. A mesh
+    // that has never been creased packs byte for byte as it always did.
+    faces: mesh.faces.flatMap(face => [face.length, ...face])
+      .concat(meshSharpness(mesh.creases, mesh.corners)),
   });
 
   //! The mesh arriving on an input, unpacked. Anything that is not a mesh -
@@ -1793,7 +1798,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     if (!data || data.kind !== "mesh")
       throw new Error(F.name(source) + " is not a mesh");
     const points = F.triples(data);
-    return { points, faces: meshFaces(data) };
+    const sharp = meshCreases(data);
+    return { points, faces: meshFaces(data), creases: sharp.creases, corners: sharp.corners };
   }
 
   const meshCounts = mesh => mesh.points.length + " vertices, " + mesh.faces.length + " faces";
@@ -1888,96 +1894,9 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
   /* --------------------------------------------------------- Catmull-Clark */
 
-  //! One level of Catmull-Clark, for faces of any number of sides.
-  //!
-  //!   face point    the average of the face's vertices
-  //!   edge point    the average of its two ends and the two face points
-  //!                 beside it - or, on an open edge, the midpoint
-  //!   vertex point  (F + 2R + (n-3)V) / n, where F is the average of the
-  //!                 touching face points, R of the touching edge midpoints
-  //!                 and n the valence - or, on the boundary, (E1 + 6V + E2)/8
-  //!
-  //! Every face then becomes one quad per corner. \p sharpBoundary keeps an
-  //! open edge where it is instead of letting it creep inwards.
-  function catmullClark(mesh, sharpBoundary) {
-    const { points, faces } = mesh;
-    const facePoints = faces.map(face => centroid(face.map(i => points[i])));
-
-    // Every undirected edge once, with the faces on either side of it.
-    const edges = new Map();
-    const key = (a, b) => (a < b ? a + "," + b : b + "," + a);
-    faces.forEach((face, at) => {
-      for (let i = 0; i < face.length; i++) {
-        const a = face[i], b = face[(i + 1) % face.length];
-        const k = key(a, b);
-        if (!edges.has(k)) edges.set(k, { a: Math.min(a, b), b: Math.max(a, b), faces: [] });
-        edges.get(k).faces.push(at);
-      }
-    });
-
-    const out = [];
-    const facePointIndex = facePoints.map(p => (out.push(p), out.length - 1));
-    const edgePointIndex = new Map();
-    for (const [k, edge] of edges) {
-      const mid = vmul(vadd(points[edge.a], points[edge.b]), 0.5);
-      const open = edge.faces.length < 2;
-      const p = open ? mid
-        : vmul(vadd(vadd(points[edge.a], points[edge.b]),
-                    vadd(facePoints[edge.faces[0]], facePoints[edge.faces[1]])), 0.25);
-      out.push(p);
-      edgePointIndex.set(k, out.length - 1);
-    }
-
-    // What each original vertex touches, and whether it sits on an open edge.
-    const touchingFaces = points.map(() => []);
-    const touchingEdges = points.map(() => []);
-    faces.forEach((face, at) => { for (const i of face) touchingFaces[i].push(at); });
-    for (const [, edge] of edges) {
-      touchingEdges[edge.a].push(edge);
-      touchingEdges[edge.b].push(edge);
-    }
-
-    const movedIndex = points.map((v, i) => {
-      const boundary = touchingEdges[i].filter(e => e.faces.length < 2);
-      let moved;
-      if (boundary.length >= 2) {
-        // On the boundary the surface is a curve, and it is subdivided as one.
-        if (sharpBoundary) moved = v;
-        else {
-          const ends = boundary.slice(0, 2).map(e =>
-            vmul(vadd(points[e.a], points[e.b]), 0.5));
-          moved = vmul(vadd(vadd(ends[0], ends[1]), vmul(v, 6)), 1 / 8);
-        }
-      } else {
-        const n = touchingEdges[i].length;
-        if (n < 3) moved = v;
-        else {
-          const Fp = centroid(touchingFaces[i].map(at => facePoints[at]));
-          const R = centroid(touchingEdges[i].map(e =>
-            vmul(vadd(points[e.a], points[e.b]), 0.5)));
-          moved = vmul(vadd(vadd(Fp, vmul(R, 2)), vmul(v, n - 3)), 1 / n);
-        }
-      }
-      out.push(moved);
-      return out.length - 1;
-    });
-
-    const newFaces = [];
-    faces.forEach((face, at) => {
-      for (let i = 0; i < face.length; i++) {
-        const prev = face[(i - 1 + face.length) % face.length];
-        const here = face[i];
-        const next = face[(i + 1) % face.length];
-        newFaces.push([
-          movedIndex[here],
-          edgePointIndex.get(key(here, next)),
-          facePointIndex[at],
-          edgePointIndex.get(key(prev, here)),
-        ]);
-      }
-    });
-    return { points: out, faces: newFaces };
-  }
+  //! Catmull-Clark now lives in polymesh.js, with the creases, because the
+  //! editor has to run the same subdivision the kernel does in order to show
+  //! you what you are about to build. One implementation, imported here.
 
   /* ----------------------------------------------------------------- weld */
 
@@ -2206,25 +2125,191 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
   builders.EditMesh = {
     precondition: f => F.reference(f, "mesh") ? null : "no mesh to edit",
-    //! The hand edits, applied. An offset for a vertex that is no longer there -
-    //! because something upstream changed the topology - is left alone rather
-    //! than thrown away, so putting the upstream back puts the edit back.
+    //! THE EDIT LIST, REPLAYED. Not a mesh - a list of operations, run in order
+    //! over whatever cage arrives from upstream. Change the divisions on the
+    //! box underneath and the extrude, the bevel and the loop cuts all happen
+    //! again to the new box, which is the whole reason this is a node rather
+    //! than a bake.
+    //!
+    //! The hand-moved vertices come first and are kept as they were: they are
+    //! the old way of saying the same thing, every model written before the
+    //! editor existed has them, and they cost nothing.
+    //!
+    //! An operation that cannot find what it was about does not stop the list.
+    //! A cage that has lost one face of one step should rebuild as the rest of
+    //! the model with a line saying which step missed - not as an error where
+    //! a building used to be.
     build: f => {
       const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
       const moves = F.edits(f, "moves");
       const scale = F.real(f, "scale", 1);
       const points = mesh.points.map(p => p.slice());
-      let applied = 0, stale = 0;
+      let stale = 0;
       for (const [index, offset] of Object.entries(moves)) {
         const at = Number(index);
         if (!(at >= 0 && at < points.length)) { stale++; continue; }
         points[at] = vadd(points[at], vmul(offset, scale));
-        applied++;
       }
-      if (stale && !applied)
-        throw new Error(stale + " moved vertices are no longer in this mesh - "
-          + "the mesh upstream has " + points.length);
-      return { data: packMesh(checkMesh({ points, faces: mesh.faces }, "mesh")) };
+      let ops = [];
+      const said = String(F.text(f, "ops") || "").trim();
+      if (said && said !== "[]") {
+        try {
+          const read = JSON.parse(said);
+          if (!Array.isArray(read)) throw new Error("the operations must be a list");
+          ops = read;
+        } catch (error) {
+          throw new Error("the operation list is not readable: " + error.message);
+        }
+      }
+      const done = applyOps({ ...mesh, points }, ops);
+      const data = packMesh(checkMesh(done.mesh, "mesh"));
+      const notes = [...done.notes];
+      if (stale) notes.push(stale + " hand-moved vertices are no longer in this mesh");
+      return { data, note: notes.length ? notes.join(" · ") : undefined };
+    },
+  };
+
+  /* ------------------------------------------------- the cage back to B-Rep
+
+     THE WAY OUT OF THE MESH SIDE. Rhino turns a SubD into a NURBS object and
+     everything downstream then treats it as ordinary geometry; this does the
+     same with the geometry this kernel has. The cage is subdivided to the
+     level asked for, every face of the result becomes a face of a B-Rep, and
+     the faces are sewn into a shell - a solid, if the cage was closed.
+
+     A face of the subdivided cage is very nearly flat, which is the whole
+     reason this works: one more level halves how far from flat a face is. So a
+     face that IS flat within the sewing tolerance is made as one planar face,
+     and one that is not is fanned into triangles, which are flat by
+     construction. The result is exact - it is a real B-Rep with real faces,
+     not a tessellation pretending - and it can be filleted, cut, sectioned and
+     written to STEP like anything else here.                                */
+
+  builders.MeshToShape = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to convert";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
+      const after = meshFaces(data).length * Math.pow(4, levels);
+      if (after > 20000)
+        return "that would be about " + Math.round(after / 1000) + "k faces to sew; "
+          + "use fewer levels or a coarser cage";
+      return null;
+    },
+    build: f => {
+      let mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
+      const sharp = Feature_choice(f, "boundary") === 0;
+      for (let i = 0; i < levels; i++) mesh = catmullClark(mesh, { sharpBoundary: sharp });
+      const tolerance = Math.max(1e-6, F.real(f, "tolerance", 0.01));
+
+      const faceOfRing = ring => {
+        const points = ring.map(i => mesh.points[i]);
+        const maker = new oc.BRepBuilderAPI_MakeWire();
+        let edges = 0;
+        for (let i = 0; i < points.length; i++) {
+          const a = points[i], b = points[(i + 1) % points.length];
+          if (V.length(V.sub(b, a)) < tolerance) continue;
+          maker.Add(new oc.BRepBuilderAPI_MakeEdge(pnt(a), pnt(b)).Edge());
+          edges++;
+        }
+        if (edges < 3) return null;
+        const face = new oc.BRepBuilderAPI_MakeFace(maker.Wire(), true);
+        return face.IsDone() ? face.Face() : null;
+      };
+
+      //! How far from flat a face is, as a fraction of its own size. A quad
+      //! off by a thousandth of its diagonal is flat as far as a B-Rep is
+      //! concerned; one off by a tenth is a saddle and has to be split.
+      const flatEnough = ring => {
+        if (ring.length <= 3) return true;
+        const points = ring.map(i => mesh.points[i]);
+        const normal = faceNormal(mesh.points, ring);
+        const at = centroid(points);
+        let far = 0, size = 0;
+        for (const p of points) {
+          far = Math.max(far, Math.abs(V.dot(V.sub(p, at), normal)));
+          size = Math.max(size, V.length(V.sub(p, at)));
+        }
+        return far <= Math.max(tolerance, size * 1e-3);
+      };
+
+      const sewing = new oc.BRepBuilderAPI_Sewing(tolerance, true, true, true, false);
+      let made = 0, split = 0;
+      for (const ring of mesh.faces) {
+        const whole = flatEnough(ring) ? faceOfRing(ring) : null;
+        if (whole) { sewing.Add(whole); made++; continue; }
+        // Not flat: fanned into triangles, which cannot help being flat.
+        for (let i = 1; i + 1 < ring.length; i++) {
+          const piece = faceOfRing([ring[0], ring[i], ring[i + 1]]);
+          if (piece) { sewing.Add(piece); made++; }
+        }
+        split++;
+      }
+      if (!made) throw new Error("none of the faces of that mesh could be built");
+      sewing.Perform(new oc.Message_ProgressRange());
+      let shape = sewing.SewedShape();
+      if (!shape || shape.IsNull()) throw new Error("those faces would not sew together");
+
+      // A SOLID ONLY IF THE CAGE CLOSED. OpenCascade will happily make a solid
+      // out of an open shell and report success - it has no opinion about
+      // whether the shell bounds anything - so the question is asked of the
+      // mesh, where it has an exact answer: an edge with one face on it is a
+      // hole, and a mesh with a hole in it is a shell.
+      const rim = [...topologyOf(mesh).edges.values()].filter(e => e.faces.length === 1);
+      let closed = false;
+      if (!rim.length && Feature_choice(f, "solid") === 0
+          && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
+        try {
+          const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
+          if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
+        } catch (error) { closed = false; }
+      }
+      const faces = countSubShapes(shape, FACE);
+      return {
+        shape,
+        note: faces + (faces === 1 ? " face" : " faces")
+          + (closed ? ", sewn into a solid"
+              : ", sewn into a shell" + (rim.length ? " - the cage is open along "
+                  + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))
+          + (split ? " · " + split + " faces were not flat and were split into triangles" : ""),
+      };
+    },
+  };
+
+  builders.MeshTemplate = {
+    //! The starting topologies. One node, a dozen shapes, because what they
+    //! have in common - all quads, one piece, ready to push - matters more
+    //! than what tells them apart.
+    build: f => {
+      const kind = ["plane", "grid", "box", "lshape", "cross", "hexagon", "honeycomb",
+                    "disc", "cylinder", "tube", "sphere", "torus"][Feature_choice(f, "kind")]
+                || "grid";
+      const at = (key, fallback) => F.real(f, key, fallback);
+      const options = {
+        width: at("width", 1000), depth: at("depth", 1000),
+        cols: Math.round(at("cols", 4)), rows: Math.round(at("rows", 4)),
+        dx: at("dx", 1000), dy: at("dy", 1000), dz: at("dz", 1000),
+        segX: Math.round(at("segX", 1)), segY: Math.round(at("segY", 1)),
+        segZ: Math.round(at("segZ", 1)),
+        arm: at("arm", 500), leg: at("leg", 500), grid: at("grid", 250),
+        radius: at("radius", 500), size: at("size", 200),
+        inner: at("inner", 250), outer: at("outer", 500), tube: at("tube", 160),
+        height: at("height", 1000),
+        rings: Math.round(at("rings", 2)), sides: Math.round(at("sides", 12)),
+        caps: Feature_choice(f, "caps") === 0,
+        tee: false,
+      };
+      if (kind === "plane") { options.cols = 1; options.rows = 1; }
+      let mesh = templateMesh(kind, options);
+      // Wherever the plane says, if one is wired in: a starting mesh is the
+      // first thing in a model and it belongs where the model is, not at the
+      // origin because that is where the maths happened.
+      const place = meshFrame(null, F.reference(f, "plane"));
+      if (place) mesh = { ...mesh, points: mesh.points.map(p => place(p)) };
+      return { data: packMesh(checkMesh(mesh, "mesh")) };
     },
   };
 
@@ -2250,7 +2335,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       if (Feature_choice(f, "on") === 0) {
         const levels = Math.max(1, Math.round(F.real(f, "levels", 2)));
         const sharp = Feature_choice(f, "boundary") === 0;
-        for (let i = 0; i < levels; i++) mesh = catmullClark(mesh, sharp);
+        for (let i = 0; i < levels; i++) mesh = catmullClark(mesh, { sharpBoundary: sharp });
       }
       const data = packMesh(checkMesh(mesh, "mesh"));
       data.smooth = Feature_choice(f, "shading") === 0;
@@ -3617,6 +3702,51 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       const zero = !offset || offset.every(v => Math.abs(v) < 1e-9);
       F.moveVertex(f, arg.key, index, zero ? null : offset);
       doc.log.touch(F.argLabel(f, arg.key, true));
+      return state(doc.recompute(false));
+    },
+
+    //! THE CAGE A FEATURE PRODUCED, in full - points, n-gon faces and the
+    //! sharpness table. The stream a mesh sends the viewport is triangles and
+    //! loose edges, which is everything drawing it needs and nothing selecting
+    //! it needs: an editor has to know which four points make face 12 before
+    //! it can let anybody click on it. So the editor asks for this instead,
+    //! and only while it is open.
+    async cage(id) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      const data = F.data(f);
+      if (!data || data.kind !== "mesh") throw new Error(F.name(f) + " is not a mesh");
+      const sharp = meshCreases(data);
+      // And the edit list itself, when this feature holds one, so the editor
+      // opens on what is already there rather than on an empty list that would
+      // overwrite it the first time anybody pressed anything.
+      let ops = null;
+      if (F.spec(f).args.some(a => a.key === "ops" && a.kind === "code")) {
+        try { ops = JSON.parse(String(F.text(f, "ops") || "[]")); } catch (error) { ops = []; }
+        if (!Array.isArray(ops)) ops = [];
+      }
+      return { id, name: F.name(f), points: F.triples(data), faces: meshFaces(data),
+               creases: sharp.creases, corners: sharp.corners, smooth: !!data.smooth,
+               ops, note: F.note(f) };
+    },
+
+    //! THE EDIT LIST, WRITTEN. One call, one list, one undo step - the editor
+    //! works out the operation and hands the whole list over, because an
+    //! operation is a record rather than a change to a number and there is
+    //! nothing smaller to send.
+    async setMeshOps(id, ops) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      const arg = F.spec(f).args.find(a => a.key === "ops" && a.kind === "code");
+      if (!arg) throw new Error(F.name(f) + " does not hold a list of mesh operations - "
+        + "put an EditMesh after it and edit there");
+      const list = Array.isArray(ops) ? ops : [];
+      for (const record of list)
+        if (!record || typeof record !== "object" || !MESH_OPS[record.op])
+          throw new Error('"' + (record && record.op)
+            + '" is not a mesh operation this knows');
+      F.setText(f, "ops", JSON.stringify(list));
+      doc.log.touch(F.argLabel(f, "ops", true));
       return state(doc.recompute(false));
     },
 

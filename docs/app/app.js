@@ -15,6 +15,8 @@ import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
+import { LEVELS, LEVEL_OPS, PICKS, makeMeshEditor } from "./meshedit.js";
+import { MESH_OPS } from "./polymesh.js";
 // No `as` here, nor anywhere else in this tree. The single-file build strips
 // the imports and lets every module share one scope, so a name renamed on the
 // way in is a name that does not exist in the page that gets published - and
@@ -370,8 +372,12 @@ function measureScene() {
     // press that lets go of it is the press that sets it, and nothing else:
     // it must not also orbit the model or pick whatever is behind the cursor.
     if (dropHeads()) { event.preventDefault(); return; }
+    // An operation being pulled out owns the viewport until it is let go, the
+    // same way a heads-up number does: while an extrude is being dragged the
+    // drag is the extrude, not an orbit.
+    if (meshing() && meshEditor.live && event.button === 0) { mode = "meshdrag"; }
     // An axis of the handle takes the drag before the camera does.
-    if (event.button === 0 && !event.shiftKey && grabGizmo(event)) mode = "gizmo";
+    else if (event.button === 0 && !event.shiftKey && grabGizmo(event)) mode = "gizmo";
     // A sketch is looked at square on, and stays that way: the drag that would
     // orbit pans instead, because a drawing seen at an angle cannot be drawn on.
     // In select, a press that lands on an end takes hold of it.
@@ -394,6 +400,15 @@ function measureScene() {
     // The ruler first. A pad being dragged out is not an orbit, and while it
     // is being dragged out nothing else in here gets a look at the pointer.
     if (driveHeads(event)) return;
+    if (mode === "meshdrag") {
+      const dx = event.clientX - lastX, dy = event.clientY - lastY;
+      lastX = event.clientX; lastY = event.clientY;
+      meshEditor.drag(dx, dy);
+      return;
+    }
+    // In edit mode the thing under the pointer lights up before it is clicked,
+    // which is most of what makes picking a face out of four hundred possible.
+    if (meshing() && !mode) { meshEditor.hoverAt(event); return; }
     if (sketching()) {
       const uv = sketchAt(event);
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
@@ -423,6 +438,15 @@ function measureScene() {
     placeCamera(); draw();
   });
   el.addEventListener("pointerup", event => {
+    if (mode === "meshdrag") { meshEditor.drop(); mode = null; return; }
+    // A click in edit mode picks at the level being edited: plain replaces,
+    // shift adds, ctrl takes away, alt takes the whole loop through it.
+    if (meshing() && (mode === "orbit" || mode === "pan") && moved < 4 && event.button === 0) {
+      meshEditor.pickAt(event, { add: event.shiftKey, drop: event.ctrlKey || event.metaKey,
+                                 loop: event.altKey });
+      mode = null;
+      return;
+    }
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
     else if (mode === "move") dropSketchMove(event);
@@ -458,9 +482,18 @@ function measureScene() {
   //! spline, which is the only element that does not know how long it is.
   el.addEventListener("dblclick", event => {
     if (sketching()) { endSketchRun(); return; }
+    // Already in edit mode: double-clicking picks the LOOP through what is
+    // under the pointer, which is Maya's gesture for it.
+    if (meshing()) {
+      meshEditor.pickAt(event, { loop: true, add: event.shiftKey });
+      return;
+    }
     pick(event);
     const entry = feature(state.selected);
-    if (entry && entry.sketch) enterSketch(entry.id);
+    if (entry && entry.sketch) { enterSketch(entry.id); return; }
+    // A MESH OPENS ITS CAGE. This is the gesture every mesh editor uses and
+    // the one the whole edit mode hangs off.
+    if (entry && entry.produces === "mesh") enterMeshEdit(entry.id);
   });
   el.addEventListener("contextmenu", event => event.preventDefault());
   el.addEventListener("wheel", event => {
@@ -833,12 +866,203 @@ const meshEdit = {
 };
 
 //! The feature being edited by hand, if the one on the panel holds hand edits.
+//!
+//! Not while EDIT MODE is open: that is the whole editor, with its own
+//! handles, its own selection and its own idea of what a click means, and two
+//! sets of vertex dots over one cage is two things to click by accident.
 function handEditing() {
+  if (meshEditor && meshEditor.on) return null;
   const entry = feature(state.edited);
   if (!entry) return null;
   const spec = schemaType(entry.type);
   return spec && spec.args.some(a => a.kind === "edits") ? entry : null;
 }
+
+/* ==========================================================================
+   EDIT MODE - the mesh editor.
+
+   Double-click a mesh and the viewport becomes its cage. Everything about how
+   that works is in meshedit.js; what is here is the wiring: which feature is
+   being edited, what the pointer and the keys mean while it is open, and the
+   bar along the bottom.
+
+   THE ONE DECISION WORTH WRITING DOWN is what you get when you double-click
+   something that is NOT an Edit Mesh. You get an Edit Mesh, put after it,
+   wired to it, and opened - because editing a cage that something else built
+   is what a modeller does all day, and making people add the node by hand
+   first is making them do the software's filing.
+   ========================================================================== */
+
+const meshEditor = makeMeshEditor({
+  THREE, world, camera, canvas: renderer.domElement,
+  mdl, kernel: { cage: id => kernel.cage(id) },
+  draw: () => draw(),
+  inputOf: id => {
+    const entry = feature(id);
+    const from = entry && entry.refs && entry.refs.mesh;
+    return Array.isArray(from) ? from[0] : from || null;
+  },
+  onChange: () => { refreshMeshBar(); buildPanel(); },
+});
+
+//! The mesh a double-click should open. An Edit Mesh opens itself; anything
+//! else that produces a mesh gets one put on top of it first.
+async function enterMeshEdit(id) {
+  const entry = feature(id);
+  if (!entry) return false;
+  let which = id;
+  if (entry.type !== "EditMesh") {
+    if (entry.produces !== "mesh") return false;
+    // Already got one sitting on it? Then that is the one to open, rather than
+    // stacking a second Edit Mesh on the first every time somebody
+    // double-clicks.
+    const already = ((state.tree && state.tree.features) || []).find(f =>
+      f.type === "EditMesh" && f.refs && f.refs.mesh === id);
+    if (already) which = already.id;
+    else {
+      const born = await mdl.run({ op: "add", type: "EditMesh",
+                                   name: "Edit " + entry.name, refs: { mesh: id } });
+      if (!born || !born.id) return false;
+      which = born.id;
+    }
+  }
+  if (sketching()) leaveSketch();
+  const opened = await meshEditor.enter(which);
+  if (!opened) return false;
+  // The bar IS the panel while this is open, and the definition panel over on
+  // the right is the same node said twice - in less room, and over the model.
+  state.edited = null;
+  select(which);
+  buildPanel();
+  document.body.classList.add("meshing");
+  meshBar.hidden = false;
+  refreshMeshBar();
+  draw();
+  return true;
+}
+
+function leaveMeshEdit() {
+  if (!meshEditor.on) return;
+  meshEditor.leave();
+  document.body.classList.remove("meshing");
+  meshBar.hidden = true;
+  draw();
+}
+
+const meshing = () => meshEditor.on;
+
+/* ------------------------------------------------------------- the bar */
+
+const meshBar = document.createElement("section");
+meshBar.className = "float mx-bar";
+meshBar.id = "mesh-bar";
+meshBar.hidden = true;
+document.body.appendChild(meshBar);
+
+//! The letters, and they are the ones a modeller's left hand already knows.
+//!
+//! F IS NOT ONE OF THEM, although Blender fills with it. F fits the view, and
+//! it does that everywhere else in this program - a mode where the commonest
+//! key on the keyboard means something else is a mode people get lost in. Fill
+//! is on the bar and in the ring, where it is not needed sixty times an hour.
+const OP_KEYS = {
+  e: "extrude", i: "inset", b: "bevel", p: "poke", m: "merge",
+  x: "remove", s: "smooth", k: "bisect", j: "connect", c: "crease",
+};
+
+//! What the bar says. Rewritten whenever anything changes, because the whole
+//! of it is derived: what level you are at, what is picked, what can be done
+//! to it, and what is in the list.
+function refreshMeshBar() {
+  if (!meshEditor.on) return;
+  const tally = meshEditor.tally();
+  const level = meshEditor.level;
+  const ops = (LEVEL_OPS[level] || []).filter(op => MESH_OPS[op]);
+  const picks = PICKS.filter(pick => pick.levels.includes(level));
+  const lead = meshEditor.lead();
+  const entry = feature(meshEditor.id);
+  meshBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">Edit</span>'
+    + '<span class="seg" id="mx-level">'
+    + LEVELS.map(one => '<button data-level="' + one.key + '" title="' + one.hint
+        + " · " + one.stroke + '" aria-pressed="' + (one.key === level ? "true" : "false")
+        + '">' + one.label + "</button>").join("")
+    + "</span>"
+    + '<span class="mx-count">' + tally.picked + " of " + tally.all + " picked</span>"
+    + '<span class="mx-note">' + safeText(tally.says) + "</span>"
+    + '<button class="btn" id="mx-done">Done</button></div>'
+    + '<div class="mx-row mx-wrap"><span class="mx-tag">Select</span>'
+    + picks.map(pick => '<button class="mx-chip" data-pick="' + pick.key + '">'
+        + pick.label + "</button>").join("")
+    + "</div>"
+    + '<div class="mx-row mx-wrap"><span class="mx-tag">Do</span>'
+    + ops.map(op => '<button class="mx-chip mx-do" data-op="' + op + '" title="'
+        + safeText(MESH_OPS[op].note || "") + '">' + MESH_OPS[op].label + "</button>").join("")
+    + "</div>"
+    + (lead ? '<div class="mx-row"><span class="mx-tag">' + safeText(lead.label) + "</span>"
+        + '<span class="mx-lead">' + safeText(lead.key) + "</span>"
+        + '<input type="range" id="mx-lead" min="' + leadLow(lead) + '" max="'
+        + leadHigh(lead) + '" step="' + leadStep(lead) + '" value="'
+        + leadNow(lead) + '">'
+        + '<input type="number" class="mx-read" id="mx-lead-read" value="'
+        + leadNow(lead) + '" step="' + leadStep(lead) + '">'
+        + '<span class="mx-hint">or drag in the viewport</span></div>' : "")
+    + '<div class="mx-row mx-wrap"><span class="mx-tag">Steps</span>'
+    + (meshEditor.ops.length
+        ? meshEditor.ops.map((op, i) => '<button class="mx-step" data-step="' + i
+            + '" title="take this step out">' + (i + 1) + ". "
+            + safeText((MESH_OPS[op.op] || {}).label || op.op) + "</button>").join("")
+        : '<span class="mx-hint">nothing yet - pick something and press a button above, '
+          + 'or press space for the menu</span>')
+    + (meshEditor.note ? '<span class="mx-warn">' + safeText(meshEditor.note) + "</span>" : "")
+    + "</div>";
+  if (entry) meshBar.querySelector(".mx-tag").textContent = entry.name;
+}
+
+const safeText = text => String(text == null ? "" : text)
+  .replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+//! The range a lead argument gets. Measured off the model rather than guessed,
+//! because 100 mm is the whole of a chair and nothing at all on a masterplan.
+const leadSpan = () => {
+  const tally = meshEditor.cage ? meshEditor.cage.points : [];
+  let far = 1;
+  for (const p of tally) far = Math.max(far, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]));
+  return far;
+};
+const leadNow = lead => (Array.isArray(lead.value) ? lead.value[2] : Number(lead.value) || 0);
+const leadLow = lead => (lead.key === "amount" || lead.key === "factor" ? 0
+  : lead.key === "cuts" || lead.key === "segments" ? 1
+  : -Math.round(leadSpan() * 1.5));
+const leadHigh = lead => (lead.key === "amount" || lead.key === "factor" ? 1
+  : lead.key === "cuts" || lead.key === "segments" ? 12
+  : Math.round(leadSpan() * 1.5));
+const leadStep = lead => (lead.key === "amount" || lead.key === "factor" ? 0.01
+  : lead.key === "cuts" || lead.key === "segments" ? 1
+  : Math.max(0.1, Math.round(leadSpan() / 500)));
+
+meshBar.addEventListener("click", async event => {
+  const level = event.target.closest("[data-level]");
+  if (level) { meshEditor.setLevel(level.dataset.level); return; }
+  const pick = event.target.closest("[data-pick]");
+  if (pick) { meshEditor.select(pick.dataset.pick); return; }
+  const op = event.target.closest("[data-op]");
+  if (op) { await meshEditor.begin(op.dataset.op); refreshMeshBar(); return; }
+  const step = event.target.closest("[data-step]");
+  if (step) { await meshEditor.dropStep(Number(step.dataset.step)); return; }
+  if (event.target.closest("#mx-done")) leaveMeshEdit();
+});
+meshBar.addEventListener("input", async event => {
+  if (event.target.id !== "mx-lead" && event.target.id !== "mx-lead-read") return;
+  const lead = meshEditor.lead();
+  if (!lead) return;
+  const value = Number(event.target.value);
+  const other = meshBar.querySelector(event.target.id === "mx-lead" ? "#mx-lead-read" : "#mx-lead");
+  if (other) other.value = String(value);
+  await meshEditor.adjust(lead.key, Array.isArray(lead.value)
+    ? [lead.value[0], lead.value[1], value] : value);
+});
+meshBar.addEventListener("keydown", event => event.stopPropagation());
 
 const AXES = [
   { key: "x", dir: new THREE.Vector3(1, 0, 0), color: 0xd0473f },
@@ -2142,6 +2366,21 @@ const ICONS = {
          + '<rect x="11.4" y="7.2" width="3.4" height="3.4" rx=".6" fill="none" stroke="currentColor" stroke-width="1.2" transform="rotate(-14 13.1 8.9)"/>',
 
   /* --------------------------------------------------------------- mesh */
+  //! The starting mesh: a plan with a bite out of it, gridded - which is what
+  //! nearly every one of them is, and what the L most people reach for is.
+  MeshTemplate: '<path d="M2 3.2h6.6v4.4H14v5.2H2z" fill="none" stroke="currentColor" '
+              + 'stroke-width="1.15" stroke-linejoin="round"/>'
+              + '<path d="M5.3 3.2v9.6M8.6 7.6v5.2M11.3 7.6v5.2M2 7.6h6.6M2 10.2h12" '
+              + 'stroke="currentColor" stroke-width=".75" opacity=".55"/>',
+  //! The cage on the left becoming a surface on the right: the one node that
+  //! crosses from the mesh side of this program to the B-Rep side.
+  MeshToShape: '<path d="M2 4.2l3.4-1.8 3.4 1.8v5.2L5.4 11.2 2 9.4z" fill="none" '
+             + 'stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>'
+             + '<path d="M2 4.2l3.4 1.8 3.4-1.8M5.4 6v5.2" stroke="currentColor" '
+             + 'stroke-width=".7" opacity=".6"/>'
+             + '<path d="M10.6 5.4c2.4 0 3.4 1.6 3.4 3.1s-1 3.1-3.4 3.1" fill="none" '
+             + 'stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>'
+             + '<path d="M9.4 8.5h4" stroke="currentColor" stroke-width=".9" opacity=".6"/>',
   MeshBox: '<path d="M8 1.6l5.6 3v6.8L8 14.4l-5.6-3V4.6z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>'
          + '<path d="M2.4 4.6L8 7.6l5.6-3M8 7.6v6.8M8 1.6v0" stroke="currentColor" stroke-width="1"/>'
          + '<path d="M5.2 3.1v7.6M10.8 3.1v7.6M2.4 8h11.2" stroke="currentColor" stroke-width=".75" opacity=".55"/>',
@@ -2952,7 +3191,9 @@ function refreshPanelNotice() {
 //! An argument governed by a choice is shown only for the alternative it
 //! belongs to, so one feature can carry two patterns without two dialogs.
 function argApplies(entry, arg) {
-  return !arg.showWhen || entry.values[arg.showWhen.key] === arg.showWhen.equals;
+  if (!arg.showWhen) return true;
+  const now = entry.values[arg.showWhen.key];
+  return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
 }
 
 function choiceField(entry, arg) {
@@ -5614,6 +5855,43 @@ addEventListener("keydown", event => {
     return;
   }
   if (event.target.matches("input, textarea, select")) return;
+
+  // EDIT MODE OWNS THE KEYBOARD while it is open, because the keys everybody's
+  // hands already know - 1, 2, 3 for the levels, E to extrude, I to inset -
+  // are keys this program uses for other things everywhere else. One mode, one
+  // meaning; nothing is half-shared.
+  if (meshing() && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    const level = meshEditor.hotkey(event.key);
+    if (level) { meshEditor.setLevel(level); return; }
+    if (event.key === "a" || event.key === "A") {
+      meshEditor.select(meshEditor.tally().picked ? "none" : "all");
+      return;
+    }
+    if (event.key === "l" || event.key === "L") { meshEditor.select("linked"); return; }
+    if (event.key === "r" || event.key === "R") { meshEditor.select("ring"); return; }
+    if (event.key === "+" || event.key === "=") { meshEditor.select("grow"); return; }
+    if (event.key === "-" || event.key === "_") { meshEditor.select("shrink"); return; }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      meshEditor.begin(event.shiftKey ? "dissolve" : "remove");
+      return;
+    }
+    const op = OP_KEYS[event.key.toLowerCase()];
+    if (op && MESH_OPS[op] && MESH_OPS[op].levels.includes(meshEditor.level)) {
+      event.preventDefault();
+      meshEditor.begin(op);
+      return;
+    }
+    if (event.key === "Escape") { leaveMeshEdit(); return; }
+    if (event.key === "Enter") { leaveMeshEdit(); return; }
+  }
+  if (meshing() && (event.ctrlKey || event.metaKey)
+      && (event.key === "r" || event.key === "R")) {
+    event.preventDefault();
+    meshEditor.begin("loopcut");
+    return;
+  }
+
   if (event.key === "f" || event.key === "F") { if (sketching()) lookAtSketch(); else fitView(); }
   if (event.key === "t" || event.key === "T") toggleTree();
   if (event.key === "g" || event.key === "G") graph.toggle();
@@ -6033,6 +6311,20 @@ function pieWorld() {
     mode: openMode ? { key: openMode.key, label: openMode.label } : null,
     packages: packages.schema(),
     staging,
+    // Edit mode, and what it is looking at. The ring is built from the same
+    // two tables the bar is - LEVEL_OPS and PICKS - so the menu and the bar
+    // can never offer different things.
+    meshing: meshing(),
+    meshLevel: meshEditor.level,
+    meshPicked: meshEditor.on ? meshEditor.tally().picked : 0,
+    meshSteps: meshEditor.on ? meshEditor.ops.length : 0,
+    meshOps: meshEditor.on
+      ? (LEVEL_OPS[meshEditor.level] || []).filter(op => MESH_OPS[op])
+          .map(op => ({ key: op, label: MESH_OPS[op].label, note: MESH_OPS[op].note }))
+      : [],
+    meshPicks: meshEditor.on
+      ? PICKS.filter(pick => pick.levels.includes(meshEditor.level))
+      : [],
     sketching: sketching(),
     sketchTools: sketchToolList(),
     sketchTool: sketcher.tool,
@@ -6064,6 +6356,11 @@ const clickOn = id => document.getElementById(id).click();
 //! behaves two ways.
 const PIE_ACTS = {
   add: type => addFeature(type),
+  meshLevel: level => meshEditor.setLevel(level),
+  meshSelect: what => meshEditor.select(what),
+  meshOp: op => meshEditor.begin(op),
+  meshUndo: () => meshEditor.undoStep(),
+  meshDone: () => leaveMeshEdit(),
   //! The contextual half of the ring: make a node AND wire what is picked into
   //! the input the menu said it would go into. "Point on it" and "Spline
   //! through it" both feed a curve to a Point node - which input decides which

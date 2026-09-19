@@ -65,7 +65,9 @@ export async function defaultRefs(ctx, type) {
   const applies = arg => {
     if (!arg.showWhen) return true;
     const governs = (spec.args || []).find(a => a.key === arg.showWhen.key);
-    return !governs || governs.default === arg.showWhen.equals;
+    if (!governs) return true;
+    return arg.showWhen.any ? arg.showWhen.any.includes(governs.default)
+                            : governs.default === arg.showWhen.equals;
   };
   for (const arg of (spec ? spec.args : [])) {
     if (!applies(arg)) continue;
@@ -236,6 +238,19 @@ export const MDL_OPS = [
         throw new Error('"index" must be a vertex number');
       return ctx.kernel.moveVertex(needText(edit, "id"), edit.index,
         [needNumber(edit, "x"), needNumber(edit, "y"), needNumber(edit, "z")]);
+    }),
+
+  modelOp("meshop", ["id", "ops"],
+    "Replace the whole list of mesh operations on an Edit Mesh. An operation is a "
+    + "record - what it is, what it was about, where those things were and what it was "
+    + "set to - and the list is replayed over whatever cage arrives from upstream, so "
+    + "an edit made here survives a change to the mesh underneath it.",
+    { op: "meshop", id: "EM1",
+      ops: [{ op: "extrude", level: "face", at: [3],
+              near: [[0, 0, 50, 0, 0, 1, 70.7]], args: { distance: 100 } }] },
+    (ctx, edit) => {
+      if (!Array.isArray(edit.ops)) throw new Error('"ops" must be a list of operations');
+      return ctx.kernel.setMeshOps(needText(edit, "id"), edit.ops);
     }),
 
   modelOp("sketch", ["id", "drawing"],
@@ -606,6 +621,10 @@ const coalesceKey = edit => {
   if (edit.op === "set") return "set:" + edit.id + ":" + edit.key;
   if (edit.op === "vertex") return "vertex:" + edit.id + ":" + edit.index;
   if (edit.op === "drag") return "drag:" + edit.id + ":" + edit.handle;
+  // A mesh operation being dragged - an extrude being pulled out, a bevel
+  // being widened - rewrites the whole list on every frame. One drag is one
+  // step, same as everything else here.
+  if (edit.op === "meshop") return "meshop:" + edit.id;
   return null;
 };
 const COALESCE_WINDOW = 900;   // ms

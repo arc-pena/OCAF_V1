@@ -989,7 +989,9 @@ export class GraphEditor {
     return schema ? schema.types.find(t => t.type === type) || null : null;
   }
   applies(entry, arg) {
-    return !arg.showWhen || entry.values[arg.showWhen.key] === arg.showWhen.equals;
+    if (!arg.showWhen) return true;
+    const now = entry.values[arg.showWhen.key];
+    return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
   }
 
   //! One feature, as a node. Every control on it sends one line of JSON.

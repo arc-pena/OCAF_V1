@@ -151,6 +151,8 @@ export const COMMON = {
     { type: "Plane", into: "from", kind: 2, label: "Offset plane",
       note: "parallel, a distance away" },
     { type: "Circle", into: "plane", label: "Circle on it", note: "" },
+    { type: "MeshTemplate", into: "plane", label: "Starting mesh",
+      note: "a slab, a block, an L, a hexagon" },
     { type: "MeshGrid", into: "plane", label: "Mesh grid", note: "a grid to push about" },
     { type: "Measure", into: "shape", label: "Measure", note: "" },
   ],
@@ -168,7 +170,10 @@ export const COMMON = {
     { type: "Scale", into: "shape", label: "Scale", note: "" },
   ],
   mesh: [
-    { type: "EditMesh", into: "mesh", label: "Edit mesh", note: "push and pull its vertices" },
+    { type: "EditMesh", into: "mesh", label: "Edit mesh",
+      note: "its cage: vertices, edges, faces" },
+    { type: "MeshToShape", into: "mesh", label: "To solid",
+      note: "sew the cage into a B-Rep" },
     { type: "Subdivide", into: "mesh", label: "Subdivide", note: "smooth it, Catmull-Clark" },
     { type: "Weld", into: "mesh", label: "Weld", note: "join vertices that sit together" },
     { type: "FillHoles", into: "mesh", label: "Fill holes", note: "close what is open" },
@@ -478,10 +483,59 @@ function modelRing(world) {
 //! time the menu opens.
 export function pieMenu(world) {
   if (world.staging) return showroomRing(world);
+  if (world.meshing) return paged(meshRing(world));
   if (world.sketching) return sketchRing(world);
   if (world.mode) return modeRing(world);
   return paged(modelRing(world));
 }
+
+//! THE RING IN EDIT MODE, and it is contextual twice over: once on what LEVEL
+//! you are at - vertex, edge, face, border, element - and once on whether
+//! anything is picked at all.
+//!
+//! With a face picked the first flick is Extrude, because that is what anybody
+//! does to a face. With an edge it is Loop cut, because that is what anybody
+//! does to an edge. With nothing picked there is nothing to do TO anything, so
+//! the ring is about picking instead. That is what contextual has to mean at
+//! this level as much as at the level above: not a menu of everything that
+//! typechecks, but the four things your hand was already going for.
+function meshRing(world) {
+  const { act, meshLevel = "face", meshPicked = 0, meshOps = [], meshPicks = [],
+          meshSteps = 0 } = world;
+  const first = meshOps.slice(0, 4);
+  const rest = meshOps.slice(4);
+  return [
+    branch("Select", meshPicked ? meshPicked + " picked" : "nothing picked",
+      paged(meshPicks.map(pick => leaf(pick.label, pick.note || "",
+                                       () => act.meshSelect(pick.key))))),
+    ...(meshPicked
+      ? first.map(op => leaf(op.label, op.note || "", () => act.meshOp(op.key)))
+      : [leaf("All", "everything at this level", () => act.meshSelect("all"))]),
+    ...only(rest.length > 0, branch("More", "everything else at this level",
+      paged(rest.map(op => leaf(op.label, op.note || "", () => act.meshOp(op.key)))))),
+    branch("Level", "what a click picks · now " + meshLevel,
+      MESH_PIE_LEVELS.map(one => leaf(one.label, one.hint,
+        () => act.meshLevel(one.key), { on: one.key === meshLevel }))),
+    ...only(meshSteps > 0,
+      leaf("Step back", meshSteps + (meshSteps === 1 ? " step" : " steps") + " so far",
+           () => act.meshUndo())),
+    viewBranch(world),
+    styleBranch(world),
+    interfaceBranch(world),
+    leaf("Done", "back to the model", () => act.meshDone()),
+  ];
+}
+
+//! The five levels, for the ring. Spelled out here rather than imported so the
+//! menu keeps working when the editor is not loaded - a pie menu that throws
+//! is a pie menu that takes the page with it.
+const MESH_PIE_LEVELS = [
+  { key: "vertex", label: "Vertex", hint: "the points · 1" },
+  { key: "edge", label: "Edge", hint: "the lines · 2" },
+  { key: "face", label: "Face", hint: "the polygons · 3" },
+  { key: "border", label: "Border", hint: "a whole open loop · 4" },
+  { key: "element", label: "Element", hint: "a connected lump · 5" },
+];
 
 //! A summary cut to something that fits under a word. The first clause, which
 //! in this catalogue is always the sentence that says what the thing is.

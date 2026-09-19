@@ -1485,11 +1485,16 @@ const choice = (key, label, options, def = 0) =>
 //! one feature carries two patterns without two features in the tree.
 const when = (arg, key, equals) => ({ ...arg, showWhen: { key, equals } });
 
+//! The same, for an argument that belongs to SEVERAL of a choice's answers - a
+//! starting mesh has a radius whether it is a disc, a cylinder or a sphere, and
+//! writing that as three arguments would be three things to keep in step.
+const whenAny = (arg, key, list) => ({ ...arg, showWhen: { key, any: list } });
+
 //! The same builders, handed out - because a package declares its nodes in
 //! exactly the form the catalogue above is written in, and a second way of
 //! spelling an argument is a second thing that can be wrong about one.
 export const ARG = { real, ref, refs, choice, text, code, blob, edits, drawing, when,
-                     ANY, KINDS };
+                     whenAny, ANY, KINDS };
 
 //! One table drives the toolbar, the label layout (an argument's index here is
 //! its OCAF child tag), the sliders and the neutral file format. It mirrors
@@ -1805,17 +1810,72 @@ export const CATALOGUE = [
            choice("weld", "Vertices", ["Weld", "Leave as tessellated"], 0)] },
   { type: "EditMesh", guid: "9a1b2c30-0083-4c00-9e00-caf000000083", category: "mesh",
     produces: "mesh",
-    summary: "The mesh, with vertices moved by hand. Select it, drag a handle in the "
-           + "viewport, and the move is written into the model file as an offset - so "
-           + "the same edit can be typed, computed or undone like any other.",
+    summary: "The full mesh editor, as a node. Double-click it and the viewport goes "
+           + "into edit mode: pick vertices, edges, faces, borders or whole elements "
+           + "and extrude, bevel, inset, loop cut, bridge, dissolve, weld, crease - "
+           + "everything a subdivision cage needs. NOTHING IS BAKED. What is stored is "
+           + "the LIST of operations, and the list is replayed over whatever arrives "
+           + "from upstream, so changing the cage underneath re-runs every edit on top "
+           + "of it. That is what lets you change the topology here without touching "
+           + "the work above.",
     args: [ref("mesh", "Mesh", ["mesh"], true),
+           code("ops", "Operations", "[]"),
            edits("moves", "Moved vertices",
                  "vertex index → offset, as JSON: {\"12\": [4, 0, -2]}"),
            real("scale", "Move scale", 1, -8, 8, 0.05, "")] },
+  { type: "MeshTemplate", guid: "9a1b2c30-008a-4c00-9e00-caf00000008a", category: "mesh",
+    produces: "mesh",
+    summary: "The mesh you start from. Nobody models a subdivision surface out of "
+           + "nothing - it starts as a slab, a block, a ring, an L or a hexagon and is "
+           + "pushed from there - so this is that first move as a node, all quads "
+           + "wherever quads are possible, because a triangle in a cage is a permanent "
+           + "pucker in the surface it means.",
+    args: [choice("kind", "Shape", ["Plane", "Grid", "Box", "L-shape", "Cross", "Hexagon",
+                                    "Honeycomb", "Disc", "Cylinder", "Tube", "Sphere",
+                                    "Torus"], 1),
+           ref("plane", "Placement plane", ["plane"]),
+           whenAny(real("width", "Width", 1000, 1, 100000, 10), "kind", [0, 1, 3, 4]),
+           whenAny(real("depth", "Depth", 1000, 1, 100000, 10), "kind", [0, 1, 3, 4]),
+           whenAny(real("cols", "Columns", 4, 1, 200, 1, ""), "kind", [0, 1]),
+           whenAny(real("rows", "Rows", 4, 1, 200, 1, ""), "kind", [0, 1, 8, 9, 10]),
+           when(real("dx", "Length X", 1000, 1, 100000, 10), "kind", 2),
+           when(real("dy", "Length Y", 1000, 1, 100000, 10), "kind", 2),
+           when(real("dz", "Length Z", 1000, 1, 100000, 10), "kind", 2),
+           when(real("segX", "Divisions X", 1, 1, 60, 1, ""), "kind", 2),
+           when(real("segY", "Divisions Y", 1, 1, 60, 1, ""), "kind", 2),
+           when(real("segZ", "Divisions Z", 1, 1, 60, 1, ""), "kind", 2),
+           whenAny(real("arm", "Arm", 500, 1, 100000, 10), "kind", [3, 4]),
+           whenAny(real("leg", "Leg", 500, 1, 100000, 10), "kind", [3, 4]),
+           whenAny(real("grid", "Spacing", 250, 1, 20000, 5), "kind", [3, 4]),
+           whenAny(real("radius", "Radius", 500, 1, 100000, 10), "kind", [5, 7, 8, 10, 11]),
+           when(real("size", "Cell size", 200, 1, 20000, 5), "kind", 6),
+           when(real("inner", "Inner radius", 250, 1, 100000, 10), "kind", 9),
+           when(real("outer", "Outer radius", 500, 1, 100000, 10), "kind", 9),
+           when(real("tube", "Tube radius", 160, 1, 100000, 5), "kind", 11),
+           whenAny(real("height", "Height", 1000, 1, 100000, 10), "kind", [8, 9]),
+           whenAny(real("rings", "Rings", 2, 1, 60, 1, ""), "kind", [5, 6, 7, 11]),
+           whenAny(real("sides", "Sides", 12, 3, 200, 1, ""), "kind", [7, 8, 9, 10, 11]),
+           when(choice("caps", "Ends", ["Capped", "Open"], 0), "kind", 8)] },
+  { type: "MeshToShape", guid: "9a1b2c30-008b-4c00-9e00-caf00000008b", category: "body",
+    produces: "solid",
+    summary: "A cage back into B-Rep, the way Rhino turns a SubD into a NURBS object. "
+           + "The mesh is subdivided to the level you ask for and every face of the "
+           + "result is made into a planar face, and the faces are sewn - so a closed "
+           + "cage comes out a solid you can fillet, boolean, section and write to "
+           + "STEP. A smooth cage wants two or three levels; a faceted massing wants "
+           + "none.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           real("levels", "Smooth by", 0, 0, 4, 1, ""),
+           choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),
+           real("tolerance", "Sewing tolerance", 0.01, 0.000001, 100, 0.001),
+           choice("solid", "Make", ["A solid if it closes", "A shell"], 0)] },
   { type: "Subdivide", guid: "9a1b2c30-0084-4c00-9e00-caf000000084", category: "mesh",
     produces: "mesh",
     summary: "Catmull-Clark subdivision. Every face becomes quads and the mesh pulls "
-           + "towards a smooth surface. Switch it off to see and edit the cage.",
+           + "towards a smooth surface. Switch it off to see and edit the cage. CREASES "
+           + "set in the mesh editor are honoured here: an edge creased hard holds its "
+           + "fold however many levels you ask for, which is how a subdivision model "
+           + "gets an arris without packing extra loops against it by hand.",
     args: [ref("mesh", "Mesh", ["mesh"], true),
            choice("on", "Subdivision", ["On", "Off"], 0),
            real("levels", "Levels", 2, 1, 4, 1, ""),
@@ -2125,6 +2185,12 @@ export const CATEGORIES = [
 ];
 
 export const FIRST_ARG_TAG = 1, RESULT_TAG = 100, ERROR_TAG = 101, REVISION_TAG = 102;
+//! A NOTE is not an error. A feature that built, and built what was asked, but
+//! has something to say about how - twelve faces sewn into a solid, a step of
+//! an edit list that could not find what it was about - needs somewhere to say
+//! it that is not the error label, because an error stops the feature and this
+//! does not. See F.note.
+export const NOTE_TAG = 104;
 
 //! Beside the B-Rep result, what the feature computed: numbers, points,
 //! vectors or lines of text. A Number has only this and no shape; an
@@ -2444,7 +2510,8 @@ export const F = {
   //! but not read, so switching a pattern back keeps the values you had.
   applies(f, arg) {
     if (!arg.showWhen) return true;
-    return F.choice(f, arg.showWhen.key, 0) === arg.showWhen.equals;
+    const now = F.choice(f, arg.showWhen.key, 0);
+    return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
   },
   reference(f, key) {
     const label = F.argLabel(f, key);
@@ -2529,6 +2596,14 @@ export const F = {
     return label ? label.attr.TDataStd_AsciiString || "" : "";
   },
   setError(f, message) { f.findChild(ERROR_TAG, true).attr.TDataStd_AsciiString = message; },
+
+  //! What the driver wants to say about a build that WORKED. Cleared on every
+  //! rebuild, like the error, so a note never outlives the thing it was about.
+  note(f) {
+    const label = f.findChild(NOTE_TAG);
+    return label ? label.attr.TDataStd_AsciiString || "" : "";
+  },
+  setNote(f, message) { f.findChild(NOTE_TAG, true).attr.TDataStd_AsciiString = message || ""; },
 };
 
 /* ----------------------------------------------------------------- logbook */
@@ -2564,7 +2639,7 @@ export class Driver {
     // is built from. Counting it would order the graph by the tree, make every
     // member of a set depend on the set, and refuse to delete a container
     // because everything in it "reads from" it.
-    const skip = new Set([RESULT_TAG, ERROR_TAG, REVISION_TAG, DATA_TAG, PARENT_TAG]);
+    const skip = new Set([RESULT_TAG, ERROR_TAG, REVISION_TAG, NOTE_TAG, DATA_TAG, PARENT_TAG]);
     const walk = label => {
       for (const child of label.childList()) {
         if (label === f && skip.has(child.tag)) continue;
@@ -2614,6 +2689,7 @@ export class Driver {
     result.attr.TNaming_NamedShape = shape;
     const dataLabel = F.setData(f, data);
 
+    F.setNote(f, (built && built.note) || "");
     F.setError(f, "");
     F.bumpRevision(f);
     log.impact(result);
@@ -3077,6 +3153,7 @@ export class Doc {
         const appearance = F.appearance(f);
         if (appearance) entry.appearance = appearance;
         if (F.error(f)) entry.error = F.error(f);
+        if (F.note(f)) entry.note = F.note(f);
         if (consumer) entry.consumedBy = F.id(consumer);
         return entry;
       }),
@@ -3235,6 +3312,10 @@ export const round = v => Math.round(v * 1e6) / 1e6;
 //! What a Panel prints and a node shows under its header. Long lists are cut
 //! off with a count, because the point is to see the shape of the data.
 //! The faces of a packed mesh, back as lists of vertex indices.
+//!
+//! The pack is [sides, i, j, …] per face, and then - after a face of NOUGHT
+//! sides, which cannot happen and so cannot be mistaken for one - the
+//! sharpness table. See \ref meshCreases.
 export function meshFaces(data) {
   const out = [];
   const packed = (data && data.faces) || [];
@@ -3245,6 +3326,57 @@ export function meshFaces(data) {
     i += sides;
   }
   return out;
+}
+
+//! HOW SHARP EACH FOLD IS, off the tail of the same integer array.
+//!
+//! A subdivision surface is smooth everywhere and a building has arrises, so
+//! an edge carries a crease from 0 to 1 and a vertex carries a corner. They
+//! belong to the MESH rather than to the node that set them - they have to
+//! travel downstream through every weld, transform and merge to reach the
+//! Subdivide that reads them - and the mesh is two arrays in an OCAF label
+//! with no room for a third. So they ride on the end of the face list, behind
+//! a sentinel, as thousandths:
+//!
+//!     … faces … , 0, edgeCount, a, b, w, a, b, w, …, cornerCount, v, w, …
+//!
+//! Adding an attribute to the schema would have been tidier and would have
+//! made every model file written before today unreadable. This does not.
+export function meshCreases(data) {
+  const packed = (data && data.faces) || [];
+  let i = 0;
+  for (; i < packed.length; ) {
+    const sides = packed[i++];
+    if (!(sides > 0) || i + sides > packed.length) break;
+    i += sides;
+  }
+  const creases = {}, corners = {};
+  if (packed[i - 1] !== 0) return { creases, corners };
+  const edges = packed[i++] || 0;
+  for (let n = 0; n < edges && i + 2 < packed.length + 1; n++) {
+    const a = packed[i++], b = packed[i++], w = packed[i++];
+    creases[a < b ? a + "," + b : b + "," + a] = Math.max(0, Math.min(1, w / 1000));
+  }
+  const points = packed[i++] || 0;
+  for (let n = 0; n < points && i + 1 < packed.length + 1; n++) {
+    const v = packed[i++], w = packed[i++];
+    corners[v] = Math.max(0, Math.min(1, w / 1000));
+  }
+  return { creases, corners };
+}
+
+//! And the way back: the tail to staple onto a packed face list. Nothing at
+//! all when nothing is creased, so a mesh that has never been creased packs
+//! exactly as it always did.
+export function meshSharpness(creases = {}, corners = {}) {
+  const edges = Object.entries(creases)
+    .map(([key, w]) => [...key.split(",").map(Number), Math.round(Math.max(0, Math.min(1, w)) * 1000)])
+    .filter(([a, b, w]) => Number.isInteger(a) && Number.isInteger(b) && w > 0);
+  const points = Object.entries(corners)
+    .map(([v, w]) => [Number(v), Math.round(Math.max(0, Math.min(1, w)) * 1000)])
+    .filter(([v, w]) => Number.isInteger(v) && w > 0);
+  if (!edges.length && !points.length) return [];
+  return [0, edges.length, ...edges.flat(), points.length, ...points.flat()];
 }
 
 //! How many faces of each number of sides - the one line that says whether a
