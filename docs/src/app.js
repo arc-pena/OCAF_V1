@@ -15,7 +15,7 @@ import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
-import { LEVELS, LEVEL_OPS, PICKS, makeMeshEditor } from "./meshedit.js";
+import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
 // No `as` here, nor anywhere else in this tree. The single-file build strips
 // the imports and lets every module share one scope, so a name renamed on the
@@ -375,7 +375,10 @@ function measureScene() {
     // An operation being pulled out owns the viewport until it is let go, the
     // same way a heads-up number does: while an extrude is being dragged the
     // drag is the extrude, not an orbit.
-    if (meshing() && meshEditor.live && event.button === 0) { mode = "meshdrag"; }
+    if (meshing() && event.button === 0 && meshEditor.grabGizmo(rayFrom(event))) {
+      mode = "meshgizmo";
+    }
+    else if (meshing() && meshEditor.live && event.button === 0) { mode = "meshdrag"; }
     // An axis of the handle takes the drag before the camera does.
     else if (event.button === 0 && !event.shiftKey && grabGizmo(event)) mode = "gizmo";
     // A sketch is looked at square on, and stays that way: the drag that would
@@ -400,6 +403,7 @@ function measureScene() {
     // The ruler first. A pad being dragged out is not an orbit, and while it
     // is being dragged out nothing else in here gets a look at the pointer.
     if (driveHeads(event)) return;
+    if (mode === "meshgizmo") { meshEditor.dragGizmo(rayFrom(event)); return; }
     if (mode === "meshdrag") {
       const dx = event.clientX - lastX, dy = event.clientY - lastY;
       lastX = event.clientX; lastY = event.clientY;
@@ -438,6 +442,7 @@ function measureScene() {
     placeCamera(); draw();
   });
   el.addEventListener("pointerup", event => {
+    if (mode === "meshgizmo") { meshEditor.dropGizmo(); mode = null; return; }
     if (mode === "meshdrag") { meshEditor.drop(); mode = null; return; }
     // A click in edit mode picks at the level being edited: plain replaces,
     // shift adds, ctrl takes away, alt takes the whole loop through it.
@@ -495,7 +500,13 @@ function measureScene() {
     // the one the whole edit mode hangs off.
     if (entry && entry.produces === "mesh") enterMeshEdit(entry.id);
   });
-  el.addEventListener("contextmenu", event => event.preventDefault());
+  el.addEventListener("contextmenu", event => {
+    event.preventDefault();
+    // In edit mode the right button is the menu for whatever you are picking,
+    // where the pointer is. Everywhere else the viewport has no menu and the
+    // right button is a pan.
+    if (meshing()) openMeshContext(event);
+  });
   el.addEventListener("wheel", event => {
     event.preventDefault();
     // Measured against how big the scene is. Fixed stops at 20 and 8000 mm meant
@@ -897,6 +908,7 @@ const meshEditor = makeMeshEditor({
   THREE, world, camera, canvas: renderer.domElement,
   mdl, kernel: { cage: id => kernel.cage(id) },
   draw: () => draw(),
+  gizmoSpan: () => view.distance * 0.09,
   inputOf: id => {
     const entry = feature(id);
     const from = entry && entry.refs && entry.refs.mesh;
@@ -970,53 +982,52 @@ const OP_KEYS = {
   x: "remove", s: "smooth", k: "bisect", j: "connect", c: "crease",
 };
 
-//! What the bar says. Rewritten whenever anything changes, because the whole
-//! of it is derived: what level you are at, what is picked, what can be done
-//! to it, and what is in the list.
+//! WHAT THE BAR SAYS, and it is deliberately almost nothing.
+//!
+//! The mode you are in, the menus, how much is picked, and the way out. That
+//! is Blender's edit-mode header and it is right: a bar is for saying where
+//! you are, not for listing everything the program can do. What you can do
+//! lives in the menu for the kind of thing you do it to - and under the right
+//! button, where your hand already is.
+//!
+//! The one thing that does get a row of its own is the number the last
+//! operation was run with, because that is the thing you change six times in a
+//! row and it is worth nothing behind a click.
 function refreshMeshBar() {
   if (!meshEditor.on) return;
   const tally = meshEditor.tally();
   const level = meshEditor.level;
-  const ops = (LEVEL_OPS[level] || []).filter(op => MESH_OPS[op]);
-  const picks = PICKS.filter(pick => pick.levels.includes(level));
   const lead = meshEditor.lead();
   const entry = feature(meshEditor.id);
   meshBar.innerHTML = '<div class="mx-row">'
-    + '<span class="mx-tag">Edit</span>'
+    + '<span class="mx-tag">' + safeText(entry ? entry.name : "Edit") + "</span>"
     + '<span class="seg" id="mx-level">'
     + LEVELS.map(one => '<button data-level="' + one.key + '" title="' + one.hint
-        + " · " + one.stroke + '" aria-pressed="' + (one.key === level ? "true" : "false")
+        + " \u00b7 " + one.stroke + '" aria-pressed="' + (one.key === level ? "true" : "false")
         + '">' + one.label + "</button>").join("")
     + "</span>"
-    + '<span class="mx-count">' + tally.picked + " of " + tally.all + " picked</span>"
+    + '<span class="mx-menus">'
+    + '<button class="mx-menu" data-menu="select">Select</button>'
+    + MESH_MENUS.map(menu => '<button class="mx-menu" data-menu="' + menu.key + '">'
+        + menu.label + "</button>").join("")
+    + "</span>"
+    + '<span class="mx-count">' + tally.picked + " of " + tally.all + "</span>"
     + '<span class="mx-note">' + safeText(tally.says) + "</span>"
     + '<button class="btn" id="mx-done">Done</button></div>'
-    + '<div class="mx-row mx-wrap"><span class="mx-tag">Select</span>'
-    + picks.map(pick => '<button class="mx-chip" data-pick="' + pick.key + '">'
-        + pick.label + "</button>").join("")
-    + "</div>"
-    + '<div class="mx-row mx-wrap"><span class="mx-tag">Do</span>'
-    + ops.map(op => '<button class="mx-chip mx-do" data-op="' + op + '" title="'
-        + safeText(MESH_OPS[op].note || "") + '">' + MESH_OPS[op].label + "</button>").join("")
-    + "</div>"
-    + (lead ? '<div class="mx-row"><span class="mx-tag">' + safeText(lead.label) + "</span>"
-        + '<span class="mx-lead">' + safeText(lead.key) + "</span>"
-        + '<input type="range" id="mx-lead" min="' + leadLow(lead) + '" max="'
-        + leadHigh(lead) + '" step="' + leadStep(lead) + '" value="'
-        + leadNow(lead) + '">'
-        + '<input type="number" class="mx-read" id="mx-lead-read" value="'
-        + leadNow(lead) + '" step="' + leadStep(lead) + '">'
-        + '<span class="mx-hint">or drag in the viewport</span></div>' : "")
-    + '<div class="mx-row mx-wrap"><span class="mx-tag">Steps</span>'
-    + (meshEditor.ops.length
-        ? meshEditor.ops.map((op, i) => '<button class="mx-step" data-step="' + i
-            + '" title="take this step out">' + (i + 1) + ". "
-            + safeText((MESH_OPS[op.op] || {}).label || op.op) + "</button>").join("")
-        : '<span class="mx-hint">nothing yet - pick something and press a button above, '
-          + 'or press space for the menu</span>')
-    + (meshEditor.note ? '<span class="mx-warn">' + safeText(meshEditor.note) + "</span>" : "")
-    + "</div>";
-  if (entry) meshBar.querySelector(".mx-tag").textContent = entry.name;
+    + (meshEditor.ops.length ? '<div class="mx-row"><span class="mx-tag">'
+        + safeText(lastStepName()) + "</span>"
+        + (lead ? '<span class="mx-lead">' + safeText(lead.key) + "</span>"
+            + '<input type="range" id="mx-lead" min="' + leadLow(lead) + '" max="'
+            + leadHigh(lead) + '" step="' + leadStep(lead) + '" value="'
+            + leadNow(lead) + '">'
+            + '<input type="number" class="mx-read" id="mx-lead-read" value="'
+            + leadNow(lead) + '" step="' + leadStep(lead) + '">'
+          : '<span class="mx-hint">step ' + meshEditor.ops.length + " of "
+            + meshEditor.ops.length + "</span>")
+        + '<button class="mx-chip" id="mx-drop-step" title="take this step out">Undo step</button>'
+        + '</div>' : "")
+    + (meshEditor.note ? '<div class="mx-row"><span class="mx-warn">'
+        + safeText(meshEditor.note) + "</span></div>" : "");
 }
 
 const safeText = text => String(text == null ? "" : text)
@@ -1030,7 +1041,19 @@ const leadSpan = () => {
   for (const p of tally) far = Math.max(far, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]));
   return far;
 };
-const leadNow = lead => (Array.isArray(lead.value) ? lead.value[2] : Number(lead.value) || 0);
+//! The name of the step the bar is showing, so "Undo step" says what it undoes.
+const lastStepName = () => {
+  const last = meshEditor.ops[meshEditor.ops.length - 1];
+  return last ? ((MESH_OPS[last.op] || {}).label || last.op) : "";
+};
+
+//! Rounded to the step it moves in. A readout of 285.78392 is a readout nobody
+//! asked for and cannot type back in.
+const leadNow = lead => {
+  const raw = Array.isArray(lead.value) ? lead.value[2] : Number(lead.value) || 0;
+  const step = leadStep(lead);
+  return Math.round(raw / step) * step;
+};
 const leadLow = lead => (lead.key === "amount" || lead.key === "factor" ? 0
   : lead.key === "cuts" || lead.key === "segments" ? 1
   : -Math.round(leadSpan() * 1.5));
@@ -1041,15 +1064,101 @@ const leadStep = lead => (lead.key === "amount" || lead.key === "factor" ? 0.01
   : lead.key === "cuts" || lead.key === "segments" ? 1
   : Math.max(0.1, Math.round(leadSpan() / 500)));
 
+/* ---------------------------------------------------------- the menus
+
+   One menu element, used four ways: the Select menu, the Vertex, Edge and Face
+   menus, the Mesh menu, and the right-click menu in the viewport - which is
+   whichever of them matches the level you are at, because that is what a
+   context menu means.                                                       */
+
+//! An operation as a line: what it is called, what it does, and whether there
+//! is anything picked for it to do it to.
+function meshOpItem(op) {
+  const spec = MESH_OPS[op];
+  if (!spec) return;
+  const ready = meshEditor.tally().picked > 0
+    || spec.levels.includes("element") || op === "recalc" || op === "merge";
+  menuItem(spec.label, spec.note || "", ready ? () => meshEditor.begin(op) : null);
+}
+
+function meshMenuBody(which) {
+  if (which === "select") {
+    menuHead("Select");
+    for (const pick of PICKS) {
+      if (!pick.levels.includes(meshEditor.level)) continue;
+      menuItem(pick.label, "", () => meshEditor.select(pick.key));
+    }
+    menuRule();
+    menuHead("Level");
+    for (const one of LEVELS)
+      menuItem(one.label, one.hint + " \u00b7 " + one.stroke,
+               () => meshEditor.setLevel(one.key));
+    return;
+  }
+  const menu = MESH_MENUS.find(m => m.key === which);
+  if (!menu) return;
+  menuHead(menu.label);
+  menu.groups.forEach((group, i) => {
+    if (i) menuRule();
+    for (const op of group) meshOpItem(op);
+  });
+  if (which === "mesh") {
+    menuRule();
+    menuHead("Move widget");
+    for (const [key, label, note] of [["normal", "Normal", "square to what is picked"],
+                                      ["global", "Global", "the world's own axes"]])
+      menuItem(label, note, () => {
+        meshEditor.orient = key;
+        meshEditor.paint();
+        refreshMeshBar();
+      }).classList.toggle("on", meshEditor.orient === key);
+    menuRule();
+    menuHead("Steps");
+    if (!meshEditor.ops.length) menuItem("Nothing yet", "", null);
+    meshEditor.ops.forEach((op, i) => {
+      menuItem((i + 1) + ". " + ((MESH_OPS[op.op] || {}).label || op.op),
+               "take it out", () => meshEditor.dropStep(i));
+    });
+  }
+}
+
+function openMeshMenu(which, x, y, up = false) {
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  meshMenuBody(which);
+  placeMenu(x, y, up);
+}
+
+//! Right-click in the viewport: the menu for the level you are at, where the
+//! pointer is. No hunting for a header.
+function openMeshContext(event) {
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  const which = meshEditor.level === "border" || meshEditor.level === "element"
+    ? "mesh" : meshEditor.level;
+  meshMenuBody(which);
+  menuRule();
+  menuHead("Select");
+  for (const key of ["all", "none", "invert", "linked", "loop", "ring"]) {
+    const pick = PICKS.find(p => p.key === key);
+    if (!pick || !pick.levels.includes(meshEditor.level)) continue;
+    menuItem(pick.label, "", () => meshEditor.select(pick.key));
+  }
+  placeMenu(event.clientX, event.clientY);
+}
+
 meshBar.addEventListener("click", async event => {
   const level = event.target.closest("[data-level]");
   if (level) { meshEditor.setLevel(level.dataset.level); return; }
-  const pick = event.target.closest("[data-pick]");
-  if (pick) { meshEditor.select(pick.dataset.pick); return; }
-  const op = event.target.closest("[data-op]");
-  if (op) { await meshEditor.begin(op.dataset.op); refreshMeshBar(); return; }
-  const step = event.target.closest("[data-step]");
-  if (step) { await meshEditor.dropStep(Number(step.dataset.step)); return; }
+  const menu = event.target.closest("[data-menu]");
+  if (menu) {
+    const box = menu.getBoundingClientRect();
+    for (const other of meshBar.querySelectorAll("[data-menu]"))
+      other.setAttribute("aria-expanded", other === menu ? "true" : "false");
+    openMeshMenu(menu.dataset.menu, box.left, box.top - 6, true);
+    return;
+  }
+  if (event.target.closest("#mx-drop-step")) { await meshEditor.undoStep(); return; }
   if (event.target.closest("#mx-done")) leaveMeshEdit();
 });
 meshBar.addEventListener("input", async event => {
@@ -2763,6 +2872,8 @@ function closeMenu() {
   menu.textContent = "";
   const button = document.getElementById("btn-menu");
   if (button) button.setAttribute("aria-expanded", "false");
+  for (const other of document.querySelectorAll("#mesh-bar [data-menu]"))
+    other.setAttribute("aria-expanded", "false");
 }
 
 //! One line in a menu. Both menus are the same list in the same place - only
@@ -2789,13 +2900,16 @@ function menuHead(text) {
 const menuRule = () =>
   document.getElementById("menu").appendChild(document.createElement("hr"));
 
-//! Shown, then placed: the size it measures is the size it will be.
-function placeMenu(x, y) {
+//! Shown, then placed: the size it measures is the size it will be. With `up`
+//! the y given is the menu's BOTTOM rather than its top, which is what a menu
+//! hanging off a bar along the bottom of the window needs.
+function placeMenu(x, y, up = false) {
   const menu = document.getElementById("menu");
   menu.hidden = false;
   const box = menu.getBoundingClientRect();
   menu.style.left = Math.min(x, innerWidth - box.width - 8) + "px";
-  menu.style.top = Math.min(y, innerHeight - box.height - 8) + "px";
+  menu.style.top = Math.max(8, up ? y - box.height
+                                  : Math.min(y, innerHeight - box.height - 8)) + "px";
 }
 
 /* -------------------------------------------------------- the document menu

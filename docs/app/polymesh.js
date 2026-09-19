@@ -2754,8 +2754,10 @@ function catchmentIn(mesh, level, want, size, topo) {
 //! `lead` names the argument a drag in the viewport drives, so that picking
 //! Extrude and moving the mouse extrudes rather than opening a dialogue.
 export const MESH_OPS = {
+  // No lead: a move is driven by the widget in the viewport, and a slider that
+  // only drove one of its three numbers would be a slider that lies.
   move: { label: "Move", levels: ["vertex", "edge", "face", "border", "element"],
-          lead: "by", args: { by: [0, 0, 0] },
+          args: { by: [0, 0, 0] },
           note: "push the selection along a vector" },
   transform: { label: "Transform", levels: ["vertex", "edge", "face", "border", "element"],
                args: { move: [0, 0, 0], scale: [1, 1, 1], turn: [0, 0, 0] },
@@ -2921,9 +2923,19 @@ export function applyOp(mesh, record) {
     case "corner": result = setCorner(mesh, verts(), args.amount); break;
     default: throw new Error('the mesh operation "' + kind + '" is not wired up');
   }
+  // AN OPERATION THAT ONLY MOVES POINTS LEAVES THE SELECTION ALONE. Pushing a
+  // face out should not drop you into vertex mode with its four corners picked
+  // - what you were working on is still what you are working on, and an editor
+  // that re-picks after every nudge is an editor you fight.
+  if (KEEPS_PICKED.has(kind))
+    return { mesh: cageOf(result), picked: at, level, lost: bound.lost };
   return { mesh: cageOf(result), picked: result.picked || [],
            level: result.level || level, lost: bound.lost };
 }
+
+//! The operations that change where things are without changing what they are.
+const KEEPS_PICKED = new Set(["move", "transform", "shrinkfatten", "sphere", "smooth",
+                              "randomize", "crease", "corner", "flip", "recalc"]);
 
 //! The whole list, in order, over a cage from upstream. What an Edit Mesh node
 //! builds, every time anything above it changes.

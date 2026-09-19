@@ -265,6 +265,11 @@ button, input, select { font: inherit; color: inherit; }
 }
 #menu .menu-head:hover { background: none; }
 #menu li.off { cursor: default; opacity: .55; }
+/* A line that is the answer at the moment - the transform orientation, the
+   level. Marked rather than described, because a menu that says "(current)" is
+   a menu you read instead of glance at. */
+#menu li.on { color: var(--accent); }
+#menu li.on .menu-label::before { content: "\2713\00a0"; }
 #menu li.off:hover { background: none; }
 
 /* ---------------------------------------------------------- the packages
@@ -509,8 +514,10 @@ body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 body.meshing .fades:not(#chip):not(#tree-panel) { opacity: .35; }
 .mx-bar {
   left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
-  width: min(880px, calc(100vw - var(--edge) * 2 - 340px));
-  z-index: 9; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px;
+  /* Only as wide as what it says. A bar that is the width of the window says
+     the program is about the bar; this one is about the model. */
+  width: max-content; max-width: calc(100vw - var(--edge) * 2 - 320px);
+  z-index: 9; padding: 7px 10px 8px; display: flex; flex-direction: column; gap: 6px;
 }
 .mx-bar[hidden] { display: none; }
 .mx-row { display: flex; align-items: center; gap: 8px; }
@@ -530,20 +537,22 @@ body.meshing .fades:not(#chip):not(#tree-panel) { opacity: .35; }
   box-shadow: 0 1px 2px rgba(16, 28, 38, .1);
 }
 .mx-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink); white-space: nowrap; }
-.mx-note { flex: 1; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
-           text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-note { font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
 .mx-chip {
   border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
   color: var(--ink-2); cursor: pointer; font: inherit; font-size: 11px; padding: 2.5px 8px;
 }
 .mx-chip:hover { border-color: var(--accent); color: var(--accent); }
-.mx-chip.mx-do { color: var(--ink); }
-.mx-step {
-  border: 1px solid var(--line-soft); border-radius: 6px; background: var(--accent-soft);
-  color: var(--ink-2); cursor: pointer; font-family: var(--mono); font-size: 10px;
-  padding: 2px 7px;
+/* The menus. Word buttons rather than chips, because they are a menu bar and a
+   menu bar has always looked like this. */
+.mx-menus { display: flex; align-items: center; gap: 1px; }
+.mx-menu {
+  border: 0; background: none; color: var(--ink); cursor: pointer;
+  padding: 4px 9px; border-radius: 6px; font: inherit; font-size: 12px;
 }
-.mx-step:hover { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+.mx-menu:hover { background: var(--panel-2); }
+.mx-menu[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .mx-lead { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .mx-row input[type="range"] { flex: 1; min-width: 80px; margin: 0; accent-color: var(--accent); }
 .mx-read {

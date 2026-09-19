@@ -26,8 +26,10 @@
 import { MESH_LEVELS, MESH_OPS, anchorsOf, applyOps, borderLoops, boundsOf, byTrait,
          cageOf, checker, edgeEnds, edgeKey, edgeLoop, edgeRing, edgesIn, faceCentre,
          faceLoop, faceNormal, facesOf, growSelection, invertSelection, linkedFrom,
-         openEdges, pmAdd, pmLen, pmMid, pmMul, pmSub, pmUnit, shellsOf, shrinkSelection,
+         openEdges, pmAdd, pmCross, pmDot, pmLen, pmMid, pmMul, pmSub, pmUnit,
+         shellsOf, shrinkSelection,
          similarTo, tallyOf, topologyOf, vertsOf } from "./polymesh.js";
+import { rulerAt } from "./handle.js";
 
 /* -------------------------------------------------------------- the levels
 
@@ -62,6 +64,39 @@ export const LEVEL_OPS = {
             "symmetrize", "triangulate", "quadrangulate", "unsubdivide", "smooth",
             "bisect", "split", "remove"],
 };
+
+//! THE MENUS ALONG THE TOP, arranged the way Blender arranges them - because
+//! the bar should say what MODE you are in and nothing else, and everything you
+//! can do lives one click down in the menu for the kind of thing you do it to.
+//!
+//! A wall of forty buttons is not an interface. It is a list of everything the
+//! program can do, printed, and the price of never having to look for anything
+//! is never being able to see anything either.
+export const MESH_MENUS = [
+  { key: "vertex", label: "Vertex",
+    groups: [["extrude", "bevel", "connect"],
+             ["weldat", "collapse", "merge", "rip"],
+             ["smooth", "shrinkfatten", "sphere", "randomize"],
+             ["corner"],
+             ["dissolve", "remove"]] },
+  { key: "edge", label: "Edge",
+    groups: [["extrude", "bevel", "loopcut", "subdivide"],
+             ["bridge", "fill", "gridfill", "spin"],
+             ["crease"],
+             ["collapse", "dissolve", "remove"]] },
+  { key: "face", label: "Face",
+    groups: [["extrude", "inset", "poke", "subdivide"],
+             ["duplicate", "split", "solidify"],
+             ["triangulate", "quadrangulate", "unsubdivide"],
+             ["flip", "recalc"],
+             ["dissolve", "remove"]] },
+  { key: "mesh", label: "Mesh",
+    groups: [["merge", "smooth", "shrinkfatten", "sphere", "randomize"],
+             ["mirror", "symmetrize", "bisect"],
+             ["solidify", "wireframe"],
+             ["triangulate", "quadrangulate", "unsubdivide"],
+             ["flip", "recalc"]] },
+];
 
 //! The selections worth having a button for. Every one of them is a question
 //! about the topology that would take a minute to answer by hand.
@@ -105,6 +140,12 @@ export function makeMeshEditor(kit) {
     busy: false,
     live: null,                     // an operation being dragged
     note: "",
+    // WHICH WAY THE WIDGET POINTS. Normal means the selection's own frame -
+    // square to the face, along the edge - which is how you push a wall out of
+    // a building that is not aligned to the world, and it is the orientation
+    // this starts in because on a cage it is right far more often than global.
+    orient: "normal",
+    grab: null,                     // an axis of the widget being dragged
   };
 
   /* ------------------------------------------------------- what is drawn */
@@ -126,6 +167,17 @@ export function makeMeshEditor(kit) {
     creased: new THREE.LineSegments(new THREE.BufferGeometry(), wire(0xd2691e, 1)),
     dots: new THREE.Points(new THREE.BufferGeometry(),
       new THREE.PointsMaterial({ color: 0x8b99a5, size: 7, sizeAttenuation: false,
+                                 depthTest: false })),
+    // A DOT IN THE MIDDLE OF EVERY FACE, in face mode, and in the middle of
+    // every element in element mode. It is what Blender draws and it is not
+    // decoration: a face you can see the centre of is a face you can tell from
+    // the one behind it, and a selected one shows at a glance which side of an
+    // edge got picked.
+    faceDots: new THREE.Points(new THREE.BufferGeometry(),
+      new THREE.PointsMaterial({ color: 0x8b99a5, size: 6, sizeAttenuation: false,
+                                 depthTest: false })),
+    litFaceDots: new THREE.Points(new THREE.BufferGeometry(),
+      new THREE.PointsMaterial({ color: 0x0a6cb0, size: 10, sizeAttenuation: false,
                                  depthTest: false })),
     litDots: new THREE.Points(new THREE.BufferGeometry(),
       new THREE.PointsMaterial({ color: 0x0a6cb0, size: 11, sizeAttenuation: false,
@@ -199,6 +251,15 @@ export function makeMeshEditor(kit) {
     put(parts.dots, editor.level === "vertex" ? mesh.points : []);
 
     const picked = editor.picked;
+    const shells = editor.level === "element" ? shellsOf(mesh, topo) : null;
+    const middles = editor.level === "face"
+      ? mesh.faces.map(face => faceCentre(mesh, face))
+      : shells ? shells.map(group => pmMid(group.map(fi => faceCentre(mesh, mesh.faces[fi]))))
+      : [];
+    const litMiddles = middles.length
+      ? picked.map(i => middles[i]).filter(Boolean) : [];
+    put(parts.faceDots, middles);
+    put(parts.litFaceDots, litMiddles);
     put(parts.litDots, editor.level === "vertex"
       ? picked.map(v => mesh.points[v]).filter(Boolean) : []);
     put(parts.litEdges, editor.level === "edge" ? edgeLines(picked)
@@ -215,6 +276,7 @@ export function makeMeshEditor(kit) {
     setTriangles(parts.overFaces, over && over.level === "face" ? faceTriangles([over.at])
       : over && over.level === "element"
         ? faceTriangles(shellsOf(mesh, topo)[over.at] || []) : []);
+    placeGizmo();
     kit.draw();
   }
 
@@ -254,6 +316,170 @@ export function makeMeshEditor(kit) {
     target.visible = true;
     target.material.visible = false;
   }
+
+  /* ----------------------------------------------------- the move widget
+
+     THE THREE ARROWS, where the selection is and pointing the way the
+     selection points. Drag one and everything picked goes along it.
+
+     Blender's "normal" transform orientation, and it is the one that matters
+     on a cage: a face pulled along its own normal comes straight out of the
+     wall, and a face pulled along world Z on a building that is not square to
+     the world goes somewhere nobody asked for. Vertex mode has no face to take
+     a direction from, so it uses the vertex's own normal - averaged from the
+     faces on it, which is the direction a point on a surface points.        */
+
+  const AXIS_COLOURS = [0xd0473f, 0x3f9e4d, 0x2f7fd0];
+  const gizmo = new THREE.Group();
+  gizmo.visible = false;
+  gizmo.renderOrder = 9;
+  group.add(gizmo);
+  const arms = [];
+  for (let a = 0; a < 3; a++) {
+    const material = new THREE.MeshBasicMaterial({ color: AXIS_COLOURS[a], depthTest: false,
+                                                   transparent: true, opacity: 0.95 });
+    const arm = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 8), material);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 12), material);
+    shaft.userData.axis = a;
+    tip.userData.axis = a;
+    shaft.renderOrder = 9;
+    tip.renderOrder = 9;
+    arm.add(shaft, tip);
+    arm.userData.axis = a;
+    gizmo.add(arm);
+    arms.push({ arm, shaft, tip, material });
+  }
+  const hub = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial({ color: 0xf0f4f7, depthTest: false }));
+  hub.renderOrder = 9;
+  gizmo.add(hub);
+
+  //! WHERE THE WIDGET STANDS AND WHICH WAY IT POINTS. The middle of what is
+  //! picked, and a frame taken from it: square to the face, along the edge, off
+  //! the vertex - or the world's own axes when the orientation is set to
+  //! global, which is what you want for moving something onto a grid.
+  editor.frame = () => {
+    if (!editor.cage || !editor.picked.length) return null;
+    const mesh = editor.cage, topo = editor.topo;
+    const verts = vertsOf(mesh, editor.level, editor.picked, topo);
+    if (!verts.length) return null;
+    const at = pmMid(verts.map(v => mesh.points[v]));
+    if (editor.orient === "global")
+      return { at, axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] };
+    let up = null, along = null;
+    if (editor.level === "face" || editor.level === "element") {
+      const faces = facesOf(mesh, editor.level, editor.picked, topo);
+      if (faces.length) {
+        up = pmUnit(pmMid(faces.map(fi => faceNormal(mesh, mesh.faces[fi]))));
+        const face = mesh.faces[faces[0]];
+        along = pmUnit(pmSub(mesh.points[face[1]], mesh.points[face[0]]));
+      }
+    } else if (editor.level === "edge" || editor.level === "border") {
+      const keys = edgesIn(mesh, editor.level, editor.picked, topo);
+      if (keys.length) {
+        const [a, b] = edgeEnds(keys[0]);
+        // Along the edge is X; square to the faces on it is Z. An edge with one
+        // face has that face's normal, and a loose one falls back to the world.
+        along = pmUnit(pmSub(mesh.points[b], mesh.points[a]));
+        const on = topo.edges.get(keys[0]).faces;
+        if (on.length) up = pmUnit(pmMid(on.map(fi => faceNormal(mesh, mesh.faces[fi]))));
+      }
+    } else {
+      const normals = vertexNormalsOf(mesh, topo);
+      up = pmUnit(pmMid(verts.map(v => normals[v])));
+    }
+    if (!up || !pmLen(up)) up = [0, 0, 1];
+    if (!along || Math.abs(pmDot(pmUnit(along), up)) > 0.99) {
+      const guess = Math.abs(up[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
+      along = pmUnit(pmCross(guess, up));
+    }
+    const x = pmUnit(pmSub(along, pmMul(up, pmDot(along, up))));
+    const y = pmUnit(pmCross(up, x));
+    return { at, axes: [x, y, up] };
+  };
+
+  //! The vertex normals, cached per cage: the frame asks for them on every
+  //! selection change and a cage is not so small that it is free.
+  let normalCache = null, normalFor = null;
+  const vertexNormalsOf = (mesh, topo) => {
+    if (normalFor === mesh) return normalCache;
+    normalFor = mesh;
+    normalCache = normalsOf(mesh, topo);
+    return normalCache;
+  };
+  const normalsOf = (mesh, topo) => {
+    const out = mesh.points.map(() => [0, 0, 0]);
+    mesh.faces.forEach(face => {
+      const n = faceNormal(mesh, face);
+      for (const v of face) if (out[v]) out[v] = pmAdd(out[v], n);
+    });
+    return out.map(n => (pmLen(n) > 1e-9 ? pmUnit(n) : [0, 0, 1]));
+  };
+
+  //! Put the arrows where the frame says, at a size that reads the same
+  //! however far away the camera is.
+  function placeGizmo() {
+    const frame = editor.frame();
+    if (!frame) { gizmo.visible = false; return; }
+    const span = kit.gizmoSpan ? kit.gizmoSpan() : 60;
+    gizmo.visible = true;
+    gizmo.position.set(frame.at[0], frame.at[1], frame.at[2]);
+    hub.scale.setScalar(span * 0.07);
+    arms.forEach(({ arm, shaft, tip }, a) => {
+      const dir = new THREE.Vector3(...frame.axes[a]);
+      const turn = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      arm.quaternion.copy(turn);
+      shaft.scale.set(span * 0.022, span, span * 0.022);
+      shaft.position.set(0, span * 0.5, 0);
+      tip.scale.set(span * 0.075, span * 0.22, span * 0.075);
+      tip.position.set(0, span * 1.1, 0);
+    });
+    editor.gizmoAt = frame;
+  }
+
+  //! An arrow under the pointer takes the drag. Everything picked then moves
+  //! along that axis, as one \ref move operation that is rewritten on every
+  //! frame - so the whole drag is one step in the list and one undo.
+  editor.grabGizmo = ray => {
+    if (!editor.on || !gizmo.visible) return null;
+    const hits = ray.intersectObjects(gizmo.children, true);
+    const hit = hits.find(h => h.object.userData.axis !== undefined);
+    if (!hit) return null;
+    const frame = editor.frame();
+    if (!frame) return null;
+    const axis = hit.object.userData.axis;
+    editor.grab = { axis, dir: frame.axes[axis], at: frame.at,
+                    from: rulerAt([ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z],
+                                  [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z],
+                                  frame.at, frame.axes[axis]),
+                    moved: false };
+    return editor.grab;
+  };
+
+  editor.dragGizmo = async ray => {
+    const grab = editor.grab;
+    if (!grab) return;
+    const now = rulerAt([ray.ray.origin.x, ray.ray.origin.y, ray.ray.origin.z],
+                        [ray.ray.direction.x, ray.ray.direction.y, ray.ray.direction.z],
+                        grab.at, grab.dir);
+    if (!Number.isFinite(now) || !Number.isFinite(grab.from)) return;
+    const by = pmMul(grab.dir, now - grab.from);
+    if (!grab.moved && pmLen(by) < 1e-9) return;
+    // The FIRST frame of the drag appends a move; every frame after it rewrites
+    // that same move, so a drag is one entry in the list rather than four
+    // hundred of them.
+    await run("move", { by }, { live: true, replace: grab.moved });
+    grab.moved = true;
+  };
+
+  editor.dropGizmo = async () => {
+    const grab = editor.grab;
+    editor.grab = null;
+    if (!grab) return;
+    if (!grab.moved) return;
+    await commit();
+  };
 
   /* --------------------------------------------------------- the picking */
 
@@ -330,13 +556,24 @@ export function makeMeshEditor(kit) {
     if (!editor.cage || editor.busy) return null;
     const spec = MESH_OPS[op];
     if (!spec) return null;
-    const level = spec.levels.includes(editor.level) ? editor.level : spec.levels[0];
-    const at = level === editor.level ? editor.picked
+    // RE-RUNNING THE LAST OPERATION KEEPS WHAT IT WAS ABOUT. Only its numbers
+    // change: the face being dragged out is the same face, and asking the cage
+    // again would ask the cage the operation has already moved. Chasing its own
+    // answer is exactly what that does - three frames into a drag the recorded
+    // position is where the face has got to, the replay looks for it where it
+    // has NOT got to yet, finds nothing, and the operation quietly loses its
+    // selection half way through the gesture.
+    const before = replace ? editor.ops[editor.ops.length - 1] : null;
+    const same = before && before.op === op ? before : null;
+    const level = same ? same.level
+      : spec.levels.includes(editor.level) ? editor.level : spec.levels[0];
+    const at = same ? same.at
+      : level === editor.level ? editor.picked
       : level === "face" ? facesOf(editor.cage, editor.level, editor.picked, editor.topo)
       : level === "edge" ? edgesIn(editor.cage, editor.level, editor.picked, editor.topo)
       : vertsOf(editor.cage, editor.level, editor.picked, editor.topo);
     const record = { op, level, at: [...at],
-                     near: anchorsOf(editor.cage, level, at, editor.topo),
+                     near: same ? same.near : anchorsOf(editor.cage, level, at, editor.topo),
                      args: { ...spec.args, ...args } };
     const list = replace ? [...editor.ops.slice(0, -1), record] : [...editor.ops, record];
     const done = applyOps(editor.base, list);
@@ -636,6 +873,7 @@ export function makeMeshEditor(kit) {
 
   editor.hotkey = key => HOT[key] || null;
   editor.group = group;
+  editor.widget = gizmo;
   editor.paint = paint;
   editor.dispose = () => { kit.world.remove(group); };
   return editor;
