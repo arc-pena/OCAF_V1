@@ -475,6 +475,35 @@ body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   flex: none; width: 30px; text-align: right; font-style: normal;
   font-family: var(--mono); font-size: 10px; color: var(--ink-3);
 }
+/* The cut reads as a percentage AND a height - two numbers where the others
+   have one, so the box they sit in is wider. */
+.fl-read.fl-wide { width: 112px; }
+
+/* What the flow is looking at: a row per object, ticked like a layer. */
+.fl-seen { max-height: 190px; overflow: auto; margin: -2px 0 6px; }
+.fl-see { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.fl-see.off .fl-see-name { color: var(--ink-3); text-decoration: line-through; }
+.fl-eye {
+  flex: none; width: 17px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--accent); font-size: 12px; line-height: 1;
+}
+.fl-see.off .fl-eye { color: var(--ink-3); }
+.fl-see-name {
+  flex: 1; font-size: 11.5px; color: var(--ink); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.fl-role {
+  flex: none; border: 0; border-radius: 4px; background: var(--panel-2);
+  color: var(--ink-3); cursor: pointer; padding: 1px 6px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+}
+.fl-role:disabled { cursor: default; opacity: .6; }
+.fl-see.off .fl-role { opacity: .4; }
+.fl-seen-acts { display: flex; align-items: center; gap: 6px; }
+.fl-seen-acts .btn { padding: 2px 9px; font-size: 11px; }
+.fl-seen-count {
+  margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+}
 
 /* A set in the tree: its own row, then everything in it, indented. */
 li.holds { display: block; }

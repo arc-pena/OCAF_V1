@@ -8,8 +8,9 @@
 // people inside furniture, a door with no capacity.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { PluginHost, findPlugin } from "../src/plugin.js";
-import { CROWD, CROWD_LIMIT, CROWD_NODES, boundaryRings, crowdColour, footprintOf,
-         peopleFor, plateOf, zSpan } from "../src/crowd-plugin.js";
+import { CROWD, CROWD_LIMIT, CROWD_NODES, boundaryRings, boxOf, crowdColour,
+         footprintOf, peopleFor, plateOf, shellsAmong,
+         zSpan } from "../src/crowd-plugin.js";
 import { BODY, FREE_SPEED, FRUIN, SIDESTEP, addWalker, blockPolygon, cellIndex,
          cellsAllowed, clearanceOf, crowdSpeed, fillRings, surfaceAt, toWorld,
          downhill, flowField, isBlocked, isovist, levelOfService, makeCrowd,
@@ -1201,6 +1202,123 @@ console.log("\na doubly curved floor: a dome, and what happens as it is squashed
         flatter.map(g => Math.round(g.worst)).join(", ") + " mm");
   check("a squashed dome is lower than a round one",
         flatter[2].top < ball1.top / 8, Math.round(flatter[2].top) + " mm high");
+}
+
+console.log("\nwhat you are inside, against what is in your way");
+{
+  // The packing package's own answer, handed to this one: a massing envelope
+  // with rooms packed into it. Both are closed solids, and the ray test that
+  // keeps people out of buildings said the whole floor plate was indoors - so
+  // the study of the building came back with nowhere at all to stand.
+  await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
+                           units: "mm", features: [] });
+  const point = async (x, y, z) => {
+    const id = (await kernel.addFeature("Point", {})).id;
+    for (const [k, v] of [["x", x], ["y", y], ["z", z]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+  const cube = async (at, dx, dy, dz) => {
+    const id = (await kernel.addFeature("Cube", { origin: at })).id;
+    for (const [k, v] of [["dx", dx], ["dy", dy], ["dz", dz]]) await kernel.setParameter(id, k, v);
+    return id;
+  };
+
+  // 40 x 24 m, 12 m tall, with four rooms packed against the left half of it.
+  const shell = await cube(await point(0, 0, 0), 40000, 24000, 12000);
+  const rooms = [];
+  for (const [x, y] of [[1000, 1000], [1000, 13000], [11000, 1000], [11000, 13000]])
+    rooms.push(await cube(await point(x, y, 0), 9000, 10000, 3000));
+  const built = (await kernel.mesh([shell, ...rooms])).features
+    .filter(m => m.positions && m.index);
+  const envelope = built[0], inner = built.slice(1);
+
+  const boxes = built.map(boxOf);
+  check("a box round every mesh", boxes.every(b => b && b.hi[0] > b.lo[0]),
+        JSON.stringify(boxes[0]));
+  check("and the envelope's is the whole building",
+        near(boxes[0].hi[0], 40000, 1) && near(boxes[0].hi[2], 12000, 1),
+        boxes[0].hi.join(", "));
+
+  const roster = shellsAmong(built.map((mesh, i) => ({
+    id: "m" + i, mesh, on: true, named: false, role: "auto",
+    bounds: boxOf(mesh), encloses: false })));
+  check("the thing with the rooms in it is read as something you are inside",
+        roster[0].encloses === true);
+  check("and the rooms in it are not",
+        roster.slice(1).every(r => r.encloses === false),
+        roster.map(r => r.encloses).join(", "));
+
+  // What it was doing before: the envelope is closed, so every cell in it is
+  // inside a solid and nobody stands anywhere.
+  const sealed = plateOf(built, 1100, 400, {});
+  let shut = 0;
+  for (let k = 0; k < sealed.grid.blocked.length; k++) if (!sealed.grid.blocked[k]) shut++;
+  check("read as a lump, the building has no floor in it at all",
+        shut * sealed.grid.cell * sealed.grid.cell / 1e6 < 20,
+        (shut * sealed.grid.cell * sealed.grid.cell / 1e6).toFixed(0) + " m² walkable");
+
+  // And with it read as a shell: the floor is the envelope's own slab, the
+  // rooms stand on it, and you walk in what is left.
+  const plan = plateOf(built, 1100, 400, { shells: [envelope] });
+  let free = 0;
+  for (let k = 0; k < plan.grid.blocked.length; k++) if (!plan.grid.blocked[k]) free++;
+  const area = free * plan.grid.cell * plan.grid.cell / 1e6;
+  // 40 x 24 is 960 m²; the four rooms take 4 x 90 of it, and a 400 mm cell of
+  // edge goes with each of them and with the envelope's own wall - a grid
+  // cannot halve a cell, and a cell a wall passes through is a cell nobody
+  // stands in.
+  check("read as a shell, you walk inside it - round the rooms, not through them",
+        near(area, 555, 45), area.toFixed(0) + " m² of 960, 360 m² of it rooms");
+  check("the middle of a packed room is not a place to stand",
+        isBlocked(plan.grid, 5000, 6000) && isBlocked(plan.grid, 15000, 18000));
+  check("the corridor between the rooms is", !isBlocked(plan.grid, 10500, 12000));
+  check("and so is the half of the plate nothing was packed into",
+        !isBlocked(plan.grid, 30000, 12000));
+  check("the floor people stand on is the envelope's own slab, at nought",
+        near(plan.grid.floor, 0, 30), String(plan.grid.floor));
+  // Nobody walks out through the envelope's wall - it is still a wall.
+  check("but the wall of the shell is still a wall",
+        isBlocked(plan.grid, -900, 12000) && isBlocked(plan.grid, 40900, 12000));
+  // And it is all one floor: a person can walk from one end to the other.
+  const field = flowField(plan.grid, [[38000, 12000]]);
+  check("and it is one floor - you can walk from the packed end to the empty one",
+        walkDistance(field, 10500, 12000) !== null,
+        String(walkDistance(field, 10500, 12000)));
+
+  // The cut as a SHARE of the box, which is what the slider hands over: nought
+  // is the bottom of what is taking part and a hundred is the top of it.
+  const span = zSpan(built);
+  check("the span of what is taking part is the building, bottom to top",
+        near(span[0], 0, 1) && near(span[1], 12000, 1), span.join(" to "));
+  const at = share => span[0] + (span[1] - span[0]) * share / 100;
+  check("nought per cent is the bottom and a hundred the top",
+        near(at(0), 0, 1) && near(at(100), 12000, 1));
+  // 9% of 12 m is 1.08 m - through the rooms. 40% is 4.8 m - over them.
+  const low = plateOf(built, at(9), 400, { shells: [envelope] });
+  const high = plateOf(built, at(40), 400, { shells: [envelope] });
+  check("a cut at 9% is through the rooms and they are in the way",
+        isBlocked(low.grid, 5000, 6000));
+  check("a cut at 40% is over them, and their roofs are what you are on",
+        !isBlocked(high.grid, 5000, 6000)
+        && near(surfaceAt(high.grid, 5000, 6000), 3000, 60),
+        String(surfaceAt(high.grid, 5000, 6000)));
+
+  // Mesh or BRep, the slice is the same slice: the triangles are all this ever
+  // looks at, and a mesh feature arrives as the same triangles a solid does.
+  const asMesh = built.map(m => ({ positions: m.positions.slice(), index: m.index.slice() }));
+  const copy = plateOf(asMesh, 1100, 400, { shells: [asMesh[0]] });
+  let same = 0;
+  for (let k = 0; k < copy.grid.blocked.length; k++)
+    if (copy.grid.blocked[k] === plan.grid.blocked[k]) same++;
+  check("the same triangles read the same whether they came as a solid or a mesh",
+        same === plan.grid.blocked.length,
+        same + " of " + plan.grid.blocked.length + " cells agree");
+
+  // Taking something out of the list changes what is measured AND what the
+  // percentages mean, which is the whole reason the two are tied together.
+  const without = zSpan(inner);
+  check("drop the envelope and the box is the rooms alone",
+        near(without[1], 3000, 1), without.join(" to "));
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

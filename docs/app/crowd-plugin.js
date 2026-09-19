@@ -220,6 +220,49 @@ export function zSpan(meshes) {
   return Number.isFinite(lo) && hi - lo > 1 ? [lo, hi] : null;
 }
 
+//! The box a mesh lives in. Used to tell a shell from a solid, below.
+export function boxOf(mesh) {
+  if (!mesh || !mesh.positions || !mesh.positions.length) return null;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < mesh.positions.length; i += 3)
+    for (let k = 0; k < 3; k++) {
+      const v = mesh.positions[i + k];
+      if (v < lo[k]) lo[k] = v;
+      if (v > hi[k]) hi[k] = v;
+    }
+  return Number.isFinite(lo[0]) ? { lo, hi } : null;
+}
+
+//! WHAT PEOPLE ARE INSIDE, rather than what is in their way.
+//!
+//! A closed solid has an inside, and the flow refuses to walk in it - which is
+//! right for a building on a site and wrong for the building you are studying.
+//! A massing block with rooms packed into it is closed too, so the ray test
+//! said the whole floor plate was solid and the study came back empty: nobody
+//! could stand anywhere, because everywhere was indoors.
+//!
+//! The rule is the one an architect would say out loud. A thing with other
+//! things in it is a shell; you are inside it, and its walls are what you
+//! cannot walk through. A thing with nothing in it is a lump, and you walk
+//! round it. Boxes are enough to tell them apart and cost nothing, and the
+//! roster's role chip overrules the answer where a model is stranger than that.
+export function shellsAmong(roster) {
+  const live = roster.filter(r => r.on && !r.named && r.bounds);
+  const size = r => (r.bounds.hi[0] - r.bounds.lo[0]) * (r.bounds.hi[1] - r.bounds.lo[1])
+                  * (r.bounds.hi[2] - r.bounds.lo[2]);
+  for (const row of roster) {
+    if (row.role === "encloses") { row.encloses = true; continue; }
+    if (row.role === "blocks" || !row.on || row.named || !row.bounds) continue;
+    // 1 mm of slack, because a room packed flush to the envelope shares a face
+    // with it and "inside" has to survive that.
+    row.encloses = live.some(other => other !== row && other.bounds
+      && size(other) < size(row) * 0.999
+      && [0, 1, 2].every(k => row.bounds.lo[k] <= other.bounds.lo[k] + 1
+                           && row.bounds.hi[k] >= other.bounds.hi[k] - 1));
+  }
+  return roster;
+}
+
 /* ================================================================= walking
 
    The mesh is king.
@@ -416,7 +459,7 @@ export function surfaceFrom(grid, meshes, options = {}) {
 }
 
 function readSurface(grid, meshes, {
-  cut = Infinity, slope = SLOPE_LIMIT, headroom = 2000, floors = null,
+  cut = Infinity, slope = SLOPE_LIMIT, headroom = 2000, floors = null, shells = [],
 } = {}, lenient = false) {
   const surface = grid.surface, blocked = grid.blocked;
   surface.fill(NaN);
@@ -432,20 +475,32 @@ function readSurface(grid, meshes, {
   // the lowest one above it. The cut is which storey you are standing on.
   const above = new Float32Array(surface.length).fill(NaN);
   let covered = 0;
-  eachTriangle(under, (a, b, c) => {
-    const up = facing(a, b, c);
-    // Three answers, not two, because "not a floor" has two reasons and they
-    // are worth telling apart: a soffit is not a steep floor, it is a ceiling.
-    if (up <= 0) { ceilings++; return; }
-    if (up < upright) { steep++; return; }
-    flat++;
-    overTriangle(grid, a, b, c, (k, z) => {
-      if (z <= cut) {
-        if (Number.isNaN(surface[k])) covered++;
-        if (Number.isNaN(surface[k]) || z > surface[k]) surface[k] = z;
-      } else if (Number.isNaN(above[k]) || z < above[k]) above[k] = z;
+  for (const mesh of under) {
+    // INSIDE A SHELL, the face under your feet points away from you.
+    //
+    // A massing block is a solid, so the bottom of it faces down and the rule
+    // below calls it a ceiling - which is right when you are walking past the
+    // building and wrong when you are in it. There is no slab in a massing
+    // model; the slab IS the underside of the mass. So for a shell the
+    // direction is taken as read and only the steepness is asked about, which
+    // is the same thing as standing on the inside of the surface.
+    const inside = shells.includes(mesh);
+    eachTriangle([mesh], (a, b, c) => {
+      const way = facing(a, b, c);
+      const up = inside ? Math.abs(way) : way;
+      // Three answers, not two, because "not a floor" has two reasons and they
+      // are worth telling apart: a soffit is not a steep floor, it is a ceiling.
+      if (up <= 0) { ceilings++; return; }
+      if (up < upright) { steep++; return; }
+      flat++;
+      overTriangle(grid, a, b, c, (k, z) => {
+        if (z <= cut) {
+          if (Number.isNaN(surface[k])) covered++;
+          if (Number.isNaN(surface[k]) || z > surface[k]) surface[k] = z;
+        } else if (Number.isNaN(above[k]) || z < above[k]) above[k] = z;
+      });
     });
-  });
+  }
 
   // Where this storey HAS a floor, that floor is the whole of it: no triangle
   // under your feet means nothing under your feet. Assume ground beside a slab
@@ -551,9 +606,16 @@ function readSurface(grid, meshes, {
   // it, a ray through the pair meets that face twice, and two cancels to
   // outside. The sign does not care how many surfaces are stacked at a
   // height, only how many the ray has gone in through and out of.
+  // A SHELL is exempt. Its walls still block - they are faces like any other,
+  // and the pass above has already put them in the way - but its inside is
+  // where the study is, so the ray test is not asked about it. Without this a
+  // massing block with rooms packed into it has no walkable floor at all: the
+  // answer to "are you indoors" is yes everywhere, because that was the
+  // question the building was for. See shellsAmong.
   const winding = new Int32Array(surface.length);
   const touched = [];
   for (const mesh of meshes) {
+    if (shells.includes(mesh)) continue;
     if (!isClosed(mesh)) continue;
     touched.length = 0;
     eachTriangle([mesh], (a, b, c) => {
@@ -644,6 +706,7 @@ export function pruneIslands(grid, minArea = 4e6) {
 
 export function plateOf(meshes, cut, grain, {
   pad = 1000, include = [], maxCells, floors = [], slope = SLOPE_LIMIT, headroom = 2000,
+  shells = [],
 } = {}) {
   // The plan extent of whatever can be a floor. With a Floor node that is the
   // named plates; without one it is everything, because anything with a
@@ -673,7 +736,7 @@ export function plateOf(meshes, cut, grain, {
                    floor: Number.isFinite(low) ? low : 0 };
   const grid = makeGrid(bounds, grain, maxCells);
 
-  const read = surfaceFrom(grid, meshes, { cut, slope, headroom, floors });
+  const read = surfaceFrom(grid, meshes, { cut, slope, headroom, floors, shells });
   // The lowest place anybody is standing, for the things that still want one
   // number: where the plan is drawn, how high the arrows float.
   let base = Infinity;
@@ -937,12 +1000,24 @@ class FlowView {
     this.on = false;
     this.running = true;
     this.cut = 1100;
+    // Where the cut sits as a SHARE of what is taking part - nought the bottom
+    // of it, a hundred the top. See rangeCut.
+    this.cutAt = 8;
     //! One in this many is the steepest a person will walk up rather than climb.
     this.slopeRatio = 8;
     // Whether the cut is where somebody put it, or still where it started. A
     // cut nobody has chosen follows the model in.
     this.cutChosen = false;
     this.span = null;
+    // WHAT THE FLOW IS LOOKING AT. Everything in the document, until somebody
+    // says otherwise: these are the ids left out, and the roles set by hand for
+    // the ones left in. A study is of a building, not of everything that
+    // happens to be open - the site wall, the landscape, the massing block the
+    // rooms were packed into are all in the tree and none of them is the floor
+    // plate being asked about. See roster.
+    this.dropped = new Set();
+    this.roles = new Map();
+    this.roster = [];
     this.grain = 250;
     // A crowd that is jammed from the first second shows you nothing except
     // that it is jammed: it starts where it flows, and you wind it up until it
@@ -993,8 +1068,8 @@ class FlowView {
       </div>
       <div class="fl-row">
         <span class="fl-tag">Cut at</span>
-        <input type="range" id="fl-cut" min="100" max="2400" step="50" value="1100">
-        <span class="fl-read" id="fl-cut-read">1.10 m</span>
+        <input type="range" id="fl-cut" min="0" max="100" step="0.25" value="8">
+        <span class="fl-read fl-wide" id="fl-cut-read">8% · 1.10 m</span>
         <span class="fl-tag" style="width:auto">Grid</span>
         <input type="range" id="fl-grain" min="50" max="800" step="10" value="250">
         <input type="number" class="fl-read fl-type" id="fl-grain-read"
@@ -1026,6 +1101,37 @@ class FlowView {
     this.panel = make("aside", "float fl-panel");
     this.panel.hidden = true;
     document.body.appendChild(this.panel);
+    // The panel is written out whole on every refresh, so the roster's buttons
+    // are listened for HERE rather than wired to each row - there is no row to
+    // wire to a frame later.
+    this.panel.addEventListener("click", event => {
+      const eye = event.target.closest("[data-see]");
+      if (eye) {
+        const id = eye.dataset.see;
+        if (this.dropped.has(id)) this.dropped.delete(id); else this.dropped.add(id);
+        this.seeAgain();
+        return;
+      }
+      const chip = event.target.closest("[data-role]");
+      if (chip) {
+        const id = chip.dataset.role;
+        const row = this.roster.find(r => r.id === id);
+        // Three states, in the order somebody reaches for them: what it worked
+        // out, then the two answers it could have worked out.
+        const next = { auto: "blocks", blocks: "encloses", encloses: "auto" };
+        const now = next[(row && row.role) || "auto"] || "auto";
+        if (now === "auto") this.roles.delete(id); else this.roles.set(id, now);
+        this.seeAgain();
+        return;
+      }
+      if (event.target.closest("[data-see-all]")) {
+        this.dropped.clear();
+        this.seeAgain();
+      } else if (event.target.closest("[data-see-none]")) {
+        for (const row of this.roster) this.dropped.add(row.id);
+        this.seeAgain();
+      }
+    });
 
     this.wire();
     this.makeDrawing();
@@ -1053,11 +1159,16 @@ class FlowView {
     q("fl-people-read").addEventListener("change", e => setPeople(e.target.value, true));
     q("fl-people-read").addEventListener("keydown", e => e.stopPropagation());
     q("fl-cut").addEventListener("input", e => {
-      this.cut = +e.target.value;
-      // Moved by hand: from here it stays where it was put, and only a model
-      // that no longer reaches it moves it again.
+      // A SHARE of what is being cut, not a height above the world. A building
+      // imported from a STEP file sits where its file says it sits - four
+      // metres up, or four hundred - and a slider in millimetres that starts
+      // at zero cuts underneath it and finds nothing. Nought is the bottom of
+      // what is taking part and a hundred is the top of it, so the control
+      // means the same thing on a bungalow and on a tower.
+      this.cutAt = Math.max(0, Math.min(100, +e.target.value));
+      // Moved by hand: from here it stays where it was put.
       this.cutChosen = true;
-      q("fl-cut-read").textContent = (this.cut / 1000).toFixed(2) + " m";
+      this.rangeCut();
       this.queueRebuild();
     });
     // Typed rather than dragged: any spacing at all, from a hundred millimetres
@@ -1318,7 +1429,7 @@ Object.assign(FlowView.prototype, {
       if (f.type === "Floor")
         for (const id of (f.lists && f.lists.of) || []) isFloor.add(id);
 
-    const meshes = [], floors = [];
+    const meshes = [], floors = [], roster = [];
     for (const [id, mesh] of this.kit.streams()) {
       const entry = features.find(f => f.id === id);
       if (!entry || this.kit.hidden().has(id)) continue;
@@ -1329,11 +1440,27 @@ Object.assign(FlowView.prototype, {
       if (!(mesh.positions && mesh.index)) continue;
       // A floor is a floor even when it is a datum plane or a sketch face,
       // which is why this test comes before the ones that throw those away.
-      if (isFloor.has(id)) { floors.push(mesh); continue; }
-      if (entry.category === "datum") continue;
-      if (entry.type === "Portal" || entry.type === "Floor") continue;
-      meshes.push(mesh);
+      const named = isFloor.has(id);
+      if (!named) {
+        if (entry.category === "datum") continue;
+        if (entry.type === "Portal" || entry.type === "Floor") continue;
+      }
+      // The list somebody can tick, with everything the row needs on it. Built
+      // whether or not the thing is taking part, because a list you can only
+      // take things out of is a list you cannot put them back into.
+      const row = { id, name: entry.name || entry.type, type: entry.type, mesh,
+                    named, on: !this.dropped.has(id), bounds: boxOf(mesh),
+                    role: this.roles.get(id) || "auto", encloses: false };
+      roster.push(row);
+      if (!row.on) continue;
+      (named ? floors : meshes).push(mesh);
     }
+    // Which of them is a SHELL - something people are inside rather than
+    // something in their way. See shellsAmong.
+    shellsAmong(roster);
+    const shellMesh = roster.filter(r => r.on && !r.named && r.encloses)
+                            .map(r => r.mesh);
+    this.roster = roster;
     this.portals = features
       .filter(f => f.type === "Portal" && f.data && f.data.preview)
       .map(f => {
@@ -1352,7 +1479,10 @@ Object.assign(FlowView.prototype, {
     // drawn here sits on z = 0; a building imported from a STEP file sits where
     // its file says it sits, which may be four metres up or a hundred - and a
     // cut fixed between 0.1 and 2.4 m would never touch it.
-    this.span = zSpan(meshes);
+    // The bounding box of WHAT IS TAKING PART, floors included: the slider
+    // measures the things in the list rather than the document, so ticking the
+    // site wall out of it moves nought and a hundred onto the building.
+    this.span = zSpan(meshes.concat(floors));
     this.rangeCut();
 
     // One Dijkstra sweep runs per destination, so what a rebuild costs is cells
@@ -1363,7 +1493,7 @@ Object.assign(FlowView.prototype, {
     this.plate = (meshes.length || floors.length)
       ? plateOf(meshes, this.cut, this.grain,
                 { include: this.portals.map(p => [p.at[0], p.at[1]]),
-                  maxCells: cellsAllowed(sweeps), floors,
+                  maxCells: cellsAllowed(sweeps), floors, shells: shellMesh,
                   slope: 1 / Math.max(1, this.slopeRatio) })
       : null;
     const note = this.bar.querySelector("#fl-note");
@@ -1378,7 +1508,10 @@ Object.assign(FlowView.prototype, {
               + (this.span[1] / 1000).toFixed(2) + " m" : "")
           + ". Every face is either steeper than 1:" + this.slopeRatio
           + ", facing down, or has something standing on it"
-        : "nothing in the model to walk on";
+        : this.roster.length
+          ? "nothing in the study to walk on - " + this.roster.length
+            + " objects in the document and none of them ticked. See the panel."
+          : "nothing in the model to walk on";
       this.floorHint(note, meshes, floors);
       this.goals = [];
       this.makePlate();
@@ -1446,6 +1579,10 @@ Object.assign(FlowView.prototype, {
             + "being treated as an obstacle again. Wire the Floor node to the face or the "
             + "slab itself rather than to a whole building"
           : "")
+      + (shellMesh.length
+          ? " · " + shellMesh.length + (shellMesh.length === 1 ? " shell" : " shells")
+            + " read as something you are inside rather than something in the way"
+          : "")
       + (grid.coarsened
           ? " · grid " + grid.cell + " mm, not the " + grid.asked + " mm asked for: "
             + (grid.width * grid.height / 1000).toFixed(0) + "k cells is what this plate can "
@@ -1499,6 +1636,60 @@ Object.assign(FlowView.prototype, {
       + "the edge of the plate rather than an obstacle";
   },
 
+  //! The list of what takes part, and what each thing is being read as.
+  //!
+  //! Like the layers in the sketcher: a row per object with a tick. Untick the
+  //! site wall and the study is of the building; untick the building and it is
+  //! of the site. Nought and a hundred on the cut slider follow the ticks, so
+  //! the height control keeps meaning the same thing as the list changes.
+  //!
+  //! The chip beside each name says how that object is being read - whether it
+  //! is something you walk ROUND or something you are IN. It is worked out (see
+  //! shellsAmong) and it is a guess, so it is shown rather than hidden, and
+  //! clicking it overrules the guess.
+  rosterRows() {
+    if (!this.roster.length)
+      return ['<p class="fl-small">Nothing in the document to walk on or round.</p>'];
+    const rows = this.roster.map(row => {
+      const role = row.named ? "floor" : row.encloses ? "inside" : "round";
+      const said = row.named ? "named as the floor plate"
+                 : row.encloses ? "you are inside this - its walls block, its middle does not"
+                 : "you walk round this";
+      return '<div class="fl-see' + (row.on ? "" : " off") + '">'
+        + '<button class="fl-eye" data-see="' + safe(row.id) + '" title="'
+        + (row.on ? "Leave this out of the study" : "Take this into the study") + '"'
+        + ' aria-pressed="' + (row.on ? "true" : "false") + '">'
+        + (row.on ? "\u25c9" : "\u25cb") + "</button>"
+        + '<span class="fl-see-name" title="' + safe(row.type) + '">' + safe(row.name) + "</span>"
+        + '<button class="fl-role" data-role="' + safe(row.id) + '" title="' + safe(said)
+        + (row.named ? "" : " \u00b7 click to change") + '"'
+        + (row.named ? " disabled" : "") + ">" + role + "</button></div>";
+    });
+    const taking = this.roster.filter(r => r.on).length;
+    return [
+      '<div class="fl-seen">' + rows.join("") + "</div>",
+      '<div class="fl-seen-acts">'
+      + '<button class="btn" data-see-all="1">All</button>'
+      + '<button class="btn" data-see-none="1">None</button>'
+      + '<span class="fl-seen-count">' + taking + " of " + this.roster.length + "</span></div>",
+      '<p class="fl-small">The cut is a share of the box round these - '
+      + this.cutAt.toFixed(this.cutAt < 10 ? 1 : 0) + "% is "
+      + (this.cut / 1000).toFixed(2) + " m"
+      + (this.span ? ", between " + (this.span[0] / 1000).toFixed(2) + " and "
+          + (this.span[1] / 1000).toFixed(2) + " m" : "") + ".</p>",
+    ];
+  },
+
+  //! A row ticked, a role changed, all or none. Any of them is a different
+  //! study, so the plan is read again and the people are put where the new one
+  //! leaves them standing.
+  seeAgain() {
+    this.rebuild();
+    if (this.plate) this.rescue();
+    this.refresh();
+    this.kit.draw();
+  },
+
   //! One rebuild a frame, however many times a slider says it moved. Dragging
   //! fires an event per pixel, and a rebuild of a masterplan is a hundred and
   //! seventy milliseconds - so without this the drag is the rebuild queue and
@@ -1511,26 +1702,27 @@ Object.assign(FlowView.prototype, {
     });
   },
 
+  //! Where the cut is, as a share of what is taking part.
+  //!
+  //! Nought is the bottom of the things in the list and a hundred is the top
+  //! of them - so the slider says the same thing whatever the model is and
+  //! wherever in the world it sits. The height in metres is printed beside it,
+  //! because that is what a person checks it against.
   rangeCut() {
     const slider = this.bar.querySelector("#fl-cut");
     const read = this.bar.querySelector("#fl-cut-read");
     if (!this.span) return;
     const [lo, hi] = this.span;
-    // Head height above the top of the model, not the top of it: a 120 mm slab
-    // spans 120 mm, and a cut that can only be inside those 120 mm can only
-    // ever be inside the slab.
-    const min = Math.round(lo), max = Math.round(hi + 2000);
-    slider.min = String(min);
-    slider.max = String(max);
-    slider.step = String(Math.max(10, Math.round((max - min) / 200)));
-    // Snapped on the way in, and again if the model moved out from under the
-    // cut. A cut the person chose inside the model is left alone.
-    if (!this.cutChosen || this.cut < min || this.cut > max) {
-      this.cut = Math.min(max, Math.max(min, Math.round(lo + 1100)));
-      this.cutChosen = true;
-    }
-    slider.value = String(this.cut);
-    read.textContent = (this.cut / 1000).toFixed(2) + " m";
+    const tall = Math.max(1, hi - lo);
+    // Where it starts: eye height above the bottom, as a share of the whole.
+    // On a house that is most of the ground floor; on a tower it is a few per
+    // cent, which is right - the ground floor IS a few per cent of a tower.
+    if (!this.cutChosen) this.cutAt = Math.max(0, Math.min(100, (1100 / tall) * 100));
+    if (!Number.isFinite(this.cutAt)) this.cutAt = 8;
+    this.cut = lo + tall * (this.cutAt / 100);
+    slider.value = String(this.cutAt);
+    read.textContent = this.cutAt.toFixed(this.cutAt < 10 ? 1 : 0) + "% · "
+      + (this.cut / 1000).toFixed(2) + " m";
   },
 
   //! Walkable floor INSIDE the footprints - the number a schedule of areas
@@ -1983,6 +2175,8 @@ Object.assign(FlowView.prototype, {
 
     rows.push(block("Worn into the floor", this.traceSummary()));
 
+    rows.push(block("What the flow is looking at", this.rosterRows()));
+
     rows.push(block("What this is", [
       '<p class="fl-small">The plan is exact - your model, cut at '
       + (this.cut / 1000).toFixed(2) + " m. Speed against crowding is Weidmann\u2019s "
@@ -1991,9 +2185,20 @@ Object.assign(FlowView.prototype, {
       + "fails, not for a headcount at a moment.</p>",
     ]));
 
+    // The panel is written out whole twice a second, and the list of what is
+    // taking part is a list somebody scrolls. Put it back where they left it.
+    const seen = this.panel.querySelector(".fl-seen");
+    const scrolled = seen ? seen.scrollTop : 0;
+    const body = this.panel.querySelector(".fl-body");
+    const read = body ? body.scrollTop : 0;
     this.panel.innerHTML = '<div class="panel-head"><h2>Flow</h2>'
       + '<span class="fl-clock">' + (this.running ? "running" : "paused") + "</span></div>"
       + '<div class="fl-body">' + rows.join("") + "</div>";
+    if (read) this.panel.querySelector(".fl-body").scrollTop = read;
+    if (scrolled) {
+      const now = this.panel.querySelector(".fl-seen");
+      if (now) now.scrollTop = scrolled;
+    }
   },
 
   /* ------------------------------------------------------------- modes */
