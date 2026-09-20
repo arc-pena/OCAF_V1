@@ -71,7 +71,7 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # drivers read from them - a camera's frustum is the same arithmetic
            # the viewport looks through one with - and in the single file
            # everything shares one scope, so the order is the order.
-           "handle.js", "gizmo.js", "camera.js", "gcc.js",
+           "handle.js", "gizmo.js", "camera.js", "gcc.js", "formula.js", "reuse.js",
            "wasm-kernel.js", "http-kernel.js", "mdl.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",

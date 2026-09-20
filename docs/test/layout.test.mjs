@@ -187,5 +187,38 @@ console.log("\n4. what can be put away can be brought back");
         (bare.match(/body\.barred #status\s*\{[^}]*\}/) || [""])[0]);
 }
 
+console.log("\n5. the tree reads, folds and searches");
+{
+  // A TREE THAT TRUNCATES IS A TREE YOU CANNOT READ, and one that scrolls
+  // sideways is worse: you lose the row you were on to go and find the rest
+  // of its name. So the panel is sized by what is in it and the names wrap.
+  check("the tree panel is sized by its contents",
+        /#tree-panel\s*\{[^}]*width:\s*max-content/.test(bare),
+        (bare.match(/#tree-panel\s*\{[^}]*\}/) || [""])[0].slice(0, 120));
+  check("with a floor so it does not twitch narrower as sets are folded",
+        /#tree-panel\s*\{[^}]*min-width:/.test(bare));
+  check("and a ceiling so it never eats the model",
+        /#tree-panel\s*\{[^}]*max-width:/.test(bare));
+  check("a name is never cut off into an ellipsis",
+        !/\.node \.label\s*\{[^}]*text-overflow/.test(bare),
+        (bare.match(/\.node \.label\s*\{[^}]*\}/) || [""])[0]);
+  check("and it wraps rather than running off the side",
+        /\.node \.label\s*\{[^}]*overflow-wrap:\s*anywhere/.test(bare));
+  check("the tree scrolls down and never across",
+        /#tree\s*\{[^}]*overflow-x:\s*hidden/.test(bare)
+        && /#tree\s*\{[^}]*overflow-y:\s*auto/.test(bare),
+        (bare.match(/#tree\s*\{[^}]*\}/) || [""])[0]);
+  check("every row has a place for the fold sign, whether or not it folds",
+        /\.twist\s*\{[^}]*width:/.test(bare) && /\.twist\.bare/.test(bare));
+  check("and a folded branch is really gone, not merely faint",
+        /\.branch\[hidden\]\s*\{[^}]*display:\s*none/.test(bare));
+  check("the heading turns into a search box",
+        /id="tree-search"/.test(html) && /id="tree-title"/.test(html));
+  check("which completes the names of the sets",
+        /id="tree-names"/.test(html) && /list="tree-names"/.test(html));
+  check("and what it matched is marked in the row",
+        /\.node \.label mark/.test(bare));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

@@ -37,6 +37,8 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
          angleAbout, coversAt, dollyScale, fovFromLens, framedAt, handlesFor, landOn,
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
+import { readValue, saysFormula } from "./formula.js";
+import { instantiateEdits, saysReuse, setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
@@ -5334,12 +5336,195 @@ function refreshToolbar() {
 //! hides what is filed away, so the document's own order is not it.
 const treeOrder = [];
 
+/* ------------------------------------------------ collapsing, and searching
+
+   A TREE THAT DOES NOT COLLAPSE IS A LIST. Once a model has three geometrical
+   sets with nine things in each, the thing you are looking for is off the
+   bottom - and the answer every tree widget has had since the first one is a
+   plus and a minus.
+
+   What is shut is remembered by NAME for the sections and by ID for the sets,
+   because "Datums" is the same section in every document and a set's id is
+   only meaningful in this one. Kept across reloads, because reopening a file
+   and finding everything you had folded away unfolded again is the tree
+   forgetting what you told it.                                             */
+
+//! Read back in start(), not here: at the top of the file `recall` has not
+//! been reached yet, and a const read before its own declaration is a
+//! ReferenceError that takes the whole page with it. This has bitten twice.
+const shut = new Set();
+
+function rememberShut() {
+  remember("ocafcad/tree-shut", [...shut].join("\u0001"));
+}
+
+function toggleShut(key) {
+  if (shut.has(key)) shut.delete(key); else shut.add(key);
+  rememberShut();
+  buildTree();
+}
+
+//! The little button. One place, so the section headers and the sets get the
+//! same thing and it behaves the same way in both.
+function twist(key, many, label) {
+  const button = document.createElement("button");
+  button.className = "twist" + (many ? "" : " bare");
+  button.type = "button";
+  button.textContent = shut.has(key) ? "+" : "−";
+  button.dataset.twist = key;
+  if (!many) { button.tabIndex = -1; button.setAttribute("aria-hidden", "true"); return button; }
+  button.title = (shut.has(key) ? "Show what is in " : "Fold away ") + label;
+  button.setAttribute("aria-expanded", shut.has(key) ? "false" : "true");
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleShut(key);
+  });
+  return button;
+}
+
+/* ------------------------------------------------------------- the search
+
+   DOUBLE-CLICK THE TITLE AND IT BECOMES A SEARCH BOX. The heading of a tree
+   panel is the one piece of furniture nobody needs twice, and turning it into
+   the search is how a person finds the box without hunting for it.
+
+   What is typed is a REGULAR EXPRESSION when it is a valid one and a plain
+   piece of text when it is not, so "wall" finds every wall and "^Wall\d+$"
+   finds exactly the numbered ones - and a half-typed "wall(" is not an error,
+   it is somebody still typing.                                             */
+
+const search = { on: false, text: "" };
+
+function searchRe() {
+  const said = search.text.trim();
+  if (!said) return null;
+  try { return new RegExp(said, "i"); }
+  catch (error) { return new RegExp(said.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"); }
+}
+
+//! Which features survive the filter: the ones that match, and everything
+//! that HOLDS one - a match three sets deep is no use if the sets it is in
+//! are not drawn.
+function searchKeeps() {
+  const re = searchRe();
+  if (!re) return null;
+  const keep = new Set();
+  for (const entry of state.tree.features) {
+    if (!re.test(entry.name) && !re.test(entry.type)) continue;
+    keep.add(entry.id);
+    let up = entry.parent;
+    for (let guard = 0; up && guard < 64; guard++) {
+      keep.add(up);
+      up = (feature(up) || {}).parent;
+    }
+  }
+  return keep;
+}
+
+//! The name with the matching part marked, so a filtered tree says why each
+//! row is still there.
+function markedName(name, re) {
+  if (!re) return null;
+  const found = String(name).match(re);
+  if (!found || !found[0]) return null;
+  const at = found.index;
+  return escapeHtml(name.slice(0, at)) + "<mark>" + escapeHtml(found[0]) + "</mark>"
+       + escapeHtml(name.slice(at + found[0].length));
+}
+
+function openSearch(on) {
+  search.on = on;
+  const box = document.getElementById("tree-search");
+  const title = document.getElementById("tree-title");
+  box.hidden = !on;
+  title.hidden = on;
+  if (on) {
+    // AUTOCOMPLETE OFF THE SETS, which is what the request was and the right
+    // answer: a geometrical set is the thing a person names deliberately, so
+    // it is the thing worth completing. Every other node is found by typing
+    // three letters of it.
+    const names = document.getElementById("tree-names");
+    names.textContent = "";
+    for (const one of state.tree.features.filter(f => f.category === "container")) {
+      const option = document.createElement("option");
+      option.value = one.name;
+      names.appendChild(option);
+    }
+    box.value = search.text;
+    box.focus();
+    box.select();
+  } else {
+    search.text = "";
+  }
+  buildTree();
+  layout();
+}
+
+/* ------------------------------------------------------- the text size
+
+   A SPEC TREE IS READ FOR HOURS. It is the one panel where a person wants the
+   text bigger, and the one where they sometimes want it smaller to get more
+   of a long model on screen. Ctrl and the wheel over the tree, which is what
+   every editor does, and a pair of buttons for the hands that do not know
+   that. Remembered, because it is a preference and not a mode. */
+
+let treeText = 1;
+
+function setTreeText(scale) {
+  treeText = Math.max(0.7, Math.min(2, Math.round(scale * 100) / 100));
+  document.documentElement.style.setProperty("--tree-text", String(treeText));
+  remember("ocafcad/tree-text", String(treeText));
+  // The panel is sized by what is in it, so bigger text is a wider panel and
+  // that is a layout change like any other.
+  layout();
+}
+
+document.getElementById("tree").addEventListener("wheel", event => {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  setTreeText(treeText * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
+}, { passive: false });
+document.getElementById("tree-bigger").addEventListener("click", event => {
+  event.stopPropagation();
+  setTreeText(treeText * 1.1);
+});
+document.getElementById("tree-smaller").addEventListener("click", event => {
+  event.stopPropagation();
+  setTreeText(treeText / 1.1);
+});
+
+// The heading, and the strip it sits in: a double-click anywhere along the
+// top of the panel opens the search, because nobody aims at a word.
+document.getElementById("tree-head").addEventListener("dblclick", event => {
+  if (event.target.closest("#tree-search")) return;
+  openSearch(true);
+});
+document.getElementById("tree-search").addEventListener("input", event => {
+  search.text = event.target.value;
+  buildTree();
+});
+document.getElementById("tree-search").addEventListener("keydown", event => {
+  if (event.key === "Escape") { event.stopPropagation(); openSearch(false); }
+  if (event.key === "Enter") {
+    // The first thing that survived, selected - so typing a name and pressing
+    // return goes there, which is what a search box is for.
+    const first = treeOrder[0];
+    if (first) select(first, false);
+    event.preventDefault();
+  }
+});
+document.getElementById("tree-search").addEventListener("blur", () => {
+  if (!search.text.trim()) openSearch(false);
+});
+
 function buildTree() {
   closeMenu();
   const list = document.getElementById("tree");
   list.textContent = "";
   treeOrder.length = 0;
   if (!state.tree) return;
+  const keep = searchKeeps();
+  const hit = searchRe();
 
   // The tree keeps CATIA's two sets and adds one: the features that compute
   // rather than build have no place in a part body. Anything filed into a set
@@ -5356,29 +5541,57 @@ function buildTree() {
         f.category !== "datum" && f.category !== "data" && f.category !== "mesh") },
   ];
 
+  let shown = 0;
   for (const set of sets) {
     // Datums and PartBody are always there, the way CATIA has them. The sets
     // that only exist when something is in them do not announce themselves.
     if (!set.features.length && set.optional) continue;
+    // While a search is running, a section with nothing left in it goes too -
+    // four empty headings are four rows of nothing between you and the answer.
+    const inside = keep ? set.features.filter(f => survives(f, keep)) : set.features;
+    if (keep && !inside.length) continue;
+    const key = "section:" + set.name;
+    const folded = shut.has(key) && !keep;
     const header = document.createElement("li");
     header.className = "set-label";
-    header.textContent = set.name;
+    const label = document.createElement("span");
+    label.textContent = set.name;
+    header.append(twist(key, inside.length, set.name), label);
+    // Clicking the words does what clicking the sign does, because the whole
+    // row looks like a thing to press and a fourteen-pixel target is not one.
+    if (inside.length) {
+      header.style.cursor = "pointer";
+      label.addEventListener("click", () => toggleShut(key));
+    }
     list.appendChild(header);
+    if (folded) continue;
 
     const branch = document.createElement("ul");
     branch.className = "branch";
-    if (!set.features.length) {
+    if (!inside.length) {
       const empty = document.createElement("li");
       empty.className = "node";
       empty.innerHTML = '<span class="kind" style="padding-left:22px">empty</span>';
       branch.appendChild(empty);
     }
-    for (const entry of set.features) branch.appendChild(treeNode(entry));
+    for (const entry of inside) { branch.appendChild(treeNode(entry, keep, hit)); shown++; }
     list.appendChild(branch);
+  }
+  if (keep && !shown) {
+    const none = document.createElement("li");
+    none.className = "tree-none";
+    none.textContent = "nothing in the tree is called that";
+    list.appendChild(none);
   }
 }
 
-function treeNode(entry) {
+//! Whether a feature survives the filter - itself, or because something
+//! inside it did.
+function survives(entry, keep) {
+  return !keep || keep.has(entry.id);
+}
+
+function treeNode(entry, keep = null, hit = null) {
   const consumed = !!entry.consumedBy;
   const hidden = state.hidden.has(entry.id);
   treeOrder.push(entry.id);
@@ -5400,7 +5613,10 @@ function treeNode(entry) {
 
   const label = document.createElement("span");
   label.className = "label";
-  label.textContent = entry.name;
+  const marked = markedName(entry.name, hit);
+  if (marked) label.innerHTML = marked; else label.textContent = entry.name;
+  // The whole name, whatever the panel's width does to it.
+  label.title = entry.name;
 
   const kind = document.createElement("span");
   kind.className = "kind";
@@ -5418,6 +5634,12 @@ function treeNode(entry) {
     // tooltip; the word "hidden" here said the same word the eye says about a
     // different thing entirely, which is two meanings for one word in one row.
     : consumed ? "in " + ((feature(entry.consumedBy) || {}).name || "another feature")
+    // A SET SAYS HOW MANY THINGS ARE IN IT, not how many strings its summary
+    // happened to be written as. "3 texts" is the storage talking; what a
+    // person wants to know about a folder is how much is in it.
+    : entry.category === "container"
+      ? (count => count ? count + (count === 1 ? " item" : " items") : "empty")
+        (state.tree.features.filter(f => f.parent === entry.id).length)
     : entry.data && !entry.built
       ? entry.data.count + " " + entry.data.kind + (entry.data.count === 1 ? "" : "s")
       : entry.type.toLowerCase();
@@ -5471,21 +5693,31 @@ function treeNode(entry) {
   // a set is a folder, not an operation, so what is in one is drawn, wired and
   // rebuilt exactly as it was before it was put away.
   if (entry.category === "container") {
-    const inside = state.tree.features.filter(f => f.parent === entry.id);
+    const all = state.tree.features.filter(f => f.parent === entry.id);
+    const inside = keep ? all.filter(f => survives(f, keep)) : all;
+    // A SEARCH OPENS WHAT IT FOUND. Folding is a thing you did on purpose and
+    // it is still remembered, but a set that is shut is not a reason to hide
+    // the answer to what you just typed.
+    const folded = shut.has(entry.id) && !keep;
+    li.insertBefore(twist(entry.id, inside.length, entry.name), li.firstChild);
     const branch = document.createElement("ul");
     branch.className = "branch";
+    branch.hidden = folded;
     if (!inside.length) {
       const empty = document.createElement("li");
       empty.className = "node";
       empty.innerHTML = '<span class="kind" style="padding-left:22px">empty</span>';
       branch.appendChild(empty);
     }
-    for (const child of inside) branch.appendChild(treeNode(child));
+    for (const child of inside) branch.appendChild(treeNode(child, keep, hit));
     const holder = document.createElement("li");
     holder.className = "holds";
     holder.append(li, branch);
     return holder;
   }
+  // Everything that is not a set gets the same blank box where the sign would
+  // be, so the names all line up.
+  li.insertBefore(twist(entry.id, 0, entry.name), li.firstChild);
   return li;
 }
 
@@ -5605,6 +5837,9 @@ function openDocMenu() {
   menuHead("Import");
   menuItem("From a file…", FORMATS.filter(f => f.read).map(f => f.name).join(", "),
            () => fileInput.click());
+  menuItem("A set from a model file…",
+           "a geometrical set out of another model, as a feature to supply",
+           () => reuseInput.click());
   menuRule();
 
   menuHead("Export");
@@ -5868,6 +6103,105 @@ function within(setId, id) {
   return false;
 }
 
+/* ------------------------------------------------- a set IS a feature
+
+   A GEOMETRICAL SET TAKES INPUTS, exactly the way a polyline does. Put a
+   point, a plane, a circle and an extrude in a set and what that set needs
+   from the rest of the document is whatever those four read from outside it -
+   and that list is the set's argument list in every sense that matters. It is
+   what you would have to supply to use the set somewhere else, and it is what
+   you want to repoint when you copy the set and aim it at another site.
+
+   So the definition panel shows it, and shows it as the SAME CONTROL every
+   other input uses: a button with the current source's name on it that arms
+   the picker, so one click and then one click in the model or the tree
+   replaces the input. Nothing new to learn, because it is not a new thing -
+   it is the wire that was already there, shown where it can be reached.    */
+
+//! Every wire that crosses INTO a set: which feature holds it, which of its
+//! arguments it is, and what it is pointed at from outside. An argument that
+//! is EMPTY is an input too - it is the one the set is waiting for - so it is
+//! listed rather than left out.
+function setInputs(id) {
+  const inside = new Set([id]);
+  for (const f of state.tree.features) if (within(id, f.id)) inside.add(f.id);
+  const rows = [];
+  for (const child of state.tree.features) {
+    if (child.id === id || !inside.has(child.id)) continue;
+    const spec = schemaType(child.type);
+    if (!spec) continue;
+    for (const arg of spec.args || []) {
+      if (!argApplies(child, arg)) continue;
+      // A NUMBER DRIVEN FROM OUTSIDE IS AN INPUT TOO. A set whose height
+      // follows a parameter in the document needs that parameter supplied
+      // when it is reused, exactly as it needs its plane supplied - and a
+      // panel that listed one and not the other would be telling half the
+      // story about what this set is.
+      if (arg.kind === "real") {
+        const from = (child.driven || {})[arg.key];
+        if (from && !inside.has(from)) rows.push({ child, arg, outside: [from], number: true });
+        continue;
+      }
+      if (arg.kind !== "ref" && arg.kind !== "refs") continue;
+      const wired = arg.kind === "refs" ? ((child.lists || {})[arg.key] || [])
+                                        : [(child.refs || {})[arg.key]].filter(Boolean);
+      const outside = wired.filter(one => !inside.has(one));
+      // A wire that stays inside the set is the set's own plumbing, not an
+      // input to it: a circle standing on a point that is in the same set is
+      // not something anybody has to supply.
+      if (outside.length || !wired.length) rows.push({ child, arg, outside });
+    }
+  }
+  return rows;
+}
+
+//! The panel's section for them. Each row is a real refField wired to the
+//! real feature and the real argument, with the holder's name put in front of
+//! the label so a set with three points in it says which point is which.
+function setInputFields(entry) {
+  const rows = setInputs(entry.id);
+  const box = document.createElement("div");
+  box.className = "def-section";
+  const head = document.createElement("div");
+  head.className = "field-head";
+  head.innerHTML = "<label>Inputs</label><span class=\"kind\">"
+    + (rows.length ? rows.length + (rows.length === 1 ? " wire" : " wires") + " from outside"
+                   : "nothing from outside") + "</span>";
+  box.appendChild(head);
+  // A row whose wire is empty is the set ASKING for something, which is worth
+  // saying at the top rather than leaving to be noticed field by field.
+  const asking = rows.filter(one => !one.outside.length).length;
+  if (asking) {
+    const wants = document.createElement("p");
+    wants.className = "summary";
+    wants.textContent = asking + (asking === 1 ? " of these is empty" : " of these are empty")
+      + " \u2014 click it, then click what it should follow, in the model or in the tree.";
+    box.appendChild(wants);
+  }
+  if (!rows.length) {
+    const none = document.createElement("p");
+    none.className = "summary";
+    none.textContent = entry.name + " stands on its own - nothing in it reads anything "
+      + "from outside the set, so there is nothing to supply when it is reused.";
+    box.appendChild(none);
+    return box;
+  }
+  for (const row of rows) {
+    const field = row.number ? realField(row.child, row.arg) : refField(row.child, row.arg);
+    const label = field.querySelector("label");
+    if (label) label.textContent = row.child.name + " · " + row.arg.label;
+    // A row that names a feature inside the set should be able to take you to
+    // it, because "which Cube.1?" is the first question a long list raises.
+    if (label) {
+      label.style.cursor = "pointer";
+      label.title = "Show " + row.child.name + " in the tree";
+      label.addEventListener("click", () => select(row.child.id, false));
+    }
+    box.appendChild(field);
+  }
+  return box;
+}
+
 //! What feeds a set from outside it, said out loud and picked in the tree, so
 //! the answer is something you can see as well as read.
 function showBoundary(entry) {
@@ -5943,6 +6277,11 @@ function buildPanel() {
                    : arg.kind === "sketch" ? sketchField(entry, arg)
                    : refField(entry, arg));
   }
+
+  // A SET'S ARGUMENTS ARE THE WIRES THAT REACH INTO IT. Listed after its own
+  // arguments, which for a plain geometrical set is none of them - so for the
+  // usual set this IS the panel, which is the point.
+  if (entry.category === "container") host.appendChild(setInputFields(entry));
 
   // What the feature computed, as opposed to what it built. A Panel is nothing
   // but this; a DivideCurve has it as well as geometry.
@@ -6972,8 +7311,12 @@ function realField(entry, arg) {
   const span = sliderSpan(arg, value);
   field.innerHTML =
     '<div class="field-head"><label for="p-' + arg.key + '">' + arg.label + "</label>" +
-    '<span class="value-box"><input type="number" id="n-' + arg.key + '" value="' + round(value) +
-    '" step="' + arg.step + '"' +
+    //! TEXT, NOT A NUMBER INPUT. A number input will not hold "10m" or
+    //! "Width/Bays" long enough to be read - the browser clears what it
+    //! cannot parse - and those are the whole point. The spinner goes with
+    //! it, which is no loss: the slider beside it is a better one.
+    '<span class="value-box"><input type="text" inputmode="text" id="n-' + arg.key +
+    '" value="' + round(value) + '" autocomplete="off" spellcheck="false"' +
     (from ? " disabled" : "") + "><span class=\"unit\">" + (arg.unit || "") + "</span></span></div>" +
     '<input type="range" id="p-' + arg.key + '" min="' + span.min + '" max="' + span.max +
     '" step="' + arg.step + '" value="' + value + '"' + (from ? " disabled" : "") + ">";
@@ -7028,7 +7371,7 @@ function realField(entry, arg) {
   field.appendChild(trail);
 
   const slider = field.querySelector('input[type="range"]');
-  const number = field.querySelector('input[type="number"]');
+  const number = field.querySelector(".value-box input");
   const send = raw => {
     const v = Number(raw);
     if (!Number.isFinite(v)) return;
@@ -7036,8 +7379,123 @@ function realField(entry, arg) {
     pushParameter(entry.id, arg.key, v);
   };
   slider.addEventListener("input", () => send(slider.value));
-  number.addEventListener("change", () => send(number.value));
+  number.addEventListener("change", () => typeValue(entry, arg, number, slider));
+  number.addEventListener("input", () => sayValue(field, entry, arg, number.value));
   return field;
+}
+
+/* ------------------------------------------- what a person may type into it
+
+   A BOX THAT ONLY TAKES 4.5 makes you do the arithmetic on paper and type the
+   answer in, and a model built that way is full of numbers nobody can
+   explain. So the box takes what a person would say: a quantity with a unit
+   on it, arithmetic over quantities, and the NAME of something else in the
+   document.
+
+   The last of those is the one that matters. Typing a name does not copy a
+   number - it wires the two together, which is the whole difference between a
+   parametric model and a spreadsheet of numbers that used to agree. And
+   typing arithmetic over two names makes an Expression node in the tree and
+   in the graph, wires both of them into it, and wires it into the field: what
+   CATIA calls a formula, and what you asked for.
+
+   The reading itself is in formula.js and knows nothing about any of this. */
+
+//! What the fields know about: everything that produces a number, by name.
+function numberNamed(name) {
+  const said = String(name || "").trim().toLowerCase();
+  return state.tree.features.find(f =>
+    f.produces === "number" && String(f.name).trim().toLowerCase() === said) || null;
+}
+
+const numberValue = name => {
+  const one = numberNamed(name);
+  if (!one) return undefined;
+  const preview = (one.data || {}).preview;
+  const read = Number(String(preview == null ? "" : preview).match(/[-\d.eE+]+/));
+  if (Number.isFinite(read)) return read;
+  const values = one.values || {};
+  for (const key of ["value", "a", "start", "from"])
+    if (Number.isFinite(Number(values[key]))) return Number(values[key]);
+  return undefined;
+};
+
+//! What was typed, read, without doing anything about it. Used live as the
+//! keys go in, so a person can see what the box is making of it before they
+//! commit to it.
+const readTyped = (arg, text, id) => readValue(text, {
+  unit: arg.unit,
+  lookup: numberValue,
+  known: name => { const one = numberNamed(name);
+                   return !!one && one.id !== id && !dependsOn(one.id, id); },
+});
+
+//! The running commentary under the box. Three lines of HTML and it is the
+//! whole of what makes typing "Width/Bays" feel safe: it says what it will do
+//! before it does it.
+function sayValue(field, entry, arg, text) {
+  let note = field.querySelector(".value-said");
+  const said = String(text || "").trim();
+  const plain = said === "" || /^-?\d*\.?\d*$/.test(said);
+  if (plain) { if (note) note.remove(); return; }
+  if (!note) {
+    note = document.createElement("div");
+    note.className = "value-said";
+    field.querySelector(".field-head").after(note);
+  }
+  const got = readTyped(arg, said, entry.id);
+  const trim = v => Math.round(v * 1000) / 1000;
+  note.classList.toggle("bad", got.kind === "error");
+  note.textContent =
+      got.kind === "error" ? got.message
+    : got.kind === "number" ? "= " + trim(got.value) + (arg.unit ? " " + arg.unit : "")
+    : got.kind === "wire" ? "follows " + got.name
+    : got.kind === "formula"
+      ? "a formula over " + got.names.join(" and ")
+        + (got.value === null ? "" : " \u00b7 " + trim(got.value)
+           + (arg.unit ? " " + arg.unit : "") + " today")
+    : "";
+}
+
+//! And what happens when it is committed. One of three things, and which one
+//! is the reading's to say rather than this function's to guess.
+async function typeValue(entry, arg, box, slider) {
+  const got = readTyped(arg, box.value, entry.id);
+  if (got.kind === "blank") { box.value = round(entry.values[arg.key]); return; }
+  if (got.kind === "error") { showError(got.message); return; }
+  if (got.kind === "number") {
+    if (slider) slider.value = got.value;
+    box.value = round(got.value);
+    pushParameter(entry.id, arg.key, got.value);
+    return;
+  }
+  if (got.kind === "wire") {
+    const source = numberNamed(got.name);
+    if (!source) { showError("nothing here is called " + got.name); return; }
+    await edit({ op: "connect", id: entry.id, key: arg.key, from: source.id })
+      .catch(error => showError(error.message));
+    say(arg.label + " follows " + source.name);
+    return;
+  }
+  // A FORMULA BECOMES A NODE. Three wires in, one out, and it is in the tree
+  // and in the graph like everything else - which is the point: a formula you
+  // cannot see is a number that changes for no reason.
+  const sources = got.names.map(numberNamed);
+  if (sources.some(one => !one)) { showError("something in that formula is not here"); return; }
+  const id = "FX" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  const refs = {};
+  sources.forEach((one, i) => { refs["abc"[i]] = one.id; });
+  const edits = [
+    { op: "add", type: "Expression", id, name: saysFormula(got.said), refs },
+    { op: "code", id, key: "formula", text: got.js },
+    { op: "connect", id: entry.id, key: arg.key, from: id },
+  ];
+  try {
+    await mdl.runAll(edits);
+    say(arg.label + " is now " + saysFormula(got.said)
+        + " \u00b7 it is in the tree, and in the graph");
+    select(entry.id, true);
+  } catch (error) { showError(error.message); }
 }
 
 //! A parameter the script declared. It is stored on a label of its own, so it
@@ -7073,7 +7531,8 @@ function scriptField(entry, param) {
 
   field.innerHTML =
     '<div class="field-head"><label for="s-' + param.key + '">' + escapeHtml(param.label) + "</label>" +
-    '<span class="value-box"><input type="number" id="sn-' + param.key + '" value="' +
+    '<span class="value-box"><input type="text" inputmode="text" autocomplete="off"'
+    + ' spellcheck="false" id="sn-' + param.key + '" value="' +
     round(param.value) + '" step="' + param.step + '" min="' + param.min + '" max="' + param.max +
     '"><span class="unit">' + escapeHtml(param.unit || "") + "</span></span></div>" +
     '<input type="range" id="s-' + param.key + '" min="' + param.min + '" max="' + param.max +
@@ -7081,7 +7540,7 @@ function scriptField(entry, param) {
     '<div class="attr-path">' + escapeHtml(param.key) + " · <b>TDataStd_Real</b> · declared by the script</div>";
 
   const slider = field.querySelector('input[type="range"]');
-  const number = field.querySelector('input[type="number"]');
+  const number = field.querySelector(".value-box input");
   const send = raw => {
     const v = Number(raw);
     if (!Number.isFinite(v)) return;
@@ -7089,7 +7548,20 @@ function scriptField(entry, param) {
     pushParameter(entry.id, param.key, v);
   };
   slider.addEventListener("input", () => send(slider.value));
-  number.addEventListener("change", () => send(number.value));
+  // A parameter a script declared takes what a catalogue argument takes: a
+  // quantity, some arithmetic, or the name of a number to follow. One rule.
+  number.addEventListener("change", () => {
+    const got = readTyped({ key: param.key, label: param.label, unit: param.unit || "" },
+                          number.value, entry.id);
+    if (got.kind === "number") { send(got.value); return; }
+    if (got.kind === "error") { showError(got.message); return; }
+    if (got.kind === "blank") { number.value = round(param.value); return; }
+    typeValue(entry, { key: param.key, label: param.label, unit: param.unit || "" },
+              number, slider);
+  });
+  number.addEventListener("input", () =>
+    sayValue(field, entry, { key: param.key, label: param.label, unit: param.unit || "" },
+             number.value));
   return field;
 }
 
@@ -8832,6 +9304,117 @@ async function takeFiles(list) {
   }
 }
 
+/* ============================================================ reuse a set
+
+   A GEOMETRICAL SET IS ALREADY A USER-DEFINED FEATURE. What it needs from the
+   rest of the document is whatever its contents read from outside it, which
+   is what the definition panel now lists. What was missing was the ability to
+   take one out of one file and put it in another - which is this.
+
+   Copied, not referenced: a set instantiated here is a real set with real
+   features in it, wired to each other exactly as they were and editable
+   afterwards, because a feature you cannot open is a feature you cannot fix
+   at four o'clock on a Friday. What is NOT copied is anything it read from
+   outside itself. Those arrive unwired on purpose - the whole point of
+   reusing a set somewhere else is that the somewhere else is different - and
+   the panel then asks you for them by name.
+
+   The reading and the planning are in reuse.js and know nothing about any of
+   this; what is here is the file, the question and the edits.             */
+
+const reuseDialog = document.getElementById("modal-reuse");
+const reuseInput = document.getElementById("reuse-input");
+let reusing = null;
+
+reuseInput.addEventListener("change", async () => {
+  const file = reuseInput.files && reuseInput.files[0];
+  reuseInput.value = "";
+  if (!file) return;
+  let model;
+  try { model = JSON.parse(await file.text()); }
+  catch (error) { showError(file.name + " is not a model file this can read"); return; }
+  if (!model || !Array.isArray(model.features)) {
+    showError(file.name + " has no features in it");
+    return;
+  }
+  const sets = setsIn(model, { isSet: one => {
+    const spec = schemaType(one.type);
+    return !!spec && spec.category === "container";
+  } });
+  if (!sets.length) {
+    showError(file.name + " has no geometrical sets in it - a set is what gets "
+      + "instantiated, so put what you want to reuse into one and save it again");
+    return;
+  }
+  askReuse(file.name, model, sets);
+});
+
+function askReuse(fileName, model, sets) {
+  reusing = { model, sets, at: 0, fileName };
+  document.getElementById("reuse-title").textContent = "Instantiate from " + fileName;
+  document.getElementById("reuse-note").textContent =
+    sets.length + (sets.length === 1 ? " set" : " sets") + " in that file. What comes "
+    + "across is the set and everything in it, wired to each other as they were; what "
+    + "it read from outside arrives empty, and its panel asks you for those.";
+  const host = document.getElementById("reuse-choice");
+  host.textContent = "";
+  sets.forEach((one, at) => {
+    const button = document.createElement("button");
+    button.className = "pick-opt";
+    button.setAttribute("aria-pressed", String(at === 0));
+    button.innerHTML = "<b>" + escapeHtml(one.name) + "</b><span>"
+      + escapeHtml(saysReuse(one).replace(one.name + " · ", "")) + "</span>";
+    button.addEventListener("click", () => {
+      reusing.at = at;
+      for (const other of host.children)
+        other.setAttribute("aria-pressed", String(other === button));
+    });
+    host.appendChild(button);
+  });
+  reuseDialog.showModal();
+}
+
+document.getElementById("btn-reuse-cancel").addEventListener("click", () => {
+  reuseDialog.close();
+  reusing = null;
+});
+document.getElementById("btn-reuse-go").addEventListener("click", async () => {
+  if (!reusing) { reuseDialog.close(); return; }
+  const { model, sets, at } = reusing;
+  reuseDialog.close();
+  reusing = null;
+  const chosen = sets[at];
+  const here = state.tree.features;
+  let plan;
+  try {
+    plan = instantiateEdits(model, chosen.id, {
+      taken: new Set(here.map(f => f.id)),
+      takenNames: new Set(here.map(f => f.name)),
+      spec: schemaType,
+    });
+  } catch (error) { showError(error.message); return; }
+  try {
+    await mdl.runAll(plan.edits);
+  } catch (error) { showError(error.message); return; }
+  select(plan.id, true);
+  // TWO KINDS OF LEFTOVER, and they are not the same thing to a person. A
+  // wire that was dropped is an empty field waiting to be filled. A NUMBER
+  // driven from outside cannot be left empty - a number is always some
+  // number - so it arrives as the value it used to fall back on, and saying
+  // which ones those are is the difference between a model that is waiting
+  // for you and one quietly using the last file's dimensions.
+  const wires = plan.inputs.filter(one => !one.drives);
+  const numbers = plan.inputs.filter(one => one.drives);
+  const named = list => list.map(one => one.holder + " · " + one.key).join(", ");
+  say(plan.name + " is in"
+    + (wires.length ? " · supply " + named(wires) : "")
+    + (numbers.length ? " · " + named(numbers)
+        + (numbers.length === 1 ? " followed a number in that file and now holds"
+                                : " followed numbers in that file and now hold")
+        + " the value it fell back on" : "")
+    + (!plan.inputs.length ? " · it needs nothing from this document" : ""));
+});
+
 const importDialog = document.getElementById("modal-import");
 let pending = null;
 
@@ -9599,12 +10182,22 @@ function drawHeads(x, y) {
   headsBar.innerHTML = '<span class="hd-name"></span>'
     + '<input type="range" min="' + span.min + '" max="' + span.max
     + '" step="' + lead.step + '" value="' + value + '">'
-    + '<span class="hd-box"><input type="number" step="' + lead.step
-    + '" value="' + round(value) + '"><span class="hd-unit"></span></span>';
+    //! The same box as the panel's, and the same rules: 10m, 2400/3, or the
+    //! name of a parameter to follow. A heads-up number that could not take
+    //! what the panel takes would be two rules for one thing.
+    + '<span class="hd-box"><input type="text" inputmode="text" autocomplete="off"'
+    + ' spellcheck="false" value="' + round(value) + '"><span class="hd-unit"></span></span>'
+    //! A WAY OUT THAT IS NOT A GUESS. The bar appears the moment a feature is
+    //! made, which is right - the number you are about to type is under the
+    //! cursor - but it used to stay until something else took the viewport,
+    //! so it sat over the model long after the number was set. Now it goes by
+    //! itself a breath after the last thing you did to it, and there is a
+    //! button for the hands that would rather say so.
+    + '<button type="button" class="hd-done">Done</button>';
   headsBar.querySelector(".hd-name").textContent = lead.label;
   headsBar.querySelector(".hd-unit").textContent = lead.unit || "";
   const slider = headsBar.querySelector('input[type="range"]');
-  const box = headsBar.querySelector('input[type="number"]');
+  const box = headsBar.querySelector('.hd-box input');
   const put = (raw, redraw) => {
     const asked = Number(raw);
     if (!Number.isFinite(asked)) return;
@@ -9614,13 +10207,41 @@ function drawHeads(x, y) {
     pushParameter(heads.id, lead.key, asked);
     if (redraw) slider.value = String(asked); else box.value = String(round(asked));
   };
-  slider.addEventListener("input", () => put(slider.value, false));
-  box.addEventListener("change", () => put(box.value, true));
+  headsBar.querySelector(".hd-done").addEventListener("click", () => closeHeads());
+  slider.addEventListener("input", () => { nudgeHeads(); put(slider.value, false); });
+  box.addEventListener("change", () => { nudgeHeads(); typeHeads(entry, lead, box, slider); });
+  box.addEventListener("input", nudgeHeads);
+  nudgeHeads();
   box.addEventListener("keydown", event => {
     event.stopPropagation();
-    if (event.key === "Enter") { put(box.value, true); closeHeads(); }
+    if (event.key === "Enter") { typeHeads(entry, lead, box, slider); closeHeads(); }
     if (event.key === "Escape") closeHeads(true);
   });
+}
+
+//! What was typed into the heads-up box, read the same way the panel reads
+//! its own. A plain number is set; a name is wired; a formula becomes a node.
+function typeHeads(entry, lead, box, slider) {
+  const arg = { key: lead.key, label: lead.label, unit: lead.unit || "" };
+  const got = readTyped(arg, box.value, entry.id);
+  if (got.kind === "blank") return;
+  if (got.kind === "error") { showError(got.message); return; }
+  if (got.kind === "number") {
+    heads.changed = true;
+    heads.driving = false;
+    headsBar.classList.remove("driving");
+    slider.value = String(got.value);
+    box.value = String(round(got.value));
+    pushParameter(heads.id, lead.key, got.value);
+    return;
+  }
+  // A wire or a formula ends the gesture: the number is not a number any
+  // more, it is something the document works out, so there is nothing left
+  // here to drag.
+  const id = heads.id;
+  closeHeads();
+  typeValue(entry, arg, box, null);
+  select(id, true);
 }
 
 //! Live, as the pointer moves. One edit a frame at most, and the model is
@@ -9644,7 +10265,7 @@ function driveHeads(event) {
   } else {
     pushParameter(heads.id, asked.key, Math.round(asked.value * 1e3) / 1e3);
     const slider = headsBar.querySelector('input[type="range"]');
-    const box = headsBar.querySelector('input[type="number"]');
+    const box = headsBar.querySelector('.hd-box input');
     if (slider) slider.value = String(asked.value);
     if (box) box.value = String(round(asked.value));
   }
@@ -9665,7 +10286,39 @@ function dropHeads() {
 
 //! And away. \p revert puts back what it said before, which is what Escape is
 //! for: a drag you did not mean should leave nothing behind.
+/* ------------------------------------------------- when it goes away again
+
+   THE BAR THAT WOULD NOT LEAVE. It is offered the moment a feature is made,
+   which is the right moment - the number you are about to type belongs under
+   the cursor. What was wrong was that it then stayed, over the model, until
+   something else happened to take the viewport.
+
+   So it times itself out: a couple of seconds after the last thing you did to
+   it, it goes. Every touch of it puts the clock back, and the clock is
+   stopped altogether while the pointer is over it or the number box has the
+   caret - a bar that vanished while you were reaching for it or typing into
+   it would be worse than one that overstayed.                              */
+
+const HEADS_LINGER = 2600;
+let headsClock = 0;
+
+function nudgeHeads() {
+  clearTimeout(headsClock);
+  if (headsBar.hidden || heads.driving) return;
+  headsClock = setTimeout(() => {
+    if (headsBar.hidden) return;
+    if (headsBar.matches(":hover")) { nudgeHeads(); return; }
+    if (headsBar.contains(document.activeElement)) { nudgeHeads(); return; }
+    closeHeads();
+  }, HEADS_LINGER);
+}
+
+headsBar.addEventListener("pointerenter", () => clearTimeout(headsClock));
+headsBar.addEventListener("pointerleave", nudgeHeads);
+headsBar.addEventListener("pointerdown", () => clearTimeout(headsClock));
+
 function closeHeads(revert = false) {
+  clearTimeout(headsClock);
   const lead = heads.lead, id = heads.id;
   const driving = heads.driving;
   headsBar.hidden = true;
@@ -9980,6 +10633,9 @@ addEventListener("keyup", event => {
 
   // The preferences that are about how the hand works, read back now that the
   // store this file keeps them in exists.
+  for (const one of String(recall("ocafcad/tree-shut") || "").split("\u0001"))
+    if (one) shut.add(one);
+  setTreeText(Number(recall("ocafcad/tree-text")) || 1);
   altToOrbit = recall("ocafcad/altnav") !== "off";
   lensKeepsFraming = recall("ocafcad/lens-frame") !== "off";
   if (recall("ocafcad/tree") === "off") treePanel.hidden = true;

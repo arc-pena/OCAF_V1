@@ -700,9 +700,19 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 /* ------------------------------------------------------------ the tree */
 /* The rail runs down the left edge, so the tree stands beside it rather than
    under it. */
+/* WIDE ENOUGH FOR THE NAMES IN IT. A tree that truncates every name into an
+   ellipsis is a tree you cannot read, and one that scrolls sideways is worse -
+   you lose the thing you were looking at to go and find the rest of its name.
+   So the panel is sized by its own content, between a floor that keeps it from
+   twitching narrower every time a set is collapsed and a ceiling that keeps it
+   from eating the model. Anything past the ceiling wraps onto a second line,
+   which shows the whole name and still never scrolls sideways. */
 #tree-panel {
   left: calc(var(--edge) + var(--rail-dock)); top: calc(var(--edge) + 46px);
-  width: 232px;
+  width: max-content; min-width: 232px;
+  /* IN PANEL UNITS, not window units: everything here sits inside a zoom, so
+     a raw vw would measure the window and ignore the scale the user set. */
+  max-width: min(440px, calc(var(--span) * 0.38));
   /* Stops above the status bar: the tree hangs from under the chip and the
      status bar is the floor. */
   max-height: min(calc(var(--sky) - var(--edge) * 2 - 46px - var(--corner)
@@ -718,22 +728,69 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
   margin: 0; font-size: 9.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .11em; color: var(--ink-3);
 }
+#tree-head { cursor: text; }
+#tree-head:hover h2 { color: var(--ink-2); }
 .icon-btn {
   border: 0; background: none; cursor: pointer; color: var(--ink-3);
   width: 24px; height: 24px; border-radius: 5px; display: grid; place-items: center;
 }
 .icon-btn:hover { background: var(--panel-2); color: var(--ink); }
 .icon-btn svg { width: 14px; height: 14px; }
-#tree { list-style: none; margin: 0; padding: 6px 0 8px; overflow: auto; }
+/* THE TREE HAS ITS OWN TEXT SIZE. A spec tree is read for hours and it is the
+   one panel where a person wants it bigger - or smaller, to get more of a
+   long model on screen at once. Its own variable rather than the page's zoom,
+   because this is about the tree and not about the whole interface. */
+#tree {
+  list-style: none; margin: 0; padding: 6px 0 8px;
+  overflow-y: auto; overflow-x: hidden;
+  font-size: calc(11px * var(--tree-text, 1));
+}
+#tree .kind { font-size: calc(9.5px * var(--tree-text, 1)); }
+#tree .node .glyph { width: calc(14px * var(--tree-text, 1));
+                     height: calc(14px * var(--tree-text, 1)); }
+.tree-zoom { display: flex; align-items: center; gap: 1px; }
+.tree-zoom button {
+  border: 0; background: none; cursor: pointer; color: var(--ink-3);
+  width: 16px; height: 16px; border-radius: 3px; padding: 0;
+  font-family: var(--mono); font-size: 11px; line-height: 1;
+}
+.tree-zoom button:hover { background: var(--panel-2); color: var(--ink); }
 .tree .branch { list-style: none; margin: 0; padding: 0; }
 .set-label {
-  padding: 6px 12px 3px; font-size: 9.5px; font-weight: 600;
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 12px 3px 4px; font-size: 9.5px; font-weight: 600;
   letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
 }
+/* THE PLUS AND MINUS EVERY TREE HAS HAD SINCE TREES. A fixed box whether or
+   not there is anything in it, so the names below it all start at the same
+   place - a tree whose rows shuffle sideways by eight pixels depending on
+   whether a thing has children is a tree that is hard to read down. */
+.twist {
+  border: 0; background: none; cursor: pointer; color: var(--ink-3);
+  width: 14px; height: 14px; flex: none; padding: 0; line-height: 1;
+  font-family: var(--mono); font-size: 11px; display: grid; place-items: center;
+  border-radius: 3px;
+}
+.twist:hover { background: var(--panel-2); color: var(--ink); }
+.twist.bare { visibility: hidden; cursor: default; }
+li.holds > .branch[hidden], .branch[hidden] { display: none; }
+#tree-search {
+  flex: 1; min-width: 0; font: inherit; font-size: 11px; color: var(--ink);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 5px; padding: 3px 7px;
+}
+#tree-search:focus { outline: none; border-color: var(--accent); }
+#tree-search[hidden] { display: none; }
+.tree-none { padding: 10px 12px; font-size: 11px; color: var(--ink-3); }
 .node {
   display: flex; align-items: center; gap: 7px;
-  padding: 3px 8px 3px 12px; cursor: pointer; user-select: none;
+  padding: 3px 8px 3px 4px; cursor: pointer; user-select: none;
   border-left: 2px solid transparent;
+}
+/* The part of a name the search matched, so a filtered tree says WHY each
+   row survived rather than leaving you to spot it. */
+.node .label mark {
+  background: var(--accent-soft); color: inherit; border-radius: 2px; padding: 0 1px;
 }
 .node:hover { background: var(--panel-2); }
 .node.selected { background: var(--accent-soft); border-left-color: var(--accent); }
@@ -742,7 +799,7 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 .node.alongside { background: var(--accent-soft); border-left-color: var(--line); }
 .node .glyph { width: 14px; height: 14px; flex: none; color: var(--ink-2); }
 .node.datum .glyph { color: var(--datum); }
-.node .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .node.consumed .label, .node.consumed .glyph { opacity: .42; }
 .node.consumed .label { text-decoration: line-through; text-decoration-thickness: 1px; }
 .node.failed .label { color: var(--bad); }
@@ -753,6 +810,30 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 }
 .node:hover .eye, .eye.off { opacity: .7; }
 .eye:hover { opacity: 1; color: var(--accent); }
+
+/* A run of fields under one heading - a set's inputs, gathered so they read as
+   one list rather than as a pile of unrelated controls. */
+.def-section {
+  border-top: 1px solid var(--line-soft); margin-top: 6px; padding-top: 8px;
+}
+.def-section > .field-head { padding: 0 14px 4px; }
+
+/* What the box is making of what is being typed into it, said as it is typed.
+   A formula you cannot see the result of before you commit to it is a formula
+   nobody types twice. */
+.value-said {
+  padding: 0 14px 4px; font-size: 10px; color: var(--ink-3);
+  font-family: var(--mono);
+}
+.value-said.bad { color: var(--bad); }
+.value-box input[type="text"] {
+  width: 72px; text-align: right; font: inherit; font-size: 11px;
+  font-family: var(--mono); color: var(--ink);
+  background: none; border: 0; border-bottom: 1px solid var(--line);
+  padding: 1px 2px;
+}
+.value-box input[type="text"]:focus { outline: none; border-bottom-color: var(--accent); }
+.value-box input[type="text"]:disabled { color: var(--ink-3); }
 
 /* ------------------------------------------------------ the definition */
 #def-panel {
@@ -786,7 +867,7 @@ input.name:focus { background: var(--panel-2); border-color: var(--accent); outl
 .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .field-head label { font-weight: 500; }
 .value-box { display: flex; align-items: baseline; gap: 3px; }
-.value-box input[type="number"] {
+.value-box input[type="number"], .value-box input[type="text"] {
   width: 66px; text-align: right; background: var(--panel-2);
   border: 1px solid transparent; border-radius: 5px; padding: 2px 6px;
   font-family: var(--mono); font-variant-numeric: tabular-nums;
@@ -1594,7 +1675,8 @@ dialog .cli {
 dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: flex-end; }
 
 @media (max-width: 720px) {
-  #tree-panel { max-height: calc(var(--sky) * 0.34); width: 200px; }
+  #tree-panel { max-height: calc(var(--sky) * 0.34); min-width: 190px;
+               max-width: calc(var(--span) * 0.34); }
   #def-panel { width: calc(var(--span) - var(--edge) * 2 - 62px); max-width: 288px; }
   :root { --rail-cols: 2; }
   #rail { top: auto; bottom: 56px; transform: none; max-height: calc(var(--sky) * 0.52); }
@@ -1963,13 +2045,18 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
 }
 #heads input[type="range"] { width: 132px; }
 #heads .hd-box { display: flex; align-items: baseline; gap: 3px; }
-#heads input[type="number"] {
+#heads .hd-box input {
   width: 68px; font-family: var(--mono); font-size: 12px; text-align: right;
   background: transparent; border: none; border-bottom: 1px solid var(--line);
   color: var(--ink-1); padding: 1px 2px;
 }
-#heads input[type="number"]:focus { outline: none; border-bottom-color: var(--accent); }
+#heads .hd-box input:focus { outline: none; border-bottom-color: var(--accent); }
 #heads .hd-unit { font-size: 9.5px; color: var(--ink-3); }
+#heads .hd-done {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  border-radius: 5px; padding: 2px 9px; font: inherit; font-size: 10px; cursor: pointer;
+}
+#heads .hd-done:hover { border-color: var(--accent); color: var(--accent); }
 #heads .hd-said {
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-1); white-space: nowrap;
 }
@@ -2124,8 +2211,17 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 <div id="packages" hidden></div>
 
 <aside class="float fades" id="tree-panel">
-  <div class="panel-head">
-    <h2>Specification tree</h2>
+  <div class="panel-head" id="tree-head">
+    <h2 id="tree-title" title="Double-click to search the tree">Specification tree</h2>
+    <input id="tree-search" type="search" hidden placeholder="Search the tree…"
+           list="tree-names" autocomplete="off" aria-label="Search the tree">
+    <datalist id="tree-names"></datalist>
+    <span class="tree-zoom">
+      <button type="button" id="tree-smaller" title="Smaller text (Ctrl and the wheel)"
+              aria-label="Smaller tree text">−</button>
+      <button type="button" id="tree-bigger" title="Bigger text (Ctrl and the wheel)"
+              aria-label="Bigger tree text">+</button>
+    </span>
     <span class="count" id="tree-entry" style="font-family:var(--mono);font-size:9.5px;color:var(--ink-3)">0:1:1</span>
   </div>
   <ul id="tree"></ul>
@@ -2319,6 +2415,23 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   </div>
 </dialog>
 <input type="file" id="file-input" hidden>
+<input type="file" id="reuse-input" accept=".json,.model,.txt,application/json" hidden>
+
+<!-- WHICH SET, out of a file that may have several. The list is the file's
+     own geometrical sets, each saying how much is in it and how much it will
+     ask for once it is here - which is the only thing worth knowing before
+     you choose. -->
+<dialog id="modal-reuse">
+  <div class="dhead">
+    <h3 id="reuse-title">Instantiate a set</h3>
+    <p id="reuse-note"></p>
+  </div>
+  <div id="reuse-choice"></div>
+  <div class="dfoot">
+    <button class="btn" id="btn-reuse-cancel">Cancel</button>
+    <button class="btn primary" id="btn-reuse-go">Instantiate</button>
+  </div>
+</dialog>
 
 <!-- Where a dragged file lands. Shown while one is over the page and never
      otherwise; it takes no pointer events, so it cannot get between the drag
