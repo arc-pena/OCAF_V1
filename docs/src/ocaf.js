@@ -2352,10 +2352,17 @@ export const CATALOGUE = [
     produces: "solid",
     summary: "Sweeps a profile along one rail, keeping its angle to the rail the whole "
            + "way - a handrail, a gutter, a moulding, a road. On Solid the profile is "
-           + "capped first, so a closed profile comes out as a body.",
+           + "capped first, so a closed profile comes out as a body. Give it a second "
+           + "profile and the section BECOMES that one along the rail rather than "
+           + "staying as it was: a duct that starts round and ends square, a handrail "
+           + "that tapers.",
     args: [ref("profile", "Profile", ["curve"], true),
            ref("spine", "Rail", ["curve"], true),
-           choice("cap", "Result", ["Solid", "Surface"], 0)] },
+           choice("cap", "Result", ["Solid", "Surface"], 0),
+           //! Appended, never inserted: an argument's index here is its OCAF
+           //! child tag, so a new question goes at the end whatever that does
+           //! to the order it is asked in.
+           spare("into", "Becoming", ["curve"])] },
   { type: "ParallelCurve", guid: "9a1b2c30-0078-4c00-9e00-caf000000078", category: "curve",
     produces: "curve",
     summary: "A curve offset from another by a distance. A flat curve needs nothing "

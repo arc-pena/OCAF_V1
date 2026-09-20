@@ -4697,8 +4697,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     build: f => {
       const source = F.shape(F.reference(f, "profile"));
       const spine = F.shape(F.reference(f, "spine"));
-      return Feature_choice(f, "cap") === 0 ? SF.rib(source, spine)
-                                            : HSF.sweep1(source, spine);
+      // A SECTION THAT BECOMES ANOTHER ONE. The third kind of pipe surface
+      // the documentation lists, and the one nobody can fake with a constant
+      // section: two profiles on one rail, and the sweep morphs between them.
+      const into = F.reference(f, "into");
+      const second = into ? F.shape(into) : null;
+      if (into && !second) throw new Error(F.name(into) + " has not been built");
+      const made = Feature_choice(f, "cap") === 0 ? SF.rib(source, spine, second)
+                                                  : HSF.sweep1(source, spine, second);
+      return second ? { shape: made, note: "the section becomes " + F.name(into) }
+                    : made;
     },
   };
 

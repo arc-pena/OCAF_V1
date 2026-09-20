@@ -260,5 +260,35 @@ await run([
         /wire in the curves/.test(s.error || ""), s.error || "no error at all");
 }
 
+console.log("\n9. a section that becomes another one along the rail");
+// The third kind of pipe surface the documentation lists, and the one a
+// constant section cannot fake. A circle of radius 60 swept 1000 along Z into
+// a circle of radius 20 is a truncated cone: pi h (R^2 + Rr + r^2) / 3, which
+// is a number that can be written down before the kernel is asked.
+await run([
+  { op: "add", type: "Point", id: "TOP", name: "Top" },
+  { op: "set", id: "TOP", key: "z", value: 1000 },
+  { op: "add", type: "Plane", id: "PT2", name: "High", refs: { origin: "TOP", normal: "VZ" } },
+  { op: "add", type: "Circle", id: "BIG", name: "Foot", refs: { plane: "PL" } },
+  { op: "set", id: "BIG", key: "radius", value: 60 },
+  { op: "add", type: "Circle", id: "SMALL", name: "Head", refs: { plane: "PT2" } },
+  { op: "set", id: "SMALL", key: "radius", value: 20 },
+  { op: "add", type: "Polyline", id: "RAIL", name: "Rail", refs: { points: "P0" } },
+  { op: "connect", id: "RAIL", key: "points", from: "TOP" },
+  { op: "add", type: "Sweep", id: "SW", name: "Taper",
+    refs: { profile: "BIG", spine: "RAIL" } },
+  { op: "connect", id: "SW", key: "into", from: "SMALL" },
+]);
+{
+  const w = await of("SW");
+  check("it built", !w.error, w.error);
+  check("and says the section becomes the other one",
+        /becomes Head/.test(w.note || ""), w.note);
+  const want = Math.PI * 1000 * (60 * 60 + 60 * 20 + 20 * 20) / 3;
+  const got = await measure("SW", 2);
+  check("and it is a truncated cone: pi h (R^2 + Rr + r^2) over 3",
+        near(got, want, want * 0.005), got + " wanted " + want.toFixed(0));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

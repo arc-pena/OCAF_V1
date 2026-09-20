@@ -258,11 +258,17 @@ export function makeFactories(oc, kit) {
   //! exactly the section swept STRAIGHT for 1000, the section never having
   //! turned at all. Correction alone gives 32,427,006 and the corner mode alone
   //! 41,998,774. Only both together give the elbow.
-  const pipeAlong = (profileWire, spine, solid) => {
+  const pipeAlong = (profileWire, spine, solid, intoWire = null) => {
     const shell = new oc.BRepOffsetAPI_MakePipeShell(spine);
     shell.SetMode(false);                       // corrected Frenet
     shell.SetTransitionMode(oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
     shell.Add(profileWire, false, true);
+    //! A SECOND PROFILE MORPHS THE SECTION ALONG THE RAIL, which is the third
+    //! kind of pipe surface the documentation lists: not a constant section
+    //! dragged along, but one that BECOMES another on the way - a duct that
+    //! starts round and ends square, a handrail that tapers. The same call
+    //! either way; the second Add is the whole difference.
+    if (intoWire) shell.Add(intoWire, false, true);
     shell.Build(new oc.Message_ProgressRange());
     if (!shell.IsDone()) throw new Error("that profile will not sweep along that rail");
     if (solid && !shell.MakeSolid())
@@ -700,13 +706,16 @@ export function makeFactories(oc, kit) {
           new oc.gp_Vec(along[0], along[1], along[2])).Shape();
       } },
 
-    { name: "sweep1", takes: "profile, spine", gives: "shape",
+    { name: "sweep1", takes: "profile, spine, into", gives: "shape",
       summary: "A profile swept along one rail, as a skin. The section turns to stay "
              + "square to the rail the whole way, so a rail that bends carries the "
-             + "section round with it rather than dragging it through sideways. For a "
-             + "body rather than a skin, the solid factory ribs along the same rail.",
-      run: (profile, spine) => {
+             + "section round with it rather than dragging it through sideways. Give "
+             + "it a second profile and the section MORPHS into that one along the "
+             + "rail, which is how a duct goes from round to square. For a body "
+             + "rather than a skin, the solid factory ribs along the same rail.",
+      run: (profile, spine, into = null) => {
         const rail = wireOf(spine);
+        if (into) return pipeAlong(wireOf(profile), rail, false, wireOf(into));
         const skins = regionsOf(profile).flatMap(region =>
           [region.outer, ...region.holes].map(wire => pipeAlong(wire, rail, false)));
         return skins.length === 1 ? skins[0] : compoundOf(skins);
@@ -845,13 +854,16 @@ export function makeFactories(oc, kit) {
         return made.Shape();
       } },
 
-    { name: "rib", takes: "profile, spine", gives: "solid",
+    { name: "rib", takes: "profile, spine, into", gives: "solid",
       summary: "A closed profile swept along one rail into a body - CATIA calls it a "
              + "Rib. A handrail, a gutter, a moulding, a road. A profile with a hole "
              + "in it sweeps into a body with a bore, rather than into two bodies one "
              + "inside the other.",
-      run: (profile, spine) => {
+      run: (profile, spine, into = null) => {
         const rail = wireOf(spine);
+        // A section that becomes another one along the rail is one body, not
+        // a region at a time: the two profiles are the two ends of one pipe.
+        if (into) return pipeAlong(wireOf(profile), rail, true, wireOf(into));
         const bodies = regionsOf(profile).map(region => {
           const body = pipeAlong(region.outer, rail, true);
           if (!region.holes.length) return body;
