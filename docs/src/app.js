@@ -38,7 +38,7 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
 import { readValue, saysFormula } from "./formula.js";
-import { instantiateEdits, saysReuse, setsIn } from "./reuse.js";
+import { instantiateEdits, readDeclared, saysReuse, setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
@@ -1387,8 +1387,17 @@ function offerWire(id) {
   }
   const key = waiting.key, into = waiting.id, again = waiting.many;
   if (!again) stopWaiting(true);
-  edit({ op: "connect", id: into, key, from: target.id });
-  say(target.name + " → " + (schemaType(holder.type).args.find(a => a.key === key) || {}).label);
+  // ONE INPUT, HOWEVER MANY READ IT. A set's panel lists an input once even
+  // when three things inside it read the same thing, so setting it has to set
+  // all three - otherwise the one you can see is repointed and the two you
+  // cannot are quietly left where they were.
+  const also = sharedWith(into, key);
+  mdl.runAll(connectShared(into, key, target.id)).catch(error => showError(error.message));
+  const named = (schemaType(holder.type).args.find(a => a.key === key) || {}).label;
+  say(target.name + " → " + named
+      + (also.length ? " · and the "
+          + (also.length === 1 ? "other place that reads it"
+                               : also.length + " other places that read it") : ""));
   return true;
 }
 
@@ -6152,33 +6161,114 @@ function setInputs(id) {
       if (outside.length || !wired.length) rows.push({ child, arg, outside });
     }
   }
-  return rows;
+  return gatherInputs(id, rows);
 }
+
+/* ------------------------------------------ one input, however many read it
+
+   TWO THINGS INSIDE A SET READING THE SAME POINT OUTSIDE IT ARE NOT TWO
+   INPUTS. They are one input asked for twice, and listing it twice is both
+   noise and a trap: repoint one of them and the other is quietly still
+   pointing somewhere else, so the set is now wired to two different things
+   where the original was wired to one.
+
+   So the rows are gathered. Two ways, because there are two cases:
+
+     WIRED rows group by what they point AT, which needs no memory at all -
+     the wire is there to be read.
+
+     EMPTY rows have nothing to group by, because the wire that said so was
+     cut when the set was instantiated. That is why the set writes down what
+     it asks for at the moment it is copied: the note says which arguments
+     shared a source, and the panel reads it back.
+
+   A set built by hand has no note and needs none: nothing was cut, so every
+   wire is still there to be read.                                          */
+
+function gatherInputs(id, rows) {
+  const entry = feature(id);
+  const declared = readDeclared((entry && entry.texts && entry.texts.inputs) || "");
+  const groups = [];
+  const seat = new Map();          // "childId:key" -> the group it belongs to
+
+  //! The written-down ones first, so a set that was instantiated keeps the
+  //! names and the order its own file gave them.
+  for (const said of declared) {
+    const mine = said.holders
+      .map(at => rows.find(row => row.child.id === at.id && row.arg.key === at.key))
+      .filter(Boolean);
+    if (!mine.length) continue;
+    const group = { rows: mine, name: said.name, declared: true };
+    groups.push(group);
+    for (const row of mine) seat.set(row.child.id + ":" + row.arg.key, group);
+  }
+
+  //! Then everything else, gathered by what it is wired to. A row with no
+  //! wire and nothing written down about it is its own input, because two
+  //! empty fields have nothing in common but being empty.
+  for (const row of rows) {
+    if (seat.has(row.child.id + ":" + row.arg.key)) continue;
+    const to = row.outside[0] || null;
+    const had = to && groups.find(one => !one.declared && one.to === to
+                                      && !!one.rows[0].number === !!row.number);
+    if (had) { had.rows.push(row); seat.set(row.child.id + ":" + row.arg.key, had); continue; }
+    const group = { rows: [row], to, name: to ? (feature(to) || {}).name || to : "" };
+    groups.push(group);
+    seat.set(row.child.id + ":" + row.arg.key, group);
+  }
+  return groups;
+}
+
+//! Every argument that shares an input with this one, so setting it sets them
+//! all. Written by the panel, which is the only thing that knows.
+const shared = new Map();          // "childId:key" -> [{ id, key }]
+
+const sharedWith = (id, key) => shared.get(id + ":" + key) || [];
+
+//! The edits that wire, or unwire, a whole input at once.
+const connectShared = (id, key, from) =>
+  [{ op: "connect", id, key, from },
+   ...sharedWith(id, key).map(at => ({ op: "connect", id: at.id, key: at.key, from }))];
+
+const disconnectShared = (id, key, from) =>
+  [{ op: "disconnect", id, key, ...(from ? { from } : {}) },
+   ...sharedWith(id, key).map(at => ({ op: "disconnect", id: at.id, key: at.key,
+                                       ...(from ? { from } : {}) }))];
 
 //! The panel's section for them. Each row is a real refField wired to the
 //! real feature and the real argument, with the holder's name put in front of
 //! the label so a set with three points in it says which point is which.
 function setInputFields(entry) {
-  const rows = setInputs(entry.id);
+  const groups = setInputs(entry.id);
+  // The panel is the only place that knows which arguments are one input, so
+  // it is the panel that tells the wiring - set up here, read by every path
+  // that connects or disconnects one of them.
+  shared.clear();
+  for (const group of groups)
+    for (const row of group.rows)
+      shared.set(row.child.id + ":" + row.arg.key,
+                 group.rows.filter(other => other !== row)
+                           .map(other => ({ id: other.child.id, key: other.arg.key })));
+
   const box = document.createElement("div");
   box.className = "def-section";
   const head = document.createElement("div");
   head.className = "field-head";
   head.innerHTML = "<label>Inputs</label><span class=\"kind\">"
-    + (rows.length ? rows.length + (rows.length === 1 ? " wire" : " wires") + " from outside"
-                   : "nothing from outside") + "</span>";
+    + (groups.length ? groups.length + (groups.length === 1 ? " input" : " inputs")
+                     : "nothing from outside") + "</span>";
   box.appendChild(head);
-  // A row whose wire is empty is the set ASKING for something, which is worth
-  // saying at the top rather than leaving to be noticed field by field.
-  const asking = rows.filter(one => !one.outside.length).length;
+  // A group whose wire is empty is the set ASKING for something, which is
+  // worth saying at the top rather than leaving to be noticed field by field.
+  const asking = groups.filter(one => !one.rows[0].outside.length).length;
   if (asking) {
     const wants = document.createElement("p");
     wants.className = "summary";
     wants.textContent = asking + (asking === 1 ? " of these is empty" : " of these are empty")
-      + " \u2014 click it, then click what it should follow, in the model or in the tree.";
+      + " — click it, then click what it should follow, in the model or in the tree.";
     box.appendChild(wants);
   }
-  if (!rows.length) {
+  if (!groups.length) {
     const none = document.createElement("p");
     none.className = "summary";
     none.textContent = entry.name + " stands on its own - nothing in it reads anything "
@@ -6186,16 +6276,35 @@ function setInputFields(entry) {
     box.appendChild(none);
     return box;
   }
-  for (const row of rows) {
+  for (const group of groups) {
+    // The control is built on the FIRST of the arguments that share the input;
+    // the others follow it, because they ARE it.
+    const row = group.rows[0];
     const field = row.number ? realField(row.child, row.arg) : refField(row.child, row.arg);
     const label = field.querySelector("label");
-    if (label) label.textContent = row.child.name + " · " + row.arg.label;
-    // A row that names a feature inside the set should be able to take you to
-    // it, because "which Cube.1?" is the first question a long list raises.
+    const several = group.rows.length > 1;
+    const reads = group.rows.map(one => one.child.name + " · " + one.arg.label).join(", ");
     if (label) {
+      // Named for the thing it supplies when several read it - "Scene origin"
+      // rather than the first of the four places it happens to be read.
+      label.textContent = several && group.name ? group.name
+                        : row.child.name + " · " + row.arg.label;
       label.style.cursor = "pointer";
-      label.title = "Show " + row.child.name + " in the tree";
+      label.title = several
+        ? "Read by " + reads + " — setting it sets all of them"
+        : "Show " + row.child.name + " in the tree";
       label.addEventListener("click", () => select(row.child.id, false));
+    }
+    // ONE INPUT, SEVERAL READERS, SAID OUT LOUD. A field that quietly rewires
+    // three things when you set it has to say that it is going to.
+    if (several) {
+      const kind = field.querySelector(".field-head .kind");
+      const note = document.createElement("span");
+      note.className = "kind";
+      note.textContent = group.rows.length + " read it";
+      note.title = reads;
+      if (kind) kind.after(note);
+      else field.querySelector(".field-head").appendChild(note);
     }
     box.appendChild(field);
   }
@@ -6268,6 +6377,12 @@ function buildPanel() {
   for (const arg of spec.args) {
     if (!argApplies(entry, arg)) continue;
     if (arg.kind === "code") continue;   // the editor goes below the parameters
+    // A SET'S DECLARED INPUTS ARE BOOKKEEPING, not a field. They are the
+    // set's own record of which of its arguments share one input, written
+    // when it is instantiated and read by the Inputs section below - which is
+    // where a person deals with them. Showing the JSON as well would be
+    // showing the same thing twice, once in a form nobody should be editing.
+    if (entry.category === "container" && arg.key === "inputs") continue;
     host.appendChild(arg.kind === "real" ? realField(entry, arg)
                    : arg.kind === "choice" ? choiceField(entry, arg)
                    : arg.kind === "edits" ? editsField(entry, arg)
@@ -7332,7 +7447,9 @@ function realField(entry, arg) {
     const off = document.createElement("button");
     off.type = "button";
     off.textContent = "Unwire";
-    off.addEventListener("click", () => edit({ op: "disconnect", id: entry.id, key: arg.key }));
+    off.addEventListener("click", () =>
+      mdl.runAll(disconnectShared(entry.id, arg.key))
+         .catch(error => showError(error.message)));
     wire.appendChild(off);
     field.appendChild(wire);
   }
@@ -7347,7 +7464,8 @@ function realField(entry, arg) {
       drivers.map(d => '<option value="' + escapeAttr(d.id) + '">' + escapeHtml(d.name) +
         "</option>").join("");
     pick.addEventListener("change", () => pick.value &&
-      edit({ op: "connect", id: entry.id, key: arg.key, from: pick.value }));
+      mdl.runAll(connectShared(entry.id, arg.key, pick.value))
+         .catch(error => showError(error.message)));
     field.appendChild(pick);
 
     const toggle = document.createElement("button");
@@ -7649,7 +7767,8 @@ function refField(entry, arg) {
     off.type = "button";
     off.textContent = "Remove";
     off.addEventListener("click", () =>
-      edit({ op: "disconnect", id: entry.id, key: arg.key, from: id }));
+      mdl.runAll(disconnectShared(entry.id, arg.key, id))
+         .catch(error => showError(error.message)));
     row.appendChild(off);
     field.appendChild(row);
   }
@@ -7697,9 +7816,10 @@ function refField(entry, arg) {
     "</option>" + free.map(option =>
       '<option value="' + escapeAttr(option.id) + '"' + (option.id === current ? " selected" : "") +
       ">" + escapeHtml(option.name) + "</option>").join("");
-  select.addEventListener("change", () => edit(select.value
-    ? { op: "connect", id: entry.id, key: arg.key, from: select.value }
-    : { op: "disconnect", id: entry.id, key: arg.key }));
+  select.addEventListener("change", () =>
+    mdl.runAll(select.value ? connectShared(entry.id, arg.key, select.value)
+                            : disconnectShared(entry.id, arg.key))
+       .catch(error => showError(error.message)));
   more.addEventListener("click", () => {
     select.hidden = !select.hidden;
     more.setAttribute("aria-expanded", select.hidden ? "false" : "true");
@@ -7713,7 +7833,8 @@ function refField(entry, arg) {
     off.className = "wire-off";
     off.textContent = "Disconnect";
     off.addEventListener("click", () =>
-      edit({ op: "disconnect", id: entry.id, key: arg.key }));
+      mdl.runAll(disconnectShared(entry.id, arg.key))
+         .catch(error => showError(error.message)));
     row.insertBefore(off, more);
   }
 

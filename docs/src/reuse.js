@@ -257,8 +257,47 @@ export function instantiateEdits(model, setId, { taken = new Set(),
     }
   }
 
-  return { edits, id: setId2, name: setName, inputs: dropped,
+  //! WHICH OF THE DROPPED WIRES WERE ONE INPUT. Two features inside a set
+  //! reading the same point outside it are not two inputs, they are one
+  //! asked for twice - and once the wires are cut there is nothing left in
+  //! the copy to say so. So it is written down here, where it is still
+  //! known, and the set carries it: one row per thing that was pointed at,
+  //! naming every argument that pointed there.
+  const groups = [];
+  for (const one of dropped) {
+    const had = groups.find(row => row.was === one.was && row.drives === one.drives);
+    const at = { id: one.id, key: one.key };
+    if (had) { had.holders.push(at); continue; }
+    const source = all.find(other => other.id === one.was);
+    groups.push({ name: (source && source.name) || one.was, was: one.was,
+                  drives: !!one.drives, holders: [at] });
+  }
+  if (groups.length)
+    edits.push({ op: "code", id: setId2, key: "inputs",
+                 text: JSON.stringify({ version: 1, inputs: groups }) });
+
+  return { edits, id: setId2, name: setName, inputs: dropped, groups,
            renamed: Object.fromEntries(renamed) };
+}
+
+//! And reading it back, tolerantly: a set whose note somebody hand-edited
+//! loses the row it got wrong rather than the whole list, because a panel
+//! that will not draw is worse than one with a gap in it.
+export function readDeclared(text) {
+  const said = String(text == null ? "" : text).trim();
+  if (!said) return [];
+  let read;
+  try { read = JSON.parse(said); } catch (error) { return []; }
+  const list = Array.isArray(read) ? read : (read && Array.isArray(read.inputs) ? read.inputs : []);
+  return list.map(one => ({
+    name: String((one && one.name) || ""),
+    was: String((one && one.was) || ""),
+    drives: !!(one && one.drives),
+    holders: Array.isArray(one && one.holders)
+      ? one.holders.filter(at => at && at.id && at.key)
+                   .map(at => ({ id: String(at.id), key: String(at.key) }))
+      : [],
+  })).filter(one => one.holders.length);
 }
 
 //! One line about what is about to arrive, for the dialogue and the log.

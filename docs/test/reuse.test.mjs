@@ -8,7 +8,7 @@
 //
 // Planned here as a list of edits and then RUN against a real kernel, because
 // a plan that is right and a document that is wrong is not an import.
-import { contentsOf, inputsOf, instantiateEdits, saysReuse, setsIn,
+import { contentsOf, inputsOf, instantiateEdits, readDeclared, saysReuse, setsIn,
          wiresIn } from "../src/reuse.js";
 import { CATALOGUE } from "../src/ocaf.js";
 import { createWasmKernel } from "../src/wasm-kernel.js";
@@ -267,6 +267,56 @@ console.log("\n5. a real file, with a sketch in the set");
   const want = 2 * 14.52 * 0.71 + 0.44 * (14.02 - 2 * 0.71);
   check("to the area a wide flange of those dimensions has",
         Math.abs(area - want) < 0.01, area + " wanted " + want.toFixed(4));
+}
+
+console.log("\n6. two things reading one thing are one input, not two");
+// THE TRAP THIS CLOSES. A set where the plane and the sketch both stood on
+// the same point used to arrive as TWO empty fields. Repoint one and the
+// other is quietly still pointing somewhere else, so the copy is wired to two
+// different things where the original was wired to one. Once the wires are
+// cut there is nothing left in the copy to say they belonged together, so it
+// is written down at the moment they are cut - which is the only moment it is
+// still known.
+{
+  const real = JSON.parse(readFileSync(new URL("./files/wideflange.json",
+                                               import.meta.url), "utf8"));
+  const made = instantiateEdits(real, "GSCOL", { spec });
+  check("the column asks for one thing twice",
+        made.inputs.filter(one => one.key === "origin").length === 2,
+        JSON.stringify(made.inputs.map(one => one.holder + "." + one.key)));
+  check("and the two are gathered into one input",
+        made.groups.length === 1 && made.groups[0].holders.length === 2,
+        JSON.stringify(made.groups));
+  check("named for what it used to point at",
+        made.groups[0].name === "Point.2", made.groups[0].name);
+  const note = made.edits.find(one => one.op === "code" && one.key === "inputs");
+  check("and written onto the set itself", !!note, "no note at all");
+  check("on the set, not on something in it", note.id === made.id, note && note.id);
+
+  const read = readDeclared(note.text);
+  check("it reads back", read.length === 1, JSON.stringify(read));
+  check("with both the arguments that share it",
+        read[0].holders.map(one => one.id + "." + one.key).sort().join() ===
+          [made.renamed.PL_BASE + ".origin", made.renamed.SK_COL + ".origin"].sort().join(),
+        JSON.stringify(read[0].holders));
+
+  // A set whose note somebody hand-edited loses the row it got wrong rather
+  // than the whole list, because a panel that will not draw is worse than one
+  // with a gap in it.
+  check("nonsense reads back as nothing", readDeclared("not json at all").length === 0);
+  check("and so does an empty note", readDeclared("").length === 0);
+  check("a row with no holders is dropped",
+        readDeclared(JSON.stringify({ inputs: [{ name: "x", holders: [] }] })).length === 0);
+  check("a bare array is read as well as a wrapped one",
+        readDeclared(JSON.stringify([{ name: "x", was: "y",
+                                       holders: [{ id: "A", key: "b" }] }])).length === 1);
+
+  // And a set with nothing shared writes no note, because there is nothing
+  // to say and an empty note is a thing to explain later.
+  const post = instantiateEdits(FILE, "GS", { spec });
+  check("a set that shares nothing gathers into one group each",
+        post.groups.every(one => one.holders.length === 1),
+        JSON.stringify(post.groups.map(one => one.holders.length)));
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

@@ -1516,6 +1516,21 @@ const whenAny = (arg, key, list) => ({ ...arg, showWhen: { key, any: list } });
 export const ARG = { real, ref, spare, refs, choice, text, code, blob, edits, subs, drawing,
                      when, whenAny, ANY, KINDS };
 
+//! WHAT A SET ASKS FOR, WRITTEN DOWN. A set's inputs are worked out live -
+//! every wire that reaches into it from outside - and that is enough right up
+//! until two things inside it read the SAME thing outside. Then they are one
+//! input, not two, and the only way to know that once the wires have been cut
+//! is to have written it down before they were. Which is exactly when it is
+//! known: instantiating a set from a file drops those wires, and it knows
+//! which of them shared a source.
+//!
+//! Empty on a set that was built by hand, because nothing has been cut and the
+//! live answer is the whole answer.
+const declaredInputs = () =>
+  text("inputs", "Declared inputs", "",
+       "the set's own argument list, as JSON - written when a set is "
+       + "instantiated so that wires which shared one source stay one input");
+
 //! One table drives the toolbar, the label layout (an argument's index here is
 //! its OCAF child tag), the sliders and the neutral file format. It mirrors
 //! ocaf/src/Schema.cxx entry for entry, GUIDs included.
@@ -2304,13 +2319,13 @@ export const CATALOGUE = [
     summary: "A folder for wireframe and surfaces - points, lines, planes, curves, "
            + "skins. Right-click it for what feeds it from outside. Deleting it keeps "
            + "everything in it and hands it back to whatever the set was in.",
-    args: [] },
+    args: [declaredInputs()] },
   { type: "Body", guid: "9a1b2c30-00a1-4c00-9e00-caf0000000a1",
     category: "container", produces: "text",
     summary: "A folder for solids - the bodies you add to and remove from. Same as a "
            + "geometrical set in every way but what belongs in it, which is the "
            + "distinction the two factories draw.",
-    args: [] },
+    args: [declaredInputs()] },
 
   /* --------------------------------------------------------- operations */
   { type: "Extrude", guid: "9a1b2c30-0070-4c00-9e00-caf000000070", category: "operation",
