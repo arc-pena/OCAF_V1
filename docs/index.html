@@ -309,12 +309,29 @@ body.no-rail #rail, body.no-rail #sketch-rail {
 /* ------------------------------------------------------ the context menu
    Right-click on a node in the tree. Only a set has questions worth putting
    here, but everything gets the same menu so the gesture means one thing. */
+/* The fillet, in the sketcher's bar: a radius and a button, and only while
+   two things are picked - a number field with nothing to apply it to is a
+   number field in the way. */
+.sk-round { display: flex; align-items: center; gap: 6px; }
+.sk-round label { color: var(--ink-2); font-size: 11px; }
+.sk-round input {
+  width: 62px; padding: 3px 6px; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+  font-family: var(--mono); font-size: 11px;
+}
+
 #menu {
   position: fixed; z-index: 60; margin: 0; padding: 4px; list-style: none;
-  min-width: 190px; border-radius: 7px;
+  min-width: 190px; max-width: min(340px, calc(var(--span) - 16px)); border-radius: 7px;
   background: var(--panel-solid); border: 1px solid var(--line);
   box-shadow: var(--shadow); font-size: 12px;
+  /* A menu is never taller than the room it was given. What does not fit
+     scrolls; nothing is ever past the edge of the screen and unreachable. */
+  overflow-y: auto; overscroll-behavior: contain;
 }
+/* When it IS scrolling, say so: a menu that silently has more below it is a
+   menu whose last item nobody finds. */
+#menu[data-scrolls="1"] { scrollbar-width: thin; border-color: var(--accent-soft, var(--line)); }
 #menu li {
   display: flex; align-items: baseline; gap: 10px; justify-content: space-between;
   padding: 5px 9px; border-radius: 4px; cursor: pointer; white-space: nowrap;
@@ -1914,6 +1931,13 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
           title="Construction geometry: drawn dashed, drives the drawing, never built"></button>
   <button class="sk-exit sk-drop" id="sketch-unrelate" hidden
           title="Take this relation off (Delete)">Delete relation</button>
+  <span class="sk-round" id="sketch-fillet" hidden>
+    <label for="sketch-radius">Round</label>
+    <input id="sketch-radius" type="number" min="0.1" step="1" value="20"
+           aria-label="Fillet radius">
+    <button class="sk-exit" id="sketch-do-round"
+            title="Round the corner between the two picked elements">Apply</button>
+  </span>
   <button class="sk-exit" id="sketch-done">Done</button>
 </div>
 

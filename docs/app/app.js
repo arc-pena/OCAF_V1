@@ -35,7 +35,7 @@ import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLay
          sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
          sketchHandleAt, sketchHandles, sketchInBox, sketchLayers, sketchMoveElement,
          sketchMoveHandle, sketchOnLayer, sketchOutline, sketchOverlaps,
-         sketchRelationMarks, sketchTangentArc } from "./sketch.js";
+         sketchRelationMarks, sketchTangentArc, solveSketch } from "./sketch.js";
 
 "use strict";
 
@@ -1616,8 +1616,9 @@ function pickSketchTool(type) {
 //! What the buttons are called. The type names are lower case because they are
 //! what the model file says; these are for people.
 const SKETCH_LABELS = {
-  select: "Select", point: "Point", line: "Polyline", arc: "Arc", circle: "Circle",
-  ellipse: "Ellipse", oblong: "Oblong", spline: "Spline", bspline: "Control curve",
+  select: "Select", point: "Point", line: "Polyline", rect: "Rectangle", arc: "Arc",
+  circle: "Circle", ellipse: "Ellipse", oblong: "Oblong", spline: "Spline",
+  bspline: "Control curve",
 };
 
 const sketching = () => (sketcher.id && feature(sketcher.id)) || null;
@@ -1656,13 +1657,48 @@ function sketchAt(event) {
   return [Math.round(away.dot(frame.x) * 1e3) / 1e3, Math.round(away.dot(frame.y) * 1e3) / 1e3];
 }
 
+//! The drawing as it is WRITTEN DOWN - always a fresh read, never the preview.
+//! Every frame of a drag starts here, which is the whole of why a drag follows
+//! the cursor: an offset applied to a drawing that already carries the last
+//! frame's offset is applied twice, and the line runs away from the hand that
+//! is pushing it. That is the bug this function exists to make impossible.
+const sketchStored = () => {
+  const entry = sketching();
+  return entry && entry.sketch ? readSketch(entry.sketch.drawing)
+                               : { elements: [], constraints: [] };
+};
+
 //! The drawing as it should be seen. Mid-drag that is the drawing as the drag
 //! would leave it - shown, not yet written, because a drag is one edit and it
 //! is not finished until the cursor is let go.
-const sketchDrawing = () => {
-  if (sketcher.preview) return sketcher.preview;
+const sketchDrawing = () => sketcher.preview || sketchStored();
+
+//! WHAT THE DRAG WILL ACTUALLY COME TO. The constraints are the truth: a line
+//! held horizontal does not become diagonal because you dragged its end
+//! upwards, it slides along. Showing the unsolved drawing mid-drag meant the
+//! preview and the result were different drawings, and the moment you let go
+//! everything jumped. So the preview is solved, the same way the kernel solves
+//! it, with the handle you are holding pinned so the solver moves everything
+//! else around it rather than pushing it out from under the cursor.
+function settled(drawing, pinned) {
   const entry = sketching();
-  return entry && entry.sketch ? readSketch(entry.sketch.drawing) : { elements: [], constraints: [] };
+  if (!entry || !drawing.constraints || !drawing.constraints.length) return drawing;
+  const values = entry.values || {};
+  if (values.solve) return drawing;                 // the node is set to ignore them
+  const passes = Math.max(1, Math.round(values.passes || 24));
+  try { return solveSketch(drawing, passes, pinned || []).drawing; }
+  catch (error) { return drawing; }
+}
+
+//! Every handle of a list of elements, named the way a constraint names one.
+//! What to pin while a whole element is being dragged: the solver may move
+//! anything it likes EXCEPT the thing in your hand.
+const handlesOf = (drawing, ids) => {
+  const want = new Set(ids);
+  const out = [];
+  for (const el of drawing.elements)
+    if (want.has(el.id)) for (const [key] of sketchHandles(el)) out.push(el.id + "." + key);
+  return out;
 };
 
 //! How far a snap reaches, in the drawing's units: a fixed number of pixels,
@@ -1816,6 +1852,8 @@ function refreshSketch() {
     button.classList.toggle("on", button.dataset.sketch === sketcher.tool);
   for (const button of rail.querySelectorAll(".tool[data-relation]"))
     button.classList.toggle("ready", relationReady(button.dataset.relation));
+  for (const button of rail.querySelectorAll(".tool[data-change]"))
+    button.classList.toggle("ready", roundable().length === 2);
   // The tangent switch is only a question while there is something to be
   // tangent to, so it is only asked then.
   const smooth = document.getElementById("sketch-tangent");
@@ -1824,6 +1862,10 @@ function refreshSketch() {
   // Only offered when there is one in hand, because it is the one button here
   // that takes something away.
   document.getElementById("sketch-unrelate").hidden = sketcher.relation < 0;
+  // The fillet is a question about TWO things, so it is asked only when there
+  // are two. A radius field standing there with nothing to round is a field in
+  // the way of the hint that would have told you to pick something.
+  document.getElementById("sketch-fillet").hidden = roundable().length !== 2;
   // Construction is a question about what is picked, so it is only asked while
   // something is. Pressed means everything picked is already construction, and
   // pressing it again makes all of it real.
@@ -2174,10 +2216,15 @@ function dragSketchHandle(event) {
   if (!uv || !sketcher.drag) return;
   sketcher.drag.at = uv;
   sketcher.drag.moved = true;
-  // Shown from the drawing as it would be, without writing anything yet.
-  const preview = sketchDrawing();
+  // Shown from the drawing as it would be, without writing anything yet - and
+  // built from what is STORED each frame, so the end lands where the cursor is
+  // rather than where the cursor has been.
+  const preview = sketchStored();
   const found = sketchHandleAt(preview, sketcher.drag.ref);
-  if (found) { sketchMoveHandle(found.el, found.key, uv); sketcher.preview = preview; }
+  if (found) {
+    sketchMoveHandle(found.el, found.key, uv);
+    sketcher.preview = settled(preview, [sketcher.drag.ref]);
+  }
   refreshSketch();
 }
 
@@ -2246,12 +2293,16 @@ function dragSketchMove(event) {
   const by = [uv[0] - sketcher.move.from[0], uv[1] - sketcher.move.from[1]];
   sketcher.move.by = by;
   sketcher.move.moved = true;
-  // Shown from the drawing as it would be, without writing anything yet - the
-  // same way one handle's drag is shown.
-  const preview = sketchDrawing();
+  // The offset is measured from where the drag STARTED, so it has to be laid
+  // on the drawing as it was when the drag started. Laying it on the preview
+  // instead added this frame's offset to the last frame's, and the further you
+  // dragged the further ahead of the cursor the thing ran.
+  const preview = sketchStored();
   const want = new Set(sketcher.move.ids);
-  for (const el of preview.elements) if (want.has(el.id)) sketchMoveElement(el, by);
-  sketcher.preview = preview;
+  const held = [];
+  for (const el of preview.elements)
+    if (want.has(el.id)) { sketchMoveElement(el, by); held.push(el.id); }
+  sketcher.preview = settled(preview, handlesOf(preview, held));
   refreshSketch();
 }
 
@@ -2302,6 +2353,29 @@ function dropPicked() {
 function pickedElements(drawing = sketchDrawing()) {
   const ids = [...new Set(sketcher.picked.map(ref => String(ref).split(".")[0]))];
   return ids.map(id => drawing.elements.find(el => el.id === id)).filter(Boolean);
+}
+
+//! WHAT A FILLET COULD BE ABOUT: the elements picked, when there are two of
+//! them and both are things an arc can be tangent to. Asked in one place so
+//! the bar, the rail and the hint all agree about when it is on offer.
+function roundable() {
+  const picked = pickedElements();
+  const can = new Set(["line", "arc", "circle"]);
+  return picked.length === 2 && picked.every(el => can.has(el.type)) ? picked : [];
+}
+
+//! Round the corner between the two picked elements. The radius is the one in
+//! the bar; the refusal, when there is one, is the sentence sketchFillet wrote
+//! rather than a shrug.
+function roundSketchCorner() {
+  const two = roundable();
+  if (two.length !== 2) { say("pick two lines or arcs to round between"); return; }
+  const field = document.getElementById("sketch-radius");
+  const radius = Number(field && field.value);
+  if (!(radius > 0)) { say("the fillet radius must be greater than zero"); return; }
+  sketcher.picked = [];
+  sketcher.relation = -1;
+  edit({ op: "fillet", id: sketcher.id, of: [two[0].id, two[1].id], radius });
 }
 
 //! Construction on or off over everything picked. All of it construction
@@ -2412,6 +2486,7 @@ function buildSketchRail() {
     button.dataset.label =
       type === "select" ? "Select · drag an end, or pick things to relate"
       : type === "line" ? "Polyline · click corner after corner"
+      : type === "rect" ? "Rectangle · two opposite corners"
       : type === "arc" ? "Arc · 3 clicks, or tangent to what you just drew"
       : type === "spline" ? "Spline · click points it goes THROUGH, Enter to finish"
       : type === "bspline" ? "Control curve · click points that PULL it, Enter to finish"
@@ -2444,6 +2519,22 @@ function buildSketchRail() {
     relations.appendChild(button);
   }
   rail.appendChild(relations);
+  rail.appendChild(document.createElement("hr"));
+
+  // The third group: things that change what is drawn rather than add to it or
+  // hold it. One so far, and it is the one every drawing board has.
+  const changes = document.createElement("div");
+  changes.dataset.group = "changes";
+  const round = document.createElement("button");
+  round.className = "tool";
+  round.dataset.change = "fillet";
+  round.dataset.label = "Fillet \u00b7 pick two lines or arcs, then a radius";
+  round.dataset.short = "Fillet";
+  round.setAttribute("aria-label", "Fillet");
+  round.innerHTML = svg(SKETCH_ICONS.fillet);
+  round.addEventListener("click", roundSketchCorner);
+  changes.appendChild(round);
+  rail.appendChild(changes);
 }
 
 //! Three arrows. Sized against the camera distance so they stay the same size
@@ -2663,6 +2754,13 @@ const SKETCH_ICONS = {
   circle: '<circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/>',
   ellipse: '<ellipse cx="8" cy="8" rx="6.2" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/>',
   oblong: '<rect x="1.6" y="4.6" width="12.8" height="6.8" rx="3.4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+  rect: '<rect x="2.2" y="4" width="11.6" height="8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+      + '<circle cx="2.2" cy="12" r="1.3" fill="currentColor"/><circle cx="13.8" cy="4" r="1.3" fill="currentColor"/>',
+  // Two straight runs and the arc that replaces the corner they made.
+  fillet: '<path d="M2.6 13.4V8.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
+        + '<path d="M7.4 3.6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
+        + '<path d="M2.6 8.6A4.8 4.8 0 017.4 3.6" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+        + '<path d="M2.6 3.6h4.8M2.6 3.6v5" stroke="currentColor" stroke-width=".9" stroke-dasharray="1.8 1.6" opacity=".5"/>',
   spline: '<path d="M1.8 11.5c2.6 0 2.6-7 5.2-7s2.6 7 5.2 7 2.6-3 2.6-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   // The control polygon, and the curve it pulls. What tells the two spline
   // tools apart is exactly this: one goes THROUGH its points, the other is
@@ -3255,13 +3353,58 @@ const menuRule = () =>
 //! Shown, then placed: the size it measures is the size it will be. With `up`
 //! the y given is the menu's BOTTOM rather than its top, which is what a menu
 //! hanging off a bar along the bottom of the window needs.
+//!
+//! A MENU NEVER GOES OFF THE SCREEN, whatever is in it. Clamping the top was
+//! not enough: a menu taller than the window still ran off the bottom, and the
+//! items past the edge were unreachable. So it is given the taller of the two
+//! sides of the cursor to live in, capped to it, and told to scroll - which is
+//! what a long menu does everywhere else. Middle-drag scrolls it too, because
+//! a trackpad wheel over a menu is not always a scroll.
+const MENU_EDGE = 8;
 function placeMenu(x, y, up = false) {
   const menu = document.getElementById("menu");
   menu.hidden = false;
-  const box = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, innerWidth - box.width - 8) + "px";
-  menu.style.top = Math.max(8, up ? y - box.height
-                                  : Math.min(y, innerHeight - box.height - 8)) + "px";
+  menu.style.maxHeight = "";
+  menu.scrollTop = 0;
+  const natural = menu.getBoundingClientRect().height;
+  const width = menu.getBoundingClientRect().width;
+
+  // Which side of the cursor it hangs from. Its own side if it fits there,
+  // otherwise whichever side has more room - and a menu that fits nowhere
+  // takes the bigger half and scrolls.
+  const below = innerHeight - y - MENU_EDGE;
+  const above = y - MENU_EDGE;
+  const wantsUp = up ? natural <= above || above >= below
+                     : natural > below && above > below;
+  const room = Math.max(120, wantsUp ? above : below);
+  const height = Math.min(natural, room);
+  menu.style.maxHeight = room + "px";
+  menu.dataset.scrolls = natural > room ? "1" : "";
+  menu.style.left = Math.max(MENU_EDGE, Math.min(x, innerWidth - width - MENU_EDGE)) + "px";
+  menu.style.top = Math.max(MENU_EDGE, wantsUp ? y - height : Math.min(y, innerHeight - height - MENU_EDGE)) + "px";
+}
+
+//! Middle-drag anywhere in a menu scrolls it, the way it does in a drawing
+//! list. A long menu on a trackpad otherwise needs a gesture the pointer is
+//! already busy with.
+{
+  const menu = document.getElementById("menu");
+  let grab = null;
+  menu.addEventListener("pointerdown", event => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    grab = { y: event.clientY, top: menu.scrollTop };
+    menu.setPointerCapture(event.pointerId);
+  });
+  menu.addEventListener("pointermove", event => {
+    if (!grab) return;
+    menu.scrollTop = grab.top - (event.clientY - grab.y);
+  });
+  const let_go = () => { grab = null; };
+  menu.addEventListener("pointerup", let_go);
+  menu.addEventListener("pointercancel", let_go);
+  // A middle click in a menu is a scroll gesture, never a paste or a new tab.
+  menu.addEventListener("auxclick", event => { if (event.button === 1) event.preventDefault(); });
 }
 
 /* -------------------------------------------------------- the document menu
@@ -3394,13 +3537,14 @@ function openMenu(event, entry) {
     item("Take out" + (several ? " of their sets" : " of "
            + (feature(entry.parent) || {}).name), "to the top level",
       () => edit.many(filed.map(id => ({ op: "group", id }))));
-  for (const set of containers) {
-    const moving = many.filter(id => (feature(id) || {}).parent !== set.id);
-    if (!moving.length) continue;
-    item("Move " + (several ? moving.length + " into " : "into ") + set.name,
-      set.type === "Body" ? "solids" : "wireframe",
-      () => edit.many(moving.map(id => ({ op: "group", id, into: set.id }))));
-  }
+  // ONE LINE, NOT ONE PER SET. A document with nine sets in it turned this
+  // menu into a list of nine "Move into …" lines and pushed everything that
+  // matters off the bottom. Where a thing lives is ONE question; the answer is
+  // a list, and a list belongs behind the question rather than in front of it.
+  if (containers.length)
+    item("Move to a set\u2026", containers.length
+           + (containers.length === 1 ? " to choose from" : " to choose from"),
+      () => openSetMenu(event, entry, many, containers));
   if (filed.length || containers.length) rule();
 
   // Hiding is a per-row eye in the tree and there is only one hand: hiding
@@ -3417,6 +3561,33 @@ function openMenu(event, entry) {
       : entry.category === "container" ? "keeps what is in it" : "",
     () => deleteFeature(many));
 
+  placeMenu(event.clientX, event.clientY);
+}
+
+//! The second page of the menu: which set. Same menu, same place - a menu that
+//! jumps somewhere else to ask the second half of its own question is a menu
+//! you lose your place in. Back returns to the first page rather than closing,
+//! because choosing wrongly should not mean right-clicking again.
+function openSetMenu(event, entry, many, containers) {
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  menuHead("Move to a set");
+  menuItem("\u2039 Back", "", () => openMenu(event, entry));
+  menuRule();
+  const part = (state.tree && state.tree.name) || "Part";
+  const loose = many.filter(id => (feature(id) || {}).parent);
+  menuItem(part, "the whole document \u00b7 the top level",
+    loose.length ? () => edit.many(loose.map(id => ({ op: "group", id }))) : null);
+  for (const set of containers) {
+    const moving = many.filter(id => (feature(id) || {}).parent !== set.id);
+    const holds = (set.contents || []).length;
+    menuItem(set.name,
+      (set.type === "Body" ? "body" : "set") + " \u00b7 "
+        + (holds ? holds + (holds === 1 ? " feature" : " features") : "empty"),
+      moving.length
+        ? () => edit.many(moving.map(id => ({ op: "group", id, into: set.id })))
+        : null);
+  }
   placeMenu(event.clientX, event.clientY);
 }
 
@@ -5163,6 +5334,7 @@ document.getElementById("sketch-tangent").addEventListener("click", () => {
   sketcher.tangent = !sketcher.tangent;
   refreshSketch();
 });
+document.getElementById("sketch-do-round").addEventListener("click", roundSketchCorner);
 
 /* ----------------------------------------------------------------------- AI
 

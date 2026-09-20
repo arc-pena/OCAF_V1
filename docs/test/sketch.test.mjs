@@ -186,12 +186,28 @@ console.log("\n7. the plane moves the whole drawing");
   check("but the geometry does", before.length === after.length &&
     JSON.stringify(before) !== JSON.stringify(after));
 
+  // The origin says WHERE ON THE PLANE the drawing's (0,0) is. Moved within
+  // the plane it takes the drawing with it; moved along the normal it does
+  // not, because the drawing is on the plane and a point off the plane is not
+  // a reason for it to leave. The plane here is YZ, so y is across it and x is
+  // straight off it.
   const moved = (await kernel.addFeature("Point", {})).id;
-  await kernel.setParameter(moved, "x", 300);
+  await kernel.setParameter(moved, "y", 300);
   await kernel.setReference(sketchId, "origin", moved);
   const shifted = (await kernel.mesh([pad])).features[0].positions;
-  check("and moving the origin moves the drawing with it",
+  check("and moving the origin across the plane moves the drawing with it",
     JSON.stringify(shifted) !== JSON.stringify(after));
+
+  await kernel.setParameter(moved, "x", 300);
+  const lifted = (await kernel.mesh([pad])).features[0].positions;
+  check("but an origin off the plane does not take the drawing off it",
+    JSON.stringify(lifted) === JSON.stringify(shifted));
+  // And the frame the viewport draws through says the same thing: its origin
+  // is ON the plane, whatever point it was handed.
+  const frame = (await at(sketchId)).sketch.frame;
+  check("with the frame still seated on the plane",
+    Math.abs(frame.origin[0]) < 1e-6, JSON.stringify(frame.origin));
+  await kernel.setParameter(moved, "x", 0);
 }
 
 console.log("\n8. arcs, ellipses, oblongs and splines all build");

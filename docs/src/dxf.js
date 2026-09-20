@@ -693,6 +693,8 @@ function collapsed(el) {
     case "point":   return false;
     case "line":    return nothing(el.a, el.b);
     case "oblong":  return !(el.r > 0) || nothing(el.a, el.b);
+    case "rect":    return Math.abs(el.b[0] - el.a[0]) < 1e-9
+                        || Math.abs(el.b[1] - el.a[1]) < 1e-9;
     case "circle":  return !(el.r > 0);
     case "arc":     return !(el.r > 0) || Math.abs(el.a1 - el.a0) < 1e-9;
     case "ellipse": return !(el.rx > 0) || !(el.ry > 0);
@@ -761,6 +763,16 @@ function entitiesOf(el, layer) {
            + tag(210, 0) + tag(220, 0) + tag(230, 1)
            + tag(40, (el.ry || 0) / (el.rx || 1))
            + tag(41, whole ? 0 : el.a0) + tag(42, whole ? TAU : el.a1);
+    }
+    case "rect": {
+      // A closed polyline of four corners, which is what a rectangle is in
+      // DXF too - there is no rectangle entity, only LWPOLYLINE with the
+      // closed flag set.
+      const [u0, v0] = el.a, [u1, v1] = el.b;
+      const run = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+      let text = head("LWPOLYLINE") + tag(100, "AcDbPolyline") + tag(90, 4) + tag(70, 1);
+      for (const p of run) text += tag(10, p[0]) + tag(20, p[1]);
+      return text;
     }
     case "oblong": {
       // A slot is two straights and two half turns, and DXF has no word for

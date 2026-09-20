@@ -21,7 +21,7 @@
 //!
 //! Every element carries its own geometry in 2D. Nothing is implicit and
 //! nothing is derived at rest, so the JSON is the drawing.
-export const SKETCH_TYPES = ["point", "line", "arc", "circle", "ellipse", "oblong",
+export const SKETCH_TYPES = ["point", "line", "rect", "arc", "circle", "ellipse", "oblong",
                              "spline", "bspline"];
 
 //! An ellipse with no a0/a1 is the whole of one; with them it is the arc of
@@ -101,6 +101,13 @@ export function sketchElement(type, id, clicks) {
       const r = Math.max(0.1, Math.abs(dot(sub(p(2), b), perp(along))));
       return { id, type, a: sketchRound(a), b: sketchRound(b), r: round1(r) };
     }
+    //! TWO OPPOSITE CORNERS, square to the sheet. The one profile a drawing
+    //! board is asked for more than any other, and it was the one shape you
+    //! had to build out of four lines and four coincidences. Square to u and
+    //! v because that is what a rectangle on a sheet of paper is; a rectangle
+    //! at an angle is this one on a plane that is at that angle, which is how
+    //! a modeller would rather say it anyway.
+    case "rect":   return { id, type, a: sketchRound(p(0)), b: sketchRound(p(1)) };
     case "spline": return { id, type, pts: clicks.map(sketchRound), closed: false };
     // Drawn, a B-spline is its control points - the polygon you pull on, not
     // a run of points the curve goes through. Imported, it is whatever the
@@ -129,8 +136,8 @@ const round4 = v => Math.round(v * 1e6) / 1e6;
 
 //! How many clicks each kind wants before it is a thing. A spline is however
 //! many you give it.
-export const SKETCH_CLICKS = { point: 1, line: 2, circle: 2, arc: 3, ellipse: 3, oblong: 3,
-                               spline: 0, bspline: 0 };
+export const SKETCH_CLICKS = { point: 1, line: 2, rect: 2, circle: 2, arc: 3, ellipse: 3,
+                               oblong: 3, spline: 0, bspline: 0 };
 
 //! The points on an element that can be taken hold of - by the solver, by a
 //! coincidence, or by a cursor. Named, because a constraint says "e1.b".
@@ -143,6 +150,11 @@ export function sketchHandles(el) {
     case "ellipse": return wholeEllipse(el) ? [["c", el.c]]
       : [["c", el.c], ["start", ellipseAt(el, el.a0)], ["end", ellipseAt(el, el.a1)]];
     case "oblong":  return [["a", el.a], ["b", el.b]];
+    // All four, because a rectangle is dragged by whichever corner is nearest
+    // the hand. The two that are not stored are named for the coordinates they
+    // take from each end, so "r1.ab" is a's u and b's v.
+    case "rect":    return [["a", el.a], ["b", el.b],
+                            ["ab", [el.a[0], el.b[1]]], ["ba", [el.b[0], el.a[1]]]];
     case "spline":  return el.pts.map((p, i) => ["p" + i, p]);
     case "bspline": return (el.ctrl || []).map((p, i) => ["p" + i, p]);
     default: return [];
@@ -184,6 +196,14 @@ export function sketchMoveHandle(el, key, to) {
       }
       return;
     case "oblong":  if (key === "a") el.a = p; else el.b = p; return;
+    case "rect":
+      // Dragging a corner moves the two edges that meet at it and leaves the
+      // opposite corner where it is, which is what a rectangle handle does.
+      if (key === "a") el.a = p;
+      else if (key === "b") el.b = p;
+      else if (key === "ab") { el.a = sketchRound([p[0], el.a[1]]); el.b = sketchRound([el.b[0], p[1]]); }
+      else { el.b = sketchRound([p[0], el.b[1]]); el.a = sketchRound([el.a[0], p[1]]); }
+      return;
     case "arc":
       if (key === "c") { el.c = p; return; }
       {
@@ -257,6 +277,10 @@ export function sketchOutline(el, quality = 64) {
         ...round(angle + Math.PI / 2, angle + Math.PI * 1.5, el.r, el.a),
         add(el.b, mul(across, -el.r)),
       ];
+    }
+    case "rect": {
+      const [u0, v0] = el.a, [u1, v1] = el.b;
+      return [[u0, v0], [u1, v0], [u1, v1], [u0, v1], [u0, v0]];
     }
     case "spline": return splinePoints(el, Math.max(8, quality / 4));
     case "bspline": return bsplinePoints(el, Math.max(8, quality / 4));
@@ -378,6 +402,7 @@ export function sketchEnds(el) {
     case "line":   return { a: el.a, b: el.b, closed: false };
     case "arc":    return { a: arcEnd(el, el.a0), b: arcEnd(el, el.a1), closed: false };
     case "circle":
+    case "rect":
     case "oblong": return { a: null, b: null, closed: true };
     case "ellipse": return wholeEllipse(el) ? { a: null, b: null, closed: true }
       : { a: ellipseAt(el, el.a0), b: ellipseAt(el, el.a1), closed: false };
@@ -737,6 +762,224 @@ export function sketchTangentArc(from, tangent, to, id) {
   const a1 = a0 + turn(anticlockwise ? b - a : a - b);
   return { id, type: "arc", c: sketchRound(c), r: round1(radius),
            a0: round4(a0), a1: round4(a1) };
+}
+
+/* ------------------------------------------------------------ the fillet
+
+   ROUNDING A DRAWN CORNER. Two lines meeting at a corner and an arc of a given
+   radius tangent to both: the oldest tool on a drawing board and the one that
+   was missing here, so every rounded profile had to be drawn as an arc by hand
+   and then held on with two tangencies that may or may not have solved.
+
+   The whole of it is finding the CENTRE. An arc of radius r tangent to a line
+   has its centre on one of the two lines parallel to it at r; tangent to a
+   circle of radius R, on one of the two circles about the same centre at R + r
+   and R - r. So the centre of a fillet between any two of those is where one
+   of the first pair crosses one of the second - four candidates, and the right
+   one is the one nearest the corner being rounded. That is exact for lines and
+   arcs alike, which is the point of doing it this way rather than by walking
+   back along a tangent.
+
+   The two tangency points come free once the centre is known: the foot of the
+   perpendicular on a line, and the crossing of the centre line on a circle.
+   Both curves are then trimmed to them and the arc is put in between, held
+   with a coincidence at either end so the drawing still says why it is a
+   corner.                                                                   */
+
+//! What the two offset paths of an element are. A line gives two lines, an arc
+//! or a circle two circles. Anything else gives nothing, which is how this
+//! refuses a spline rather than guessing at one.
+function offsetsOf(el, r) {
+  if (el.type === "line") {
+    const along = norm(sub(el.b, el.a));
+    if (!along) return [];
+    const side = perp(along);
+    return [{ line: true, at: add(el.a, mul(side, r)), along },
+            { line: true, at: add(el.a, mul(side, -r)), along }];
+  }
+  if (el.type === "arc" || el.type === "circle") {
+    const out = [{ line: false, c: el.c, r: el.r + r }];
+    if (el.r - r > 1e-9) out.push({ line: false, c: el.c, r: el.r - r });
+    return out;
+  }
+  return [];
+}
+
+//! Where two offset paths cross. Two lines give one point, a line and a circle
+//! up to two, two circles up to two.
+function offsetCross(one, two) {
+  if (one.line && two.line) {
+    const bottom = one.along[0] * two.along[1] - one.along[1] * two.along[0];
+    if (Math.abs(bottom) < 1e-12) return [];
+    const d = sub(two.at, one.at);
+    const t = (d[0] * two.along[1] - d[1] * two.along[0]) / bottom;
+    return [add(one.at, mul(one.along, t))];
+  }
+  if (one.line !== two.line) {
+    const line = one.line ? one : two, circle = one.line ? two : one;
+    const d = sub(circle.c, line.at);
+    const along = line.along;
+    const foot = add(line.at, mul(along, dot(d, along)));
+    const off = len(sub(circle.c, foot));
+    if (off > circle.r + 1e-9) return [];
+    const half = Math.sqrt(Math.max(0, circle.r * circle.r - off * off));
+    return [add(foot, mul(along, half)), add(foot, mul(along, -half))];
+  }
+  const between = sub(two.c, one.c);
+  const span = len(between);
+  if (span < 1e-12 || span > one.r + two.r + 1e-9
+      || span < Math.abs(one.r - two.r) - 1e-9) return [];
+  const along = mul(between, 1 / span);
+  const a = (one.r * one.r - two.r * two.r + span * span) / (2 * span);
+  const half = Math.sqrt(Math.max(0, one.r * one.r - a * a));
+  const foot = add(one.c, mul(along, a));
+  const side = perp(along);
+  return [add(foot, mul(side, half)), add(foot, mul(side, -half))];
+}
+
+//! Where a point touches an element - the foot of the perpendicular on a line,
+//! the crossing of the centre line on a circle.
+function touchOn(el, at) {
+  if (el.type === "line") {
+    const along = norm(sub(el.b, el.a));
+    if (!along) return null;
+    return add(el.a, mul(along, dot(sub(at, el.a), along)));
+  }
+  const away = norm(sub(at, el.c));
+  return away ? add(el.c, mul(away, el.r)) : null;
+}
+
+//! The corner two elements make: whichever of their ends are nearest each
+//! other. Not their crossing - two lines that stop short of each other still
+//! have a corner, and it is the one you can see.
+function cornerBetween(one, two) {
+  const ends = el => {
+    const e = sketchEnds(el);
+    if (!e) return [];
+    return [e.a, e.b].filter(Boolean);
+  };
+  let best = null, far = Infinity;
+  for (const p of ends(one)) for (const q of ends(two)) {
+    const d = len(sub(p, q));
+    if (d < far) { far = d; best = mid(p, q); }
+  }
+  if (best) return best;
+  return null;
+}
+
+//! Move whichever end of an element is nearest \p was to the point \p to, and
+//! say which end that was so the arc can be held on to it.
+function trimTo(el, was, to) {
+  if (el.type === "line") {
+    const key = len(sub(el.a, was)) <= len(sub(el.b, was)) ? "a" : "b";
+    if (key === "a") el.a = sketchRound(to); else el.b = sketchRound(to);
+    return key;
+  }
+  if (el.type === "arc") {
+    const angle = Math.atan2(to[1] - el.c[1], to[0] - el.c[0]);
+    const start = arcEnd(el, el.a0), end = arcEnd(el, el.a1);
+    const turn = x => ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    if (len(sub(start, was)) <= len(sub(end, was))) {
+      // The start moves forward: keep the sweep pointing the same way round.
+      let a0 = el.a1 - turn(el.a1 - angle);
+      el.a0 = round4(a0);
+      return "start";
+    }
+    let a1 = el.a0 + turn(angle - el.a0);
+    el.a1 = round4(a1);
+    return "end";
+  }
+  // A circle has no end to trim; rounding INTO one turns it into an arc, and
+  // that is a different tool.
+  return null;
+}
+
+//! ROUND THE CORNER BETWEEN TWO ELEMENTS. Hands back a new drawing with both
+//! trimmed and an arc between them, held on at either end. Throws with a
+//! sentence rather than returning nothing, because every refusal here is
+//! something the person can act on: pick a different pair, or a smaller radius.
+export function sketchFillet(drawing, firstRef, secondRef, radius, id = "f1") {
+  const work = JSON.parse(JSON.stringify(drawing || EMPTY_SKETCH));
+  const map = byId(work);
+  const nameOf = ref => String(ref || "").split(".")[0];
+  const one = map.get(nameOf(firstRef)), two = map.get(nameOf(secondRef));
+  if (!one || !two) throw new Error("pick two elements of the drawing to round between");
+  if (one.id === two.id) throw new Error("a corner takes two different elements");
+  const roundable = new Set(["line", "arc", "circle"]);
+  for (const el of [one, two])
+    if (!roundable.has(el.type))
+      throw new Error("a fillet rounds between lines, arcs and circles - "
+        + el.id + " is a " + el.type);
+  const r = Number(radius);
+  if (!(r > 0)) throw new Error("the fillet radius must be greater than zero");
+
+  const corner = cornerBetween(one, two);
+  if (!corner) throw new Error("those two have no corner between them");
+
+  // IS THERE A CORNER AT ALL? Two runs that arrive at the same place going the
+  // same way make a smooth join, and a fillet between them is an arc of no
+  // sweep - which is not a small fillet, it is nothing, and putting it in the
+  // drawing would break the chain it was put into. Asked here rather than of
+  // the answer, so the sentence names the reason instead of the symptom.
+  const wayAt = (el, p) => {
+    if (el.type === "line") return norm(sub(el.b, el.a));
+    const away = norm(sub(p, el.c));
+    return away ? perp(away) : null;
+  };
+  const w1 = wayAt(one, corner), w2 = wayAt(two, corner);
+  if (w1 && w2 && Math.abs(w1[0] * w2[1] - w1[1] * w2[0]) < 1e-9)
+    throw new Error(one.id + " and " + two.id + " already meet smoothly - "
+      + "there is no corner there to round");
+
+  let best = null, far = Infinity;
+  for (const a of offsetsOf(one, r)) for (const b of offsetsOf(two, r)) {
+    for (const at of offsetCross(a, b)) {
+      const t1 = touchOn(one, at), t2 = touchOn(two, at);
+      if (!t1 || !t2) continue;
+      const d = len(sub(at, corner));
+      if (d < far) { far = d; best = { at, t1, t2 }; }
+    }
+  }
+  if (!best)
+    throw new Error("no arc of " + r + " fits that corner - try a smaller radius");
+
+  // The arc: from one tangency point to the other, the short way round, which
+  // is the only one that is a fillet rather than the rest of the circle.
+  const angleOf = p => Math.atan2(p[1] - best.at[1], p[0] - best.at[0]);
+  const turn = x => ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const s1 = angleOf(best.t1), s2 = angleOf(best.t2);
+  const forward = turn(s2 - s1);
+  // A fillet's sweep is a right angle at a right-angled corner and nothing at
+  // all where the two already run into each other smoothly. Nothing at all is
+  // not a small fillet, it is the absence of a corner, and putting a
+  // zero-length arc into the drawing would only break the chain.
+  const sweep = Math.min(forward, Math.PI * 2 - forward);
+  if (sweep < 0.009)
+    throw new Error(one.id + " and " + two.id + " already meet smoothly - "
+      + "there is no corner there to round");
+  const arc = forward <= Math.PI
+    ? { id, type: "arc", c: sketchRound(best.at), r: round1(r),
+        a0: round4(s1), a1: round4(s1 + forward) }
+    : { id, type: "arc", c: sketchRound(best.at), r: round1(r),
+        a0: round4(s2), a1: round4(s2 + turn(s1 - s2)) };
+
+  const k1 = trimTo(one, corner, best.t1);
+  const k2 = trimTo(two, corner, best.t2);
+  if (!k1 || !k2)
+    throw new Error("a circle has no end to trim - round between two arcs or lines");
+
+  // The coincidence that held the old corner is about a corner that is no
+  // longer there. It goes, and two new ones take its place.
+  const held = new Set([one.id + "." + k1, two.id + "." + k2]);
+  work.constraints = (work.constraints || []).filter(c =>
+    !(c.type === "coincident" && (c.of || []).every(ref => held.has(ref))));
+  work.elements.push(arc);
+  const arcStart = len(sub(arcEnd(arc, arc.a0), best.t1))
+                 <= len(sub(arcEnd(arc, arc.a0), best.t2)) ? "start" : "end";
+  const arcEndKey = arcStart === "start" ? "end" : "start";
+  work.constraints.push({ type: "coincident", of: [one.id + "." + k1, arc.id + "." + arcStart] });
+  work.constraints.push({ type: "coincident", of: [two.id + "." + k2, arc.id + "." + arcEndKey] });
+  return { drawing: work, arc: arc.id, radius: r };
 }
 
 //! One chain's elements with their ends welded shut. Two elements that a
@@ -1217,7 +1460,8 @@ export function sketchMoveElement(el, by) {
     case "circle":
     case "arc":
     case "ellipse": el.c = to(el.c); return;
-    case "oblong":  el.a = to(el.a); el.b = to(el.b); return;
+    case "oblong":
+    case "rect":    el.a = to(el.a); el.b = to(el.b); return;
     case "spline":  el.pts = (el.pts || []).map(to); return;
     case "bspline": el.ctrl = (el.ctrl || []).map(to); return;
   }

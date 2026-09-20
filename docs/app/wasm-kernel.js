@@ -65,6 +65,17 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     return data && data.kind === "point" && data.values.length >= 3
       ? [data.values[0], data.values[1], data.values[2]] : null;
   };
+  //! The same, but ALL of them. A point feature may be a row - a list of
+  //! numbers wired into a coordinate, a divided curve, a drape - and an
+  //! operation about points is about every one of them, not about the first.
+  const readPoints = f => {
+    const data = f && F.data(f);
+    if (!data || data.kind !== "point") return [];
+    const out = [];
+    for (let i = 0; i + 2 < data.values.length; i += 3)
+      out.push([data.values[i], data.values[i + 1], data.values[i + 2]]);
+    return out;
+  };
   const readVector = f => {
     const data = f && F.data(f);
     return data && data.kind === "vector" && data.values.length >= 3
@@ -394,6 +405,14 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         }
         if (kind === 4 && !(F.shape(F.reference(f, "first")) && F.shape(F.reference(f, "second"))))
           return "two curves are needed";
+        if (kind === 5) {
+          if (!F.reference(f, "what")) return "no point to project";
+          const onto = F.reference(f, "onto");
+          if (!onto) return "nothing to project onto";
+          const mesh = F.data(onto);
+          if (!(mesh && mesh.kind === "mesh") && !F.shape(onto))
+            return F.name(onto) + " has not been built";
+        }
         return null;
       },
       build: f => {
@@ -418,6 +437,22 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
                                       F.shape(F.reference(f, "second")));
           if (!meet) throw new Error("those two never come near each other");
           rows = [meet.at];
+        } else if (kind === 5) {
+          // DROPPED ONTO SOMETHING. A whole row at a time, because the point it
+          // is given may itself be a row: a grid of points projected onto a
+          // plane is a grid on that plane, which is what makes this worth
+          // having rather than five separate nodes.
+          const from = F.reference(f, "what");
+          const onto = F.reference(f, "onto");
+          const straight = Feature_choice(f, "way") === 1;
+          const source = readPoints(from);
+          if (!source.length) throw new Error("that has no points to project");
+          rows = source.map(at => {
+            const landed = projectOnto(at, onto, straight);
+            if (!landed) throw new Error("that point does not land on "
+              + F.name(onto) + " - it is past its edge, or the normal misses it");
+            return landed;
+          });
         } else {
           // Coordinates. Wire a list of numbers into one and a point becomes a
           // row of them: the shortest list repeats its last value, the rule
@@ -1248,18 +1283,74 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   //! Whatever a shape offers, as one wire. The factories take shapes, so this
   //! is the form they are handed; the feature form below is the same thing with
   //! the label read off first.
-  function wireFrom(shape, what = "curve") {
+  const WIRE = oc.TopAbs_ShapeEnum.TopAbs_WIRE;
+
+  //! Is this wire a loop? Asked of the wire rather than of its Closed() flag,
+  //! which is only as true as whoever built it remembered to set it: a wire of
+  //! n edges is closed when it has n corners rather than n + 1.
+  function wireIsClosed(wire) {
+    const edges = subShapes(wire, EDGE, oc.TopoDS.Edge).length;
+    if (!edges) return false;
+    const corners = [];
+    for (const v of subShapes(wire, VERTEX, oc.TopoDS.Vertex))
+      if (!corners.some(other => other.IsSame(v))) corners.push(v);
+    return corners.length === edges;
+  }
+
+  //! How big a wire is, as its bounding box's diagonal. What "the outer one"
+  //! means when a drawing hands over a rectangle and the circle inside it.
+  function wireSpan(wire) {
+    const box = new oc.Bnd_Box();
+    oc.BRepBndLib.Add(wire, box, false);
+    if (box.IsVoid()) { box.delete(); return 0; }
+    const lo = box.CornerMin(), hi = box.CornerMax();
+    const span = Math.hypot(hi.X() - lo.X(), hi.Y() - lo.Y(), hi.Z() - lo.Z());
+    box.delete();
+    return span;
+  }
+
+  //! ONE WIRE OUT OF WHATEVER ARRIVED, and the truth about how many there
+  //! were.
+  //!
+  //! A DRAWING IS NOT ONE LOOP. A sketch with a rectangle and a circle in it
+  //! is two, and pouring every edge of both into a single BRepBuilderAPI_
+  //! MakeWire answers "BRep_API: command not done" - which is what stopped a
+  //! perfectly good sketch being a loft section. Several loops means the outer
+  //! one, because that is what a section IS: the hole in it is a second loft
+  //! and a cut, not something ThruSections has a word for. Closed first, then
+  //! biggest, so a stray line left in the drawing cannot win.
+  function wiresFrom(shape, what = "curve") {
     if (!shape) throw new Error("the " + what + " has not been built");
-    if (shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_WIRE) return oc.TopoDS.Wire(shape);
+    if (shape.ShapeType() === WIRE) return { wires: [oc.TopoDS.Wire(shape)], loose: false };
     if (shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_EDGE)
-      return new oc.BRepBuilderAPI_MakeWire(oc.TopoDS.Edge(shape)).Wire();
-    const explorer = new oc.TopExp_Explorer(shape, EDGE, ANY);
+      return { wires: [new oc.BRepBuilderAPI_MakeWire(oc.TopoDS.Edge(shape)).Wire()],
+               loose: false };
+    const found = uniqueSubs(shape, WIRE, oc.TopoDS.Wire);
+    if (found.length) return { wires: found, loose: false };
+    // No wires at all: loose edges, which is what a curve node hands over.
+    const edges = subShapes(shape, EDGE, oc.TopoDS.Edge);
+    if (!edges.length) throw new Error("the " + what + " has no edges");
     const maker = new oc.BRepBuilderAPI_MakeWire();
-    let any = false;
-    while (explorer.More()) { maker.Add(oc.TopoDS.Edge(explorer.Current())); any = true; explorer.Next(); }
-    explorer.delete();
-    if (!any) throw new Error("the " + what + " has no edges");
-    return maker.Wire();
+    for (const edge of edges) maker.Add(edge);
+    if (!maker.IsDone())
+      throw new Error("the " + what + " is several separate runs, so it is not one wire");
+    return { wires: [maker.Wire()], loose: true };
+  }
+
+  function wireFrom(shape, what = "curve") {
+    const { wires } = wiresFrom(shape, what);
+    if (wires.length === 1) return wires[0];
+    const closed = wires.filter(wireIsClosed);
+    const among = closed.length ? closed : wires;
+    return among.reduce((best, one) => wireSpan(one) > wireSpan(best) ? one : best, among[0]);
+  }
+
+  //! The same, and how many it had to choose between - so an operation can say
+  //! "the outer loop of Sketch.1" rather than quietly using one of three.
+  function outlineOf(source, what) {
+    const shape = source && F.shape(source);
+    const { wires } = wiresFrom(shape, what);
+    return { wire: wireFrom(shape, what), many: wires.length };
   }
 
   const wireOf = (source, what) => wireFrom(source && F.shape(source), what);
@@ -1464,8 +1555,18 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       || new oc.gp_Ax2(pnt([0, 0, 0]), dir([0, 0, 1]));
     const X = axis.XDirection(), Y = axis.YDirection(), N = axis.Direction();
     const here = axis.Location();
-    const origin = readPoint(F.reference(f, "origin")) || [here.X(), here.Y(), here.Z()];
     const x = [X.X(), X.Y(), X.Z()], y = [Y.X(), Y.Y(), Y.Z()], n = [N.X(), N.Y(), N.Z()];
+    const seat = [here.X(), here.Y(), here.Z()];
+    // A POINT OFF THE PLANE DOES NOT LIFT THE SKETCH OFF IT. The origin says
+    // WHERE ON the plane the drawing's (0, 0) sits; a point that happens to be
+    // two metres above it slides the origin within the plane, it does not carry
+    // the drawing up with it. Wired straight through, any point in the model
+    // took the whole sketch off its own plane - so the sketch was not on the
+    // plane it said it was on, every constraint was measured somewhere else,
+    // and a pad off it started in mid-air. It is projected, the way every
+    // modeller projects it.
+    const asked = readPoint(F.reference(f, "origin"));
+    const origin = asked ? V.sub(asked, V.scale(n, V.dot(V.sub(asked, seat), n))) : seat;
     return {
       normal: n, x, y, origin,
       //! Two numbers on the paper, one point in the world.
@@ -1573,6 +1674,13 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
                 straight(frame, b2, a1),
                 arcThrough(frame, a1, off(el.a, 0, -1), a2),
                 straight(frame, a2, b1)];
+      }
+      case "rect": {
+        const [u0, v0] = el.a, [u1, v1] = el.b;
+        if (Math.abs(u1 - u0) < CONFUSION || Math.abs(v1 - v0) < CONFUSION) return [];
+        const corners = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        return corners.map((c, i) => straight(frame, c, corners[(i + 1) % 4]))
+                      .filter(Boolean);
       }
       case "spline": {
         const run = splinePoints(el, 12);
@@ -2936,6 +3044,88 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     return out;
   }
 
+  //! The nearest point to \p at on one triangle, and how far that is. The
+  //! classic clamp-to-the-triangle: inside the face it is the foot of the
+  //! perpendicular, outside it is the nearest point of the nearest edge.
+  function nearestOnTriangle(at, [a, b, c]) {
+    const ab = V.sub(b, a), ac = V.sub(c, a), ap = V.sub(at, a);
+    const d1 = V.dot(ab, ap), d2 = V.dot(ac, ap);
+    if (d1 <= 0 && d2 <= 0) return a;
+    const bp = V.sub(at, b);
+    const d3 = V.dot(ab, bp), d4 = V.dot(ac, bp);
+    if (d3 >= 0 && d4 <= d3) return b;
+    const vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0)
+      return V.add(a, V.scale(ab, d1 / (d1 - d3 || 1)));
+    const cp = V.sub(at, c);
+    const d5 = V.dot(ab, cp), d6 = V.dot(ac, cp);
+    if (d6 >= 0 && d5 <= d6) return c;
+    const vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0)
+      return V.add(a, V.scale(ac, d2 / (d2 - d6 || 1)));
+    const va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0)
+      return V.add(b, V.scale(V.sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6) || 1)));
+    const denom = 1 / (va + vb + vc);
+    return V.add(a, V.add(V.scale(ab, vb * denom), V.scale(ac, vc * denom)));
+  }
+
+  //! WHERE A POINT LANDS ON SOMETHING ELSE. A plane is answered exactly and
+  //! without an edge - the foot of the perpendicular, which is still on the
+  //! plane a hundred metres past where the plane happens to be DRAWN, because
+  //! a plane is infinite and only its picture is not. Anything else is
+  //! answered off its triangles: nearest point, or straight down, which is the
+  //! one an architect means by "put this on the site".
+  function projectOnto(at, onto, straightDown) {
+    const plane = planeAxis(onto);
+    if (plane && !straightDown) {
+      const N = plane.Direction(), P = plane.Location();
+      const n = [N.X(), N.Y(), N.Z()], seat = [P.X(), P.Y(), P.Z()];
+      return V.sub(at, V.scale(n, V.dot(V.sub(at, seat), n)));
+    }
+    let triangles = [];
+    try { triangles = targetTriangles(onto, "target"); } catch (error) { triangles = []; }
+    if (triangles.length) {
+      if (straightDown) {
+        let high = -Infinity;
+        for (const [a, b, c] of triangles) high = Math.max(high, a[2], b[2], c[2]);
+        const from = [at[0], at[1], high + 1];
+        let best = null;
+        for (const triangle of triangles) {
+          const t = rayHitsTriangle(from, [0, 0, -1], triangle);
+          if (t === null) continue;
+          const z = from[2] - t;
+          if (best === null || z > best) best = z;
+        }
+        return best === null ? null : [at[0], at[1], best];
+      }
+      let best = null, far = Infinity;
+      for (const triangle of triangles) {
+        const here = nearestOnTriangle(at, triangle);
+        const d = V.length(V.sub(here, at));
+        if (d < far) { far = d; best = here; }
+      }
+      return best;
+    }
+    // No surface at all: a curve will do, and the nearest point on it is the
+    // same question asked of one dimension fewer.
+    const shape = F.shape(onto);
+    if (!shape || straightDown) return null;
+    let best = null, far = Infinity;
+    for (const edge of eachEdge(shape)) {
+      const walk = new oc.BRepAdaptor_Curve(edge);
+      const steps = 64;
+      const t0 = walk.FirstParameter(), t1 = walk.LastParameter();
+      for (let i = 0; i <= steps; i++) {
+        const p = walk.Value(t0 + (t1 - t0) * (i / steps));
+        const here = [p.X(), p.Y(), p.Z()];
+        const d = V.length(V.sub(here, at));
+        if (d < far) { far = d; best = here; }
+      }
+    }
+    return best;
+  }
+
   builders.Drape = {
     precondition: f => {
       if (!F.references(f, "points").length) return "no points to drape";
@@ -3245,10 +3435,21 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       return null;
     },
     build: f => {
-      const sections = F.references(f, "sections").map(s => wireOf(s, "section"));
+      // A SECTION IS ONE LOOP. A drawing may hold several - a rectangle and
+      // the circle inside it - and ThruSections has no word for the second, so
+      // the outer one is taken and the node says it did rather than quietly
+      // choosing for you.
+      const sources = F.references(f, "sections");
+      const outlines = sources.map(s => outlineOf(s, "section"));
       const ruled = Feature_choice(f, "ruled") === 1;
-      return Feature_choice(f, "cap") === 0 ? SF.loft(sections, ruled)
-                                            : HSF.loft(sections, ruled);
+      const shape = Feature_choice(f, "cap") === 0
+        ? SF.loft(outlines.map(one => one.wire), ruled)
+        : HSF.loft(outlines.map(one => one.wire), ruled);
+      const several = sources.filter((s, i) => outlines[i].many > 1);
+      return several.length
+        ? { shape, note: "the outer loop of " + several.map(F.name).join(", ")
+              + (several.length === 1 ? "" : "") + " \u00b7 the rest is a second loft and a cut" }
+        : shape;
     },
   };
 

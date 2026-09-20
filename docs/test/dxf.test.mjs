@@ -360,6 +360,7 @@ function sample(type) {
     case "arc":     return { id: "x", type, c: [0, 0], r: 10, a0: 0, a1: 1 };
     case "ellipse": return { id: "x", type, c: [0, 0], rx: 10, ry: 5, rot: 0 };
     case "oblong":  return { id: "x", type, a: [0, 0], b: [10, 0], r: 3 };
+    case "rect":    return { id: "x", type, a: [0, 0], b: [10, 6] };
     case "spline":  return { id: "x", type, pts: [[0, 0], [5, 5], [10, 0]] };
     case "bspline": return { id: "x", type, ctrl: [[0, 0], [5, 5], [10, 0], [15, 5]], degree: 3 };
     default: throw new Error("no sample for " + type);

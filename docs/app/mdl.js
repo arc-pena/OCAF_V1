@@ -1,7 +1,7 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, nextSketchId, readSketch,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
-         sketchMoveHandle, sketchOverlaps, sketchRelation, sketchTangentArc,
+         sketchFillet, sketchMoveHandle, sketchOverlaps, sketchRelation, sketchTangentArc,
          solveSketch } from "./sketch.js";
 
 // The model description language.
@@ -477,6 +477,25 @@ export const MDL_OPS = [
           + "not already held together");
       drawing.constraints.push(...found);
       return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("fillet", ["id", "of", "radius"],
+    "Round the corner between two elements of a sketch: both are trimmed back and an "
+    + "arc of the radius given is put between them, held on at either end with a "
+    + "coincidence. of names the two - \"e1\" and \"e2\", or ends of them, which is "
+    + "what picking them in the sketcher gives. Lines, arcs and circles; a spline is "
+    + "refused rather than approximated. Two that already run into each other smoothly "
+    + "have no corner to round and say so.",
+    { op: "fillet", id: "SK1", of: ["e1", "e2"], radius: 20 },
+    async (ctx, edit) => {
+      const of = Array.isArray(edit.of) ? edit.of : [];
+      if (of.length !== 2) throw new Error('"of" names the two elements to round between');
+      const radius = Number(edit.radius);
+      if (!(radius > 0)) throw new Error('"radius" must be greater than zero');
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const made = sketchFillet(drawing, of[0], of[1], radius,
+                                nextSketchId(drawing, "f"));
+      return ctx.kernel.setSketch(edit.id, null, made.drawing);
     }),
 
   modelOp("erase", ["id", "element"],

@@ -1523,11 +1523,13 @@ export const CATALOGUE = [
   { type: "Point", guid: "9a1b2c30-0001-4c00-9e00-caf000000001", category: "datum",
     produces: "point",
     summary: "A location in space, found whichever way suits: typed in, along a curve, "
-           + "the centre of a circle, the far end of something in a direction, or where "
-           + "two curves come closest. Wire a list of numbers into a coordinate and one "
-           + "point becomes a row of them.",
+           + "the centre of a circle, the far end of something in a direction, where "
+           + "two curves come closest, or a point dropped onto a plane or a surface. "
+           + "Wire a list of numbers into a coordinate and one point becomes a row of "
+           + "them - and a list of points projected onto a plane comes back as a list.",
     args: [choice("kind", "Point", ["Coordinates", "On a curve", "Centre of",
-                                    "Extreme along", "Between two curves"], 0),
+                                    "Extreme along", "Between two curves",
+                                    "Projected onto"], 0),
            when(real("x", "X", 0, -2000, 2000, 0.5), "kind", 0),
            when(real("y", "Y", 0, -2000, 2000, 0.5), "kind", 0),
            when(real("z", "Z", 0, -2000, 2000, 0.5), "kind", 0),
@@ -1538,7 +1540,11 @@ export const CATALOGUE = [
            when(ref("along", "Direction", ["vector"]), "kind", 3),
            when(choice("end", "Which end", ["Furthest along", "Furthest back"], 0), "kind", 3),
            when(ref("first", "First curve", ["curve"]), "kind", 4),
-           when(ref("second", "Second curve", ["curve"]), "kind", 4)] },
+           when(ref("second", "Second curve", ["curve"]), "kind", 4),
+           when(ref("what", "Point", ["point"]), "kind", 5),
+           when(ref("onto", "Onto", ["plane", "solid", "curve", "mesh"]), "kind", 5),
+           when(choice("way", "How", ["Nearest point", "Straight down"], 0),
+                "kind", 5)] },
   //! And one vector node, the same way the point node works. A direction typed
   //! in and a direction read off the model are the same thing to everything
   //! downstream, so they are two settings of one node.
