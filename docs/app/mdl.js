@@ -240,6 +240,19 @@ export const MDL_OPS = [
         [needNumber(edit, "x"), needNumber(edit, "y"), needNumber(edit, "z")]);
     }),
 
+  modelOp("pick", ["id", "key", "picks"],
+    "Replace the sub-shapes an argument is about - which edges a fillet rounds, which "
+    + "face a draft hinges on. A pick names the feature it belongs to, the kind, the "
+    + "number, and where the thing was, so it can be found again after the body "
+    + "changes shape. An empty list means the operation's own default, which on a "
+    + "fillet is every edge.",
+    { op: "pick", id: "FL1", key: "edges",
+      picks: [{ of: "CB1", kind: "edge", at: 2, near: [40, 0, 40, 0, 1, 0, 40] }] },
+    (ctx, edit) => {
+      if (!Array.isArray(edit.picks)) throw new Error('"picks" must be a list');
+      return ctx.kernel.setPicks(needText(edit, "id"), needText(edit, "key"), edit.picks);
+    }),
+
   modelOp("meshop", ["id", "ops"],
     "Replace the whole list of mesh operations on an Edit Mesh. An operation is a "
     + "record - what it is, what it was about, where those things were and what it was "
@@ -625,6 +638,7 @@ const coalesceKey = edit => {
   // being widened - rewrites the whole list on every frame. One drag is one
   // step, same as everything else here.
   if (edit.op === "meshop") return "meshop:" + edit.id;
+  if (edit.op === "pick") return "pick:" + edit.id + ":" + edit.key;
   return null;
 };
 const COALESCE_WINDOW = 900;   // ms

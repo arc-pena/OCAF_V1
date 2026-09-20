@@ -26,6 +26,8 @@ import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshCreas
          typeSpec } from "./ocaf.js";
 import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
+import { edgeAnchor, faceAnchor, readPicks, resolvePicks,
+         tangentChain } from "./subshape.js";
 import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
          solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
@@ -599,9 +601,38 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         if (Number.isFinite(smallest) && radius >= smallest / 2)
           return "radius " + trim(radius) + " mm does not fit: the body is only "
                + trim(smallest) + " mm across, so the limit is " + trim(smallest / 2) + " mm";
+        // A pick that has lost its edge is worth saying before the build runs,
+        // because the build will still work - with one edge fewer - and a
+        // fillet that quietly rounds three of four edges is a drawing error
+        // that ships.
         return null;
       },
-      build: f => SF.fillet(F.shape(F.reference(f, "body")), F.real(f, "radius", 10)),
+      //! EVERY EDGE, OR THE ONES PICKED. Nobody picks edges before they have
+      //! seen the fillet, so the default is the whole body and the picks are a
+      //! narrowing of it - which is also why an empty list has to mean "all"
+      //! rather than "none".
+      build: f => {
+        const body = F.shape(F.reference(f, "body"));
+        const radius = F.real(f, "radius", 10);
+        const picked = pickedSubs(f, "edges", body, "edge");
+        if (!picked.chosen.length)
+          throw new Error(picked.whole ? "that body has no edges to round"
+            : "none of the picked edges is in this body any more");
+        const made = new oc.BRepFilletAPI_MakeFillet(body, oc.ChFi3d_FilletShape.ChFi3d_Rational);
+        for (const edge of picked.chosen) made.Add(radius, edge);
+        made.Build(new oc.Message_ProgressRange());
+        if (!made.IsDone())
+          throw new Error("the fillet did not converge at " + trim(radius) + " mm"
+            + (picked.whole ? "" : " on those " + picked.chosen.length + " edges"));
+        const shape = made.Shape();
+        if (!shape || shape.IsNull() || countSubShapes(shape, FACE) === 0)
+          throw new Error("the fillet produced an empty shape at " + trim(radius) + " mm");
+        return { shape, note: picked.whole ? undefined
+          : picked.chosen.length + (picked.chosen.length === 1 ? " edge" : " edges") + " rounded"
+            + (picked.lost ? " \u00b7 " + picked.lost + " picked "
+                + (picked.lost === 1 ? "edge is" : "edges are")
+                + " no longer in this body" : "") };
+      },
     },
   };
 
@@ -1248,6 +1279,101 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     explorer.delete();
     return out;
   };
+
+  /* ================================================ picking one edge, or one face
+
+     AN OPERATION ABOUT PARTICULAR EDGES has to be able to say which, in a file,
+     in a way that still means the same edges tomorrow. The whole of that is in
+     subshape.js and is nothing to do with OpenCascade; what is here is the two
+     halves that are.
+
+     THE ORDER HAS TO BE THE SAME ORDER, every time and on both sides: the list
+     the viewport picks from and the list the driver rounds have to be the same
+     list, or "edge 2" means one edge on screen and another in the build. So
+     there is exactly one enumeration, \ref uniqueSubs, and everything uses it.
+
+     AND IT HAS TO BE UNIQUE. TopExp_Explorer walks an edge once per face on
+     it, so a cube's twelve edges arrive as twenty-four; a person who picked the
+     seventh would have picked something that is not there twice. They are
+     deduped by where they are, which on a real shape is exact - two visits to
+     one edge have the same geometry - and settled with IsSame where two
+     genuinely different sub-shapes land in the same bucket.                 */
+
+  function uniqueSubs(shape, kind, cast) {
+    const all = subShapes(shape, kind, cast);
+    const buckets = new Map();
+    const out = [];
+    for (const one of all) {
+      const box = new oc.Bnd_Box();
+      oc.BRepBndLib.Add(one, box, false);
+      let key = "empty";
+      if (!box.IsVoid()) {
+        const lo = box.CornerMin(), hi = box.CornerMax();
+        key = [lo.X(), lo.Y(), lo.Z(), hi.X(), hi.Y(), hi.Z()]
+          .map(v => Math.round(v * 1e4)).join(",");
+      }
+      box.delete();
+      const seen = buckets.get(key);
+      if (seen && seen.some(other => other.IsSame(one))) continue;
+      if (seen) seen.push(one); else buckets.set(key, [one]);
+      out.push(one);
+    }
+    return out;
+  }
+
+  const eachEdge = shape => uniqueSubs(shape, EDGE, oc.TopoDS.Edge);
+  const eachFace = shape => uniqueSubs(shape, FACE, oc.TopoDS.Face);
+
+  //! WHAT THE VIEWPORT PICKS FROM. Every edge as the polyline it is drawn
+  //! with, every face as its own triangles - so a click can be tested against
+  //! one edge rather than against the whole body, and the one under the pointer
+  //! can be lit up before it is chosen.
+  //!
+  //! Asked for only while somebody is picking, which is why it can afford to
+  //! tessellate each face on its own.
+  function pickList(shape, kind) {
+    const rough = deflectionFor(shape);
+    const out = [];
+    if (kind === "face") {
+      for (const face of eachFace(shape)) {
+        const mesh = oc.ReplicadMeshExtractor.extract(face, rough, 0.3, false);
+        const positions = readFloats(mesh.getVerticesPtr(), mesh.getVerticesSize());
+        const index = readInts(mesh.getTrianglesPtr(), mesh.getTrianglesSize());
+        const normals = readFloats(mesh.getNormalsPtr(), mesh.getNormalsSize());
+        mesh.delete();
+        out.push({ at: out.length, positions, index, normals,
+                   near: faceAnchor(positions, index) });
+      }
+      return out;
+    }
+    for (const edge of eachEdge(shape)) {
+      const drawn = oc.ReplicadEdgeMeshExtractor.extract(edge, rough, 0.3);
+      const flat = readFloats(drawn.getLinesPtr(), drawn.getLinesSize());
+      drawn.delete();
+      // The extractor gives line SEGMENTS; the walk wants a run of points.
+      const points = [];
+      for (let i = 0; i + 5 < flat.length; i += 6) {
+        if (!points.length) points.push([flat[i], flat[i + 1], flat[i + 2]]);
+        points.push([flat[i + 3], flat[i + 4], flat[i + 5]]);
+      }
+      out.push({ at: out.length, lines: Array.from(flat), points,
+                 near: edgeAnchor(points) });
+    }
+    return out;
+  }
+
+  //! The sub-shapes an argument's picks resolve to, today. An empty list of
+  //! picks is the operation's own default and comes back as everything; a pick
+  //! that has lost what it was about is left out and counted, so the driver can
+  //! say so rather than quietly doing less.
+  function pickedSubs(f, key, shape, kind) {
+    const picks = readPicks(F.picks(f, key));
+    const all = kind === "face" ? eachFace(shape) : eachEdge(shape);
+    if (!picks.length) return { chosen: all, lost: 0, whole: true };
+    const anchors = pickList(shape, kind).map(one => one.near);
+    const { found, lost } = resolvePicks(anchors, picks);
+    return { chosen: found.map(at => all[at]).filter(Boolean), lost: lost.length, whole: false };
+  }
 
   //! Every face a profile offers, capping its wires if it offers none. What a
   //! solid is swept from.
@@ -3258,9 +3384,14 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       if (!F.shape(body)) return F.name(body) + " has not been built";
       if (countSubShapes(F.shape(body), FACE) === 0) return F.name(body) + " has no faces";
       const neutral = F.reference(f, "neutral");
-      if (!neutral) return "a neutral plane is needed - it is the height the draft turns about";
-      const trouble = planeTrouble(neutral);
-      if (trouble) return trouble;
+      const hinge = readPicks(F.picks(f, "hinge"));
+      if (!neutral && !hinge.length)
+        return "a neutral plane is needed - it is the height the draft turns about. "
+             + "Wire a plane in, or pick a face of the body to hinge on";
+      if (neutral && !hinge.length) {
+        const trouble = planeTrouble(neutral);
+        if (trouble) return trouble;
+      }
       if (Math.abs(F.real(f, "angle", 5)) <= CONFUSION) return "an angle of zero drafts nothing";
       return null;
     },
@@ -3270,14 +3401,34 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     //! walls of a pad, not its top and bottom.
     build: f => {
       const body = F.shape(F.reference(f, "body"));
-      const neutral = planeAxis(F.reference(f, "neutral"));
+      // THE HINGE. A plane wired in, or a face of the body picked off it -
+      // which is what a person means nine times in ten, because the height the
+      // draft turns about is usually the bottom of the thing being drafted and
+      // there is no reason to build a datum for it.
+      const picked = pickedSubs(f, "hinge", body, "face");
+      let neutral = null;
+      if (!picked.whole && picked.chosen.length) {
+        const surface = new oc.BRepAdaptor_Surface(picked.chosen[0]);
+        if (surface.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane)
+          throw new Error("the picked face is not flat, so it cannot be a neutral plane");
+        // A plane's own frame is a gp_Ax3 - it carries a handedness nobody here
+        // asked for - and the draft wants the gp_Ax2 a datum plane gives it.
+        const frame = surface.Plane().Position();
+        neutral = new oc.gp_Ax2(frame.Location(), frame.Direction());
+      } else neutral = planeAxis(F.reference(f, "neutral"));
+      if (!neutral) throw new Error("no neutral plane and no face picked to hinge on");
+
       const pull = readVector(F.reference(f, "direction"))
         || [neutral.Direction().X(), neutral.Direction().Y(), neutral.Direction().Z()];
-      const sidesOnly = Feature_choice(f, "faces") === 0;
       const along = V.norm(pull);
 
+      // AND WHAT LEANS. The faces picked, if any were; otherwise the choice -
+      // the sides, or all of them.
+      const wanted = pickedSubs(f, "drafted", body, "face");
+      const sidesOnly = Feature_choice(f, "faces") === 0;
       const chosen = [];
-      for (const face of subShapes(body, FACE, oc.TopoDS.Face)) {
+      for (const face of wanted.chosen) {
+        if (!wanted.whole) { chosen.push(face); continue; }
         if (!sidesOnly) { chosen.push(face); continue; }
         const surface = new oc.BRepAdaptor_Surface(face);
         if (surface.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) continue;
@@ -3285,9 +3436,14 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         if (Math.abs(V.dot([n.X(), n.Y(), n.Z()], along)) < 0.5) chosen.push(face);
       }
       if (!chosen.length)
-        throw new Error("no face of that body runs along the pull direction - "
-                      + "check the direction, or draft all faces");
-      return SF.draft(body, chosen, neutral, along, F.real(f, "angle", 5));
+        throw new Error(wanted.whole
+          ? "no face of that body runs along the pull direction - "
+            + "check the direction, or draft all faces"
+          : "none of the picked faces is in this body any more");
+      const shape = SF.draft(body, chosen, neutral, along, F.real(f, "angle", 5));
+      return { shape, note: wanted.whole && picked.whole ? undefined
+        : chosen.length + (chosen.length === 1 ? " face" : " faces") + " drafted"
+          + (picked.whole ? "" : " about a picked face") };
     },
   };
 
@@ -3728,6 +3884,45 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       return { id, name: F.name(f), points: F.triples(data), faces: meshFaces(data),
                creases: sharp.creases, corners: sharp.corners, smooth: !!data.smooth,
                ops, note: F.note(f) };
+    },
+
+    //! WHAT THERE IS TO PICK on a feature's shape: every edge as the polyline
+    //! it is drawn with, or every face as its own triangles, each with the
+    //! anchor that will find it again. Asked for only while somebody is
+    //! picking, which is why it can afford to tessellate each face on its own.
+    async picks(id, kind) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      const shape = F.shape(f);
+      if (!shape) throw new Error(F.name(f) + " has not been built, so it has nothing to pick");
+      const want = kind === "face" ? "face" : "edge";
+      return { id, name: F.name(f), kind: want, items: pickList(shape, want) };
+    },
+
+    //! The whole arris through one edge - everything tangent to it, walked.
+    //! Double-click, in other words, and the reason a fillet on a rounded slab
+    //! is one gesture rather than eight.
+    async tangentFrom(id, at, angle) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      const shape = F.shape(f);
+      if (!shape) throw new Error(F.name(f) + " has not been built");
+      const edges = pickList(shape, "edge").map(one => one.points);
+      return { id, chain: tangentChain(edges, Math.max(0, Math.round(at)),
+                                       { angle: Number(angle) > 0 ? Number(angle) : 5 }) };
+    },
+
+    //! The picks on an argument, written. One call, one list, one undo step -
+    //! the same shape as the mesh editor's, for the same reason: a pick is a
+    //! record rather than a change to a number.
+    async setPicks(id, key, picks) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      const arg = F.spec(f).args.find(a => a.key === key && a.kind === "subs");
+      if (!arg) throw new Error(F.name(f) + " has no picked sub-shapes called '" + key + "'");
+      F.setPicks(f, key, Array.isArray(picks) ? picks : []);
+      doc.log.touch(F.argLabel(f, key, true));
+      return state(doc.recompute(false));
     },
 
     //! THE EDIT LIST, WRITTEN. One call, one list, one undo step - the editor

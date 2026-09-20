@@ -1483,6 +1483,19 @@ const choice = (key, label, options, def = 0) =>
   ({ key, label, kind: "choice", options, def });
 //! Only shown, and only read, when another argument has this value. It is how
 //! one feature carries two patterns without two features in the tree.
+//! A LIST OF SUB-SHAPES PICKED OFF A BODY - which edges to round, which face
+//! is the neutral one. Stored as text like the rest, and readable as text: an
+//! entry says which feature the sub-shape belongs to, which kind it is, which
+//! number it was, and where it was, so a person can check a pick against the
+//! model rather than taking the file's word for it. See subshape.js.
+//!
+//! An EMPTY list is not "none". It is the operation's own default - every edge
+//! for a fillet - because that is what the operation means when nobody has said
+//! otherwise, and because a fillet that did nothing until you picked something
+//! would be a worse fillet.
+const subs = (key, label, of, summary, whole = "all of them") =>
+  ({ key, label, kind: "subs", of, def: "[]", whole, summary });
+
 const when = (arg, key, equals) => ({ ...arg, showWhen: { key, equals } });
 
 //! The same, for an argument that belongs to SEVERAL of a choice's answers - a
@@ -1493,8 +1506,8 @@ const whenAny = (arg, key, list) => ({ ...arg, showWhen: { key, any: list } });
 //! The same builders, handed out - because a package declares its nodes in
 //! exactly the form the catalogue above is written in, and a second way of
 //! spelling an argument is a second thing that can be wrong about one.
-export const ARG = { real, ref, refs, choice, text, code, blob, edits, drawing, when,
-                     whenAny, ANY, KINDS };
+export const ARG = { real, ref, refs, choice, text, code, blob, edits, subs, drawing,
+                     when, whenAny, ANY, KINDS };
 
 //! One table drives the toolbar, the label layout (an argument's index here is
 //! its OCAF child tag), the sliders and the neutral file format. It mirrors
@@ -2056,10 +2069,15 @@ export const CATALOGUE = [
            + "what puts a batter on a wall. Sides drafts the faces that run along the "
            + "pull direction and leaves the top and bottom alone.",
     args: [ref("body", "Body", ["solid"], true),
-           ref("neutral", "Neutral plane", ["plane"], true),
+           ref("neutral", "Neutral plane", ["plane"]),
+           subs("hinge", "Neutral face", "face",
+                "a face of the body to hinge on, instead of a plane", "the plane above"),
            ref("direction", "Pull", ["vector"]),
            real("angle", "Angle", 5, -60, 60, 0.5, "\u00b0"),
-           choice("faces", "Faces", ["Sides", "All"], 0)] },
+           choice("faces", "Faces", ["Sides", "All"], 0),
+           subs("drafted", "Faces to draft", "face",
+                "which faces lean over · empty uses the choice above",
+                "whichever the choice above says")] },
   { type: "Join", guid: "9a1b2c30-0074-4c00-9e00-caf000000074", category: "operation",
     produces: "solid",
     summary: "Gathers several shapes into one without cutting or fusing them - the group "
@@ -2167,9 +2185,15 @@ export const CATALOGUE = [
            when(real("angle", "Sweep", 360, -360, 360, 5, "°"), "mode", 1)] },
   { type: "Fillet", guid: "9a1b2c30-0020-4c00-9e00-caf000000020", category: "operation",
     produces: "solid",
-    summary: "Rounds every edge of a body. The body stays in the tree but leaves the 3D view.",
+    summary: "Rounds the edges of a body. Every edge unless you pick some: press Pick "
+           + "edges, click them on the model - double-click for the whole arris, which "
+           + "takes everything tangent to it - and press Done. The picks are written "
+           + "into the model file as \"edge 2 of Cube.1\", with where that edge was, so "
+           + "they survive the body changing shape under them.",
     args: [ref("body", "Body", ["solid"], true),
-           real("radius", "Radius", 10, 0.1, 2000, 0.5)] },
+           real("radius", "Radius", 10, 0.1, 2000, 0.5),
+           subs("edges", "Edges", "edge",
+                "which edges to round · empty rounds every edge", "every edge")] },
 ];
 
 //! The order the toolbar and the graph's Add menu group them in.
@@ -2387,6 +2411,29 @@ export const F = {
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch (e) { return {}; }
   },
+  //! The sub-shapes picked for an argument, as the list subshape.js reads.
+  picks(f, key) {
+    const label = F.argLabel(f, key);
+    const text = label && label.attr.TDataStd_AsciiString;
+    if (typeof text !== "string" || !text.trim()) return [];
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed.filter(one => one && one.kind) : [];
+    } catch (e) { return []; }
+  },
+  setPicks(f, key, picks) {
+    const clean = (Array.isArray(picks) ? picks : []).filter(one =>
+      one && typeof one === "object" && one.kind
+      && Number.isInteger(Number(one.at)) && Number(one.at) >= 0)
+      .map(one => ({ of: one.of ? String(one.of) : "", kind: String(one.kind),
+                     at: Number(one.at),
+                     near: (Array.isArray(one.near) ? one.near : [])
+                       .map(v => Math.round(Number(v) * 1e4) / 1e4)
+                       .filter(Number.isFinite) }));
+    F.argLabel(f, key, true).attr.TDataStd_AsciiString = JSON.stringify(clean);
+    return clean;
+  },
+
   setEdits(f, key, moves) {
     const clean = {};
     for (const [index, offset] of Object.entries(moves || {})) {
@@ -3094,6 +3141,7 @@ export class Doc {
           else if (arg.kind === "text") texts[arg.key] = F.text(f, arg.key, arg.def);
           else if (arg.kind === "blob") sizes[arg.key] = F.code(f, arg.key, "").length;
           else if (arg.kind === "edits") lists[arg.key] = F.edits(f, arg.key);
+          else if (arg.kind === "subs") lists[arg.key] = F.picks(f, arg.key);
           else if (arg.kind === "sketch") { /* published whole, below */ }
           else if (arg.kind === "refs") lists[arg.key] = F.references(f, arg.key).map(F.id);
           else {
@@ -3181,6 +3229,12 @@ export class Doc {
             const moves = F.edits(f, arg.key);
             if (Object.keys(moves).length) args[arg.key] = moves;
           }
+          else if (arg.kind === "subs") {
+            // Left out when nothing is picked, so a fillet that rounds
+            // everything reads in the file exactly as it always did.
+            const picked = F.picks(f, arg.key);
+            if (picked.length) args[arg.key] = picked;
+          }
           else if (arg.kind === "text") args[arg.key] = F.text(f, arg.key, arg.def);
           else if (arg.kind === "blob") args[arg.key] = F.code(f, arg.key, arg.def);
           else if (arg.kind === "sketch") args[arg.key] = F.sketch(f, arg.key);
@@ -3248,6 +3302,10 @@ export class Doc {
           if (!value || typeof value !== "object" || Array.isArray(value))
             throw new Error(key + " of " + entry.id + " must be an object of index → offset");
           F.setEdits(f, key, value);
+        } else if (arg.kind === "subs") {
+          if (!Array.isArray(value))
+            throw new Error(key + " of " + entry.id + " must be a list of picked sub-shapes");
+          F.setPicks(f, key, value);
         } else if (arg.kind === "sketch") {
           if (typeof value !== "string" && (!value || typeof value !== "object"))
             throw new Error(key + " of " + entry.id + " must be a drawing");
@@ -3624,6 +3682,9 @@ export function schemaJson() {
           return { ...base, default: "", carries: arg.carries || "" };
         if (arg.kind === "edits")
           return { ...base, default: arg.def, summary: arg.summary || "" };
+        if (arg.kind === "subs")
+          return { ...base, default: arg.def, of: arg.of, whole: arg.whole,
+                   summary: arg.summary || "" };
         if (arg.kind === "sketch")
           return { ...base, default: arg.def, summary: arg.summary || "" };
         if (arg.kind === "text")

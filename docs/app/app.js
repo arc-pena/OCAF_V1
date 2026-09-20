@@ -18,6 +18,7 @@ import { PluginHost } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
 import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
+import { describePicks, matchPick, pickOf } from "./subshape.js";
 // No `as` here, nor anywhere else in this tree. The single-file build strips
 // the imports and lets every module share one scope, so a name renamed on the
 // way in is a name that does not exist in the page that gets published - and
@@ -414,6 +415,8 @@ function measureScene() {
     // In edit mode the thing under the pointer lights up before it is clicked,
     // which is most of what makes picking a face out of four hundred possible.
     if (meshing() && !mode) { meshEditor.hoverAt(event); return; }
+    // And the same while an edge or a face is being picked for an operation.
+    if (pickingOn() && !mode) { hoverPicking(event); return; }
     if (sketching()) {
       const uv = sketchAt(event);
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
@@ -453,6 +456,12 @@ function measureScene() {
       mode = null;
       return;
     }
+    if (pickingOn() && (mode === "orbit" || mode === "pan") && moved < 4
+        && event.button === 0) {
+      clickPicking(event, false);
+      mode = null;
+      return;
+    }
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
     else if (mode === "move") dropSketchMove(event);
@@ -487,6 +496,10 @@ function measureScene() {
   //! same gesture in the tree. Double-clicking inside an open one ends a
   //! spline, which is the only element that does not know how long it is.
   el.addEventListener("dblclick", event => {
+    // DOUBLE-CLICK TAKES THE ARRIS: everything tangent to the edge under the
+    // pointer. It is the gesture every modeller has and the reason a fillet on
+    // a rounded slab is one click rather than eight.
+    if (pickingOn()) { clickPicking(event, true); return; }
     if (sketching()) { endSketchRun(); return; }
     // Already in edit mode: double-clicking picks the LOOP through what is
     // under the pointer, which is Maya's gesture for it.
@@ -968,6 +981,304 @@ function leaveMeshEdit() {
 }
 
 const meshing = () => meshEditor.on;
+
+/* ==========================================================================
+   PICKING AN EDGE, OR A FACE.
+
+   "Fillet this body" is a blunt answer. What a person means is "round THESE
+   four edges" - so the fillet's default is every edge, and beside it is a
+   button that hands the viewport over: the body's edges light up one at a
+   time as the pointer crosses them, a click takes one, a DOUBLE-CLICK takes
+   the whole arris through it, and Done writes the list.
+
+   What gets written is not a highlight. It is a line in the model file saying
+   which feature the edge belongs to, which number it was, and where it was -
+   see subshape.js - so the fillet still rounds the same four edges after the
+   block underneath has been made twice as wide.
+   ========================================================================== */
+
+const picking = {
+  on: false,
+  id: null,            // the feature whose argument is being picked for
+  key: null,           // which argument
+  kind: "edge",
+  of: null,            // the feature whose shape is being picked FROM
+  items: [],           // what the kernel offered
+  chosen: new Set(),   // indices
+  hover: -1,
+  group: null,
+  busy: false,
+};
+
+const pickingOn = () => picking.on;
+
+const PICK_COLOURS = { plain: 0x7d8d99, hover: 0x4aa8ea, chosen: 0x0a6cb0 };
+
+function clearPicking() {
+  if (picking.group) {
+    world.remove(picking.group);
+    disposeGroup(picking.group);
+    picking.group = null;
+  }
+}
+
+//! The body an operation's picks are about: whatever is wired into the
+//! argument the operation reads its shape from. A fillet picks off its body; a
+//! draft off the same. Nothing here guesses - it is the first reference the
+//! feature has that produced a solid.
+function pickFrom(entry) {
+  const spec = schemaType(entry.type);
+  if (!spec) return null;
+  for (const arg of spec.args) {
+    if (arg.kind !== "ref") continue;
+    const target = entry.refs && entry.refs[arg.key];
+    const which = Array.isArray(target) ? target[0] : target;
+    const source = which && feature(which);
+    if (source && source.produces === "solid") return source;
+  }
+  return null;
+}
+
+async function enterPicking(entry, arg) {
+  const source = pickFrom(entry);
+  if (!source) { say("nothing is wired in to pick from"); return false; }
+  if (!source.built) { say(source.name + " has not been built, so it has nothing to pick"); return false; }
+  let got;
+  try { got = await kernel.picks(source.id, arg.of); }
+  catch (error) { say("could not read the " + arg.of + "s — " + error.message); return false; }
+  if (!got || !got.items.length) { say(source.name + " has no " + arg.of + "s"); return false; }
+
+  picking.on = true;
+  picking.id = entry.id;
+  picking.key = arg.key;
+  picking.kind = arg.of;
+  picking.of = source.id;
+  picking.items = got.items;
+  picking.hover = -1;
+  // Whatever is already picked, found again in today's list - so opening the
+  // picker on a fillet that already has four edges shows those four lit.
+  picking.chosen = new Set();
+  const anchors = got.items.map(one => one.near);
+  for (const pick of (entry.lists && entry.lists[arg.key]) || []) {
+    const at = matchPick(anchors, pick, 0);
+    if (at >= 0) picking.chosen.add(at);
+  }
+  document.body.classList.add("picking");
+  pickBar.hidden = false;
+  drawPicking();
+  refreshPickBar();
+  layout();
+  return true;
+}
+
+async function leavePicking(save = true) {
+  const entry = feature(picking.id);
+  const key = picking.key, of = picking.of, kind = picking.kind;
+  const chosen = [...picking.chosen].sort((a, b) => a - b);
+  const items = picking.items;
+  picking.on = false;
+  picking.items = [];
+  clearPicking();
+  document.body.classList.remove("picking");
+  pickBar.hidden = true;
+  layout();
+  draw();
+  if (save && entry)
+    await edit({ op: "pick", id: entry.id, key,
+                 picks: chosen.map(at => pickOf(of, kind, at, items[at].near)) });
+  buildPanel();
+}
+
+//! Everything there is to pick, drawn: each edge as its own line and each face
+//! as its own sheet, so a click can be tested against ONE of them rather than
+//! against the whole body, and the one under the pointer can be lit up before
+//! it is taken.
+function drawPicking() {
+  clearPicking();
+  if (!picking.on) return;
+  const group = new THREE.Group();
+  group.renderOrder = 8;
+  picking.items.forEach((item, at) => {
+    const colour = picking.chosen.has(at) ? PICK_COLOURS.chosen
+      : at === picking.hover ? PICK_COLOURS.hover : PICK_COLOURS.plain;
+    let drawn;
+    if (picking.kind === "face") {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position",
+        new THREE.Float32BufferAttribute(Array.from(item.positions), 3));
+      geometry.setIndex(Array.from(item.index));
+      drawn = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        color: colour, transparent: true, side: THREE.DoubleSide, depthTest: true,
+        opacity: picking.chosen.has(at) ? 0.55 : at === picking.hover ? 0.4 : 0.14 }));
+    } else {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position",
+        new THREE.Float32BufferAttribute(Array.from(item.lines), 3));
+      drawn = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+        color: colour, depthTest: false,
+        transparent: true, opacity: picking.chosen.has(at) ? 1 : 0.85 }));
+    }
+    drawn.userData.pickAt = at;
+    drawn.renderOrder = picking.chosen.has(at) ? 10 : 9;
+    drawn.frustumCulled = false;
+    group.add(drawn);
+  });
+  world.add(group);
+  picking.group = group;
+  draw();
+}
+
+//! Which one is under the pointer. An edge is a line and a line is a hard
+//! thing to hit, so the ray is given a threshold that is a share of how far
+//! away the camera is - the same rule the vertex handles use, for the same
+//! reason.
+function pickUnder(event) {
+  if (!picking.group) return -1;
+  const cast = rayFrom(event);
+  cast.params.Line = { threshold: view.distance * 0.012 };
+  const hits = cast.intersectObjects(picking.group.children, false);
+  const hit = hits.find(one => one.object.userData.pickAt !== undefined);
+  return hit ? hit.object.userData.pickAt : -1;
+}
+
+function hoverPicking(event) {
+  const at = pickUnder(event);
+  if (at === picking.hover) return;
+  picking.hover = at;
+  drawPicking();
+}
+
+async function clickPicking(event, whole) {
+  const at = pickUnder(event);
+  if (at < 0) {
+    if (!event.shiftKey) { picking.chosen.clear(); drawPicking(); refreshPickBar(); }
+    return;
+  }
+  let take = [at];
+  // A DOUBLE-CLICK TAKES THE ARRIS. Everything tangent to the edge, walked in
+  // the kernel off the same polylines the viewport is drawing.
+  if (whole && picking.kind === "edge" && !picking.busy) {
+    picking.busy = true;
+    try {
+      const got = await kernel.tangentFrom(picking.of, at, 5);
+      if (got && got.chain && got.chain.length) take = got.chain;
+    } catch (error) { /* one edge is still a perfectly good answer */ }
+    picking.busy = false;
+  }
+  const had = take.every(one => picking.chosen.has(one));
+  for (const one of take) {
+    if (had) picking.chosen.delete(one);
+    else picking.chosen.add(one);
+  }
+  drawPicking();
+  refreshPickBar();
+}
+
+/* ==========================================================================
+   WAITING FOR A WIRE.
+
+   A dropdown asks you to recognise a point by its NAME, in a list of forty,
+   when what you know about it is where it is. So an input that wants a point
+   is a button: press it and the program waits, and the next thing you click -
+   in the model or in the tree - is the answer. Nothing else changes; the
+   viewport is still the viewport and the tree is still the tree, they are just
+   both answering one question for a moment.
+
+   What it will accept is what the argument accepts, and anything that does not
+   is refused by name rather than ignored - a click that does nothing and says
+   nothing is a click you make three more times.
+   ========================================================================== */
+
+const waiting = { on: false, id: null, key: null, accepts: [], many: false, label: "" };
+
+function waitForPick(entry, arg) {
+  waiting.on = true;
+  waiting.id = entry.id;
+  waiting.key = arg.key;
+  waiting.accepts = arg.accepts.split(",");
+  waiting.many = arg.kind === "refs";
+  waiting.label = arg.label;
+  document.body.classList.add("waiting");
+  say("pick the " + waiting.accepts.join(" or ") + " for " + arg.label
+      + " — in the model or in the tree");
+  buildPanel();
+}
+
+function stopWaiting(quiet = false) {
+  if (!waiting.on) return false;
+  waiting.on = false;
+  waiting.id = waiting.key = null;
+  document.body.classList.remove("waiting");
+  if (!quiet) say("");
+  buildPanel();
+  return true;
+}
+
+//! A feature offered as the answer. Comes from the viewport and from the tree,
+//! which is the whole point: the two ways of finding a thing answer the same
+//! question and neither is the proper one.
+function offerWire(id) {
+  if (!waiting.on) return false;
+  const target = feature(id);
+  const holder = feature(waiting.id);
+  if (!target || !holder) { stopWaiting(); return false; }
+  if (target.id === holder.id) { say("a feature cannot be wired to itself"); return true; }
+  if (!acceptsFrom(waiting.accepts, target)) {
+    say(target.name + " is a " + (target.produces || "feature") + "; "
+        + waiting.label + " takes " + waiting.accepts.join(" or "));
+    return true;
+  }
+  if (dependsOn(target.id, holder.id)) {
+    say(target.name + " already reads from " + holder.name + ", so wiring it would be a loop");
+    return true;
+  }
+  const key = waiting.key, into = waiting.id, again = waiting.many;
+  if (!again) stopWaiting(true);
+  edit({ op: "connect", id: into, key, from: target.id });
+  say(target.name + " → " + (schemaType(holder.type).args.find(a => a.key === key) || {}).label);
+  return true;
+}
+
+/* ------------------------------------------------------------- the bar */
+
+const pickBar = document.createElement("section");
+pickBar.className = "float mx-bar pick-bar";
+pickBar.id = "pick-bar";
+pickBar.hidden = true;
+document.body.appendChild(pickBar);
+
+function refreshPickBar() {
+  if (!picking.on) return;
+  const entry = feature(picking.id);
+  const source = feature(picking.of);
+  const spec = entry && schemaType(entry.type);
+  const arg = spec && spec.args.find(a => a.key === picking.key);
+  pickBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">' + safeText((arg && arg.label) || "Pick") + "</span>"
+    + '<span class="mx-count">' + picking.chosen.size + " of " + picking.items.length
+    + " " + safeText(picking.kind) + (picking.items.length === 1 ? "" : "s") + "</span>"
+    + '<span class="mx-hint">on ' + safeText(source ? source.name : "") + " · click to take one"
+    + (picking.kind === "edge" ? ", double-click for the whole arris" : "")
+    + ", shift-click to add</span>"
+    + '<button class="mx-chip" data-pick-all="1">All</button>'
+    + '<button class="mx-chip" data-pick-none="1">None</button>'
+    + '<button class="btn primary" data-pick-done="1">Done</button>'
+    + '<button class="btn" data-pick-drop="1">Cancel</button>'
+    + "</div>";
+}
+
+pickBar.addEventListener("click", async event => {
+  if (event.target.closest("[data-pick-all]")) {
+    picking.items.forEach((one, at) => picking.chosen.add(at));
+    drawPicking(); refreshPickBar(); return;
+  }
+  if (event.target.closest("[data-pick-none]")) {
+    picking.chosen.clear();
+    drawPicking(); refreshPickBar(); return;
+  }
+  if (event.target.closest("[data-pick-done]")) { await leavePicking(true); return; }
+  if (event.target.closest("[data-pick-drop]")) await leavePicking(false);
+});
 
 /* ------------------------------------------------------------- the bar */
 
@@ -2259,6 +2570,10 @@ function pick(event) {
     -((event.clientY - rect.top) / rect.height) * 2 + 1), camera);
   const hits = raycaster.intersectObjects(pickable.filter(m => m.parent && m.parent.visible), false);
   const id = hits.length ? hits[0].object.userData.id : null;
+  // AN INPUT IS WAITING. Then this click is the answer to its question rather
+  // than a change of selection - which is the whole of what "click the field,
+  // then click the thing" means.
+  if (waiting.on && id) { offerWire(id); return; }
   if (event.shiftKey && id) pickAlso(id); else select(id, false);
 }
 
@@ -3215,6 +3530,7 @@ function buildPanel() {
     host.appendChild(arg.kind === "real" ? realField(entry, arg)
                    : arg.kind === "choice" ? choiceField(entry, arg)
                    : arg.kind === "edits" ? editsField(entry, arg)
+                   : arg.kind === "subs" ? subsField(entry, arg)
                    : arg.kind === "text" ? textField(entry, arg)
                    : arg.kind === "blob" ? blobField(entry, arg)
                    : arg.kind === "sketch" ? sketchField(entry, arg)
@@ -3882,6 +4198,38 @@ function sketchField(entry, arg) {
   return field;
 }
 
+//! A LIST OF PICKED SUB-SHAPES, in the panel. What it says now, and the way
+//! into the viewport to change it.
+//!
+//! An empty list is not "none": it is the operation's own default, and on a
+//! fillet that is every edge. So the field says "every edge" rather than
+//! "0 picked", and the button is an offer to narrow it rather than a
+//! requirement to start it.
+function subsField(entry, arg) {
+  const field = document.createElement("div");
+  field.className = "field";
+  const picks = (entry.lists && entry.lists[arg.key]) || [];
+  const source = pickFrom(entry);
+  field.innerHTML = '<div class="field-head"><label>' + escapeHtml(arg.label) + "</label>"
+    + '<span class="badge">' + escapeHtml(describePicks(picks, arg.of, arg.whole || "all"))
+    + "</span></div>"
+    + '<button class="btn row-btn" data-pick="' + escapeAttr(arg.key) + '"'
+    + (source && source.built ? "" : " disabled") + ">"
+    + (picks.length ? "Change the " + escapeHtml(arg.of) + "s"
+                    : "Pick " + escapeHtml(arg.of) + "s on the model") + "</button>"
+    + (picks.length ? '<button class="btn row-btn" data-unpick="' + escapeAttr(arg.key)
+        + '">Back to ' + escapeHtml(arg.whole || "all of them") + "</button>" : "")
+    + '<p class="hint">' + escapeHtml(arg.summary || "") + "</p>"
+    + (picks.length ? '<div class="readout">'
+        + picks.map(one => escapeHtml(one.kind + " " + one.at + " of "
+            + ((feature(one.of) || {}).name || one.of))).join("<br>") + "</div>" : "");
+  field.querySelector("[data-pick]").addEventListener("click", () => enterPicking(entry, arg));
+  const back = field.querySelector("[data-unpick]");
+  if (back) back.addEventListener("click", () =>
+    edit({ op: "pick", id: entry.id, key: arg.key, picks: [] }));
+  return field;
+}
+
 function editsField(entry, arg) {
   const field = document.createElement("div");
   field.className = "field";
@@ -4212,9 +4560,45 @@ function refField(entry, arg) {
     field.appendChild(row);
   }
 
-  const select = document.createElement("select");
+  // A WIRE IS PICKED, NOT CHOSEN FROM A LIST.
+  //
+  // A dropdown asks you to recognise a point by its name in a list of forty.
+  // Nobody knows their points by name; they know where they are. So the field
+  // is a button that arms the picker - click it, then click the point in the
+  // model or its row in the tree, and that is the wire. The list is still
+  // there, one click further on, for the cases where the thing is behind
+  // something or has no geometry to click at all.
+  const armed = waiting.on && waiting.id === entry.id && waiting.key === arg.key;
   const current = many ? "" : wired[0] || "";
   const free = many ? options.filter(o => !wired.includes(o.id)) : options;
+
+  const row = document.createElement("div");
+  row.className = "wire-row" + (armed ? " armed" : "");
+  const take = document.createElement("button");
+  take.type = "button";
+  take.className = "btn wire-pick";
+  take.textContent = armed ? "Pick it in the model, or in the tree · Esc to stop"
+    : many ? "Add one from the model"
+    : current ? escapeHtml((feature(current) || {}).name || current)
+    : "Pick one from the model";
+  take.title = armed ? "Click the " + accepts.join(" or ") + " in the viewport or the tree"
+    : "Click, then click the " + accepts.join(" or ") + " in the viewport or the tree";
+  take.addEventListener("click", () => (armed ? stopWaiting() : waitForPick(entry, arg)));
+  row.appendChild(take);
+
+  // The last resort, folded away: the same list it always was.
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "wire-more";
+  more.setAttribute("aria-expanded", "false");
+  more.title = "Choose from a list instead";
+  more.textContent = "\u25be";
+  row.appendChild(more);
+  field.appendChild(row);
+
+  const select = document.createElement("select");
+  select.className = "wire-list";
+  select.hidden = true;
   select.innerHTML = '<option value="">' + (many ? "— add a section —" : "— not set —") +
     "</option>" + free.map(option =>
       '<option value="' + escapeAttr(option.id) + '"' + (option.id === current ? " selected" : "") +
@@ -4222,7 +4606,22 @@ function refField(entry, arg) {
   select.addEventListener("change", () => edit(select.value
     ? { op: "connect", id: entry.id, key: arg.key, from: select.value }
     : { op: "disconnect", id: entry.id, key: arg.key }));
+  more.addEventListener("click", () => {
+    select.hidden = !select.hidden;
+    more.setAttribute("aria-expanded", select.hidden ? "false" : "true");
+  });
   field.appendChild(select);
+
+  // And the way to take a wire off, when there is one and it is not a list.
+  if (!many && current) {
+    const off = document.createElement("button");
+    off.type = "button";
+    off.className = "wire-off";
+    off.textContent = "Disconnect";
+    off.addEventListener("click", () =>
+      edit({ op: "disconnect", id: entry.id, key: arg.key }));
+    row.insertBefore(off, more);
+  }
 
   const path = document.createElement("div");
   path.className = "attr-path";
@@ -4287,6 +4686,8 @@ function buildLog() {
     line("streamed " + state.stream.shapes + " shape" + (state.stream.shapes === 1 ? "" : "s") +
          " · " + state.stream.triangles.toLocaleString() + " triangles · " + state.stream.ms + " ms",
          "stream");
+  // It just got taller or shorter, and the tree above it stands on it.
+  if (!host.hidden) layout();
 }
 
 /* -------------------------------------------------------------- operations */
@@ -4388,6 +4789,9 @@ function pickAlso(id) {
 //! \p keep leaves the picked set alone; without it a selection is a set of
 //! one, so there is only ever one answer to "what is selected".
 function select(id, openDefinition, keep = false) {
+  // A row in the tree is as good an answer as a click in the model, and for a
+  // datum with nothing to click at it is the only one.
+  if (waiting.on && id && offerWire(id)) return;
   // A plain click is where a range will be measured from next time. Adding to
   // the set does not move that, or a block could never be grown twice.
   if (!keep) { state.picked = id ? [id] : []; state.anchor = id; }
@@ -6126,6 +6530,12 @@ function measureLayout() {
   const rightWide = Math.max(0, ...right.map(wide));
   const rightDock = rightWide ? rightWide + edge : 0;
 
+  // The log popup stands on the bottom of the tree's column, so while it is
+  // open it is the tree's floor. Measured rather than assumed: it is as tall as
+  // it has to be to say what it has to say, up to its own ceiling.
+  const logTall = onScreen(logPop) ? logPop.getBoundingClientRect().height / ui : 0;
+
+  root.style.setProperty("--log-dock", (logTall ? logTall + edge : 0) + "px");
   root.style.setProperty("--rail-dock", railDock + "px");
   root.style.setProperty("--left-dock", leftDock + "px");
   root.style.setProperty("--right-dock", rightDock + "px");
@@ -6148,8 +6558,8 @@ function measureLayout() {
   let barred = false;
   if (laidOut(status)) {
     const mine = status.getBoundingClientRect();
-    for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, .fl-bar, "
-        + ".an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
+    for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
+        + ".fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
       if (!onScreen(bar)) continue;
       const box = bar.getBoundingClientRect();
       if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
@@ -6196,10 +6606,14 @@ document.getElementById("btn-tree").addEventListener("click", () => {
 document.getElementById("btn-def-close").addEventListener("click", () => stowPanel(false));
 document.getElementById("btn-rail").addEventListener("click", () => stowRail());
 document.getElementById("btn-panel").addEventListener("click", () => stowPanel());
-document.getElementById("btn-log").addEventListener("click", () => { logPop.hidden = !logPop.hidden; });
+document.getElementById("btn-log").addEventListener("click", () => {
+  logPop.hidden = !logPop.hidden; layout();
+});
 addEventListener("pointerdown", event => {
   if (!logPop.hidden && !logPop.contains(event.target) &&
-      !document.getElementById("btn-log").contains(event.target)) logPop.hidden = true;
+      !document.getElementById("btn-log").contains(event.target)) {
+    logPop.hidden = true; layout();
+  }
 }, true);
 
 addEventListener("keydown", event => {
@@ -6272,6 +6686,9 @@ addEventListener("keydown", event => {
     openHeads(state.selected, pointerAt.x, pointerAt.y);
     return;
   }
+  if (event.key === "Escape" && waiting.on) { stopWaiting(); return; }
+  if (event.key === "Escape" && pickingOn()) { leavePicking(false); return; }
+  if (event.key === "Enter" && pickingOn()) { leavePicking(true); return; }
   if (event.key === "Escape") {
     sampleMenu.hidden = true;
     const shelf = document.getElementById("packages");
@@ -6293,7 +6710,7 @@ addEventListener("keydown", event => {
       leaveSketch();
       return;
     }
-    state.edited = null; buildPanel(); logPop.hidden = true;
+    state.edited = null; buildPanel(); logPop.hidden = true; layout();
   }
 });
 

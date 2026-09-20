@@ -42,6 +42,15 @@ export async function createHttpKernel(base) {
     setSketch(id, key, drawing) { return this.post("/api/sketch", { id, key, drawing }); },
     moveVertex(id, index, offset) { return this.post("/api/vertex", { id, index, offset }); },
     cage(id) { return this.get("/api/cage?id=" + encodeURIComponent(id)); },
+    picks(id, kind) {
+      return this.get("/api/picks?id=" + encodeURIComponent(id)
+        + "&kind=" + encodeURIComponent(kind));
+    },
+    tangentFrom(id, at, angle) {
+      return this.get("/api/tangent?id=" + encodeURIComponent(id) + "&at=" + at
+        + "&angle=" + angle);
+    },
+    setPicks(id, key, picks) { return this.post("/api/picks", { id, key, picks }); },
     setMeshOps(id, ops) { return this.post("/api/meshops", { id, ops }); },
     addFeature(type, refs, id) { return this.post("/api/feature", { type, refs, id }); },
     deleteFeature(id) { return this.post("/api/delete", { id }); },

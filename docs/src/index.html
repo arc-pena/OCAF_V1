@@ -174,6 +174,10 @@ button, input, select { font: inherit; color: inherit; }
   --rail-dock: 0px;     /* the tool rail, plus the gap after it */
   --left-dock: 0px;     /* everything down the left side */
   --right-dock: 0px;    /* everything down the right side */
+  /* The log popup hangs from the bottom of the same column the tree hangs from
+     the top of, so it is the tree's floor while it is open. Written by the page
+     because how tall the log is depends on how much it has to say. */
+  --log-dock: 0px;
   /* The middle, and where its middle is. Every bar along the top or the bottom
      is centred on THIS rather than on the window, so opening the definition
      panel slides the bar out from under it instead of hiding half of it. */
@@ -669,7 +673,8 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
   width: 232px;
   /* Stops above the status bar: the tree hangs from under the chip and the
      status bar is the floor. */
-  max-height: min(calc(var(--sky) - var(--edge) * 2 - 46px - var(--corner)), 460px);
+  max-height: min(calc(var(--sky) - var(--edge) * 2 - 46px - var(--corner)
+                       - var(--log-dock)), 460px);
   display: flex; flex-direction: column; z-index: 3;
 }
 #tree-panel[hidden] { display: none; }
@@ -927,6 +932,41 @@ select {
 }
 .editor textarea:focus { border-color: var(--accent); outline: none; }
 .editor .hint { margin-top: 7px; font-size: 11px; color: var(--ink-3); }
+.field .hint { margin: 6px 0 0; font-size: 10.5px; color: var(--ink-3); line-height: 1.5; }
+
+/* -------------------------------------------------------------- a wire
+   An input that wants a point is a button, not a list: you know where your
+   points are, not what they are called. The list is still there, one click
+   further on, for what is behind something or has nothing to click at. */
+.wire-row { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
+.wire-pick {
+  flex: 1; min-width: 0; justify-content: flex-start; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wire-row.armed .wire-pick {
+  border-color: var(--accent); color: var(--accent); background: var(--accent-soft);
+  animation: wire-wait 1.4s ease-in-out infinite;
+}
+@keyframes wire-wait { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
+.wire-off, .wire-more {
+  flex: none; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+  color: var(--ink-3); cursor: pointer; font: inherit; font-size: 10.5px; padding: 4px 7px;
+}
+.wire-off:hover { border-color: var(--bad); color: var(--bad); }
+.wire-more:hover, .wire-more[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+select.wire-list { margin-top: 5px; }
+/* While an input is waiting, the tree is answering its question too. */
+body.waiting #tree .node { cursor: crosshair; }
+body.waiting #viewport { cursor: crosshair; }
+
+/* ------------------------------------------------- picking an edge or a face
+   The bar that takes the viewport over while an operation is being told which
+   edges it is about. Same shape as the mesh editor's, because it is the same
+   kind of moment: the model is the interface and the bar says what a click
+   means while it is. */
+body.picking .fades:not(#chip):not(#def-panel) { opacity: .4; }
+.pick-bar { z-index: 10; }
+.pick-bar .mx-hint { max-width: 380px; }
 .editor .row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
 .editor .row .spacer { flex: 1; }
 /* the drawing, in the panel: the way in to the sketcher, and the JSON that is
@@ -1503,7 +1543,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      nothing goes under it; a bar that tried has its last row behind a thumb.
      The sketcher's bar takes the status line's row for the same reason - there
      is one row down there and while a sketch is open it belongs to the sketch. */
-  #sketch-bar, #mesh-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
+  #sketch-bar, #mesh-bar, #pick-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
     top: auto; transform: none; width: auto; max-width: none; z-index: 7;
   }
@@ -1511,7 +1551,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
   }
-  #mesh-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  #mesh-bar, #pick-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
   /* The log stands ON the status line rather than over it: the button that
      closes it is in the status line, and a popup that covers its own switch is
      a popup you cannot put away. */
