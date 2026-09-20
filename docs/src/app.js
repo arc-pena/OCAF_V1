@@ -29,8 +29,10 @@ import { ACTION_SAFE, FRAMES, TITLE_SAFE, dolly, frameAt, frameOf, fromView, let
          orbitAbout, safeAt, saysShot, truck } from "./camera.js";
 import { EASES, beatFromHere, easeAt, momentAt, moveBeat, readStory, saysStory, startOf,
          stateAt, timeline, valuesBetween, writeStory } from "./story.js";
-import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
-         refit, saysWhere, sectionEdges, styleNamed, travelOf } from "./cutter.js";
+import { CUT_LINES, CUT_PATTERNS, CUT_WEIGHTS, SECTION_AXES, SECTION_STYLES, acrossOf,
+         activePlanes, cutLength, cutRecord, cutStyleOf, dashSegments, freshCuts, lineNamed,
+         motifsOf, patternNamed, refit, ribbonOf, saysCut, saysWhere, sectionEdges,
+         styleNamed, travelOf, HATCH_MOTIFS } from "./section.js";
 import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
          angleAbout, coversAt, dollyScale, fovFromLens, framedAt, handlesFor, landOn,
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
@@ -285,6 +287,8 @@ function placeCamera() {
   camera.near = Math.max(0.05, Math.min(view.distance * 0.02, span * 0.02));
   camera.far = view.distance + span * 6;
   camera.updateProjectionMatrix();
+  // A hatch is a density on the paper, so it follows the camera.
+  sizeHatches();
 }
 
 //! Everything that would be photographed: the built shapes that are showing,
@@ -653,6 +657,7 @@ function resize() {
   // A camera being looked through owns the projection: its frame is its own
   // shape and has to be laid out again on the new window.
   if (lookingThrough()) { placeThrough(); refreshSafe(); }
+  sizeRibbons();
   draw();
 }
 
@@ -873,6 +878,13 @@ function settleSection() {
   refreshSection();
 }
 
+//! AND WHENEVER ANYTHING ABOUT THE DOCUMENT CHANGED. A cut style is a property
+//! of an object, so an object that has just been given one has to be re-cut -
+//! and nothing re-meshes when only the appearance changed, so the meshing path
+//! never hears about it. Every tree that lands marks the section stale; a
+//! refresh is a few small meshes and it only happens while a section is open.
+function touchSection() { if (cutter.on) sectionStale = true; }
+
 function rebuildPickList() {
   pickable.length = 0;
   for (const { group } of shapes.values())
@@ -900,6 +912,7 @@ async function syncShapes() {
     rebuildPickList();
   }
 
+  touchSection();
   settleSection();
   // A camera that has been retyped, or whose points have moved, moves the
   // view with it - otherwise you are looking through a camera that is
@@ -3804,7 +3817,9 @@ storyBar.addEventListener("click", async event => {
 const cutter = {
   on: false,
   cuts: null,               // per axis: { on, flipped, offset, travel }
-  style: "capped",
+  style: "capped",          // the default every object inherits
+  ribbons: [],              // the cut lines' materials, told the screen size
+  hatches: [],              // the cut faces' textures, told how far away they are
   group: null,              // the caps, the outlines and the handles
   planes: new Map(),        // axis key -> THREE.Plane, kept so a drag is cheap
   grab: null,
@@ -3833,34 +3848,171 @@ function ensureCuts() {
 //! canvas, repeated across the cut face. Poche is a convention about DENSITY
 //! more than about colour, so the lines are thin and close and the paper
 //! behind them does the rest.
-const HATCH_REPEAT = 130;
-let hatchTexture = null;
-function hatchFor(colour) {
-  if (hatchTexture && hatchTexture.userData.colour === colour) return hatchTexture;
-  const size = 32;
+/* ------------------------------------------------------------ the patterns
+
+   Drawn rather than shipped. Each one is a few strokes on a small canvas,
+   repeated across the cut face - so they cost nothing, they take the object's
+   own colours, and a new one is four lines here rather than a file somebody
+   has to remember to ship.
+
+   A pattern is CACHED BY WHAT IT IS: the pattern, the two colours and the
+   scale, so nine objects hatched the same way share one texture and moving a
+   section plane makes none.                                                */
+
+/* A TILE HOLDS SIX OF WHATEVER IT IS. Said once, here, because the density on
+   screen is worked out from it: six lines in a tile means a tile has to be six
+   times the line spacing, and a number that is true in two places is a number
+   that gets changed in one of them. */
+const HATCH_TILE = 72;
+//! How far apart the lines of a hatch should be ON THE SCREEN, in pixels, at
+//! scale 1. A drawing's hatch is a density, not a size.
+const HATCH_PITCH = 9;
+
+const patterns = new Map();
+
+function patternTexture(kind, ink, paper, tile) {
+  const key = [kind, ink, paper, tile.slice(0, 64)].join("|");
+  const had = patterns.get(key);
+  if (had) return had;
+
+  const size = HATCH_TILE;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const pen = canvas.getContext("2d");
-  pen.strokeStyle = colour;
-  pen.lineWidth = 1.6;
-  pen.beginPath();
-  for (let i = -size; i < size * 2; i += 6) {
-    pen.moveTo(i, 0);
-    pen.lineTo(i + size, size);
+  if (paper) { pen.fillStyle = paper; pen.fillRect(0, 0, size, size); }
+  pen.strokeStyle = ink;
+  pen.fillStyle = ink;
+  const step = size / HATCH_MOTIFS;
+  pen.lineWidth = Math.max(1, step / 7);
+
+  //! One way or the other, and they really are the other: written as a start
+  //! corner that swapped with the direction, both came out at the SAME forty-
+  //! five degrees - so a cross-hatch was a diagonal hatch drawn twice and
+  //! concrete and blockwork were the same poche.
+  const rake = way => {
+    pen.beginPath();
+    for (let i = -size * 2; i < size * 3; i += step) {
+      pen.moveTo(i, -size);
+      pen.lineTo(i + way * size * 3, size * 2);
+    }
+    pen.stroke();
+  };
+  const bars = across => {
+    pen.beginPath();
+    for (let i = 0; i < size; i += step) {
+      if (across) { pen.moveTo(0, i); pen.lineTo(size, i); }
+      else { pen.moveTo(i, 0); pen.lineTo(i, size); }
+    }
+    pen.stroke();
+  };
+
+  if (kind === "solid") { pen.fillStyle = paper || ink; pen.fillRect(0, 0, size, size); }
+  else if (kind === "diagonal") rake(1);
+  else if (kind === "backslash") rake(-1);
+  else if (kind === "cross") { rake(1); rake(-1); }
+  else if (kind === "grid") { bars(true); bars(false); }
+  else if (kind === "horizontal") bars(true);
+  else if (kind === "vertical") bars(false);
+  else if (kind === "dots") {
+    const r = Math.max(1, step * 0.17);
+    for (let y = step / 2; y < size; y += step)
+      for (let x = step / 2; x < size; x += step) {
+        pen.beginPath(); pen.arc(x, y, r, 0, Math.PI * 2); pen.fill();
+      }
+  } else if (kind === "brick") {
+    // A running bond: courses, and the perpends offset half a brick on every
+    // other one. The oldest pattern on any drawing there has ever been.
+    const course = size / 4, brick = size / 2;
+    pen.beginPath();
+    for (let y = 0, row = 0; y <= size; y += course, row++) {
+      pen.moveTo(0, y); pen.lineTo(size, y);
+      for (let x = (row % 2 ? brick / 2 : 0); x <= size; x += brick) {
+        pen.moveTo(x, y); pen.lineTo(x, y + course);
+      }
+    }
+    pen.stroke();
   }
-  pen.stroke();
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.userData = { colour };
-  if (hatchTexture) hatchTexture.dispose();
-  hatchTexture = texture;
+  // How many of the motif are in one tile, so the density on screen can be
+  // worked out from it rather than guessed at.
+  texture.userData = { key };
+  // A PICTURE OF YOUR OWN, tiled. Loaded over the top of whatever was drawn,
+  // so a tile that has not arrived yet shows the pattern underneath rather
+  // than a blank cut face.
+  if (kind === "image" && tile) {
+    const picture = new Image();
+    picture.onload = () => {
+      const fit = document.createElement("canvas");
+      fit.width = fit.height = 128;
+      fit.getContext("2d").drawImage(picture, 0, 0, 128, 128);
+      texture.image = fit;
+      texture.needsUpdate = true;
+      refreshSection();
+    };
+    picture.src = tile;
+  }
+  // A cache with no lid fills up; nine hundred textures is a leak, not a
+  // cache. The oldest goes when it does.
+  if (patterns.size > 48) {
+    const first = patterns.keys().next().value;
+    const old = patterns.get(first);
+    patterns.delete(first);
+    if (old) old.dispose();
+  }
+  patterns.set(key, texture);
   return texture;
+}
+
+//! A line with weight, which WebGL will not draw: a ribbon, expanded sideways
+//! in the cut plane by exactly as many PIXELS as the weight says. The width is
+//! the shader's, so the ribbon never has to be rebuilt when the camera moves.
+function ribbonMaterial(colour, weight) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      ink: { value: new THREE.Color(colour) },
+      weight: { value: weight },
+      screen: { value: new THREE.Vector2(1, 1) },
+    },
+    transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: [
+      "attribute vec3 offset;",
+      "attribute float side;",
+      "uniform float weight;",
+      "uniform vec2 screen;",
+      "void main() {",
+      "  vec4 here = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+      "  vec4 there = projectionMatrix * modelViewMatrix * vec4(position + offset, 1.0);",
+      // Where the sideways direction points ON THE SCREEN, which is the only
+      // place a line weight in pixels means anything.
+      "  vec2 a = here.xy / max(1e-6, here.w) * screen;",
+      "  vec2 b = there.xy / max(1e-6, there.w) * screen;",
+      "  vec2 way = b - a;",
+      "  float len = length(way);",
+      "  vec2 unitWay = len > 1e-6 ? way / len : vec2(1.0, 0.0);",
+      "  here.xy += unitWay * side * weight * 0.5 / screen * here.w;",
+      "  gl_Position = here;",
+      "}",
+    ].join("\n"),
+    fragmentShader: [
+      "uniform vec3 ink;",
+      "void main() { gl_FragColor = vec4(ink, 1.0); }",
+    ].join("\n"),
+  });
 }
 
 //! The two extra copies of a shape that do the counting. Nothing of them is
 //! ever seen: they write only to the stencil buffer.
+//!
+//! HANDED BACK AS A PAIR, NOT AS A GROUP. A Group's own renderOrder becomes
+//! the group order of everything under it, and the sort is by group order
+//! FIRST - so two counting copies wrapped in a Group of renderOrder nought
+//! rendered before every lid whatever their own renderOrder said. Every
+//! object's count went into the stencil, the first lid drew over all of them
+//! and wrote depth, and the rest were rejected as coplanar. Which looked
+//! exactly like one pattern for the whole model, and was.
 function stencilCopies(geometry, plane, order) {
-  const group = new THREE.Group();
   const base = new THREE.MeshBasicMaterial({
     depthWrite: false, depthTest: false, colorWrite: false,
     stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc });
@@ -3873,7 +4025,6 @@ function stencilCopies(geometry, plane, order) {
   backs.stencilZPass = THREE.IncrementWrapStencilOp;
   const back = new THREE.Mesh(geometry, backs);
   back.renderOrder = order;
-  group.add(back);
 
   const fronts = base.clone();
   fronts.side = THREE.FrontSide;
@@ -3883,8 +4034,7 @@ function stencilCopies(geometry, plane, order) {
   fronts.stencilZPass = THREE.DecrementWrapStencilOp;
   const front = new THREE.Mesh(geometry, fronts);
   front.renderOrder = order;
-  group.add(front);
-  return group;
+  return [back, front];
 }
 
 //! Every clipping plane, as three.js wants them, kept between frames so a drag
@@ -3937,83 +4087,120 @@ function refreshSection() {
   applyClipping(planes);
   if (!planes.length) { refreshSectionBar(); draw(); return; }
 
-  const style = styleNamed(cutter.style);
   const box = modelBox();
   const span = box ? Math.max(box.span, 1) : 1000;
   const group = new THREE.Group();
-  group.renderOrder = 1;
-
+  // NOT given a renderOrder of its own: a Group's renderOrder becomes the
+  // group order of everything under it and the sort is by group order first,
+  // which would flatten every renderOrder set below into one bucket.
+  const ribbons = [], hatches = [];
   const cuts = activePlanes(cutter.cuts);
   cuts.forEach((cut, i) => {
     const plane = planes[i];
     const others = planes.filter(p => p !== plane);
     const order = (i + 1) * 4;
 
-    if (style.caps) {
-      // The counting copies, one set per plane, over every solid that is
-      // showing. A curve has no inside, so it is left out.
-      for (const [id, { group: shapeGroup }] of shapes) {
-        if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
+    // ONE OBJECT AT A TIME, because a drawing does not hatch everything the
+    // same. Concrete is one poche, blockwork another, glass is not hatched at
+    // all - so each object's cut face is counted into the stencil on its own,
+    // given its own lid, and the count cleared before the next one. It costs
+    // one pass per object per plane, which on a model with twenty solids in it
+    // is twenty passes and nothing anybody can see.
+    let drawn = 0, total = 0, at = order;
+    for (const [id, { group: shapeGroup }] of shapes) {
+      if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
+      const one = feature(id);
+      if (!one) continue;
+      const cut = cutStyleOf(one.appearance, cutter.style);
+      const paper = cut.fill ? hexOf(cut.fill) : "#" + THEME["cut-fill"].getHexString();
+      const ink = cut.ink ? hexOf(cut.ink) : "#" + THEME["cut-line"].getHexString();
+
+      if (cut.pattern !== "none") {
         shapeGroup.traverse(object => {
           if (!object.isMesh || object.userData.datum || !object.geometry) return;
-          const copies = stencilCopies(object.geometry, plane, order);
-          group.add(copies);
+          for (const copy of stencilCopies(object.geometry, plane, at)) group.add(copy);
         });
-      }
-      // And the lid: a quad on the plane, drawn only where the count says the
-      // camera is looking through solid.
-      const lid = new THREE.Mesh(new THREE.PlaneGeometry(span * 2.5, span * 2.5),
-        new THREE.MeshBasicMaterial({
-          color: THEME["cut-fill"],
-          map: style.hatch ? hatchFor("#" + THEME["cut-line"].getHexString()) : null,
-          side: THREE.DoubleSide, clippingPlanes: others.length ? others : null,
-          stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
-          stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp,
-          stencilZPass: THREE.ReplaceStencilOp }));
-      if (style.hatch) {
-        // Fine and close, the way poche is hatched on a drawing. A plain
-        // count rather than a distance: the quad is already sized against the
-        // model, so repeating it a fixed number of times is the same density
-        // on a bracket and on a block of flats.
-        lid.material.map.repeat.set(HATCH_REPEAT, HATCH_REPEAT);
+        const lid = new THREE.Mesh(new THREE.PlaneGeometry(span * 2.5, span * 2.5),
+          new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            map: patternTexture(cut.pattern, ink, paper, cut.tile),
+            side: THREE.DoubleSide, clippingPlanes: others.length ? others : null,
+            stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+            stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp,
+            stencilZPass: THREE.ReplaceStencilOp }));
+        // A HATCH IS A DENSITY ON THE PAPER, not a size in the model. Hatched
+        // at a fixed count of repeats it went flat grey the moment the camera
+        // pulled back - every tile smaller than a pixel, and the mipmap
+        // averaging concrete and blockwork into the same nothing. So the
+        // repeat is worked out from how far away the camera is, and worked out
+        // again whenever it moves: a tile stays about the size of a tile.
+        //
+        // Its own texture, cloned off the cached one, because two objects
+        // hatched the same way are at different distances and a repeat belongs
+        // to the lid rather than to the pattern.
+        const motifs = motifsOf(cut.pattern);
+        lid.material.map = lid.material.map.clone();
+        lid.material.map.needsUpdate = true;
         lid.material.map.anisotropy = Math.min(8,
           renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
+        if (cut.angle) {
+          lid.material.map.center.set(0.5, 0.5);
+          lid.material.map.rotation = cut.angle * Math.PI / 180;
+        }
+        // How big ONE TILE has to be on screen for its lines to be the right
+        // distance apart. A picture of your own is one motif and wants to be
+        // far bigger - a photograph repeated a hundred times is a texture
+        // nobody can read.
+        hatches.push({ map: lid.material.map, span,
+                       grain: motifs * (cut.pattern === "image" ? 110 : HATCH_PITCH)
+                              * cut.scale });
+        lid.renderOrder = at + 1;
+        lid.onAfterRender = () => renderer.clearStencil();
+        lid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal);
+        lid.position.copy(plane.normal).multiplyScalar(-plane.constant);
+        group.add(lid);
+        drawn++;
       }
-      lid.renderOrder = order + 1;
-      lid.onAfterRender = () => renderer.clearStencil();
-      // Sat ON the plane, facing the way it faces.
-      lid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal);
-      lid.position.copy(plane.normal).multiplyScalar(-plane.constant);
-      group.add(lid);
-    }
 
-    if (style.edge) {
-      // The exact line of the cut, off the triangles rather than off the fill.
-      const flat = [];
-      for (const [id, { group: shapeGroup }] of shapes) {
-        if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
+      if (cut.line !== "none") {
+        // The exact line of THIS object's cut, off its own triangles.
         const stream = streams.get(id);
-        if (!stream || !stream.positions || !stream.index) continue;
-        sectionEdges(stream.positions, stream.index,
-          { normal: [plane.normal.x, plane.normal.y, plane.normal.z],
-            constant: plane.constant }, flat);
+        if (stream && stream.positions && stream.index) {
+          const face = { normal: [plane.normal.x, plane.normal.y, plane.normal.z],
+                         constant: plane.constant };
+          let flat = sectionEdges(stream.positions, stream.index, face, []);
+          total += cutLength(flat);
+          const dash = lineNamed(cut.line);
+          if (dash.dash) flat = dashSegments(flat, span * dash.dash / 1000,
+            dash.gap ? dash.dash / (dash.dash + dash.gap) : 1,
+            dash.second ? span * dash.second / 1000 : 0);
+          if (flat.length) {
+            const ribbon = ribbonOf(flat, face.normal);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position",
+              new THREE.Float32BufferAttribute(ribbon.position, 3));
+            geometry.setAttribute("offset", new THREE.Float32BufferAttribute(ribbon.offset, 3));
+            geometry.setAttribute("side", new THREE.Float32BufferAttribute(ribbon.side, 1));
+            geometry.setIndex(ribbon.index);
+            const material = ribbonMaterial(ink, cut.weight);
+            material.clippingPlanes = others.length ? others : null;
+            const line = new THREE.Mesh(geometry, material);
+            line.frustumCulled = false;
+            line.renderOrder = at + 2;
+            // A HAIR TOWARDS THE CAMERA. The line and the cap are the same
+            // plane, and two things in the same plane fight over which is in
+            // front - so the line is lifted onto the removed side, where
+            // nothing else is.
+            line.position.copy(plane.normal).multiplyScalar(-span * 2e-4);
+            group.add(line);
+            ribbons.push(material);
+          }
+        }
       }
-      if (flat.length) {
-        const line = new THREE.LineSegments(
-          new THREE.BufferGeometry().setAttribute("position",
-            new THREE.Float32BufferAttribute(flat, 3)),
-          new THREE.LineBasicMaterial({ color: THEME["cut-line"],
-            clippingPlanes: others.length ? others : null,
-            transparent: true, opacity: 0.95 }));
-        line.renderOrder = order + 2;
-        // A HAIR TOWARDS THE CAMERA. The line and the cap are the same plane,
-        // and two things in the same plane fight over which is in front - so
-        // the line is lifted onto the removed side, where nothing else is.
-        line.position.copy(plane.normal).multiplyScalar(-span * 2e-4);
-        group.add(line);
-        cutter.cutLength = cutLength(flat);
-      } else cutter.cutLength = 0;
+      at += 4;
     }
+    cutter.cutLength = total;
+    cutter.capped = drawn;
 
     // THE HANDLE. A square outline on the plane with a knob in the middle,
     // dragged along the normal - which is the only direction a section plane
@@ -4047,9 +4234,40 @@ function refreshSection() {
   });
 
   cutter.group = group;
+  cutter.ribbons = ribbons;
+  cutter.hatches = hatches;
+  sizeRibbons();
+  sizeHatches();
   world.add(group);
   refreshSectionBar();
   draw();
+}
+
+//! A line weight is in pixels, so every ribbon has to be told how many pixels
+//! the window is. Once when it is built, and again whenever the window changes
+//! shape; nothing else moves it.
+function sizeRibbons() {
+  const wide = renderer.domElement.clientWidth || 1;
+  const tall = renderer.domElement.clientHeight || 1;
+  for (const material of cutter.ribbons || [])
+    material.uniforms.screen.value.set(wide, tall);
+}
+
+//! And every hatch has to be told how far away it is, for the same reason: a
+//! hatch is a density on the paper. Cheap - two numbers per lid - so it runs
+//! with the camera rather than with the section.
+function sizeHatches() {
+  const list = cutter.hatches;
+  if (!list || !list.length) return;
+  const tall = renderer.domElement.clientHeight || 1;
+  const reach = Math.max(view.distance, 1e-3);
+  // How many world units one pixel covers at the target's distance.
+  const perPixel = 2 * reach * Math.tan(camera.fov * Math.PI / 360) / tall;
+  for (const one of list) {
+    const wanted = Math.max(1e-6, one.grain * perPixel);   // world units per tile
+    const repeat = Math.max(3, Math.min(600, one.span * 2.5 / wanted));
+    one.map.repeat.set(repeat, repeat);
+  }
 }
 
 //! Switching the whole thing on and off. The first time it is asked for, the
@@ -5550,6 +5768,12 @@ function buildPanel() {
   // feature, written into the model file, and read by both renderers.
   if (wearsMaterial(entry)) host.appendChild(materialField(entry));
 
+  // AND HOW IT IS CUT. Beside the material because it is the same kind of
+  // fact: a property of the object that travels with it. Offered on anything
+  // a section plane can pass through, which is anything solid.
+  if (wearsMaterial(entry) && entry.produces === "solid")
+    host.appendChild(cutField(entry));
+
   // Whatever the script declared for itself, as sliders.
   if (entry.params && entry.params.length) {
     const head = document.createElement("div");
@@ -5663,6 +5887,215 @@ function materialField(entry) {
       + findStyle(state.style).label + ".";
   field.appendChild(note);
   return field;
+}
+
+/* ------------------------------------------------------ how it is cut
+
+   A drawing does not hatch everything the same. Concrete is one poche,
+   blockwork another, insulation is a zigzag, glass is not hatched at all and
+   is drawn with a fine line; structure is heavy, furniture light. That is not
+   decoration - it is how a section is READ, and it has been for a hundred and
+   fifty years.
+
+   So it is a property of the OBJECT, beside its material, and it travels in
+   the model file with everything else the object says about itself. Anything
+   it does not say it takes from the section bar, which is what "As the view"
+   means everywhere below.                                                   */
+
+//! The little pictures on the pattern buttons: the same canvas the cut face is
+//! filled with, drawn small. A swatch that is a WORD is a swatch you have to
+//! learn; a swatch that is the pattern is one you recognise.
+function patternSwatch(kind, ink, paper, tile) {
+  const size = 22;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size * 2;
+  const pen = canvas.getContext("2d");
+  pen.fillStyle = paper;
+  pen.fillRect(0, 0, size * 2, size * 2);
+  if (kind !== "none" && kind !== "solid") {
+    const texture = patternTexture(kind, ink, paper, tile);
+    const image = texture.image;
+    if (image && image.width) {
+      const pattern = pen.createPattern(image, "repeat");
+      if (pattern) { pen.fillStyle = pattern; pen.fillRect(0, 0, size * 2, size * 2); }
+    }
+  }
+  if (kind === "none") {
+    pen.clearRect(0, 0, size * 2, size * 2);
+    pen.strokeStyle = ink;
+    pen.globalAlpha = 0.5;
+    pen.beginPath(); pen.moveTo(2, size * 2 - 2); pen.lineTo(size * 2 - 2, 2); pen.stroke();
+  }
+  return canvas.toDataURL();
+}
+
+function cutField(entry) {
+  const field = document.createElement("div");
+  field.className = "field material cut-style";
+  const cut = cutStyleOf(entry.appearance, cutter.style);
+  const paper = cut.fill ? hexOf(cut.fill) : "#" + THEME["cut-fill"].getHexString();
+  const ink = cut.ink ? hexOf(cut.ink) : "#" + THEME["cut-line"].getHexString();
+  const own = (entry.appearance && entry.appearance.cut) || {};
+
+  const head = document.createElement("div");
+  head.className = "params-head";
+  head.textContent = "Section";
+  field.appendChild(head);
+
+  const row = (label, control, cls = "") => {
+    const line = document.createElement("div");
+    line.className = "field-head " + cls;
+    const name = document.createElement("label");
+    name.textContent = label;
+    line.appendChild(name);
+    line.appendChild(control);
+    field.appendChild(line);
+    return control;
+  };
+
+  // The patterns, as the patterns.
+  const swatches = document.createElement("div");
+  swatches.className = "cut-swatches";
+  for (const one of CUT_PATTERNS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cut-swatch";
+    button.title = one.label + " \u00b7 " + one.hint;
+    button.setAttribute("aria-label", one.label);
+    const chosen = (own.pattern || "inherit") === one.key;
+    button.setAttribute("aria-pressed", chosen ? "true" : "false");
+    if (one.key === "inherit") button.textContent = "view";
+    else if (one.key === "image") button.textContent = "img";
+    else button.style.backgroundImage =
+      "url(" + patternSwatch(one.key, ink, paper, cut.tile) + ")";
+    button.addEventListener("click", () => wearCut(entry.id, { pattern: one.key }));
+    swatches.appendChild(button);
+  }
+  field.appendChild(swatches);
+
+  // A picture of your own. Shrunk to a tile on the way in: a photograph in a
+  // model file is a model file nobody can open, and a hatch is a tile.
+  if (cut.pattern === "image") {
+    const pick = document.createElement("input");
+    pick.type = "file";
+    pick.accept = "image/*";
+    pick.className = "cut-file";
+    pick.addEventListener("change", () => {
+      const file = pick.files && pick.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 128;
+          canvas.getContext("2d").drawImage(image, 0, 0, 128, 128);
+          wearCut(entry.id, { tile: canvas.toDataURL("image/png") });
+        };
+        image.onerror = () => showError("that file is not an image this can read");
+        image.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+    row(cut.tile ? "Change the tile" : "A tile to repeat", pick, "cut-wide");
+  }
+
+  const fill = document.createElement("input");
+  fill.type = "color";
+  fill.className = "mat-colour";
+  fill.value = paper;
+  fill.addEventListener("input", () => wearCut(entry.id, { fill: rgbOf(fill.value) }, true));
+  fill.addEventListener("change", () => wearCut(entry.id, { fill: rgbOf(fill.value) }));
+  row("Fill", fill);
+
+  const pen = document.createElement("input");
+  pen.type = "color";
+  pen.className = "mat-colour";
+  pen.value = ink;
+  pen.addEventListener("input", () => wearCut(entry.id, { ink: rgbOf(pen.value) }, true));
+  pen.addEventListener("change", () => wearCut(entry.id, { ink: rgbOf(pen.value) }));
+  row("Line", pen);
+
+  // The line itself: what it is, and how heavy.
+  const lines = document.createElement("div");
+  lines.className = "cut-seg";
+  for (const one of CUT_LINES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = one.label;
+    button.title = one.hint || "";
+    button.setAttribute("aria-pressed",
+      (own.line || "inherit") === one.key ? "true" : "false");
+    button.addEventListener("click", () => wearCut(entry.id, { line: one.key }));
+    lines.appendChild(button);
+  }
+  field.appendChild(lines);
+
+  if (cut.line !== "none") {
+    const weights = document.createElement("div");
+    weights.className = "cut-seg cut-weights";
+    for (const one of CUT_WEIGHTS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = one.label + " \u00b7 " + one.key + " px";
+      button.setAttribute("aria-pressed",
+        Math.abs(cut.weight - one.key) < 1e-6 ? "true" : "false");
+      const bar = document.createElement("span");
+      bar.style.height = Math.max(1, one.key) + "px";
+      button.appendChild(bar);
+      button.addEventListener("click", () => wearCut(entry.id, { weight: one.key }));
+      weights.appendChild(button);
+    }
+    field.appendChild(weights);
+  }
+
+  if (cut.pattern !== "none" && cut.pattern !== "solid") {
+    for (const [key, label, min, max, step] of
+         [["scale", "Scale", 0.2, 6, 0.05], ["angle", "Angle", 0, 180, 1]]) {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.className = "mat-slider";
+      slider.min = String(min); slider.max = String(max); slider.step = String(step);
+      slider.value = String(cut[key]);
+      slider.addEventListener("input", () =>
+        wearCut(entry.id, { [key]: +slider.value }, true));
+      slider.addEventListener("change", () => wearCut(entry.id, { [key]: +slider.value }));
+      row(label, slider);
+    }
+  }
+
+  const note = document.createElement("div");
+  note.className = "summary";
+  note.textContent = (cut.own ? "Its own: " : "From the view: ") + saysCut(cut)
+    + (cutter.on ? "" : " \u00b7 press X to see it");
+  field.appendChild(note);
+
+  if (cut.own) {
+    const back = document.createElement("button");
+    back.className = "btn row-btn";
+    back.textContent = "Back to the view's style";
+    back.addEventListener("click", () => wearCut(entry.id, null));
+    field.appendChild(back);
+  }
+  return field;
+}
+
+//! Writes a cut style onto an object, the same way a material is written: only
+//! what differs from "as the view" is kept, so an object nobody has styled
+//! carries nothing and follows the bar.
+function wearCut(id, change, live = false) {
+  const entry = feature(id);
+  if (!entry) return;
+  const was = (entry.appearance && entry.appearance.cut) || {};
+  const cut = change === null ? null : cutRecord(change, was);
+  const next = { ...(entry.appearance || {}) };
+  if (cut) next.cut = cut; else delete next.cut;
+  entry.appearance = Object.keys(next).length ? next : null;
+  if (cutter.on) refreshSection();
+  if (live) return;
+  mdl.run({ op: "appearance", id, appearance: entry.appearance }, { keepPanel: true })
+    .then(() => { if (state.edited === id) buildPanel(); })
+    .catch(err => showError(err.message));
 }
 
 //! Writes a material onto an object. \p live means the slider is still moving:

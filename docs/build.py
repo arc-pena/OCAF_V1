@@ -84,6 +84,8 @@ ENTRY = "app.js"
 # a module - it ends in `export default Module` - so the site build needs to do
 # nothing to it but put it where app.js says it is.
 GLUE_MODULE = "occt-glue.js"
+# Modules this script writes into the site rather than ones anybody wrote.
+GENERATED = {GLUE_MODULE}
 
 # A package's data rides the way the kernel and the showroom engine do: gzipped,
 # base64'd, in a script element the HTML tokenizer scans straight past. Unpacked
@@ -96,11 +98,35 @@ PAYLOADS = [("climate-sites", "cities.json")]
 IMPORT = re.compile(r"^\s*import\s[^;]*;\s*$", re.M)
 EXPORT = re.compile(r"^export\s+(?=(?:const|let|var|class|function|async)\b)", re.M)
 DECLARE = re.compile(r"^(?:export\s+)?(?:async\s+)?(?:const|let|var|class|function)\s+([A-Za-z_$][\w$]*)", re.M)
+# Where an import says it is coming from. Checked, because the single file
+# STRIPS imports - so a path that is wrong is invisible in the artifact and a
+# 404 before the first frame in the served build. That has happened once: a
+# rename walked through `from "./section.js"` and made it `./cutter.js`, every
+# test passed, and the served site was dead for three versions.
+FROM = re.compile('from' + r'\s+["\']' + r'(\.[^"\']+)' + r'["\']')
 
 
 def strip_modules(text):
     """Turn an ES module into plain statements for a shared scope."""
     return EXPORT.sub("", IMPORT.sub("", text))
+
+
+def check_imports():
+    """Every relative import must name a file that is really there, and one the
+    single-file build carries. The artifact cannot catch this - it throws the
+    imports away - so it is caught here or it is caught by somebody opening the
+    site and finding nothing at all."""
+    known = set(MODULES)
+    for name in sorted(p.name for p in SRC.glob('*.js')):
+        for said in FROM.findall((SRC / name).read_text()):
+            target = pathlib.PurePosixPath(said).name
+            if target in GENERATED:
+                continue        # written into the site by this script, not in src/
+            if not (SRC / target).exists():
+                sys.exit('%s imports %s, which is not in src/' % (name, said))
+            if name in known and target not in known:
+                sys.exit('%s imports %s, which the single file does not carry - '
+                         'add it to MODULES' % (name, said))
 
 
 def fetch_npm(package, cache_name, member_prefix, marker):
@@ -256,6 +282,8 @@ def main():
 
     stage_packed = base64.b64encode(
         gzip.compress(stage_path.read_bytes(), 9)).decode("ascii")
+
+    check_imports()
 
     bodies, seen = [], {}
     for name in MODULES:

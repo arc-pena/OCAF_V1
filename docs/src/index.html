@@ -1104,6 +1104,35 @@ body.presenting .caption-layer { background: linear-gradient(
   min-width: 46px;
 }
 
+/* --------------------------------------------- how one object is cut
+   The patterns are shown as the patterns: a swatch that is a word is a swatch
+   you have to learn, one that is the hatch is one you recognise. */
+.cut-swatches { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+.cut-swatch {
+  width: 26px; height: 26px; padding: 0; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2) center/cover no-repeat;
+  font-size: 8.5px; color: var(--ink-3); font-family: var(--mono);
+}
+.cut-swatch:hover { border-color: var(--ink-3); }
+.cut-swatch[aria-pressed="true"] {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cut-seg { display: flex; flex-wrap: wrap; gap: 3px; margin: 0 0 8px; }
+.cut-seg button {
+  flex: 1 0 auto; padding: 4px 7px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  font-size: 10.5px;
+}
+.cut-seg button:hover { color: var(--ink); }
+.cut-seg button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+/* A weight is shown as the weight, for the same reason a pattern is. */
+.cut-weights button { display: flex; align-items: center; justify-content: center; height: 22px; }
+.cut-weights span { display: block; width: 22px; background: currentColor; border-radius: 1px; }
+.cut-file { font-size: 10.5px; max-width: 168px; color: var(--ink-2); }
+.cut-wide label { flex: none; }
+
 /* ----------------------------------------------------------- the section
    Two rows: which planes are cut on and how the cut is drawn, then a slider
    per live plane. Sliders are the second row because a section is switched on

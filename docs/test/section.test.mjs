@@ -8,9 +8,10 @@
 // The fill is a stencil and belongs where the renderer is. Everything else -
 // which half, how far the plane may travel, and the exact line the cut makes
 // through the triangles - is arithmetic, and it is checked here.
-import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
-         halfway, keeps, planeOf, refit, saysWhere, sectionEdges, styleNamed,
-         travelOf } from "../src/section.js";
+import { CUT_LINES, CUT_PATTERNS, CUT_WEIGHTS, HATCH_MOTIFS, SECTION_AXES, SECTION_STYLES,
+         acrossOf, activePlanes, cutLength, cutRecord, cutStyleOf, dashSegments, freshCuts,
+         halfway, keeps, lineNamed, motifsOf, patternNamed, planeOf, refit, ribbonOf, saysCut,
+         saysWhere, sectionEdges, styleAsCut, styleNamed, travelOf } from "../src/section.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -161,6 +162,120 @@ console.log("\n4. the styles, and the words for them");
           Math.abs(dot(u, axis.normal)) < 1e-9 && Math.abs(dot(v, axis.normal)) < 1e-9
           && Math.abs(dot(u, v)) < 1e-9);
   }
+}
+
+console.log("\n5. how ONE object is cut, which is where a section stops being a toy");
+{
+  // A drawing does not hatch everything the same. Concrete is one poche,
+  // blockwork another, glass is not hatched at all - so the style belongs to
+  // the object, and the window's setting is only what it falls back to.
+  const plain = cutStyleOf(null, "poche");
+  check("an object that says nothing takes the view's style",
+        plain.pattern === "diagonal" && plain.line === "solid", JSON.stringify(plain));
+  check("and says it is not its own", plain.own === false);
+  const glass = cutStyleOf({ cut: { pattern: "none", line: "dotted" } }, "poche");
+  check("one that says something overrides it",
+        glass.pattern === "none" && glass.line === "dotted", JSON.stringify(glass));
+  check("and says it IS its own", glass.own === true);
+  const half = cutStyleOf({ cut: { line: "dashed" } }, "capped");
+  check("what it does not say still comes from the view",
+        half.pattern === "solid" && half.line === "dashed", JSON.stringify(half));
+  check("and \"as the view\" said out loud means the same thing",
+        cutStyleOf({ cut: { pattern: "inherit" } }, "poche").pattern === "diagonal");
+
+  check("the four buttons on the bar are cut styles too",
+        styleAsCut("open").pattern === "none" && styleAsCut("capped").pattern === "solid"
+        && styleAsCut("poche").pattern === "diagonal"
+        && styleAsCut("outline").line === "solid");
+
+  // A weight is in pixels and a scale is a multiple; neither may be nonsense.
+  check("a weight is held to something a screen can draw",
+        cutStyleOf({ cut: { weight: 900 } }, "capped").weight <= 12
+        && cutStyleOf({ cut: { weight: -4 } }, "capped").weight >= 0.5);
+  check("and a scale to something you can see",
+        cutStyleOf({ cut: { scale: 0 } }, "capped").scale > 0);
+  check("a colour that is not a colour is not a colour",
+        cutStyleOf({ cut: { fill: "red" } }, "capped").fill === null);
+
+  // What is WRITTEN is only what differs, so an object nobody has styled
+  // carries nothing at all and follows the bar for ever after.
+  check("nothing said is nothing written", cutRecord({ pattern: "inherit" }) === null);
+  check("something said is written", cutRecord({ pattern: "dots" }).pattern === "dots");
+  check("and it keeps what was already there",
+        cutRecord({ weight: 3 }, { pattern: "dots" }).pattern === "dots");
+  check("while a field set back to the view is taken out",
+        cutRecord({ pattern: "inherit" }, { pattern: "dots", weight: 3 }).pattern === undefined,
+        JSON.stringify(cutRecord({ pattern: "inherit" }, { pattern: "dots", weight: 3 })));
+
+  check("twelve patterns and six kinds of line",
+        CUT_PATTERNS.length === 12 && CUT_LINES.length === 6,
+        CUT_PATTERNS.map(p => p.key).join());
+  check("and the weights are the ones on a drawing board", CUT_WEIGHTS.length === 5);
+  check("a pattern nobody has heard of falls back to the view",
+        patternNamed("marzipan").key === "inherit");
+  check("and so does a line", lineNamed("wiggly").key === "inherit");
+  check("a style says what it is in one line",
+        saysCut(cutStyleOf({ cut: { pattern: "dots", line: "dashed", weight: 2 } }, "capped"))
+          === "dots \u00b7 dashed at 2",
+        saysCut(cutStyleOf({ cut: { pattern: "dots", line: "dashed", weight: 2 } }, "capped")));
+
+  // HOW MANY OF THE MOTIF ARE IN A TILE is one fact, and the reason it is one
+  // fact is that a hatch nine pixels wide holding six lines is not a hatch -
+  // it is a grey smear that looks the same whatever pattern it was.
+  check("a line hatch has six in a tile", motifsOf("diagonal") === HATCH_MOTIFS);
+  check("a brick bond has four courses", motifsOf("brick") === 4);
+  check("and a picture of your own is one", motifsOf("image") === 1
+        && motifsOf("solid") === 1);
+}
+
+console.log("\n6. dashes, chopped rather than shaded");
+{
+  // A dash is a shorter segment. Exact, no material to get wrong, and it works
+  // with the screen-space width the line is drawn at.
+  const line = [0, 0, 0, 100, 0, 0];
+  const dashed = dashSegments(line, 10, 0.6);
+  check("a hundred millimetres at ten becomes ten dashes",
+        dashed.length / 6 === 10, String(dashed.length / 6));
+  check("each one six millimetres long", near(cutLength(dashed), 60, 1e-9),
+        String(cutLength(dashed)));
+  check("the first starts where the line does", dashed[0] === 0 && dashed[3] === 6,
+        dashed.slice(0, 6).join(","));
+  const dotted = dashSegments(line, 4, 0.25);
+  check("a shorter duty makes dots", near(cutLength(dotted), 25, 1e-9),
+        String(cutLength(dotted)));
+  check("no period at all leaves the line alone",
+        dashSegments(line, 0).length === line.length);
+  // A chain line is a long dash and a dot, which is what a centre line is.
+  const chain = dashSegments(line, 20, 0.7, 3);
+  check("a chain line has two marks per cycle",
+        chain.length / 6 > 2 && cutLength(chain) < 100, String(cutLength(chain)));
+  // A dash never runs past the end of the segment it is chopping.
+  const stub = dashSegments([0, 0, 0, 7, 0, 0], 10, 1);
+  check("and never runs off the end of what it is chopping",
+        near(cutLength(stub), 7, 1e-9), String(cutLength(stub)));
+}
+
+console.log("\n7. a line with weight, which WebGL will not draw");
+{
+  // So it is a ribbon: a quad per segment, expanded sideways IN THE CUT PLANE
+  // - because that is the plane the line lies in and a line drawn on a cut
+  // face should stay on it.
+  const flat = [0, 0, 0, 100, 0, 0, 100, 0, 0, 100, 100, 0];
+  const ribbon = ribbonOf(flat, [0, 0, 1]);
+  check("two segments make two quads", ribbon.index.length === 12,
+        String(ribbon.index.length));
+  check("four corners each", ribbon.position.length / 3 === 8);
+  check("and a side of plus and minus one for every corner",
+        ribbon.side.join() === "1,-1,1,-1,1,-1,1,-1", ribbon.side.join());
+  // The first segment runs along X in the z = 0 plane, so it is expanded
+  // along Y - never along Z, which would lift it off the cut.
+  check("expanded square to the segment and square to the normal",
+        near(Math.abs(ribbon.offset[1]), 1, 1e-9) && near(ribbon.offset[2], 0, 1e-9),
+        ribbon.offset.slice(0, 3).join(","));
+  check("and the second segment the other way",
+        near(Math.abs(ribbon.offset[12]), 1, 1e-9), ribbon.offset.slice(12, 15).join(","));
+  check("a segment of no length is left out",
+        ribbonOf([5, 5, 5, 5, 5, 5], [0, 0, 1]).index.length === 0);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

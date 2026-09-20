@@ -214,3 +214,201 @@ export function cutLength(flat) {
                         flat[i + 5] - flat[i + 2]);
   return total;
 }
+
+/* ======================================================================
+   HOW ONE OBJECT IS CUT.
+
+   A drawing does not hatch everything the same. Concrete is one poche,
+   blockwork another, insulation is a zigzag, glass is not hatched at all and
+   is drawn with a fine line; structure is drawn heavy and furniture light.
+   That is not decoration - it is how a section is READ, and it has been for a
+   hundred and fifty years.
+
+   So the style belongs to the OBJECT, not to the window. The bar's four styles
+   are the default every object inherits; an object that says something for
+   itself overrides it, and what it says travels in the model file with
+   everything else it says about itself.
+   ====================================================================== */
+
+//! The patterns. Drawn rather than shipped: each one is a few lines of canvas
+//! and a tile size, so they cost nothing, scale with the model and take the
+//! object's own colours.
+export const CUT_PATTERNS = [
+  { key: "inherit",    label: "As the view", hint: "whatever the section bar says" },
+  { key: "none",       label: "None",        hint: "the cut is left hollow" },
+  { key: "solid",      label: "Solid",       hint: "filled flat" },
+  { key: "diagonal",   label: "Diagonal",    hint: "45° lines - the usual poche" },
+  { key: "backslash",  label: "Reverse",     hint: "45° the other way" },
+  { key: "cross",      label: "Cross",       hint: "hatched both ways - masonry" },
+  { key: "grid",       label: "Grid",        hint: "square, for tile and paving" },
+  { key: "dots",       label: "Dots",        hint: "stipple - fill, earth, screed" },
+  { key: "horizontal", label: "Horizontal",  hint: "straight lines across" },
+  { key: "vertical",   label: "Vertical",    hint: "straight lines up" },
+  { key: "brick",      label: "Brick",       hint: "a running bond" },
+  { key: "image",      label: "An image",    hint: "a picture of your own, tiled" },
+];
+
+export const patternNamed = key =>
+  CUT_PATTERNS.find(one => one.key === key) || CUT_PATTERNS[0];
+
+//! HOW MANY OF THE MOTIF ARE IN ONE TILE. Said here because two things need
+//! it and they must not disagree: the canvas that draws the tile, and the
+//! viewport working out how big the tile has to be ON SCREEN for the lines to
+//! be the right distance apart. Read off the texture it was drawn on, it was
+//! quietly lost the first time the texture was cloned - and a hatch nine
+//! pixels wide holding six lines is not a hatch, it is a grey smear that looks
+//! the same whatever pattern it was.
+export const HATCH_MOTIFS = 6;
+export const motifsOf = pattern =>
+  pattern === "image" || pattern === "solid" ? 1
+  : pattern === "brick" ? 4 : HATCH_MOTIFS;
+
+//! And the lines. Weight is in PIXELS, because a line weight in a 3D view is
+//! about how heavy it reads on the screen you are reading it on - a width in
+//! millimetres would vanish on a masterplan and swamp a bracket.
+export const CUT_LINES = [
+  { key: "inherit", label: "As the view", hint: "whatever the section bar says" },
+  { key: "none",    label: "None",        hint: "no line round the cut" },
+  { key: "solid",   label: "Continuous",  dash: 0, gap: 0 },
+  { key: "dashed",  label: "Dashed",      dash: 14, gap: 8 },
+  { key: "dotted",  label: "Dotted",      dash: 2.5, gap: 6 },
+  { key: "chain",   label: "Chain",       dash: 22, gap: 6, second: 2.5 },
+];
+
+export const lineNamed = key =>
+  CUT_LINES.find(one => one.key === key) || CUT_LINES[0];
+
+//! Pen weights, the ones on a drawing board and in every standard since: the
+//! root-two series. Offered as buttons because "0.35" means something to an
+//! architect and "2.7 pixels" does not.
+export const CUT_WEIGHTS = [
+  { key: 1, label: "Hairline" }, { key: 1.5, label: "Fine" },
+  { key: 2, label: "Medium" },   { key: 3, label: "Heavy" },
+  { key: 4.5, label: "Very heavy" },
+];
+
+//! WHAT THE FOUR BUTTONS ON THE BAR MEAN, said as a cut style - so the window's
+//! setting and an object's own setting are the same kind of thing and one can
+//! stand in for the other.
+export function styleAsCut(key) {
+  const style = styleNamed(key);
+  return { pattern: style.hatch ? "diagonal" : style.caps ? "solid" : "none",
+           line: style.edge ? "solid" : "none", weight: 1.5, scale: 1, angle: 0,
+           fill: null, ink: null, tile: "" };
+}
+
+//! AN OBJECT'S CUT STYLE, resolved: what it says for itself, with the window's
+//! setting standing in wherever it says nothing. One answer, in one shape, so
+//! the fill, the line and the panel cannot disagree about what is meant.
+export function cutStyleOf(appearance, viewStyle = "capped") {
+  const own = (appearance && appearance.cut) || {};
+  const under = styleAsCut(viewStyle);
+  const pick = (value, fallback) =>
+    (value === undefined || value === null || value === "inherit") ? fallback : value;
+  const pattern = pick(own.pattern, under.pattern);
+  const line = pick(own.line, under.line);
+  return {
+    pattern: patternNamed(pattern).key === "inherit" ? under.pattern : pattern,
+    line: lineNamed(line).key === "inherit" ? under.line : line,
+    weight: Math.max(0.5, Math.min(12, Number(pick(own.weight, under.weight)) || under.weight)),
+    scale: Math.max(0.05, Math.min(20, Number(pick(own.scale, 1)) || 1)),
+    angle: Number(pick(own.angle, 0)) || 0,
+    // Nothing said means "the colour the view uses", which the viewport knows
+    // and this does not - so it says nothing rather than guessing at a colour.
+    fill: Array.isArray(own.fill) && own.fill.length === 3 ? own.fill : null,
+    ink: Array.isArray(own.ink) && own.ink.length === 3 ? own.ink : null,
+    tile: typeof own.tile === "string" ? own.tile : "",
+    own: Object.keys(own).length > 0,
+  };
+}
+
+//! The record that is written into the document: only what differs from "as
+//! the view", so an object that has not been given a style of its own carries
+//! nothing at all and follows the bar.
+export function cutRecord(changes, was = {}) {
+  const out = { ...was, ...changes };
+  for (const [key, value] of Object.entries(out))
+    if (value === "inherit" || value === undefined || value === null) delete out[key];
+  return Object.keys(out).length ? out : null;
+}
+
+//! One line about a cut style, for the panel.
+export function saysCut(cut) {
+  const pattern = CUT_PATTERNS.find(one => one.key === cut.pattern);
+  const line = CUT_LINES.find(one => one.key === cut.line);
+  return (pattern ? pattern.label : cut.pattern).toLowerCase()
+       + (line && line.key !== "none" ? " · " + line.label.toLowerCase()
+           + " at " + cut.weight : " · no line");
+}
+
+/* ------------------------------------------------------------ dashed lines
+
+   CHOPPED HERE RATHER THAN IN A SHADER. The segments are already known and the
+   cut is already being rebuilt whenever it moves, so a dash is a shorter
+   segment: exact, no material to get wrong, and it works with the screen-space
+   width the ribbon is drawn at.
+
+   The period is a share of the model rather than a number of millimetres, so
+   the same dash reads the same on a bracket and on a masterplan.           */
+
+export function dashSegments(flat, period, duty = 0.6, second = 0) {
+  if (!(period > 0)) return flat;
+  const out = [];
+  const cycle = second > 0 ? period + second + period * (1 - duty) : period;
+  for (let i = 0; i + 5 < flat.length; i += 6) {
+    const a = [flat[i], flat[i + 1], flat[i + 2]];
+    const b = [flat[i + 3], flat[i + 4], flat[i + 5]];
+    const span = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    if (span < 1e-9) continue;
+    const at = t => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t,
+                     a[2] + (b[2] - a[2]) * t];
+    for (let start = 0; start < span; start += cycle) {
+      const marks = second > 0
+        ? [[start, start + period * duty],
+           [start + period, start + period + second]]
+        : [[start, start + period * duty]];
+      for (const [from, to] of marks) {
+        const one = Math.min(to, span);
+        if (from >= span || one - from < 1e-9) continue;
+        const p = at(from / span), q = at(one / span);
+        out.push(p[0], p[1], p[2], q[0], q[1], q[2]);
+      }
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------- a line with weight
+
+   WebGL will not draw a line thicker than one pixel, whatever the material
+   says - so a line with weight is not a line, it is a ribbon: a quad per
+   segment, expanded sideways.
+
+   Expanded IN THE CUT PLANE, because that is the plane the line lies in and a
+   line drawn on a cut face should stay on it. The direction to expand along is
+   worked out here, per vertex; how FAR is the shader's, so a ribbon never has
+   to be rebuilt when the camera moves.                                     */
+
+export function ribbonOf(flat, normal) {
+  const position = [], offset = [], side = [], index = [];
+  const n = normal || [0, 0, 1];
+  for (let i = 0; i + 5 < flat.length; i += 6) {
+    const a = [flat[i], flat[i + 1], flat[i + 2]];
+    const b = [flat[i + 3], flat[i + 4], flat[i + 5]];
+    const along = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const span = Math.hypot(along[0], along[1], along[2]);
+    if (span < 1e-9) continue;
+    // Square to the segment and lying in the plane: the cross of the two.
+    let out = [n[1] * along[2] - n[2] * along[1], n[2] * along[0] - n[0] * along[2],
+               n[0] * along[1] - n[1] * along[0]];
+    const long = Math.hypot(out[0], out[1], out[2]);
+    if (long < 1e-12) continue;
+    out = [out[0] / long, out[1] / long, out[2] / long];
+    const base = position.length / 3;
+    for (const p of [a, a, b, b]) position.push(p[0], p[1], p[2]);
+    for (let k = 0; k < 4; k++) offset.push(out[0], out[1], out[2]);
+    side.push(1, -1, 1, -1);
+    index.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+  }
+  return { position, offset, side, index };
+}
