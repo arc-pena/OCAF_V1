@@ -181,5 +181,93 @@ console.log("\n4. and it really runs, against a real kernel");
         !(await tree()).find(f => f.id === extrude.id).error);
 }
 
+console.log("\n5. a real file, with a sketch in the set");
+// THE ONE THAT GOT AWAY. A drawing is published as an OBJECT - elements and
+// constraints - and the copier only ever looked at objects for a driven
+// number or a hand-moved vertex, so a sketch fell straight through and the
+// copy arrived with an empty one. Everything ELSE about the sketch came
+// across, which is what made it look skipped rather than emptied.
+//
+// Checked against a real file rather than a fixture written to suit, because
+// the thing that was wrong was a shape of data nobody had thought to write
+// down.
+{
+  const real = JSON.parse(readFileSync(new URL("./files/wideflange.json",
+                                               import.meta.url), "utf8"));
+  const sets = setsIn(real, { isSet: one => one.type === "GeometricalSet" });
+  check("the file offers its sets", sets.length >= 2,
+        sets.map(one => one.name).join(", "));
+  const column = sets.find(one => /Column one/i.test(one.name));
+  check("including the column", !!column, sets.map(one => one.name).join(", "));
+
+  const drawn = contentsOf(real, column.id).filter(one => one.type === "Sketch");
+  check("which has a sketch in it", drawn.length === 1, "" + drawn.length);
+  check("and that sketch's drawing is an object, not a string",
+        drawn[0].args.drawing && typeof drawn[0].args.drawing === "object"
+        && Array.isArray(drawn[0].args.drawing.elements),
+        typeof drawn[0].args.drawing);
+  check("with twelve lines in it, which is a wide flange",
+        drawn[0].args.drawing.elements.length === 12,
+        "" + drawn[0].args.drawing.elements.length);
+
+  const made = instantiateEdits(real, column.id, { spec });
+  const sketches = made.edits.filter(one => one.op === "sketch");
+  check("the plan writes the drawing across", sketches.length === 1,
+        "" + sketches.length);
+  check("with every one of its elements",
+        sketches[0].drawing.elements.length === 12,
+        "" + (sketches[0].drawing.elements || []).length);
+  check("and its constraints too",
+        (sketches[0].drawing.constraints || []).length === 12,
+        "" + (sketches[0].drawing.constraints || []).length);
+
+  // And it really lands: run it, and ask the kernel how much sketch there is.
+  const DIR2 = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+  const init2 = (await import(DIR2 + "/replicad_single.js")).default;
+  const k2 = await createWasmKernel({ initModule: init2,
+                                      wasmBinary: readFileSync(DIR2 + "/replicad_single.wasm") });
+  const m2 = new Mdl({ kernel: k2, setNode: () => {}, readLayout: () => ({}),
+                       select: () => {}, selected: () => null });
+  await m2.run({ op: "model", model: { format: "ocaf-parametric-model", version: 1,
+                                       name: "Host", units: "mm", features: [] } });
+  await m2.runAll([
+    { op: "add", type: "Point", id: "HP", name: "Here" },
+    { op: "add", type: "Vector", id: "HV", name: "Z" },
+    { op: "set", id: "HV", key: "dz", value: 1 },
+  ]);
+  const read = async () => {
+    const answer = await k2.tree();
+    return (answer.tree || answer).features || [];
+  };
+  const here = await read();
+  const landed = instantiateEdits(real, column.id, {
+    spec, taken: new Set(here.map(f => f.id)), takenNames: new Set(here.map(f => f.name)) });
+  await m2.runAll(landed.edits);
+  const after = await read();
+  const sketch = after.find(f => f.type === "Sketch");
+  check("the sketch arrived", !!sketch, after.map(f => f.type).join(", "));
+  check("and it is not empty",
+        sketch && sketch.sketch && sketch.sketch.drawing.elements.length === 12,
+        sketch && sketch.sketch
+          ? sketch.sketch.drawing.elements.length + " elements" : "no drawing at all");
+  // Supplied with an origin, the whole column builds - and a wide flange of
+  // 14.52 by 14.02 with 0.71 flanges and a 0.44 web has an area that can be
+  // written down: 2*14.52*0.71 + 0.44*(14.02 - 2*0.71) = 26.1908 mm^2.
+  for (const one of landed.inputs)
+    if (one.key === "origin") await m2.run({ op: "connect", id: one.id, key: "origin", from: "HP" });
+  const built = (await read()).find(f => f.id === (landed.renamed.SK_COL || ""));
+  check("and with its origin supplied it builds",
+        !!built && !built.error,
+        !built ? "the sketch is not in the tree" : built.error || built.name);
+  await m2.runAll([
+    { op: "add", type: "Measure", id: "MA", name: "Area", refs: { shape: built.id } },
+    { op: "set", id: "MA", key: "quantity", value: 1 }]);
+  const area = Number((((((await read()).find(f => f.id === "MA")) || {}).data || {})
+                       .preview || "").match(/[\d.]+/));
+  const want = 2 * 14.52 * 0.71 + 0.44 * (14.02 - 2 * 0.71);
+  check("to the area a wide flange of those dimensions has",
+        Math.abs(area - want) < 0.01, area + " wanted " + want.toFixed(4));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

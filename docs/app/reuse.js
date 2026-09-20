@@ -182,6 +182,23 @@ export function instantiateEdits(model, setId, { taken = new Set(),
       if (value === null || value === undefined) continue;
       if (Array.isArray(value)) continue;                      // a list of wires
       if (typeof value === "object") {
+        //! A DRAWING IS AN OBJECT, and it came here as one. The model writer
+        //! publishes a sketch's drawing whole - {elements, constraints} - and
+        //! this used to look at objects only for a driven number or a hand-
+        //! moved vertex, so a sketch fell straight through and the copy
+        //! arrived with an empty one. Everything else about the sketch came
+        //! across, which is what made it look like the sketch had been
+        //! skipped rather than emptied.
+        //!
+        //! Recognised two ways: by the argument's kind when the catalogue is
+        //! to hand, and by the shape of the thing itself when it is not - an
+        //! object with an elements array in it is a drawing whatever anybody
+        //! says, and dropping it quietly is the one outcome worth ruling out
+        //! twice.
+        if ((arg && arg.kind === "sketch") || Array.isArray(value.elements)) {
+          edits.push({ op: "sketch", id, drawing: value });
+          continue;
+        }
         // { value, from } - the number is stored, the wire is made later.
         if (value.from !== undefined && Number.isFinite(Number(value.value)))
           edits.push({ op: "set", id, key, value: Number(value.value) });
@@ -201,6 +218,8 @@ export function instantiateEdits(model, setId, { taken = new Set(),
           if (at >= 0) edits.push({ op: "set", id, key, value: at });
           continue;
         }
+        // And a drawing written as text rather than as an object, which the
+        // model format also allows.
         if (arg && arg.kind === "sketch") {
           edits.push({ op: "sketch", id, drawing: value });
           continue;
