@@ -999,6 +999,39 @@ body.waiting #viewport { cursor: crosshair; }
   background: var(--panel-2); padding: 3px 8px; border-radius: 5px; white-space: nowrap;
 }
 
+/* --------------------------------------------------------- safe frames
+   What will actually be seen. The shot is drawn at the camera's own shape in
+   the middle of whatever shape the window is, and the rest is dimmed - because
+   a view composed in a window and printed on a sheet is a view that has lost
+   its own edges. */
+.safe-layer {
+  position: absolute; inset: 0; pointer-events: none; z-index: 2;
+}
+.safe-layer[hidden] { display: none; }
+.safe-mask { position: absolute; left: 0; right: 0; background: rgba(8, 11, 15, .58); }
+.safe-shot { position: absolute; outline: 1px solid rgba(255, 255, 255, .55); }
+.safe-in { position: absolute; border: 1px dashed rgba(255, 255, 255, .42); }
+.safe-title { border-style: dotted; }
+.safe-third {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: rgba(255, 255, 255, .22);
+}
+.safe-third.safe-across { left: 0; right: 0; top: auto; width: auto; height: 1px; }
+.safe-tag {
+  position: absolute; left: 0; top: -21px; font-family: var(--mono); font-size: 10.5px;
+  color: rgba(255, 255, 255, .82); white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+}
+/* The camera's own bar: the frame shapes, the lens, and the safe rectangles. */
+.cam-bar { z-index: 10; }
+.cam-lens { display: flex; align-items: center; gap: 6px; }
+.cam-lens label { font-size: 10.5px; color: var(--ink-2); }
+.cam-lens input { width: 120px; accent-color: var(--accent); }
+.cam-lens i {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--ink);
+  min-width: 46px;
+}
+
 /* ----------------------------------------------------------- the section
    Two rows: which planes are cut on and how the cut is drawn, then a slider
    per live plane. Sliders are the second row because a section is switched on
@@ -1645,7 +1678,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      is one row down there and while a sketch is open it belongs to the sketch. */
   #lens-panel { right: var(--edge); bottom: calc(var(--dock-h) + 6px + var(--bar-h));
                 width: auto; left: var(--edge); z-index: 8; border-radius: 9px; }
-  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
+  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
     top: auto; transform: none; width: auto; max-width: none; z-index: 7;
   }
@@ -1653,7 +1686,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
   }
-  #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
   /* The log stands ON the status line rather than over it: the button that
      closes it is in the status line, and a popup that covers its own switch is
      a popup you cannot put away. */

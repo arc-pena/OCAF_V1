@@ -1443,6 +1443,13 @@ const real = (key, label, def, min, max, step, unit = "mm") =>
 //! without any of them being told about it.
 const ref = (key, label, accepts, consumes = false) =>
   ({ key, label, kind: "ref", accepts, consumes });
+//! The same, but never guessed at. An input that OVERRIDES numbers already on
+//! the node - a camera's position, which is three reals unless a point is
+//! wired in instead - must arrive empty: wired to the first point in the
+//! document it would quietly ignore what was typed, and on a camera it would
+//! stand the eye on its own target and refuse to build.
+const spare = (key, label, accepts) =>
+  ({ key, label, kind: "ref", accepts, consumes: false, guess: false });
 //! Many wires into one input, in order: the sections of a loft, the bodies of
 //! a union. Held as child labels of the argument, each with its own
 //! TDF_Reference.
@@ -1506,7 +1513,7 @@ const whenAny = (arg, key, list) => ({ ...arg, showWhen: { key, any: list } });
 //! The same builders, handed out - because a package declares its nodes in
 //! exactly the form the catalogue above is written in, and a second way of
 //! spelling an argument is a second thing that can be wrong about one.
-export const ARG = { real, ref, refs, choice, text, code, blob, edits, subs, drawing,
+export const ARG = { real, ref, spare, refs, choice, text, code, blob, edits, subs, drawing,
                      when, whenAny, ANY, KINDS };
 
 //! One table drives the toolbar, the label layout (an argument's index here is
@@ -1627,6 +1634,41 @@ export const CATALOGUE = [
   //! Right-handed, always. X is taken as given, Y is squared up against it, and
   //! Z is X cross Y - so a pair of directions that are not quite perpendicular
   //! still makes a frame rather than an error.
+  //! A CAMERA IS A THING, not a mood the window was in.
+  //!
+  //! Every view worth having gets lost: somebody orbits, somebody else opens
+  //! the file, and the shot that explained the scheme is gone. A camera in the
+  //! tree is a shot you can come back to, wire a number into, move with a
+  //! widget and hand to somebody else in the model file - and because it is an
+  //! axis system with a lens on it, everything that takes a frame takes one.
+  //!
+  //! Where it stands and what it looks at are numbers, with a point to wire in
+  //! instead when you would rather they followed something. Both, because a
+  //! camera you cannot type a coordinate into is a camera you cannot put back
+  //! where it was, and a camera that cannot follow a point is a camera that
+  //! cannot track a building as it moves.
+  { type: "Camera", guid: "9a1b2c30-0006-4c00-9e00-caf000000006", category: "datum",
+    produces: "axis",
+    summary: "A camera: where it stands, what it looks at, and what lens is on it. "
+           + "Press Look through and the viewport becomes it; everything you do to the "
+           + "view while you are in there is written back into these numbers, so the "
+           + "shot is something the document holds. Safe frames show what a 16:9 or an "
+           + "A3 will actually catch.",
+    args: [spare("at", "Stands at", ["point"]),
+           real("x", "X", 6000, -1000000, 1000000, 10),
+           real("y", "Y", -9000, -1000000, 1000000, 10),
+           real("z", "Z", 1700, -1000000, 1000000, 10),
+           spare("look", "Looks at", ["point"]),
+           real("tx", "Target X", 0, -1000000, 1000000, 10),
+           real("ty", "Target Y", 0, -1000000, 1000000, 10),
+           real("tz", "Target Z", 1700, -1000000, 1000000, 10),
+           real("lens", "Lens", 35, 6, 600, 1, " mm"),
+           real("roll", "Roll", 0, -180, 180, 0.5, "\u00b0"),
+           choice("frame", "Frame",
+                  ["16:9", "3:2", "4:3", "1:1", "2:1", "9:16 upright", "A4 landscape",
+                   "A3 landscape"], 0),
+           choice("safe", "Safe frames", ["Off", "Action and title", "Thirds", "Both"], 3),
+           real("size", "Drawn size", 600, 20, 20000, 10)] },
   { type: "AxisSystem", guid: "9a1b2c30-0005-4c00-9e00-caf000000005", category: "datum",
     produces: "axis",
     summary: "An origin and three directions - the placement a transform is measured "
@@ -3757,7 +3799,8 @@ export function schemaJson() {
           return { ...base, default: arg.def, summary: arg.summary || "" };
         if (arg.kind === "text")
           return { ...base, default: arg.def, hint: arg.hint || "" };
-        return { ...base, accepts: arg.accepts.join(","), consumes: arg.consumes };
+        return { ...base, accepts: arg.accepts.join(","), consumes: arg.consumes,
+                 ...(arg.guess === false ? { guess: false } : {}) };
       }),
     })),
   };

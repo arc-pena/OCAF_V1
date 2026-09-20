@@ -31,6 +31,8 @@ import { edgeAnchor, faceAnchor, readPicks, resolvePicks,
 import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
          solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
+import { cornersOf, frameAt, frameOf, saysShot } from "./camera.js";
+import { fovFromLens } from "./gizmo.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
@@ -581,6 +583,63 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           shape: HSF.join([arm(frame.x), arm(frame.y), arm(frame.z)]),
           data: { kind: "axis",
                   values: [...frame.at, ...frame.x, ...frame.y, ...frame.z] },
+        };
+      },
+    },
+
+    //! A CAMERA, drawn as what it is: a little body and the pyramid of what it
+    //! can see, out as far as the thing it is looking at. Drawn rather than
+    //! implied, because a camera you cannot see in the model is a camera
+    //! nobody remembers is there - and the pyramid is the part that answers
+    //! "will the tower be in shot".
+    Camera: {
+      precondition: f => {
+        const eye = readPoint(F.reference(f, "at"))
+          || [F.real(f, "x", 0), F.real(f, "y", 0), F.real(f, "z", 0)];
+        const target = readPoint(F.reference(f, "look"))
+          || [F.real(f, "tx", 0), F.real(f, "ty", 0), F.real(f, "tz", 0)];
+        if (length(V.sub(target, eye)) < CONFUSION)
+          return "the camera is standing on what it is looking at - move one of them";
+        if (F.real(f, "lens", 35) < 1) return "a lens is millimetres, and more than one";
+        return null;
+      },
+      build: f => {
+        const eye = readPoint(F.reference(f, "at"))
+          || [F.real(f, "x", 0), F.real(f, "y", 0), F.real(f, "z", 0)];
+        const target = readPoint(F.reference(f, "look"))
+          || [F.real(f, "tx", 0), F.real(f, "ty", 0), F.real(f, "tz", 0)];
+        const view = frameOf(eye, target, F.real(f, "roll", 0));
+        if (!view) throw new Error("that camera has nowhere to look");
+        const lens = F.real(f, "lens", 35);
+        const shape = frameAt(Feature_choice(f, "frame"));
+        const fov = fovFromLens(lens);
+        const size = F.real(f, "size", 600);
+
+        // The pyramid, at the drawn size rather than all the way to the
+        // target: a frustum nine hundred metres long is a line across the
+        // whole model and tells you nothing.
+        const reach = Math.min(size, view.distance * 0.9);
+        const corners = cornersOf(view, fov, shape.ratio, reach / view.distance);
+        const lines = [];
+        for (let i = 0; i < 4; i++) {
+          lines.push(HSF.polyline([eye, corners[i]], false));
+          lines.push(HSF.polyline([corners[i], corners[(i + 1) % 4]], false));
+        }
+        // A nick out of the top edge, which is how every camera glyph says
+        // which way up it is.
+        const top = V.scale(V.add(corners[2], corners[3]), 0.5);
+        lines.push(HSF.polyline([corners[3], V.add(top, V.scale(view.up, reach * 0.16)),
+                                 corners[2]], false));
+        // And the line to what it is actually looking at, dashed by being
+        // short: enough to say "that way" without drawing a ruler.
+        lines.push(HSF.polyline([eye, V.add(eye, V.scale(view.forward,
+          Math.min(view.distance, reach * 1.35)))], false));
+
+        return {
+          shape: HSF.join(lines),
+          data: { kind: "axis",
+                  values: [...eye, ...view.right, ...view.up, ...view.forward] },
+          note: saysShot(lens, shape.label, view.distance),
         };
       },
     },

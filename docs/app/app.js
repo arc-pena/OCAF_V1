@@ -25,6 +25,8 @@ import { describePicks, matchPick, pickOf } from "./subshape.js";
 // it is fine in the served build, which is the one nobody publishes.
 import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
          onPlane, rulerAt, vUnit } from "./handle.js";
+import { ACTION_SAFE, FRAMES, TITLE_SAFE, dolly, frameAt, frameOf, fromView, letterbox,
+         orbitAbout, safeAt, saysShot, truck } from "./camera.js";
 import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
          refit, saysWhere, sectionEdges, styleNamed, travelOf } from "./cutter.js";
 import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
@@ -465,6 +467,18 @@ function measureScene() {
     lastX = event.clientX; lastY = event.clientY; moved += Math.abs(dx) + Math.abs(dy);
     // A left drag with no Alt is not a camera move; it is a drag that missed a
     // handle, and it is still a click as far as picking is concerned.
+    // LOOKING THROUGH A CAMERA, the drag moves the CAMERA and not the model:
+    // orbit about what it is pointed at, shift to slide it sideways and up.
+    // Asked BEFORE the navigation setting, because while you are behind a
+    // camera the camera IS what the hand is for.
+    if (lookingThrough()) {
+      if (mode === "orbit") rigCamera("orbit", -dx * 0.006, dy * 0.006);
+      else {
+        const reach = Math.max(view.distance, 1) * 0.0016;
+        rigCamera("truck", -dx * reach, dy * reach);
+      }
+      return;
+    }
     if (!navigating) return;
     if (mode === "orbit") {
       view.yaw -= dx * 0.008;
@@ -493,6 +507,9 @@ function measureScene() {
     }
     if (mode === "transform") { dropGizmoWidget(); mode = null; return; }
     if (mode === "cutting") { dropSection(); mode = null; return; }
+    if (lookingThrough() && through.dirty && (mode === "orbit" || mode === "pan")) {
+      saveThrough(); mode = null; return;
+    }
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
     else if (mode === "move") dropSketchMove(event);
@@ -561,6 +578,13 @@ function measureScene() {
     // it by rolling through them and watching the street compress. Close it
     // and the wheel is the zoom again, which is what it is the rest of the time.
     if (lensOpen()) { rollLens(-Math.sign(event.deltaY)); return; }
+    // A DOLLY, NOT A ZOOM. The lens stays where it is and the camera walks:
+    // everything behind the subject rushes past, which is the move you were
+    // reaching for and the one a zoom cannot make.
+    if (lookingThrough()) {
+      rigCamera("dolly", -Math.sign(event.deltaY) * Math.max(view.distance, 1) * 0.1);
+      return;
+    }
     // Measured against how big the scene is. Fixed stops at 20 and 8000 mm meant
     // a thirty-metre building could not be pulled back far enough to be seen,
     // and one turn of the wheel undid a fit.
@@ -598,6 +622,9 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  // A camera being looked through owns the projection: its frame is its own
+  // shape and has to be laid out again on the new window.
+  if (lookingThrough()) { placeThrough(); refreshSafe(); }
   draw();
 }
 
@@ -846,6 +873,17 @@ async function syncShapes() {
   }
 
   settleSection();
+  // A camera that has been retyped, or whose points have moved, moves the
+  // view with it - otherwise you are looking through a camera that is
+  // somewhere else.
+  if (lookingThrough()) {
+    if (!through.dirty) {
+      const now = cameraNumbers(lookingThrough());
+      through.eye = now.eye.slice();
+      through.target = now.target.slice();
+    }
+    followCamera();
+  }
   // NOW the modes can be told, with the new triangles in hand. Every mode, not
   // just the open one: a mode left holding a measurement of a shape that has
   // since changed must not show it again when it is reopened.
@@ -2986,6 +3024,319 @@ async function dropGizmoWidget() {
 }
 
 /* ======================================================================
+   LOOKING THROUGH A CAMERA.
+
+   A camera in the tree is only half of it. The other half is being able to
+   stand behind it: the viewport becomes the camera, the shot is framed to the
+   shape it will be printed in rather than to the shape the window happens to
+   be, and everything the hand does to the view is written back into the node
+   on the way up. That is what makes a view a thing the document holds rather
+   than a mood the window was in.
+
+   THE RIG uses the words a camera crew uses, because they are the right
+   words: drag orbits round what it is looking at, shift-drag trucks it
+   sideways and pedestals it up, the wheel dollies in and out. A dolly is not a
+   zoom - the lens does not move, the camera does, and everything behind the
+   subject rushes past. That is the difference you are looking for.
+   ====================================================================== */
+
+const through = {
+  id: null,          // the camera being looked through
+  was: null,         // the view to hand back when you step out
+  eye: null,
+  target: null,
+  dirty: false,
+  saving: false,
+};
+
+const lookingThrough = () => (through.id && feature(through.id)) || null;
+
+//! Is this camera's position a thing we may write to? A camera wired to a
+//! point follows the point, and shoving the view about must not quietly
+//! unwire it.
+function cameraFree(entry) {
+  const refs = (entry && entry.refs) || {};
+  return { eye: !refs.at, target: !refs.look };
+}
+
+function cameraNumbers(entry) {
+  const v = (entry && entry.values) || {};
+  const stand = shapeCentre(entry && entry.refs && entry.refs.at)
+    || [Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0];
+  const look = shapeCentre(entry && entry.refs && entry.refs.look)
+    || [Number(v.tx) || 0, Number(v.ty) || 0, Number(v.tz) || 0];
+  return { eye: stand, target: look, lens: Number(v.lens) || 35,
+           roll: Number(v.roll) || 0, frame: frameAt(v.frame), safe: safeAt(v.safe) };
+}
+
+//! Where a wired point actually ended up, read off what it computed.
+function shapeCentre(id) {
+  const entry = id && feature(id);
+  const preview = entry && entry.data && entry.data.preview;
+  const first = preview && String(preview).match(/\(([^)]*)\)/);
+  if (!first) return null;
+  const p = first[1].split(",").map(Number);
+  return p.length === 3 && p.every(Number.isFinite) ? p : null;
+}
+
+function lookThrough(id) {
+  const entry = feature(id);
+  if (!entry || entry.type !== "Camera") { say("that is not a camera"); return; }
+  if (entry.error) { say(entry.name + " has not been built: " + entry.error); return; }
+  if (!through.id) through.was = { target: view.target.clone(), distance: view.distance,
+                                   yaw: view.yaw, pitch: view.pitch, fov: camera.fov };
+  through.id = id;
+  const now = cameraNumbers(entry);
+  through.eye = now.eye.slice();
+  through.target = now.target.slice();
+  through.dirty = false;
+  placeThrough();
+  refreshSafe();
+  refreshCameraBar();
+  layout();
+  say("Looking through " + entry.name + " \u00b7 drag to orbit, shift-drag to slide, "
+      + "wheel to dolly \u00b7 Esc to step out");
+}
+
+function leaveThrough(save = true) {
+  if (!through.id) return;
+  if (save && through.dirty) saveThrough();
+  through.id = null;
+  camera.clearViewOffset();
+  const wide = renderer.domElement.clientWidth || 1;
+  camera.aspect = wide / (renderer.domElement.clientHeight || 1);
+  if (through.was) {
+    view.target.copy(through.was.target);
+    view.distance = through.was.distance;
+    view.yaw = through.was.yaw;
+    view.pitch = through.was.pitch;
+    camera.fov = through.was.fov;
+    through.was = null;
+  }
+  placeCamera();
+  refreshSafe();
+  refreshCameraBar();
+  layout();
+  draw();
+}
+
+//! The viewport, standing where the camera stands. The yaw and pitch the
+//! viewport thinks in are worked out from the pair of points, so stepping out
+//! again leaves the orbit controls somewhere sensible rather than at nought.
+function placeThrough() {
+  const entry = lookingThrough();
+  if (!entry) return;
+  const now = cameraNumbers(entry);
+  const eye = through.eye, target = through.target;
+  const out = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
+  const reach = Math.hypot(...out) || 1;
+  view.target.set(target[0], target[1], target[2]);
+  view.distance = reach;
+  view.yaw = Math.atan2(out[1], out[0]);
+  view.pitch = Math.asin(Math.max(-1, Math.min(1, out[2] / reach)));
+  // THE LENS IS THE LENS INSIDE THE FRAME, not across the window. The window
+  // is whatever shape it is; the shot is 16:9 in the middle of it, and the
+  // camera's vertical angle belongs to the shot. So the renderer is opened up
+  // by however much taller the window is than the frame, and the letterbox
+  // puts it back.
+  // THE SHOT LANDS ON THE FREE RECTANGLE, exactly. A camera's frame is its
+  // own shape and the window is another, so the projection is offset: the
+  // frame is the whole picture and the canvas is a window onto a bigger one,
+  // which is what setViewOffset is for. Done this way the preview is the
+  // photograph - the right lens, the right crop, in the right place - rather
+  // than an approximation of it with the panels taking a bite out of the side.
+  const box = safeBox(now.frame.ratio);
+  const wide = renderer.domElement.clientWidth, tall = renderer.domElement.clientHeight;
+  camera.fov = fovFromLens(now.lens);
+  camera.aspect = now.frame.ratio;
+  if (box.width > 1 && box.height > 1)
+    camera.setViewOffset(box.width, box.height, -box.x, -box.y, wide, tall);
+  placeCamera();
+  // Roll: the one thing the orbit camera has no idea about.
+  camera.rotateZ(-(now.roll || 0) * Math.PI / 180);
+  camera.updateMatrixWorld();
+  draw();
+}
+
+//! The rig. One function, because every one of these is the same shape of
+//! thing: take the pair of points, do one named move to them, put them back.
+function rigCamera(kind, a, b) {
+  const entry = lookingThrough();
+  if (!entry) return false;
+  const now = cameraNumbers(entry);
+  const view3 = frameOf(through.eye, through.target, 0);
+  if (!view3) return false;
+  const moved = kind === "orbit" ? orbitAbout(view3, a, b)
+              : kind === "truck" ? truck(view3, a, b)
+              : dolly(view3, a);
+  if (!moved) return false;
+  through.eye = moved.eye;
+  through.target = moved.target;
+  through.dirty = true;
+  placeThrough();
+  refreshCameraBar();
+  return true;
+}
+
+//! Written back into the node, once, when the hand comes off. Six numbers and
+//! one step to undo, whatever the view travelled through on the way.
+async function saveThrough() {
+  const entry = lookingThrough();
+  if (!entry || through.saving) return;
+  const free = cameraFree(entry);
+  const numbers = fromView(through.eye, through.target);
+  const edits = [];
+  if (free.eye) for (const key of ["x", "y", "z"])
+    edits.push({ op: "set", id: entry.id, key, value: numbers[key] });
+  if (free.target) for (const key of ["tx", "ty", "tz"])
+    edits.push({ op: "set", id: entry.id, key, value: numbers[key] });
+  if (!edits.length) {
+    say(entry.name + " is wired to points, so its position is theirs to say - "
+        + "disconnect them to move it by hand");
+    return;
+  }
+  through.dirty = false;
+  through.saving = true;
+  try { await mdl.runAll(edits); } catch (error) { showError(error.message); }
+  finally { through.saving = false; }
+  refreshCameraBar();
+}
+
+/* ------------------------------------------------------------ safe frames
+
+   WHAT WILL ACTUALLY BE SEEN. A view is composed for something - a slide, a
+   sheet, a phone - and composing it in whatever shape the window happens to be
+   is how a scheme loses its own edges. So the frame is drawn, the rest is
+   dimmed, and the two rectangles broadcast has used since television had
+   rounded corners are drawn inside it: ninety per cent for anything that
+   matters, eighty for anything with words in it.                           */
+
+const safeLayer = document.createElement("div");
+safeLayer.className = "safe-layer";
+safeLayer.id = "safe-layer";
+safeLayer.hidden = true;
+viewportEl.appendChild(safeLayer);
+
+//! The letterbox, in the free rectangle rather than in the whole window: a
+//! shot composed under the definition panel is a shot with a panel in it.
+function safeBox(ratio) {
+  const rect = freeRect();
+  const box = letterbox(rect.w, rect.h, ratio);
+  return { x: rect.x + box.x, y: rect.y + box.y, width: box.width, height: box.height };
+}
+
+function refreshSafe() {
+  const entry = lookingThrough();
+  if (!entry) { safeLayer.hidden = true; return; }
+  const now = cameraNumbers(entry);
+  const box = safeBox(now.frame.ratio);
+  const mode = now.safe;
+  const pct = (v, of) => (v / of * 100).toFixed(4) + "%";
+  const inner = (share, cls) => {
+    const w = box.width * share, h = box.height * share;
+    return '<div class="' + cls + '" style="left:' + ((box.width - w) / 2) + "px;top:"
+      + ((box.height - h) / 2) + "px;width:" + w + "px;height:" + h + 'px"></div>';
+  };
+  safeLayer.hidden = false;
+  safeLayer.innerHTML =
+      '<div class="safe-mask" style="height:' + box.y + 'px;top:0"></div>'
+    + '<div class="safe-mask" style="top:' + (box.y + box.height) + "px;bottom:0" + '"></div>'
+    + '<div class="safe-mask" style="top:' + box.y + "px;height:" + box.height
+      + "px;left:0;width:" + box.x + 'px"></div>'
+    + '<div class="safe-mask" style="top:' + box.y + "px;height:" + box.height
+      + "px;left:" + (box.x + box.width) + 'px;right:0"></div>'
+    + '<div class="safe-shot" style="left:' + box.x + "px;top:" + box.y + "px;width:"
+      + box.width + "px;height:" + box.height + 'px">'
+    + (mode.action ? inner(ACTION_SAFE, "safe-in safe-action") : "")
+    + (mode.title ? inner(TITLE_SAFE, "safe-in safe-title") : "")
+    + (mode.thirds
+        ? '<div class="safe-third" style="left:33.3333%"></div>'
+          + '<div class="safe-third" style="left:66.6667%"></div>'
+          + '<div class="safe-third safe-across" style="top:33.3333%"></div>'
+          + '<div class="safe-third safe-across" style="top:66.6667%"></div>'
+        : "")
+    + '<span class="safe-tag">' + escapeHtml(entry.name) + " \u00b7 "
+      + escapeHtml(saysShot(now.lens, now.frame.label,
+          Math.hypot(through.eye[0] - through.target[0], through.eye[1] - through.target[1],
+                     through.eye[2] - through.target[2])))
+    + "</span></div>";
+}
+
+/* ------------------------------------------------------------- its own bar */
+
+const cameraBar = document.createElement("section");
+cameraBar.className = "float fades mx-bar cam-bar";
+cameraBar.id = "camera-bar";
+cameraBar.hidden = true;
+document.body.appendChild(cameraBar);
+
+function refreshCameraBar() {
+  const entry = lookingThrough();
+  const on = !!entry;
+  if (cameraBar.hidden !== !on) { cameraBar.hidden = !on; layout(); }
+  if (!on) return;
+  const now = cameraNumbers(entry);
+  const free = cameraFree(entry);
+  cameraBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">THROUGH</span>'
+    + '<span class="mx-count">' + escapeHtml(entry.name) + "</span>"
+    + '<span class="seg">'
+    + FRAMES.map((one, i) => '<button data-cam-frame="' + i + '" aria-pressed="'
+        + (now.frame.key === one.key ? "true" : "false") + '" title="'
+        + escapeAttr(one.note) + '">' + escapeHtml(one.label) + "</button>").join("")
+    + "</span>"
+    + '<span class="cam-lens"><label>Lens</label>'
+    + '<input type="range" data-cam-lens min="10" max="200" step="1" value="'
+      + Math.round(now.lens) + '">'
+    + "<i>" + Math.round(now.lens) + " mm</i></span>"
+    + "</div>"
+    + '<div class="mx-row mx-wrap">'
+    + '<span class="seg">'
+    + ["Off", "Safe", "Thirds", "Both"].map((label, i) =>
+        '<button data-cam-safe="' + i + '" aria-pressed="'
+        + (now.safe.key === ["off", "safe", "thirds", "both"][i] ? "true" : "false")
+        + '">' + label + "</button>").join("")
+    + "</span>"
+    + '<span class="mx-hint">' + (free.eye || free.target
+        ? "drag to orbit \u00b7 shift-drag to slide \u00b7 wheel to dolly"
+        : escapeHtml(entry.name) + " follows the points it is wired to")
+      + (through.dirty ? " \u00b7 <b>moved</b>" : "") + "</span>"
+    + (through.dirty ? '<button data-cam-save>Keep it</button>'
+                     : '<button data-cam-save disabled>Keep it</button>')
+    + '<button data-cam-out>Step out \u00b7 Esc</button>'
+    + "</div>";
+}
+
+cameraBar.addEventListener("click", event => {
+  const entry = lookingThrough();
+  if (!entry) return;
+  const frame = event.target.closest("[data-cam-frame]");
+  if (frame) { edit({ op: "set", id: entry.id, key: "frame",
+                      value: Number(frame.dataset.camFrame) }); return; }
+  const safe = event.target.closest("[data-cam-safe]");
+  if (safe) { edit({ op: "set", id: entry.id, key: "safe",
+                     value: Number(safe.dataset.camSafe) }); return; }
+  if (event.target.closest("[data-cam-save]")) { saveThrough(); return; }
+  if (event.target.closest("[data-cam-out]")) { leaveThrough(true); return; }
+});
+
+//! The bar writes to the node and the node comes back through the tree, so the
+//! overlay is refreshed when the tree lands rather than when the button is
+//! pressed - see the hook in syncShapes.
+function followCamera() {
+  if (!lookingThrough()) return;
+  placeThrough();
+  refreshSafe();
+  refreshCameraBar();
+}
+cameraBar.addEventListener("input", event => {
+  const entry = lookingThrough();
+  const slide = event.target.closest("[data-cam-lens]");
+  if (!entry || !slide) return;
+  edit({ op: "set", id: entry.id, key: "lens", value: Number(slide.value) });
+});
+
+/* ======================================================================
    THE SECTION.
 
    Not a debugging aid - the drawing. A plan is a horizontal cut at a metre and
@@ -3779,6 +4130,10 @@ const ICONS = {
         + '<circle cx="4.6" cy="9.6" r="1.15" fill="currentColor"/><circle cx="10" cy="9.6" r="1.15" fill="currentColor"/>',
   Plane: '<path d="M1.5 10.5L6 4.5h8.5L10 10.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
   // Three arms from a corner: an axis system is drawn the way it is drawn.
+  Camera: '<path d="M1.8 5.4h7.4v5.2H1.8z" fill="none" stroke="currentColor" stroke-width="1.25"/>'
+        + '<path d="M9.2 7.6l4.9-2.2v5.4l-4.9-2.2z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>'
+        + '<circle cx="4.1" cy="3.6" r="1.5" fill="none" stroke="currentColor" stroke-width="1.1"/>'
+        + '<circle cx="7.3" cy="3.6" r="1.5" fill="none" stroke="currentColor" stroke-width="1.1"/>',
   AxisSystem: '<path d="M3 13V4M3 13h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
             + '<path d="M3 13L9.5 8.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".6"/>'
             + '<circle cx="3" cy="13" r="1.5" fill="currentColor"/>',
@@ -4635,7 +4990,11 @@ function placeField(entry) {
     // way in here as well as on a double-click and in the ring. Three ways to
     // one place is not three features; it is one feature you can find.
     + (entry.produces === "mesh" ? '<button class="btn place-edit" id="place-edit">'
-        + (entry.type === "EditMesh" ? "Enter edit mode" : "Edit its cage") + "</button>" : "");
+        + (entry.type === "EditMesh" ? "Enter edit mode" : "Edit its cage") + "</button>" : "")
+    // A camera has a mode of its own too: standing behind it. Offered where
+    // you are when you are looking at one, which is here.
+    + (entry.type === "Camera" ? '<button class="btn place-edit" id="place-look">'
+        + (through.id === entry.id ? "Step out of it" : "Look through it") + "</button>" : "");
 
   field.querySelector("#place-eye").addEventListener("click", () =>
     showFeature(entry.id, state.hidden.has(entry.id)));
@@ -4643,6 +5002,9 @@ function placeField(entry) {
     edit({ op: "group", id: entry.id, into: event.target.value || undefined }));
   const enter = field.querySelector("#place-edit");
   if (enter) enter.addEventListener("click", () => enterMeshEdit(entry.id));
+  const look = field.querySelector("#place-look");
+  if (look) look.addEventListener("click", () =>
+    through.id === entry.id ? leaveThrough(true) : lookThrough(entry.id));
   return field;
 }
 
@@ -7738,7 +8100,7 @@ function measureLayout() {
   // bar of its own up is covered without this knowing about it.
   let barTall = 0;
   for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-      + "#gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar")) {
+      + "#gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar")) {
     if (!onScreen(bar)) continue;
     barTall = Math.max(barTall, bar.getBoundingClientRect().height / ui);
   }
@@ -7771,8 +8133,8 @@ function measureLayout() {
   if (laidOut(status)) {
     const mine = status.getBoundingClientRect();
     for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-        + "#gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, "
-        + "#packages")) {
+        + "#gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, "
+        + "#log-pop, #packages")) {
       if (!onScreen(bar)) continue;
       const box = bar.getBoundingClientRect();
       if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
@@ -7785,6 +8147,7 @@ function measureLayout() {
   document.body.classList.toggle("barred", barred);
 }
 
+addEventListener("resize", () => { layout(); if (lookingThrough()) { placeThrough(); refreshSafe(); } });
 addEventListener("resize", layout);
 
 //! The tool rail, stowed off the left edge and brought back. The chip says
@@ -7898,6 +8261,7 @@ addEventListener("keydown", event => {
   if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
   if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
   if (event.key === "Escape" && cutter.on) { toggleSection(false); return; }
+  if (event.key === "Escape" && lookingThrough()) { leaveThrough(true); return; }
 
   if (event.key === "f" || event.key === "F") { if (sketching()) lookAtSketch(); else fitView(); }
   if (event.key === "t" || event.key === "T") toggleTree();

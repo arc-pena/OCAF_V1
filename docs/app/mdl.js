@@ -88,6 +88,9 @@ export async function defaultRefs(ctx, type) {
       // guess a single-wire input would, and more are added by hand.
       if (arg.consumes) continue;
     } else if (arg.kind !== "ref") continue;
+    // An input that stands in for numbers already on the node is left alone.
+    // Guessing one would quietly override what was typed.
+    if (arg.guess === false) continue;
     const accepts = arg.accepts;
     let target = (arg.consumes && selected && acceptsFrom(accepts, selected) && !selected.consumedBy)
       ? selected : null;
