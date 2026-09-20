@@ -136,6 +136,32 @@ export function sizeFrom(was, now, floor = 0.01) {
   return Math.max(floor, now / was);
 }
 
+/* ------------------------------------------------------------ the dolly
+
+   ALT AND THE RIGHT BUTTON, which is how every 3D package has zoomed since
+   Maya: Alt with the left button tumbles, with the middle tracks, and with the
+   right dollies. Push the mouse forward or pull it right and you go in.
+
+   Forward AND right, both, because which of the two a hand reaches for is a
+   matter of how the mouse is sitting and nobody should have to think about it.
+   The two are added, so a diagonal drag is the sum of what it looks like.
+
+   Exponential, not linear: a drag of eighty pixels has to mean the same THING
+   whether you are two metres from a bracket or nine hundred from a masterplan,
+   and the only way a distance means the same thing at two scales is as a
+   multiple.                                                                 */
+
+export const DOLLY_GAIN = 0.006;
+
+//! How far in the hand has asked to go, in pixels: right and forward are in.
+export const dollyPull = (dx, dy) => dx - dy;
+
+//! And what that does to the distance. Never negative, never nothing: a factor
+//! is a multiple and a multiple of nought would put the camera inside what it
+//! is looking at with no way back out.
+export const dollyScale = (dx, dy, gain = DOLLY_GAIN) =>
+  Math.exp(-dollyPull(dx, dy) * gain);
+
 /* --------------------------------------------------- the lens, and framing
 
    A camera has a focal length and it is the thing an architect argues about:

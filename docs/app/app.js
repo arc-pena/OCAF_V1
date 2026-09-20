@@ -32,8 +32,8 @@ import { EASES, beatFromHere, easeAt, momentAt, moveBeat, readStory, saysStory, 
 import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
          refit, saysWhere, sectionEdges, styleNamed, travelOf } from "./cutter.js";
 import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
-         angleAbout, coversAt, fovFromLens, framedAt, handlesFor, landOn, lensFromFov,
-         reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
+         angleAbout, coversAt, dollyScale, fovFromLens, framedAt, handlesFor, landOn,
+         lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
@@ -415,6 +415,11 @@ function measureScene() {
       else if (sketcher.tool === "select") { startSketchBand(event); mode = "band"; }
       else mode = "draw";
     }
+    // MAYA'S THREE, and every package that learned them from Maya: Alt with
+    // the left button tumbles, with the middle tracks, with the right dollies.
+    // The right button on its own still pans, because that is what it has
+    // always done here and taking it away would be taking something away.
+    else if (event.altKey && event.button === 2) mode = "dolly";
     else mode = (event.shiftKey || event.button === 1 || event.button === 2) ? "pan" : "orbit";
     // WHETHER THIS DRAG IS ALLOWED TO MOVE THE CAMERA. Decided when the button
     // goes down and not changed after, so letting go of Alt halfway through an
@@ -422,6 +427,9 @@ function measureScene() {
     // the middle or right button is always a pan: those buttons have nothing
     // else to do.
     navigating = mode !== "orbit" || !altToOrbit || event.altKey;
+    // A dolly is asked for by name, so it is never held back by the setting
+    // that decides who owns a plain left drag.
+    if (mode === "dolly") navigating = true;
     lastX = event.clientX; lastY = event.clientY; moved = 0;
     el.setPointerCapture(event.pointerId);
   });
@@ -474,7 +482,14 @@ function measureScene() {
     // Asked BEFORE the navigation setting, because while you are behind a
     // camera the camera IS what the hand is for.
     if (lookingThrough()) {
-      if (mode === "orbit") rigCamera("orbit", -dx * 0.006, dy * 0.006);
+      if (mode === "dolly") {
+        // The camera walks in, which is what a dolly is. Said as a distance
+        // because that is what the rig takes, worked out from the same
+        // multiple the model view uses so the two feel like one gesture.
+        const reach = Math.max(view.distance, 1);
+        rigCamera("dolly", reach - reach * dollyScale(dx, dy));
+      }
+      else if (mode === "orbit") rigCamera("orbit", -dx * 0.006, dy * 0.006);
       else {
         const reach = Math.max(view.distance, 1) * 0.0016;
         rigCamera("truck", -dx * reach, dy * reach);
@@ -482,6 +497,17 @@ function measureScene() {
       return;
     }
     if (!navigating) return;
+    if (mode === "dolly") {
+      const span = Math.max(view.span, 1);
+      view.distance = Math.max(span * 0.02, Math.min(span * 40,
+        view.distance * dollyScale(dx, dy)));
+      // The widget is drawn at a size measured against the camera distance, so
+      // it is rebuilt when that changes, exactly as the wheel does it.
+      if (gizmoOn() && !gizmo.grab) refreshGizmo();
+      if (meshEdit.gizmo) refreshMeshEdit();
+      placeCamera(); draw();
+      return;
+    }
     if (mode === "orbit") {
       view.yaw -= dx * 0.008;
       view.pitch = Math.max(-1.53, Math.min(1.53, view.pitch + dy * 0.008));
@@ -5193,13 +5219,14 @@ function openDocMenu() {
   // mode: some hands want the widget under the button and the camera behind a
   // key, some want it the other way round, and neither is wrong.
   menuItem(altToOrbit ? "Alt to orbit" : "Drag to orbit",
-    altToOrbit ? "the left button belongs to the widgets"
+    altToOrbit ? "Alt: left tumbles, middle tracks, right dollies"
                : "the left button orbits; the widgets need a direct hit",
     () => {
       altToOrbit = !altToOrbit;
       remember("ocafcad/altnav", altToOrbit ? "on" : "off");
-      say(altToOrbit ? "hold Alt to orbit · the left button is for the widgets"
-                     : "drag to orbit · the widgets take the button where they are");
+      say(altToOrbit
+        ? "Alt and the left button tumbles, the middle tracks, the right dollies"
+        : "drag to orbit · the widgets take the button where they are");
     }).classList.add("on");
   menuItem("Lens…", "focal length, and what it does to the perspective",
     () => toggleLens(true));

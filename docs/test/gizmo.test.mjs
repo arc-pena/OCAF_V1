@@ -7,10 +7,10 @@
 //
 // The arithmetic is here and it is checked here, because a drag that is right
 // on a screen and wrong in the file is worse than no widget at all.
-import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
-         angleAbout, coversAt, fovFromLens, framedAt, handlesFor, landOn, lensFromFov,
-         reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
-         transformTarget } from "../src/gizmo.js";
+import { DOLLY_GAIN, GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES,
+         TRANSFORM_KEYS, angleAbout, coversAt, dollyPull, dollyScale, fovFromLens,
+         framedAt, handlesFor, landOn, lensFromFov, reachAlong, saysWhat, shortestTurn,
+         sizeFrom, stepped, transformNow, transformTarget } from "../src/gizmo.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -105,6 +105,39 @@ console.log("\n5. steps, so a tower lands on three thousand");
   check("a size is a ratio, and never negative", sizeFrom(100, -50) === 0.01,
         String(sizeFrom(100, -50)));
   check("twice as far out is twice the size", near(sizeFrom(100, 200), 2));
+}
+
+console.log("\n5b. the dolly: Alt and the right button, the way Maya has always done it");
+{
+  // Forward is up the screen, which is a NEGATIVE dy, and right is a positive
+  // dx. Either one takes you in, and a factor below one is closer.
+  check("pushing the mouse forward goes in", dollyScale(0, -80) < 1,
+        String(dollyScale(0, -80)));
+  check("pulling it right goes in too", dollyScale(80, 0) < 1, String(dollyScale(80, 0)));
+  check("back and left come out",
+        dollyScale(0, 80) > 1 && dollyScale(-80, 0) > 1);
+  check("and a hand that has not moved changes nothing", near(dollyScale(0, 0), 1));
+  check("forward and right add up, so a diagonal is the sum of what it looks like",
+        near(dollyPull(40, -40), 80), String(dollyPull(40, -40)));
+
+  // EXPONENTIAL, NOT LINEAR. Eighty pixels has to mean the same THING at two
+  // metres and at nine hundred, and the only way a distance means the same
+  // thing at two scales is as a multiple - so two drags of forty are one drag
+  // of eighty, exactly.
+  check("two short drags are one long one",
+        near(dollyScale(40, 0) * dollyScale(40, 0), dollyScale(80, 0), 1e-12),
+        dollyScale(40, 0) * dollyScale(40, 0) + " vs " + dollyScale(80, 0));
+  check("and going back out undoes going in",
+        near(dollyScale(80, 0) * dollyScale(-80, 0), 1, 1e-12));
+  check("it never reaches nought, so the camera can always come back",
+        dollyScale(100000, 0) > 0, String(dollyScale(100000, 0)));
+  // A hundred pixels is about half the distance at the gain it is set to -
+  // brisk enough to cross a masterplan and slow enough to place a camera.
+  check("a hundred pixels is about half the distance",
+        dollyScale(100, 0) > 0.4 && dollyScale(100, 0) < 0.65,
+        String(dollyScale(100, 0)));
+  check("and a gain that can be turned down is a gain", dollyScale(80, 0, DOLLY_GAIN / 2)
+        > dollyScale(80, 0, DOLLY_GAIN));
 }
 
 console.log("\n6. the lens, in millimetres, because nobody specifies a view in degrees");
