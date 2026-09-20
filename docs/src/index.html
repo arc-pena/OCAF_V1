@@ -146,7 +146,40 @@ button, input, select { font: inherit; color: inherit; }
    The phone layout is a different arrangement, not a smaller one, and it is
    chosen by the pointer as well as the width further down. A narrow window with
    a mouse in it is a narrow desktop. */
-:root { --ui: 1; }
+:root {
+  --ui: 1;
+  /* THE WINDOW, IN THE UNITS A SCALED PANEL THINKS IN.
+     `zoom` scales a box and its offsets after the browser has worked them out,
+     and it does NOT scale what a viewport unit or a percentage resolved to -
+     so `100vh` inside a panel at --ui 1.15 comes back as the window's height
+     and then renders fifteen per cent taller than the window. That is not a
+     rounding error: it is why the definition panel ran under the view
+     controls, why the tool rail slid down over the status bar, and why a bar
+     centred with left:50% sat a hundred and forty pixels right of centre on a
+     large monitor. Everything positioned or sized against the window uses
+     these instead, and they are the same numbers at --ui 1. */
+  --sky: calc(100vh / var(--ui));
+  --span: calc(100vw / var(--ui));
+  /* What the two bottom corners claim - the status bar on the left, the view
+     controls on the right - so a panel above them knows where to stop. */
+  --corner: 46px;
+  /* WHAT THE SIDES HAVE TAKEN, in the same units, written by the page as
+     panels open and close and stow.
+     Nothing overlaps here by CSS alone: the tool rail's width depends on how
+     many tools a package added, the definition panel is wider for a script,
+     and a bar in the middle has to know both before it can say how wide IT is.
+     So the page measures what is actually on screen and says so in three
+     numbers, and everything else is written against those. A panel that stows
+     gives its number back, which is what makes stowing worth doing. */
+  --rail-dock: 0px;     /* the tool rail, plus the gap after it */
+  --left-dock: 0px;     /* everything down the left side */
+  --right-dock: 0px;    /* everything down the right side */
+  /* The middle, and where its middle is. Every bar along the top or the bottom
+     is centred on THIS rather than on the window, so opening the definition
+     panel slides the bar out from under it instead of hiding half of it. */
+  --free: calc(var(--span) - var(--left-dock) - var(--right-dock) - var(--edge) * 2);
+  --middle: calc(var(--left-dock) + var(--edge) + var(--free) / 2);
+}
 .float, #tip, #menu, #sample-menu, #packages, #stage-ui, dialog { zoom: var(--ui); }
 /* Smaller only where there is a pointer to hit it with. A thumb needs the
    target it needs whatever the window is, so a touch screen is never scaled
@@ -163,10 +196,31 @@ button, input, select { font: inherit; color: inherit; }
    tree stands beside it and has to know. */
 :root { --rail-cols: 3; --rail-w: calc(var(--rail-cols) * 34px + (var(--rail-cols) - 1) * 2px + 12px); }
 #rail {
-  left: var(--edge); top: 50%; transform: translateY(-50%);
+  left: var(--edge); top: calc(var(--sky) / 2); transform: translateY(-50%);
   width: var(--rail-w);
   padding: 6px; display: flex; flex-direction: column; gap: 2px;
-  z-index: 3; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: thin;
+  z-index: 3; overflow-y: auto; scrollbar-width: thin;
+  /* Clear of the chip above it and the status bar below it, whichever is
+     tighter - the rail is centred, so it has to fit in twice the smaller gap. */
+  max-height: calc(var(--sky) - var(--edge) * 2 - 108px);
+}
+/* STOWED. The rail slides off the left edge and gives its column back - the
+   tree moves over, the bar in the middle widens, and the model gets the room.
+   Off the edge rather than display:none so it is obviously the same rail
+   coming back, and behind visibility:hidden so a stowed rail cannot be tabbed
+   into or clicked by accident. */
+#rail, #sketch-rail, #tree-panel, #def-panel {
+  transition: left .18s cubic-bezier(.4,0,.2,1), right .18s cubic-bezier(.4,0,.2,1),
+              opacity .14s;
+}
+body.no-rail #rail, body.no-rail #sketch-rail {
+  left: calc(-2px - var(--rail-w) - var(--edge) * 2);
+  visibility: hidden; opacity: 0;
+}
+/* A rail stowed while a sheet is up on a phone would fight the sheet: there
+   the rail IS a sheet, and the dock is what brings it back. */
+@media (max-width: 900px) and (pointer: coarse) {
+  body.no-rail #rail, body.no-rail #sketch-rail { left: var(--edge); visibility: visible; opacity: 1; }
 }
 #rail::-webkit-scrollbar { width: 5px; }
 #rail::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
@@ -177,9 +231,10 @@ button, input, select { font: inherit; color: inherit; }
 /* The sketch rail stands exactly where the tool rail does, because it is the
    same rail: while a sketch is open, drawing is the only thing to do. */
 #sketch-rail {
-  left: var(--edge); top: 50%; transform: translateY(-50%);
+  left: var(--edge); top: calc(var(--sky) / 2); transform: translateY(-50%);
   padding: 6px; display: flex; flex-direction: column; gap: 2px;
-  z-index: 4; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: thin;
+  z-index: 4; overflow-y: auto; scrollbar-width: thin;
+  max-height: calc(var(--sky) - var(--edge) * 2 - 108px);
 }
 #sketch-rail [data-group] { display: grid; grid-template-columns: repeat(2, 34px); gap: 2px; }
 /* display: flex beats the browser's own [hidden] rule, so say it here: the two
@@ -196,9 +251,13 @@ button, input, select { font: inherit; color: inherit; }
 #sketch-bar .sk-drop:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
 #sketch-bar {
   /* Below the chip, not over it: the toolbar is still the way out. */
-  left: 50%; top: calc(var(--edge) + 46px); transform: translateX(-50%);
+  left: var(--middle); top: calc(var(--edge) + 46px); transform: translateX(-50%);
   z-index: 4; padding: 6px 8px 6px 12px;
-  display: flex; align-items: center; gap: 12px; font-size: 11.5px;
+  /* The middle, and no wider: a bar that runs under the tree on one side and
+     the definition panel on the other is a bar with its ends cut off. */
+  max-width: var(--free);
+  display: flex; align-items: center; gap: 12px; row-gap: 6px; flex-wrap: wrap;
+  font-size: 11.5px;
 }
 #sketch-bar .sk-name { font-weight: 600; color: var(--ink); }
 #sketch-bar .sk-hint { color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
@@ -276,8 +335,9 @@ button, input, select { font: inherit; color: inherit; }
    What is on the shelf, and what is running. Deliberately plain: this is a
    switchboard, not a shop. */
 #packages {
-  position: fixed; z-index: 30; right: var(--edge); top: calc(var(--edge) + 42px);
-  width: 320px; max-height: 70vh; overflow: auto; padding: 6px;
+  position: fixed; z-index: 30; right: calc(var(--edge) + var(--right-dock));
+  top: calc(var(--edge) + 42px);
+  width: 320px; max-height: calc(var(--sky) * 0.7); overflow: auto; padding: 6px;
   background: var(--panel-solid); border: 1px solid var(--line);
   border-radius: var(--radius); box-shadow: var(--shadow);
 }
@@ -310,8 +370,8 @@ button, input, select { font: inherit; color: inherit; }
 /* --------------------------------------------------------- Analyse mode */
 body.analysing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 .an-bar {
-  left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
-  width: min(760px, calc(100vw - var(--edge) * 2 - 380px));
+  left: var(--middle); bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
+  width: min(760px, var(--free));
   z-index: 8; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 7px;
 }
 .an-bar[hidden], .an-panel[hidden] { display: none; }
@@ -366,7 +426,7 @@ body.analysing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   right: var(--edge); top: var(--edge); width: 300px;
   /* Stops above the view controls in the corner: a mode panel that covers
      them is a mode where nobody can change the style or fit the view. */
-  max-height: calc(100vh - var(--edge) * 2 - 46px); z-index: 8;
+  max-height: calc(var(--sky) - var(--edge) * 2 - var(--corner)); z-index: 8;
   display: flex; flex-direction: column;
 }
 .an-site-name { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
@@ -405,8 +465,8 @@ body.analysing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 /* ------------------------------------------------------------ Flow mode */
 body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 .fl-bar {
-  left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
-  width: min(700px, calc(100vw - var(--edge) * 2 - 360px));
+  left: var(--middle); bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
+  width: min(700px, var(--free));
   z-index: 8; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 7px;
 }
 .fl-bar[hidden], .fl-panel[hidden] { display: none; }
@@ -451,7 +511,7 @@ body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   right: var(--edge); top: var(--edge); width: 292px;
   /* Stops above the view controls in the corner: a mode panel that covers
      them is a mode where nobody can change the style or fit the view. */
-  max-height: calc(100vh - var(--edge) * 2 - 46px); z-index: 8;
+  max-height: calc(var(--sky) - var(--edge) * 2 - var(--corner)); z-index: 8;
   display: flex; flex-direction: column;
 }
 .fl-clock { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
@@ -513,10 +573,10 @@ body.flowing .fades:not(#chip) { opacity: 0; pointer-events: none; }
    have to go looking for is a chip nobody uses. */
 body.meshing .fades:not(#chip):not(#tree-panel) { opacity: .35; }
 .mx-bar {
-  left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
+  left: var(--middle); bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
   /* Only as wide as what it says. A bar that is the width of the window says
      the program is about the bar; this one is about the model. */
-  width: max-content; max-width: calc(100vw - var(--edge) * 2 - 320px);
+  width: max-content; max-width: var(--free);
   z-index: 9; padding: 7px 10px 8px; display: flex; flex-direction: column; gap: 6px;
 }
 .mx-bar[hidden] { display: none; }
@@ -589,6 +649,12 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
    has on it is worth being able to see. */
 #chip .step { padding: 8px 9px; }
 #chip .step svg { width: 15px; height: 15px; }
+/* The two pane switches. Marked when what they hold is on screen, so the chip
+   says what the window is showing as well as changing it. */
+#chip .pane { padding: 8px 7px; }
+#chip .pane[aria-pressed="true"] { color: var(--accent); }
+#chip .pane[aria-pressed="false"] { color: var(--ink-3); opacity: .75; }
+#chip .pane:hover { background: var(--panel-2); }
 #chip .step:disabled { opacity: .3; cursor: default; }
 #chip .step:disabled:hover { background: none; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); flex: none; }
@@ -599,8 +665,11 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 /* The rail runs down the left edge, so the tree stands beside it rather than
    under it. */
 #tree-panel {
-  left: calc(var(--edge) * 2 + var(--rail-w)); top: calc(var(--edge) + 46px);
-  width: 232px; max-height: min(46vh, 460px);
+  left: calc(var(--edge) + var(--rail-dock)); top: calc(var(--edge) + 46px);
+  width: 232px;
+  /* Stops above the status bar: the tree hangs from under the chip and the
+     status bar is the floor. */
+  max-height: min(calc(var(--sky) - var(--edge) * 2 - 46px - var(--corner)), 460px);
   display: flex; flex-direction: column; z-index: 3;
 }
 #tree-panel[hidden] { display: none; }
@@ -651,7 +720,7 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 /* ------------------------------------------------------ the definition */
 #def-panel {
   right: var(--edge); top: var(--edge);
-  width: 288px; max-height: calc(100vh - var(--edge) * 2 - 40px);
+  width: 288px; max-height: calc(var(--sky) - var(--edge) * 2 - var(--corner));
   display: flex; flex-direction: column; z-index: 3;
 }
 #def-panel[hidden] { display: none; }
@@ -1002,14 +1071,24 @@ input.line:focus { outline: none; border-color: var(--accent); }
 #status .sep { width: 1px; padding: 0; background: var(--line-soft); }
 #status-sel { color: var(--ink-2); }
 #status-sel b { color: var(--ink); font-weight: 500; }
+/* A bar along the bottom takes the row the status line is on when the window
+   is too narrow for both. The status line is the least of what is on screen
+   and it is the one that stands down. See layout() - the class is set from
+   what is actually visible rather than from a list of modes. */
+/* HIDDEN, BUT STILL THERE. Taken out of the layout entirely, its box would go
+   with it - and the box is what the overlap was measured against, so the next
+   measurement would find no overlap, put it back, find the overlap again, and
+   flicker for ever. Invisible and unclickable keeps the box, and keeps the
+   answer stable. */
+body.barred #status { visibility: hidden; pointer-events: none; }
 #btn-log { border: 0; background: none; cursor: pointer; color: var(--ink-3); }
 #btn-log:hover { background: var(--panel-2); color: var(--ink); }
 #btn-log .ran { color: var(--good); }
 #btn-log .err { color: var(--bad); }
 
 #log-pop {
-  left: var(--edge); bottom: calc(var(--edge) + 38px);
-  width: 300px; max-height: 40vh; overflow: auto; z-index: 4;
+  left: calc(var(--edge) + var(--rail-dock)); bottom: calc(var(--edge) + 38px);
+  width: 300px; max-height: calc(var(--sky) * 0.4); overflow: auto; z-index: 4;
   padding: 8px 0; font-family: var(--mono); font-size: 10.5px; line-height: 1.75;
 }
 #log-pop[hidden] { display: none; }
@@ -1034,7 +1113,10 @@ input.line:focus { outline: none; border-color: var(--accent); }
 #view-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 #view-tools .tool-sep { width: 1px; background: var(--line); margin: 3px 4px; }
 
-#chip button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+/* A filled chip button is how a MODE is marked - Nodes, AI, the showroom. The
+   two pane switches are not modes; they say what the window is showing, and
+   they say it in the ink rather than by turning into a slab. */
+#chip button[aria-pressed="true"]:not(.pane) { background: var(--accent); color: var(--accent-ink); }
 
 /* The samples menu. One click opens it, a second picks - so a whole document
    is never replaced by a single stray click. */
@@ -1070,7 +1152,7 @@ body.staging .fades { opacity: 0; pointer-events: none; }
 body.staging #view-tools { opacity: 0; pointer-events: none; }
 
 #stage-ui {
-  position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 0);
+  position: fixed; left: calc(var(--span) / 2); bottom: 18px; transform: translate(-50%, 0);
   z-index: 7; display: flex; flex-direction: column; gap: 10px; align-items: center;
   opacity: 0; pointer-events: none;
   transition: opacity .45s .18s cubic-bezier(.4,0,.2,1), transform .45s .18s cubic-bezier(.4,0,.2,1);
@@ -1129,13 +1211,13 @@ body.staging #stage-ui { opacity: 1; pointer-events: auto; transform: translate(
    talked about. It grows upwards as there is more to say. */
 #ai-bar {
   /* Clear of the status strip, which is also along the bottom. */
-  left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
-  width: min(720px, calc(100vw - var(--edge) * 2 - 40px));
+  left: var(--middle); bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
+  width: min(720px, var(--free));
   z-index: 8; display: flex; flex-direction: column; overflow: hidden;
 }
 #ai-bar[hidden] { display: none; }
 .ai-log {
-  max-height: min(46vh, 380px); overflow-y: auto; padding: 0;
+  max-height: min(calc(var(--sky) * 0.46), 380px); overflow-y: auto; padding: 0;
   font-size: 12px; line-height: 1.55; scrollbar-width: thin;
 }
 .ai-log:empty { display: none; }
@@ -1235,10 +1317,10 @@ dialog .cli {
 dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: flex-end; }
 
 @media (max-width: 720px) {
-  #tree-panel { max-height: 34vh; width: 200px; }
-  #def-panel { width: calc(100vw - var(--edge) * 2 - 62px); max-width: 288px; }
+  #tree-panel { max-height: calc(var(--sky) * 0.34); width: 200px; }
+  #def-panel { width: calc(var(--span) - var(--edge) * 2 - 62px); max-width: 288px; }
   :root { --rail-cols: 2; }
-  #rail { top: auto; bottom: 56px; transform: none; max-height: 52vh; }
+  #rail { top: auto; bottom: 56px; transform: none; max-height: calc(var(--sky) * 0.52); }
 }
 @media (prefers-reduced-motion: reduce) { *, ::after { transition: none !important; animation: none !important; } }
 /* ==========================================================================
@@ -1321,7 +1403,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     bottom: var(--dock-h) !important;
     width: auto !important; max-width: none !important;
     transform: none !important;
-    max-height: min(58vh, 460px) !important;
+    max-height: min(calc(var(--sky) * 0.58), 460px) !important;
     border-radius: 14px 14px 0 0;
     border-left: 0; border-right: 0; border-bottom: 0;
     z-index: 8;
@@ -1399,7 +1481,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   }
 
   /* --------------------------------------------------- what is left over */
-  #tree-panel { max-height: min(58vh, 460px); }
+  #tree-panel { max-height: min(calc(var(--sky) * 0.58), 460px); }
   #tree { flex: 1; }
   #def-panel { padding-bottom: 4px; }
 
@@ -1417,12 +1499,25 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      move into the modes sheet, where they can be the size of one. */
   #view-tools { display: none; }
 
-  /* The sketcher's bar goes where the status line is; the sketch rail is a
-     sheet like the tool rail, because while a sketch is open it IS the rail. */
-  #sketch-bar {
+  /* EVERY BAR STANDS ON THE DOCK. The dock is the bottom of a phone screen and
+     nothing goes under it; a bar that tried has its last row behind a thumb.
+     The sketcher's bar takes the status line's row for the same reason - there
+     is one row down there and while a sketch is open it belongs to the sketch. */
+  #sketch-bar, #mesh-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
-    top: auto; transform: none; border-radius: 9px; z-index: 7;
+    top: auto; transform: none; width: auto; max-width: none; z-index: 7;
+  }
+  #sketch-bar {
+    border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
+  }
+  #mesh-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  /* The log stands ON the status line rather than over it: the button that
+     closes it is in the status line, and a popup that covers its own switch is
+     a popup you cannot put away. */
+  #log-pop {
+    border-radius: 9px; max-height: calc(var(--sky) * 0.4);
+    bottom: calc(var(--dock-h) + 40px);
   }
 
   /* A package's own bar is full width above the dock, not a card in the middle
@@ -1435,21 +1530,21 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   #an-panel, #fl-panel {
     left: var(--edge) !important; right: var(--edge) !important;
     top: calc(var(--edge) + 52px) !important; width: auto !important;
-    max-height: 40vh !important;
+    max-height: calc(var(--sky) * 0.4) !important;
   }
 
   /* The shelf and the menus, sized for a phone rather than for a corner. */
   #packages { left: var(--edge); right: var(--edge); width: auto; top: calc(var(--edge) + 52px); }
   #menu { min-width: 0; left: var(--edge) !important; right: var(--edge);
-          max-height: 70vh; overflow: auto; }
+          max-height: calc(var(--sky) * 0.7); overflow: auto; }
   #menu li { padding: 10px 11px; }
-  #sample-menu { left: var(--edge) !important; right: var(--edge); width: auto; max-height: 60vh; }
+  #sample-menu { left: var(--edge) !important; right: var(--edge); width: auto; max-height: calc(var(--sky) * 0.6); }
 
   dialog {
-    width: calc(100vw - 16px); max-width: none; max-height: 86vh;
+    width: calc(var(--span) - 16px); max-width: none; max-height: calc(var(--sky) * 0.86);
     margin: auto; border-radius: 14px;
   }
-  dialog textarea { height: 40vh; }
+  dialog textarea { height: calc(var(--sky) * 0.4); }
 
   /* The showroom's own controls, above the dock. */
   #stage-ui { bottom: calc(var(--dock-h) + 8px); }
@@ -1460,7 +1555,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
 @media (max-width: 1000px) and (max-height: 460px) and (pointer: coarse) {
   :root { --dock-h: calc(42px + env(safe-area-inset-bottom, 0px)); }
   #rail, #sketch-rail, #tree-panel, #def-panel, #ai-bar, #sheet-modes {
-    max-height: 72vh !important;
+    max-height: calc(var(--sky) * 0.72) !important;
   }
   #dock .dock-name { display: none; }
   #dock button { padding: 10px 2px; }
@@ -1485,7 +1580,7 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
 /* The hint on the way in, and only on the way in: it says how to get back out
    and then stops saying it. */
 #bare-hint {
-  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
+  position: fixed; left: calc(var(--span) / 2); bottom: 34px; transform: translateX(-50%);
   padding: 7px 14px; border-radius: 999px;
   background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
   backdrop-filter: blur(18px) saturate(140%);
@@ -1608,8 +1703,8 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
 /* --------------------------------------------------- Space Packing mode */
 body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 .sp-bar {
-  left: 50%; bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
-  width: min(880px, calc(100vw - var(--edge) * 2 - 380px));
+  left: var(--middle); bottom: calc(var(--edge) + 38px); transform: translateX(-50%);
+  width: min(880px, var(--free));
   z-index: 8; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 7px;
 }
 .sp-bar[hidden], .sp-panel[hidden] { display: none; }
@@ -1646,7 +1741,7 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 .sp-panel {
   right: var(--edge); top: var(--edge); width: 300px;
-  max-height: calc(100vh - var(--edge) * 2 - 120px); overflow: auto; z-index: 8;
+  max-height: calc(var(--sky) - var(--edge) * 2 - 120px); overflow: auto; z-index: 8;
 }
 .sp-head {
   position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline;
@@ -1683,7 +1778,7 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 .sp-actions { display: flex; gap: 6px; margin-top: 6px; }
 
 @media (max-width: 900px) {
-  .sp-bar { width: calc(100vw - var(--edge) * 2); }
+  .sp-bar { width: calc(var(--span) - var(--edge) * 2); }
   .sp-panel { display: none; }
 }
 
@@ -1715,6 +1810,13 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
     <span class="name" id="doc-title">Part1</span>
     <span class="count" id="doc-count"></span>
   </button>
+  <div class="sep"></div>
+  <!-- WHAT IS ON SCREEN, and the way to put any of it away. Three switches in
+       one place, because "where did the panel go" has to have one answer. -->
+  <button class="step pane" id="btn-rail" aria-pressed="true" title="Tools (stow the rail)"
+          aria-label="Tools"></button>
+  <button class="step pane" id="btn-panel" aria-pressed="false"
+          title="Definition panel" aria-label="Definition panel"></button>
   <div class="sep"></div>
   <button id="btn-link" title="Which kernel is building this"><span class="dot"></span><span id="link-label">starting…</span></button>
   <div class="sep"></div>

@@ -1,0 +1,191 @@
+// Nothing over anything else, at any size of window.
+//
+// The interface floats over the model, which is the point - but floating over
+// the MODEL and floating over each other are different things and only the
+// first one is wanted. Two rules make that true and both of them are easy to
+// break by writing ordinary CSS, so both are checked here, against the
+// stylesheet itself.
+//
+// ONE. The interface is SCALED on a big monitor, with `zoom`. A zoom scales a
+// box and its offsets after the browser has worked them out, and it does not
+// scale what a viewport unit or a percentage resolved to - so `100vh` inside a
+// panel at 1.15 comes back as the window's height and renders fifteen per cent
+// taller than the window, and a bar centred with `left: 50%` sits a hundred and
+// forty pixels right of centre. Every such measurement goes through --sky and
+// --span, which divide by the scale.
+//
+// TWO. What is down each side is not knowable in CSS - the rail's width
+// depends on how many tools a package added, the definition panel is wider for
+// a script - so the page measures it into --left-dock and --right-dock, and
+// everything in the middle is written against --free and --middle.
+//
+// The browser check that goes with this one is a harness that opens the real
+// page at eleven window sizes and measures every pair of panels for overlap.
+// This is the part that can run in a second, and it is the part that catches
+// the mistake being made again.
+import { readFileSync } from "fs";
+
+let failures = 0;
+const check = (name, ok, detail = "") => {
+  if (!ok) failures++;
+  console.log((ok ? "  ok   " : "  FAIL ") + name + (detail ? "  — " + detail : ""));
+};
+
+const html = readFileSync(new URL("../src/index.html", import.meta.url), "utf8");
+const style = html.slice(html.indexOf("<style>"), html.lastIndexOf("</style>"));
+
+//! Every declaration in the sheet, as { rule, property, value }, with the
+//! comments taken out so prose about 100vh is not mistaken for 100vh.
+const bare = style.replace(/\/\*[\s\S]*?\*\//g, "");
+//! Every declaration in the sheet, with the @media overrides told apart from
+//! the plain ones: a phone lays these out differently on purpose - full width,
+//! stacked on the dock - and that is not the mistake being looked for.
+function declarations(css, inMedia = false) {
+  const out = [];
+  let i = 0;
+  while (i < css.length) {
+    const open = css.indexOf("{", i);
+    if (open < 0) break;
+    const head = css.slice(i, open).trim().split("\n").pop().trim();
+    // Walk to the matching brace, so a @media block is taken whole.
+    let depth = 1, j = open + 1;
+    while (j < css.length && depth) {
+      if (css[j] === "{") depth++;
+      else if (css[j] === "}") depth--;
+      j++;
+    }
+    const body = css.slice(open + 1, j - 1);
+    if (head.startsWith("@")) out.push(...declarations(body, true));
+    else for (const line of body.split(";")) {
+      const cut = line.indexOf(":");
+      if (cut < 0) continue;
+      out.push({ selector: head, inMedia,
+                 prop: line.slice(0, cut).trim(), value: line.slice(cut + 1).trim() });
+    }
+    i = j;
+  }
+  return out;
+}
+const rules = declarations(bare);
+
+//! The panels that float over the model - the ones a viewport unit or a
+//! percentage would mis-place. Matched EXACTLY, because a badge hanging off the
+//! end of a button inside one is positioned against the button and is nobody's
+//! business here.
+const FLOATS = ["#chip", "#rail", "#sketch-rail", "#tree-panel", "#def-panel", "#status",
+                "#view-tools", "#mesh-bar", "#sketch-bar", "#ai-bar", "#log-pop",
+                "#packages", "#menu", "#sample-menu", ".fl-bar", ".fl-panel", ".an-bar",
+                ".an-panel", ".sp-bar", ".sp-panel", ".mx-bar", "dialog"];
+const isFloat = selector => selector.split(",").some(one => FLOATS.includes(one.trim()));
+
+console.log("1. the scaled interface measures the window in its own units");
+{
+  check("there are declarations to check at all", rules.length > 300, String(rules.length));
+  const sky = rules.find(r => r.prop === "--sky");
+  const span = rules.find(r => r.prop === "--span");
+  check("--sky is the window's height divided by the scale",
+        sky && /100vh\s*\/\s*var\(--ui\)/.test(sky.value), sky && sky.value);
+  check("--span is its width, the same way",
+        span && /100vw\s*\/\s*var\(--ui\)/.test(span.value), span && span.value);
+
+  // And nothing else uses a raw viewport unit. A rule that does is a rule that
+  // is right at --ui 1 and wrong on the monitor the office actually uses.
+  const raw = rules.filter(r => !r.prop.startsWith("--")
+    && /\b\d*\.?\d+v(h|w|min|max)\b/.test(r.value));
+  check("no rule measures the window without dividing by the scale",
+        raw.length === 0, raw.map(r => r.selector + " { " + r.prop + ": " + r.value + " }").join(" | "));
+
+  // Nor positions itself at a percentage of it, which has the same fault.
+  const half = rules.filter(r => (r.prop === "left" || r.prop === "top"
+    || r.prop === "right" || r.prop === "bottom") && /%/.test(r.value)
+    && isFloat(r.selector));
+  check("and none places itself at a percentage of the window",
+        half.length === 0, half.map(r => r.selector + " { " + r.prop + ": " + r.value + " }").join(" | "));
+}
+
+console.log("\n2. the middle knows what the sides have taken");
+{
+  for (const name of ["--rail-dock", "--left-dock", "--right-dock", "--free", "--middle"])
+    check(name + " is declared", rules.some(r => r.prop === name));
+
+  const free = rules.find(r => r.prop === "--free");
+  check("the free middle is the window less both sides",
+        free && /--left-dock/.test(free.value) && /--right-dock/.test(free.value), free && free.value);
+  const middle = rules.find(r => r.prop === "--middle");
+  check("and its middle is measured from the left side, not from the window",
+        middle && /--left-dock/.test(middle.value) && /--free/.test(middle.value),
+        middle && middle.value);
+
+  // THE BARS. Everything that runs along the top or the bottom of the window is
+  // centred on the middle and fits inside it. A bar that is centred on the
+  // WINDOW runs under the definition panel the moment one is open, which is
+  // what it used to do.
+  // By the selector the sheet uses for each, which for the mesh editor's bar is
+  // its class rather than its id.
+  const bars = ["#sketch-bar", ".mx-bar", ".fl-bar", ".an-bar", ".sp-bar", "#ai-bar"];
+  for (const bar of bars) {
+    // The rule as the desktop has it. A phone lays these out differently on
+    // purpose - full width, stacked on the dock - and that override is not the
+    // mistake this is looking for.
+    const mine = rules.filter(r => !r.inMedia
+      && r.selector.split(",").map(s => s.trim()).includes(bar));
+    const placed = mine.find(r => r.prop === "left");
+    check(bar + " is centred on the free middle",
+          placed && /var\(--middle\)/.test(placed.value),
+          placed ? placed.value : "no left rule");
+    const fits = mine.some(r => (r.prop === "width" || r.prop === "max-width")
+                             && /var\(--free\)/.test(r.value));
+    check(bar + " fits in it", fits,
+          mine.filter(r => /width/.test(r.prop)).map(r => r.prop + ": " + r.value).join(", ")
+          || "no width rule");
+  }
+
+  // THE SIDES. The left column hangs off the rail, so stowing the rail really
+  // does give the room back rather than leaving a hole.
+  const tree = rules.filter(r => r.selector.includes("#tree-panel") && r.prop === "left");
+  check("the tree stands beside the rail rather than at a fixed offset",
+        tree.some(r => /var\(--rail-dock\)/.test(r.value)), tree.map(r => r.value).join(" | "));
+  const shelf = rules.filter(r => r.selector.includes("#packages") && r.prop === "right");
+  check("the package shelf keeps clear of whatever is down the right",
+        shelf.some(r => /var\(--right-dock\)/.test(r.value)), shelf.map(r => r.value).join(" | "));
+}
+
+console.log("\n3. the corners, and the panels above them");
+{
+  const corner = rules.find(r => r.prop === "--corner");
+  check("--corner says what the bottom corners claim", !!corner, corner && corner.value);
+  // A panel in a top corner runs to the bottom of the window, so it has to stop
+  // short of whatever is in the bottom corner - the status line on the left,
+  // the view controls on the right.
+  for (const panel of ["#def-panel", "#tree-panel", ".fl-panel", ".an-panel"]) {
+    const mine = rules.filter(r => r.selector.split(",").map(s => s.trim()).includes(panel)
+                                && r.prop === "max-height");
+    check(panel + " stops above the bottom corner",
+          mine.some(r => /var\(--corner\)/.test(r.value)),
+          mine.map(r => r.value).join(" | ") || "no max-height");
+  }
+}
+
+console.log("\n4. what can be put away can be brought back");
+{
+  check("a stowed rail is off the edge rather than merely invisible",
+        /body\.no-rail #rail/.test(bare) && /#rail[^{]*\{[^}]*transition/.test(bare)
+        || /transition:[^;]*left/.test(bare),
+        "the rail slides");
+  check("and it is unclickable while it is off there",
+        /body\.no-rail[^{]*\{[^}]*visibility:\s*hidden/.test(bare));
+  check("the chip carries the switch that brings it back",
+        /id="btn-rail"/.test(html) && /id="btn-panel"/.test(html));
+  check("and the switches say which way they are",
+        /#chip \.pane\[aria-pressed="true"\]/.test(bare));
+  check("a pane switch is not drawn as a mode",
+        /aria-pressed="true"\]:not\(\.pane\)/.test(bare));
+  check("the status line stands down when a bar takes its row",
+        /body\.barred #status/.test(bare));
+  check("and it keeps its box while it does, or the answer would flicker",
+        /body\.barred #status\s*\{[^}]*visibility:\s*hidden/.test(bare),
+        (bare.match(/body\.barred #status\s*\{[^}]*\}/) || [""])[0]);
+}
+
+console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
+process.exit(failures ? 1 : 0);

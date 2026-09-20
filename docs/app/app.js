@@ -953,6 +953,7 @@ async function enterMeshEdit(id) {
   document.body.classList.add("meshing");
   meshBar.hidden = false;
   refreshMeshBar();
+  layout();
   draw();
   return true;
 }
@@ -962,6 +963,7 @@ function leaveMeshEdit() {
   meshEditor.leave();
   document.body.classList.remove("meshing");
   meshBar.hidden = true;
+  layout();
   draw();
 }
 
@@ -1032,6 +1034,7 @@ function refreshMeshBar() {
         + '</div>' : "")
     + (meshEditor.note ? '<div class="mx-row"><span class="mx-warn">'
         + safeText(meshEditor.note) + "</span></div>" : "");
+  layout();
 }
 
 const safeText = text => String(text == null ? "" : text)
@@ -1437,6 +1440,7 @@ function enterSketch(id) {
   phoneSheets = false;
   select(id, true);
   phoneSheets = raise;
+  layout();
 }
 
 function leaveSketch() {
@@ -1458,6 +1462,7 @@ function leaveSketch() {
   }
   refreshSketch();
   refreshToolbar();
+  layout();
 }
 
 //! Square on to the plane, and staying there. The camera sits along the
@@ -2561,6 +2566,17 @@ const ICONS = {
   part: '<path d="M2.5 4.2L8 1.5l5.5 2.7v7.6L8 14.5l-5.5-2.7z" fill="none" stroke="currentColor" stroke-width="1.2"/>',
   eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/>',
   close: '<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  //! The two pane switches: a window with a column down one side of it. Drawn
+  //! as the thing they hold rather than as a chevron, so the pair reads as a
+  //! plan of the screen.
+  railPane: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.6" fill="none" '
+          + 'stroke="currentColor" stroke-width="1.2"/>'
+          + '<rect x="3.6" y="4.4" width="2.8" height="7.2" rx=".6" fill="currentColor" '
+          + 'opacity=".75"/>',
+  defPane: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.6" fill="none" '
+         + 'stroke="currentColor" stroke-width="1.2"/>'
+         + '<rect x="9.6" y="4.4" width="2.8" height="7.2" rx=".6" fill="currentColor" '
+         + 'opacity=".75"/>',
   // A slider that could be taken from somewhere else wears this.
   wire: '<path d="M6.6 9.4L9.4 6.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
       + '<path d="M8.6 4.4l1.1-1.1a2.6 2.6 0 013.6 3.6l-1.1 1.1M7.4 11.6l-1.1 1.1a2.6 2.6 0 01-3.6-3.6l1.1-1.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
@@ -2668,6 +2684,8 @@ function buildToolbar() {
   document.getElementById("btn-redo").innerHTML = svg(ICONS.redo);
   document.getElementById("btn-packages").innerHTML = svg(ICONS.packages);
   document.getElementById("btn-menu").innerHTML = svg(ICONS.menu);
+  document.getElementById("btn-rail").innerHTML = svg(ICONS.railPane);
+  document.getElementById("btn-panel").innerHTML = svg(ICONS.defPane);
   refreshSteps();
 }
 
@@ -3145,6 +3163,11 @@ function buildPanel() {
   host.textContent = "";
   const entry = feature(state.edited);
   panel.hidden = !entry;
+  const switched = document.getElementById("btn-panel");
+  if (switched) switched.setAttribute("aria-pressed", entry ? "true" : "false");
+  // The panel is one of the two sides the middle is measured against, so its
+  // coming and going is a layout change like any other.
+  layout();
   // A script needs room to be read; everything else stays narrow.
   panel.classList.toggle("wide", !!entry && !!entry.code);
   if (!entry) {
@@ -5370,6 +5393,9 @@ function enterMode(mode) {
   openMode = mode;
   mode.button.setAttribute("aria-pressed", "true");
   mode.view.enter();
+  // A mode brings its own panel and its own bar, and they are the two sides
+  // the middle is measured against.
+  layout();
 }
 
 function leaveMode() {
@@ -5378,6 +5404,7 @@ function leaveMode() {
   openMode = null;
   if (mode.button) mode.button.setAttribute("aria-pressed", "false");
   mode.view.leave();
+  layout();
 }
 
 function buildPackages() {
@@ -5441,6 +5468,7 @@ function togglePackages(force) {
   host.hidden = !opening;
   document.getElementById("btn-packages")
     .setAttribute("aria-pressed", opening ? "true" : "false");
+  layout();
 }
 document.getElementById("btn-packages").addEventListener("click", () => togglePackages());
 document.getElementById("btn-menu").addEventListener("click", () => {
@@ -6034,6 +6062,130 @@ const recall = key => { try { return localStorage.getItem(key); } catch (e) { re
 function toggleTree(force) {
   treePanel.hidden = force === undefined ? !treePanel.hidden : !force;
   remember("ocafcad/tree", treePanel.hidden ? "off" : "on");
+  layout();
+}
+
+/* ======================================================================
+   THE LAYOUT.
+
+   Everything here floats over the model, which is the point - but floating
+   over the MODEL and floating over each other are different things, and only
+   the first one is wanted. Nothing in CSS can decide this on its own: the tool
+   rail's width depends on how many tools a package added, the definition panel
+   is wider for a script than for a slider, a mode's bar is as wide as its own
+   words, and a bar in the middle cannot say how wide it is until it knows both
+   sides. So the page measures what is actually on screen and writes three
+   numbers; every rule that needs to keep out of something else's way is
+   written against those.
+
+   Run it whenever anything opens, closes, stows or resizes. It is three
+   getBoundingClientRects and a string; it can run as often as it likes.
+   ====================================================================== */
+
+const uiScale = () =>
+  Number(getComputedStyle(document.documentElement).getPropertyValue("--ui")) || 1;
+
+//! On screen, and taking up room - which is not the same as "not hidden": a
+//! stowed panel is still in the document and still has a width.
+const onScreen = el => {
+  if (!el || el.hidden || !el.isConnected) return false;
+  const seen = getComputedStyle(el);
+  if (seen.display === "none" || seen.visibility === "hidden" || +seen.opacity < 0.05)
+    return false;
+  const box = el.getBoundingClientRect();
+  return box.width > 1 && box.height > 1;
+};
+
+let layoutQueued = 0;
+function layout() {
+  if (layoutQueued) return;
+  layoutQueued = requestAnimationFrame(() => { layoutQueued = 0; measureLayout(); });
+}
+
+function measureLayout() {
+  const root = document.documentElement;
+  const ui = uiScale();
+  // In the units a scaled panel thinks in, because that is what the rules are
+  // written in. See --sky and --span.
+  const wide = el => (onScreen(el) ? el.getBoundingClientRect().width / ui : 0);
+  const edge = parseFloat(getComputedStyle(root).getPropertyValue("--edge")) || 12;
+
+  const rail = document.getElementById("rail");
+  const sketchRail = document.getElementById("sketch-rail");
+  const railWide = Math.max(wide(rail), wide(sketchRail));
+  const railDock = railWide ? railWide + edge : 0;
+
+  const treeWide = wide(treePanel);
+  const leftDock = railDock + (treeWide ? treeWide + edge : 0);
+
+  // The right-hand column is whichever panel is in it: the definition panel in
+  // the model, a mode's own panel while a mode is open. They share the slot and
+  // only one of them is ever up.
+  const right = [document.getElementById("def-panel"),
+                 ...document.querySelectorAll(".fl-panel, .an-panel, .sp-panel")];
+  const rightWide = Math.max(0, ...right.map(wide));
+  const rightDock = rightWide ? rightWide + edge : 0;
+
+  root.style.setProperty("--rail-dock", railDock + "px");
+  root.style.setProperty("--left-dock", leftDock + "px");
+  root.style.setProperty("--right-dock", rightDock + "px");
+
+  // AND WHETHER A BAR HAS TAKEN THE BOTTOM ROW. On a window wide enough for
+  // both, the status line sits in the corner beside the bar; on one that is
+  // not, they are the same row and the status line stands down. Asked of the
+  // boxes rather than of a list of modes, so a package that adds a bar of its
+  // own is covered without this knowing about it.
+  // Asked of the status line's BOX rather than of whether it can be seen: it
+  // is hidden by the answer to this question, so using visibility here would
+  // be asking the answer to decide the question. See body.barred.
+  const status = document.getElementById("status");
+  const laidOut = el => {
+    if (!el || el.hidden || !el.isConnected) return false;
+    if (getComputedStyle(el).display === "none") return false;
+    const box = el.getBoundingClientRect();
+    return box.width > 1 && box.height > 1;
+  };
+  let barred = false;
+  if (laidOut(status)) {
+    const mine = status.getBoundingClientRect();
+    for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, .fl-bar, "
+        + ".an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
+      if (!onScreen(bar)) continue;
+      const box = bar.getBoundingClientRect();
+      if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
+          && Math.min(mine.bottom, box.bottom) - Math.max(mine.top, box.top) > 1) {
+        barred = true;
+        break;
+      }
+    }
+  }
+  document.body.classList.toggle("barred", barred);
+}
+
+addEventListener("resize", layout);
+
+//! The tool rail, stowed off the left edge and brought back. The chip says
+//! which it is, because a switch that does not say what it did is a switch
+//! people press twice.
+function stowRail(force) {
+  const off = force === undefined ? !document.body.classList.contains("no-rail") : !force;
+  document.body.classList.toggle("no-rail", off);
+  document.getElementById("btn-rail").setAttribute("aria-pressed", off ? "false" : "true");
+  remember("ocafcad/rail", off ? "off" : "on");
+  layout();
+}
+
+//! And the definition panel. Closing it is stowing it; bringing it back opens
+//! it on whatever is selected, which is what you were looking at.
+function stowPanel(force) {
+  const on = force === undefined ? !state.edited : !!force;
+  if (on) {
+    const which = state.edited || state.selected
+      || (state.picked.length ? state.picked[state.picked.length - 1] : null);
+    if (!which) { say("nothing is selected, so there is nothing to show"); return; }
+    state.edited = which;
+  } else state.edited = null;
+  buildPanel();
 }
 document.getElementById("btn-tree").addEventListener("click", () => {
   // On a phone the tree is a sheet and the dock owns it; the title is still the
@@ -6041,10 +6193,9 @@ document.getElementById("btn-tree").addEventListener("click", () => {
   if (onPhone()) { openSheet("tree"); return; }
   toggleTree();
 });
-document.getElementById("btn-def-close").addEventListener("click", () => {
-  state.edited = null;
-  buildPanel();
-});
+document.getElementById("btn-def-close").addEventListener("click", () => stowPanel(false));
+document.getElementById("btn-rail").addEventListener("click", () => stowRail());
+document.getElementById("btn-panel").addEventListener("click", () => stowPanel());
 document.getElementById("btn-log").addEventListener("click", () => { logPop.hidden = !logPop.hidden; });
 addEventListener("pointerdown", event => {
   if (!logPop.hidden && !logPop.contains(event.target) &&
@@ -6481,6 +6632,7 @@ function setBare(on) {
   clearTimeout(setBare.fading);
   setBare.fading = setTimeout(() => hint.classList.remove("on"), 2600);
   remember("ocafcad/bare", bare ? "on" : "off");
+  layout();
 }
 
 //! What can be done to the drawing, in the order the rail draws it - so a flick
@@ -6724,6 +6876,10 @@ addEventListener("keyup", event => {
   resize();
 
   if (recall("ocafcad/tree") === "off") treePanel.hidden = true;
+  // A stowed rail survives a reload too: where somebody wants the room is a
+  // preference, not a mood.
+  if (recall("ocafcad/rail") === "off") stowRail(false);
+  layout();
   // Full screen survives a reload, because it is how somebody prefers to work.
   // The hint that comes up with it is what stops that being a page with no
   // interface on it and no way of knowing why.
