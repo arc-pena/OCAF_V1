@@ -1931,6 +1931,71 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
      kind of work is not a detail - a patch that is tangent to within four
      degrees is not tangent, and the only way to know is to be told.        */
 
+//! WHETHER A RUN OF EDGES MAKES A LOOP, and the sentence to say when it does
+//! not. In a closed contour every end is shared by exactly two edges; an end
+//! that only one edge reaches is a loose one, and the gap is how far it is
+//! from the nearest other loose end.
+//!
+//! Named rather than counted, because "the boundary does not close" sends
+//! somebody hunting through thirty curves, and "Sketch.2 and BlendCurve.2 are
+//! 500 mm apart" sends them to the wire that is wrong.
+function openContour(rows, tol) {
+  const close = Math.max(tol, CONFUSION * 10);
+  const ends = [];
+  for (const row of rows) {
+    const pair = edgeEnds(row.edge);
+    if (!pair) continue;
+    for (const at of pair) {
+      const had = ends.find(one => V.length(V.sub(one.at, at)) <= close);
+      if (had) { had.count++; if (!had.names.includes(row.name)) had.names.push(row.name); }
+      else ends.push({ at, count: 1, names: [row.name] });
+    }
+  }
+  const loose = ends.filter(one => one.count === 1);
+  if (!loose.length) return null;
+
+  //! The two loose ends nearest one another, which is the gap somebody has to
+  //! close. On a boundary that is open in two places this names the smaller
+  //! one; fixing it brings the other into view, which is the right order to
+  //! work in anyway.
+  let near = null;
+  for (let i = 0; i < loose.length; i++)
+    for (let j = i + 1; j < loose.length; j++) {
+      const span = V.length(V.sub(loose[i].at, loose[j].at));
+      if (!near || span < near.span) near = { span, a: loose[i], b: loose[j] };
+    }
+  const trim = v => Math.round(v * 100) / 100;
+  const where = one => one.names.filter(Boolean).join(" and ") || "one of the curves";
+  const spot = one => "(" + one.at.map(v => Math.round(v)).join(", ") + ")";
+  return "the boundary does not close - a surface is filled INSIDE a loop, and "
+       + loose.length + (loose.length === 1 ? " end is loose" : " ends are loose")
+       + (near ? ". The nearest two are " + trim(near.span) + " mm apart: "
+                 + where(near.a) + " stops at " + spot(near.a) + " and "
+                 + where(near.b) + " stops at " + spot(near.b)
+               : "")
+       + ". Join them up, or raise the tolerance past the gap if it is meant "
+       + "to be that rough";
+}
+
+//! AND IS THE ANSWER SANE? MakeFilling does not always converge, and when it
+//! does not converge it does not say so - it hands back a surface anyway. On
+//! a boundary of a hundred small edges spanning metres it can return a sheet
+//! two hundred times the size of the loop it was given, which is exactly what
+//! "it filled outside my wire" looks like from the outside.
+//!
+//! So the answer is measured against the question. A patch bounded by a loop
+//! cannot be much bigger than the loop: it is a minimum-energy surface, and
+//! the minimum-energy surface through a boundary lives within that
+//! boundary's own reach. Three times over is generous. Two hundred times is
+//! not a surface, it is a failure that forgot to raise.
+function sprawl(face, edges) {
+  const loop = extents(compoundOf(edges));
+  const made = extents(face);
+  if (!loop || !made) return null;
+  const reach = Math.max(loop.diagonal, CONFUSION);
+  return made.diagonal > reach * 3 ? { reach, got: made.diagonal } : null;
+}
+
   const FILL_CONTINUITY = ["C0", "G1", "G2"];
 
   //! "G1, G2, G0" - one per boundary curve, and whatever is missing falls
@@ -1956,12 +2021,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     const probe = new oc.BRepBuilderAPI_MakeVertex(pnt(mid)).Vertex();
     let best = faces[0], far = Infinity;
     for (const face of faces) {
-      try {
-        const gap = new oc.BRepExtrema_DistShapeShape(probe, face,
-          oc.Extrema_ExtFlag.EXT_ExtFlag_MINMAX, oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
-          new oc.Message_ProgressRange());
-        if (gap.IsDone() && gap.Value() < far) { far = gap.Value(); best = face; }
-      } catch (error) { /* a face that will not measure is not the nearest */ }
+      const span = gapBetween(probe, face);
+      if (Number.isFinite(span) && span < far) { far = span; best = face; }
     }
     return best;
   }
@@ -1990,8 +2051,18 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       return got.answer;
 
       function attempt(hold) {
+      //! NOT EVERY TOLERANCE IS A LENGTH. MakeFilling takes four, and only
+      //! two of them are distances: Tol2d is parametric, TolAng is an ANGLE
+      //! in radians and TolCurv is a curvature. Scaling all four by the
+      //! millimetre tolerance on the node meant that asking for a loose 100
+      //! mm fit also asked for an angular tolerance of a thousand radians,
+      //! which is not loose, it is meaningless - and the solve it produced
+      //! was a surface with no relation to the curves it was given.
+      //!
+      //! So the node's number is the 3D tolerance, which is what a person
+      //! means by it, and the other three keep the values OpenCascade ships.
       const fill = new oc.BRepOffsetAPI_MakeFilling(
-        degree, 15, 2, false, tol * 0.1, tol, tol * 10, tol * 100, 8, 9);
+        degree, 15, 2, false, 1e-5, tol, 0.01, 0.1, 8, 9);
 
       //! EVERY EDGE OF EVERY CURVE, flattened, so a boundary given as one
       //! polyline of nine segments is nine edges - which is what MakeFilling
@@ -1999,11 +2070,23 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       //! person thinks about it.
       const rows = [];
       boundary.forEach((one, i) => {
-        for (const edge of subShapes(F.shape(one), EDGE, oc.TopoDS.Edge))
-          rows.push({ edge, curve: i });
+        // ONCE EACH. A sketch that makes faces carries every edge twice - in
+        // the face and in the wire - and the same edge handed to MakeFilling
+        // twice is the same constraint asked for twice, which is at best
+        // wasted work and at worst a contradiction it has to average out.
+        for (const edge of eachEdge(F.shape(one)))
+          rows.push({ edge, curve: i, name: F.name(one) });
       });
       if (rows.length < 2)
         throw new Error("a surface needs a boundary of at least two edges");
+      //! AND DOES IT CLOSE? This is the one thing MakeFilling will not tell
+      //! you. Handed a chain with a gap in it, it does not refuse - it solves
+      //! an under-determined problem and hands back a surface that sprawls
+      //! outside the curves it was given, which is exactly what a broken fill
+      //! looks like from the outside. So the loop is checked here, where the
+      //! gap can be measured and named.
+      const gap = openContour(rows, tol);
+      if (gap) throw new Error(gap);
       const wants = continuityList(F.text(f, "each"),
                                    Feature_choice(f, "continuity"), boundary.length);
 
@@ -2038,6 +2121,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
       const through = pointsOf(f, "through");
       for (const p of through) fill.Add(pnt(p));
+      const wanted = through;
 
       let face = null;
       try {
@@ -2050,6 +2134,20 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       if (!face || face.IsNull())
         return { ok: false, error: new Error("no surface would pass through that boundary"
           + (tangential ? " and meet what it was told to meet" : "")) };
+      //! MEASURED, NOT TRUSTED. Raising the number of pieces the surface is
+      //! allowed does not save this case - it was tried at twenty and at
+      //! forty and the answer was still tens of metres across - so there is
+      //! nothing to do but say so and name the tool that does work.
+      const wild = sprawl(face, rows.map(one => one.edge));
+      if (wild)
+        return { ok: false, error: new Error(
+          "the filling did not converge - the boundary is "
+          + Math.round(wild.reach) + " mm across and the surface that came back is "
+          + Math.round(wild.got) + " mm across, so it is nowhere near inside the loop. "
+          + "That happens on a boundary of many small edges: this one has " + rows.length
+          + " of them, and the filling has a fixed number of pieces to work with. "
+          + "For a patch that runs between two rails a Loft through them is the tool "
+          + "for it; a fill is for a boundary of a few smooth curves") };
 
       //! HOW WELL IT DID, in the units somebody argues about: the gap in
       //! millimetres, the tangency as an angle rather than as a sine, and the
@@ -2063,7 +2161,20 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         if (wants.some(w => w === 2))
           said.push("curvature " + trim(safely(() => fill.G2Error(), 0)));
       }
-      if (through.length) said.push(through.length + " points passed through");
+      //! DID IT ACTUALLY REACH THEM? A point constraint is a request, not a
+      //! guarantee - MakeFilling weighs it against the boundary and the
+      //! smoothness and settles somewhere - so the answer is measured off the
+      //! surface it built rather than taken on trust. "Passes through three
+      //! points" with no number beside it is the kind of claim that hides a
+      //! patch sailing past all three.
+      if (wanted.length) {
+        const missed = wanted.map(at => distanceTo(face, at)).filter(Number.isFinite);
+        const worst = missed.length ? Math.max(...missed) : NaN;
+        said.push(wanted.length + (wanted.length === 1 ? " point" : " points")
+          + " to pass through"
+          + (Number.isFinite(worst) ? ", the furthest missed by " + trim(worst) + " mm"
+                                    : ""));
+      }
       if (refused.length)
         said.push(refused.length + (refused.length === 1 ? " edge" : " edges")
           + " would not take the constraint " + JSON.stringify(refused[0]).slice(1, -1)
@@ -2077,6 +2188,29 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       }
     },
   };
+
+  //! HOW FAR APART TWO SHAPES ARE. Loaded and performed rather than
+  //! constructed with arguments: this build binds BRepExtrema_DistShapeShape
+  //! but NOT the Extrema_ExtFlag enum its longer constructors take, so every
+  //! one of those throws before it runs. Caught, it looks like "the two never
+  //! came near each other" - which is how a nearest-face search came to
+  //! return the first face every time, and a point constraint came to report
+  //! nothing at all about whether it had been met. The factory always used
+  //! this form; these two did not.
+  function gapBetween(a, b) {
+    try {
+      const gap = new oc.BRepExtrema_DistShapeShape();
+      gap.LoadS1(a);
+      gap.LoadS2(b);
+      gap.Perform();
+      return gap.IsDone() && gap.NbSolution() > 0 ? gap.Value() : NaN;
+    } catch (error) { return NaN; }
+  }
+
+  //! How far a point is from a shape, measured rather than assumed. The one
+  //! honest answer to "did the surface go where I told it to".
+  const distanceTo = (shape, at) =>
+    gapBetween(new oc.BRepBuilderAPI_MakeVertex(pnt(at)).Vertex(), shape);
 
   const safely = (run, fallback) => { try { return run(); } catch (error) { return fallback; } };
 
@@ -3099,7 +3233,18 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         else oc.BRepGProp.VolumeProperties(shape, props, false, false, false);
         const value = props.Mass();
         props.delete();
-        return { data: numbers([Number.isFinite(value) ? value : 0]) };
+        //! A LENGTH AND AN AREA ARE MAGNITUDES. OpenCascade's mass is signed,
+        //! and a face whose normal points the other way comes back negative -
+        //! which is a thing worth being told, but not by handing "minus
+        //! fifteen square metres" to whatever reads this next. So the number
+        //! is the size and the note is the direction.
+        const size = Number.isFinite(value) ? Math.abs(value) : 0;
+        return { data: numbers([size]),
+                 note: value < 0
+                   ? "the shape is inside out - its "
+                     + ["length", "area", "volume"][quantity]
+                     + " came back negative, which means its faces point the other way"
+                   : undefined };
       }
       const box = extents(shape);
       if (!box) return { data: numbers([0]) };

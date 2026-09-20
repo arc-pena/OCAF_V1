@@ -180,8 +180,15 @@ await run([
 {
   const s = await of("FS");
   check("it built", !s.error, s.error);
-  check("and says the point was passed through",
-        /1 points passed through/.test(s.note || ""), s.note);
+  // NOT "it was asked to", but "it got there". The note carries the measured
+  // miss, because a point constraint is a request the solver weighs against
+  // the boundary and the smoothness - and a patch that sails past the point
+  // used to report exactly the same sentence as one that hit it.
+  check("and says how near it got to the point",
+        /1 point to pass through, the furthest missed by/.test(s.note || ""), s.note);
+  const off = Number((String(s.note).match(/missed by ([\d.]+) mm/) || [])[1]);
+  check("and it got there, to the tolerance it was given",
+        Number.isFinite(off) && off <= 0.01, off + " mm");
   // Pulled 40 up in the middle, the patch has to have more area than the flat
   // one it was - a surface that ignored the point would still measure 40,000.
   const area = await measure("FS", 1);
@@ -260,6 +267,48 @@ await run([
         /wire in the curves/.test(s.error || ""), s.error || "no error at all");
 }
 
+console.log("\n8. a boundary that does not close is refused, and says where");
+// A SURFACE IS FILLED INSIDE A LOOP. Handed a chain with a gap in it,
+// MakeFilling does not refuse - it solves an under-determined problem and
+// hands back a sheet that sprawls outside the curves it was given, which is
+// exactly what a broken fill looks like from the outside. So the loop is
+// checked here, where the gap can be measured and named.
+await run([
+  { op: "add", type: "Point", id: "GA", name: "A" },
+  { op: "set", id: "GA", key: "x", value: 0 },
+  { op: "add", type: "Point", id: "GB", name: "B" },
+  { op: "set", id: "GB", key: "x", value: 200 },
+  { op: "add", type: "Point", id: "GC", name: "C" },
+  { op: "set", id: "GC", key: "x", value: 200 },
+  { op: "set", id: "GC", key: "y", value: 200 },
+  { op: "add", type: "Point", id: "GD", name: "D" },
+  { op: "set", id: "GD", key: "x", value: 0 },
+  { op: "set", id: "GD", key: "y", value: 200 },   // three sides of a square:
+                                                  // A and D are 200 mm apart
+  { op: "add", type: "Polyline", id: "GPL", name: "Three sides", refs: { points: "GA" } },
+  { op: "connect", id: "GPL", key: "points", from: "GB" },
+  { op: "connect", id: "GPL", key: "points", from: "GC" },
+  { op: "connect", id: "GPL", key: "points", from: "GD" },
+  { op: "add", type: "FillSurface", id: "GFI", name: "Open", refs: { boundary: "GPL" } },
+]);
+{
+  const g = await of("GFI");
+  check("it is refused rather than filled", !!g.error, g.note || "no error at all");
+  check("and it says the boundary does not close",
+        /does not close/.test(g.error || ""), g.error);
+  check("and how big the gap is, to the millimetre",
+        /200 mm apart/.test(g.error || ""), g.error);
+  check("and which curves the loose ends belong to",
+        /Three sides/.test(g.error || ""), g.error);
+  // Closed up, the same boundary fills.
+  await run([{ op: "connect", id: "GPL", key: "points", from: "GA" }]);
+  const shut = await of("GFI");
+  check("and closed up it fills", !shut.error, shut.error);
+  check("to its own area, and nothing outside it",
+        near(await measure("GFI", 1), 200 * 200, 200),
+        "" + (await measure("GFI", 1)));
+}
+
 console.log("\n9. a section that becomes another one along the rail");
 // The third kind of pipe surface the documentation lists, and the one a
 // constant section cannot fake. A circle of radius 60 swept 1000 along Z into
@@ -288,6 +337,57 @@ await run([
   const got = await measure("SW", 2);
   check("and it is a truncated cone: pi h (R^2 + Rr + r^2) over 3",
         near(got, want, want * 0.005), got + " wanted " + want.toFixed(0));
+}
+
+console.log("\n10. a real file that went wrong, and both reasons it did");
+// The model that started this. Its boundary is four curves - two sketches and
+// two blend curves - but one of the blends is wired to the tip of a tangent
+// ray rather than to the end of the sketch, so the loop has a 500 mm hole in
+// it. And even closed, the boundary is 132 tessellated edges, which is more
+// than this build's filling can hold: it returns a sheet tens of metres
+// across. Both used to come back as a surface with no complaint attached.
+{
+  const kernel2 = await createWasmKernel({ initModule: init,
+    wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
+  const mdl2 = new Mdl({ kernel: kernel2, setNode: () => {}, readLayout: () => ({}),
+                         select: () => {}, selected: () => null });
+  await mdl2.run({ op: "model", model: JSON.parse(readFileSync(
+    new URL("./files/fillsurface.json", import.meta.url), "utf8")) });
+  const read = async id => {
+    const answer = await kernel2.tree();
+    return ((answer.tree || answer).features || []).find(f => f.id === id);
+  };
+  const open = await read("FI2");
+  check("as it came in, the open loop is refused",
+        !!open.error && /does not close/.test(open.error), open.error || open.note);
+  check("and the 500 mm hole is measured and placed",
+        /500 mm apart/.test(open.error || ""), open.error);
+
+  // Close it the way the model meant, and the other reason surfaces.
+  await mdl2.runAll([{ op: "disconnect", id: "BL2", key: "points", from: "TP4" },
+                     { op: "connect", id: "BL2", key: "points", from: "PO4" },
+                     { op: "set", id: "FI2", key: "tolerance", value: 0.01 }]);
+  const shut = await read("FI2");
+  check("closed up, the sprawl is caught rather than handed back",
+        !!shut.error && /did not converge/.test(shut.error), shut.error || shut.note);
+  check("with both sizes said, so the scale of it is plain",
+        /mm across and the surface that came back is/.test(shut.error || ""), shut.error);
+  check("and it names the tool that does work on this shape",
+        /Loft/.test(shut.error || ""), shut.error);
+
+  // Which it does: a loft through the same two sketches lands on the
+  // boundary's own reach rather than tens of metres past it.
+  await mdl2.runAll([
+    { op: "add", type: "Loft", id: "LO", name: "Between the rails", refs: { sections: "SK1" } },
+    { op: "connect", id: "LO", key: "sections", from: "SK2" },
+    { op: "set", id: "LO", key: "cap", value: 1 },
+    { op: "add", type: "Measure", id: "LZ", name: "How tall", refs: { shape: "LO" } },
+    { op: "set", id: "LZ", key: "quantity", value: 5 }]);
+  const loft = await read("LO");
+  check("the loft through them builds", !loft.error, loft.error);
+  const tall = Number(((((await read("LZ")) || {}).data || {}).preview || "").match(/[\d.]+/));
+  check("and it is the boundary's own height, not tens of metres",
+        near(tall, 670, 1), tall + " mm tall, boundary is 670");
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
