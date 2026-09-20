@@ -1744,8 +1744,12 @@ export const CATALOGUE = [
            choice("ends", "Ends", ["Include", "Exclude"], 0)] },
   { type: "EvaluateSurface", guid: "9a1b2c30-0062-4c00-9e00-caf000000062", category: "analysis",
     produces: "point",
-    summary: "The point at (u, v) on the first face of a shape, with its normal drawn.",
-    args: [ref("surface", "Surface", ["plane", "solid"]),
+    summary: "The point at (u, v) on a face of a shape, with its normal drawn. The "
+           + "first face unless you pick one - which is what to do on a skin that has "
+           + "several, because \"the first face\" is an accident of how it was built.",
+    args: [ref("surface", "Surface", ["plane", "solid", "curve"]),
+           subs("face", "Face", "face",
+                "which face to sample \u00b7 empty takes the first", "the first face"),
            real("u", "U", 0.5, 0, 1, 0.001, ""), real("v", "V", 0.5, 0, 1, 0.001, ""),
            real("normal", "Normal length", 40, 0, 1000, 1)] },
   { type: "Drape", guid: "9a1b2c30-0064-4c00-9e00-caf000000064", category: "analysis",
@@ -1762,7 +1766,8 @@ export const CATALOGUE = [
            + "size of its bounding box - to be wired back into the model.",
     args: [ref("shape", "Shape", ["curve", "plane", "solid", "point", "mesh"]),
            choice("quantity", "Quantity",
-                  ["Length", "Area", "Volume", "Size X", "Size Y", "Size Z", "Diagonal"], 0)] },
+                  ["Length", "Area", "Volume", "Size X", "Size Y", "Size Z", "Diagonal",
+                   "How many faces", "How many edges", "How many vertices"], 0)] },
 
   /* ------------------------------------------------------------- solids */
   { type: "Cube", guid: "9a1b2c30-0010-4c00-9e00-caf000000010", category: "body",
@@ -2062,6 +2067,34 @@ export const CATALOGUE = [
            + "through a solid, the line two surfaces share, the point two curves meet "
            + "at. It cuts nothing - it only says where.",
     args: [ref("a", "A", ANY, true), ref("b", "B", ANY, true)] },
+  //! WHICH FACE. Everything downstream of a skin - a panel, a sample, a
+  //! thickness - is about ONE face of it, and until there was a node that could
+  //! say which, every one of them silently meant the first. This is that node:
+  //! it takes a shape and hands back the faces picked off it, so "face 2 of
+  //! Loft.1" is a thing a model file can hold and a thing a click can make.
+  { type: "Face", guid: "9a1b2c30-007c-4c00-9e00-caf00000007c", category: "operation",
+    produces: "plane",
+    summary: "One face of a shape, on its own - so everything downstream is about that "
+           + "face and not the whole body. Press Pick faces and click them on the "
+           + "model; empty takes every face, which is how a skin comes apart into its "
+           + "strips. The picks are written into the model file as \"face 2 of "
+           + "Loft.1\", with where that face was, so they survive the shape changing "
+           + "under them.",
+    args: [ref("of", "Shape", ["solid", "plane", "curve", "mesh"], true),
+           subs("faces", "Faces", "face",
+                "which faces to take \u00b7 empty takes every one", "every face")] },
+  //! THE FACE A BOUNDARY BOUNDS, flat or not. The planar one is a
+  //! BRepBuilderAPI_MakeFace and refuses anything out of plane; four corners
+  //! sampled off a curved skin are never in plane, so a panel on a warped
+  //! surface could not be made at all. The patch is the answer to that.
+  { type: "Fill", guid: "9a1b2c30-007d-4c00-9e00-caf00000007d", category: "operation",
+    produces: "plane",
+    summary: "The face a closed boundary bounds - flat when the boundary is flat, and "
+           + "a minimum-energy patch through it when it is not. What turns four "
+           + "corners of a warped panel into something you can see, thicken and "
+           + "measure.",
+    args: [ref("boundary", "Boundary", ["curve", "plane"], true),
+           choice("surface", "Surface", ["Whichever fits", "Planar only", "Patch"], 0)] },
   { type: "Draft", guid: "9a1b2c30-007b-4c00-9e00-caf00000007b", category: "operation",
     produces: "solid",
     summary: "Leans the sides of a body over by an angle, hinged where they meet a "

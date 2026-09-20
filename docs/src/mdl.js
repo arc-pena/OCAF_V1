@@ -242,12 +242,18 @@ export const MDL_OPS = [
 
   modelOp("pick", ["id", "key", "picks"],
     "Replace the sub-shapes an argument is about - which edges a fillet rounds, which "
-    + "face a draft hinges on. A pick names the feature it belongs to, the kind, the "
-    + "number, and where the thing was, so it can be found again after the body "
-    + "changes shape. An empty list means the operation's own default, which on a "
-    + "fillet is every edge.",
+    + "face a draft hinges on, which face of a skin a Face node takes. A pick names the "
+    + "feature it belongs to, the kind, and the number, counting from zero in the order "
+    + "the kernel enumerates them; \"near\" is optional and says where the thing was, so "
+    + "a click can still find it after the body changes shape. Written without it - "
+    + "{ of, kind, at } - the number is the whole of the pick, which is the practical "
+    + "form when you are editing the file rather than clicking the model. An empty list "
+    + "means the operation's own default, which on a fillet is every edge and on a Face "
+    + "is every face. Ask Measure for \"How many faces\" first if you need to know what "
+    + "the numbers run to.",
     { op: "pick", id: "FL1", key: "edges",
-      picks: [{ of: "CB1", kind: "edge", at: 2, near: [40, 0, 40, 0, 1, 0, 40] }] },
+      picks: [{ of: "CB1", kind: "edge", at: 2, near: [40, 0, 40, 0, 1, 0, 40] },
+              { of: "CB1", kind: "edge", at: 5 }] },
     (ctx, edit) => {
       if (!Array.isArray(edit.picks)) throw new Error('"picks" must be a list');
       return ctx.kernel.setPicks(needText(edit, "id"), needText(edit, "key"), edit.picks);

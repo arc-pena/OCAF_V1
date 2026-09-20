@@ -44,6 +44,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE;
   const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID;
   const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE;
+  const VERTEX = oc.TopAbs_ShapeEnum.TopAbs_VERTEX;
   const ANY = oc.TopAbs_ShapeEnum.TopAbs_SHAPE;
 
   /* ------------------------------------------------------------ helpers */
@@ -1833,7 +1834,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   builders.EvaluateSurface = {
     precondition: f => F.reference(f, "surface") ? null : "no surface to evaluate",
     build: f => {
-      const face = firstFace(F.shape(F.reference(f, "surface")), "surface");
+      const shape = F.shape(F.reference(f, "surface"));
+      if (!shape) throw new Error("the surface has not been built");
+      // WHICHEVER FACE WAS PICKED, and the first one when none was. A skin has
+      // as many faces as it has strips and "the first" is an accident of how
+      // the loft was wound, so a sample that means anything has to be able to
+      // say which.
+      const picked = pickedSubs(f, "face", shape, "face");
+      if (!picked.whole && !picked.chosen.length)
+        throw new Error("the picked face is not in that shape any more");
+      const face = picked.whole ? firstFace(shape, "surface") : picked.chosen[0];
       const surface = new oc.BRepAdaptor_Surface(face, true);
       const u0 = surface.FirstUParameter(), u1 = surface.LastUParameter();
       const v0 = surface.FirstVParameter(), v1 = surface.LastVParameter();
@@ -1859,7 +1869,14 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           if (normal) parts.push(segment(here, V.add(here, V.scale(normal, draw))));
         }
       }
-      return { shape: compoundOf(parts.filter(Boolean)), data: points(list) };
+      // Which face this landed on, said out loud. A sample that silently took
+      // the first face of a nine-face skin is the defect this argument exists
+      // to fix, so the node says which face it is on whenever there is a choice.
+      const many = eachFace(shape).length;
+      const which = picked.whole ? 0 : eachFace(shape).findIndex(one => one.IsSame(face));
+      return { shape: compoundOf(parts.filter(Boolean)), data: points(list),
+               note: many > 1 ? "face " + (which + 1) + " of " + many
+                 + (picked.whole ? " \u00b7 pick a face to sample another" : "") : undefined };
     },
   };
 
@@ -1878,6 +1895,15 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       if (meshData && meshData.kind === "mesh") return { data: numbers([measureMesh(f, meshData)]) };
       const shape = F.shape(source);
       const quantity = Feature_choice(f, "quantity");
+      // HOW MANY OF SOMETHING, which is a measurement like any other and the
+      // one a model needs before it can take the pieces apart: you cannot ask
+      // for face 5 of a skin until you know there are nine.
+      if (quantity >= 7) {
+        const kind = quantity === 7 ? FACE : quantity === 8 ? EDGE : VERTEX;
+        const cast = quantity === 7 ? oc.TopoDS.Face
+                   : quantity === 8 ? oc.TopoDS.Edge : oc.TopoDS.Vertex;
+        return { data: numbers([uniqueSubs(shape, kind, cast).length]) };
+      }
       if (quantity <= 2) {
         const props = new oc.GProp_GProps();
         if (quantity === 0) oc.BRepGProp.LinearProperties(shape, props, false, false);
@@ -3374,6 +3400,79 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       // well as in the shape, so it can drive anything that wants one.
       return marks.length && countSubShapes(shape, EDGE) === 0
         ? { shape, data: points(marks) } : shape;
+    },
+  };
+
+  /* ------------------------------------------------ one face, and a face from
+     a boundary
+
+     TAKING A SKIN APART. Everything that samples a surface, panels it or
+     thickens it is about ONE face of it; until there was a node that could say
+     which, every one of them meant "whichever the explorer reached first",
+     which is an accident of how the loft was wound and not a thing anybody
+     chose. Face is that node. It hands the picked faces back as a shape of
+     their own, so the node downstream is about that face because there is
+     nothing else in front of it.
+
+     AND PUTTING ONE BACK TOGETHER. Four corners sampled off a curved skin are
+     never coplanar, so the flat face-maker refuses them and a panel on a warped
+     surface cannot be built at all. Fill asks for the flat one first, because a
+     planar face carries its plane and everything downstream would rather have
+     it, and falls to a patch through the boundary when there is no plane to
+     have.                                                                  */
+
+  builders.Face = {
+    precondition: f => {
+      const source = F.reference(f, "of");
+      if (!source) return "nothing wired in to take a face from";
+      const shape = F.shape(source);
+      if (!shape) return F.name(source) + " has not been built";
+      if (countSubShapes(shape, FACE) === 0)
+        return F.name(source) + " has no faces - it is " + describeShape(shape);
+      return null;
+    },
+    build: f => {
+      const source = F.reference(f, "of");
+      const shape = F.shape(source);
+      const picked = pickedSubs(f, "faces", shape, "face");
+      if (!picked.chosen.length)
+        throw new Error(picked.whole ? "that shape has no faces"
+          : "none of the picked faces is in " + F.name(source) + " any more");
+      const many = eachFace(shape).length;
+      const took = picked.chosen.length;
+      return { shape: took === 1 ? picked.chosen[0] : compoundOf(picked.chosen),
+               note: picked.whole
+                 ? (many > 1 ? "every face \u00b7 " + many + " of them" : undefined)
+                 : took + (took === 1 ? " face" : " faces") + " of " + many
+                   + (picked.lost ? " \u00b7 " + picked.lost + " picked "
+                       + (picked.lost === 1 ? "face is" : "faces are")
+                       + " no longer in that shape" : "") };
+    },
+  };
+
+  builders.Fill = {
+    precondition: f => {
+      const source = F.reference(f, "boundary");
+      if (!source) return "no boundary to fill";
+      const shape = F.shape(source);
+      if (!shape) return F.name(source) + " has not been built";
+      if (countSubShapes(shape, EDGE) === 0)
+        return F.name(source) + " has no edges to bound a face";
+      return null;
+    },
+    build: f => {
+      const source = F.reference(f, "boundary");
+      const wire = wireOf(source, "boundary");
+      const want = Feature_choice(f, "surface");
+      if (want === 1) return { shape: HSF.flatFill(wire), note: "planar" };
+      if (want === 2) return { shape: HSF.patch(wire), note: "patched" };
+      // Whichever fits, and it says which it got: "planar" and "patched" are
+      // different answers and the difference is worth seeing in the tree.
+      try {
+        const flat = new oc.BRepBuilderAPI_MakeFace(wire, true);
+        if (flat.IsDone()) return { shape: flat.Face(), note: "planar" };
+      } catch (error) { /* out of plane; patch it */ }
+      return { shape: HSF.patch(wire), note: "patched \u00b7 the boundary is not flat" };
     },
   };
 

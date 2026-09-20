@@ -1026,18 +1026,27 @@ function clearPicking() {
 //! argument the operation reads its shape from. A fillet picks off its body; a
 //! draft off the same. Nothing here guesses - it is the first reference the
 //! feature has that produced a solid.
+//! WHAT THE PICKS ARE TAKEN FROM: the first thing wired in that has geometry
+//! to pick. Solids first, because on a fillet or a draft that is what is meant
+//! and a body can be wired in beside a plane; then anything else built, because
+//! a face of a surface or an edge of a curve is just as pickable and refusing
+//! it would mean the Face node's own button is dead on a skin.
 function pickFrom(entry) {
   const spec = schemaType(entry.type);
   if (!spec) return null;
+  let second = null;
   for (const arg of spec.args) {
     if (arg.kind !== "ref") continue;
     const target = entry.refs && entry.refs[arg.key];
     const which = Array.isArray(target) ? target[0] : target;
     const source = which && feature(which);
-    if (source && source.produces === "solid") return source;
+    if (!source) continue;
+    if (source.produces === "solid") return source;
+    if (!second && PICKABLE.has(source.produces)) second = source;
   }
-  return null;
+  return second;
 }
+const PICKABLE = new Set(["solid", "plane", "curve"]);
 
 async function enterPicking(entry, arg) {
   const source = pickFrom(entry);
@@ -2775,6 +2784,12 @@ const ICONS = {
   Loft: '<path d="M2.4 12.4c2.6 0 3-1.6 5.6-1.6s3 1.6 5.6 1.6" fill="none" stroke="currentColor" stroke-width="1.25"/>'
       + '<path d="M3.6 8c2.2 0 2.4-1.3 4.4-1.3S10.2 8 12.4 8" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".75"/>'
       + '<path d="M4.8 3.8c1.7 0 1.9-1 3.2-1s1.5 1 3.2 1" fill="none" stroke="currentColor" stroke-width="1" opacity=".5"/>',
+  Face: '<path d="M1.6 10.4L5.6 4.6h8.8L10.4 10.4z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round" opacity=".45"/>'
+      + '<path d="M5.8 10.4L7.9 7.4h4.3l-2.1 3z" fill="currentColor" opacity=".35"/>'
+      + '<path d="M5.8 10.4L7.9 7.4h4.3l-2.1 3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+  Fill: '<path d="M2.4 11.2C4.4 11.2 4 4.6 8 4.6s3.6 6.6 5.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
+      + '<path d="M2.4 11.2C4.4 11.2 4 4.6 8 4.6s3.6 6.6 5.6 6.6v2.2H2.4z" fill="currentColor" opacity=".28"/>'
+      + '<path d="M2.4 13.4h11.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
   Boolean: '<circle cx="6" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.25"/>'
          + '<circle cx="10" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.25"/>'
          + '<path d="M8 4.1a4.4 4.4 0 000 7.8 4.4 4.4 0 000-7.8z" fill="currentColor" opacity=".35"/>',

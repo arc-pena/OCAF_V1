@@ -134,6 +134,44 @@ export function makeFactories(oc, kit) {
     return face.Face();
   };
 
+  //! THE FACE A BOUNDARY BOUNDS WHEN IT IS NOT FLAT. Four corners sampled off a
+  //! loft are almost never coplanar, and BRepBuilderAPI_MakeFace wants a plane
+  //! before it will do anything - so a panel taken off a curved skin cannot be
+  //! made the flat way at all. This is the other way: a surface that passes
+  //! through the boundary edges and minimises its own bending in between, which
+  //! is the bilinear patch when the boundary is four straight runs and a
+  //! reasonable answer when it is not.
+  //!
+  //! The constraint is C0 - pass through the edges - rather than G1, because G1
+  //! asks each edge which face it lies on and a boundary built out of loose
+  //! polylines has no answer.
+  const patchOf = wire => {
+    const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 1e-2, 1e-1, 8, 9);
+    let edges = 0;
+    for (const edge of each(wire, EDGE, oc.TopoDS.Edge)) {
+      fill.Add(edge, oc.GeomAbs_Shape.GeomAbs_C0, true);
+      edges++;
+    }
+    if (edges < 3) throw new Error("a patch needs a boundary of at least three edges");
+    fill.Build(new oc.Message_ProgressRange());
+    if (!fill.IsDone()) throw new Error("no surface would pass through that boundary");
+    const face = fill.Shape();
+    if (!face || face.IsNull()) throw new Error("the patch came out empty");
+    return face;
+  };
+
+  //! Flat if it can be, patched if it cannot. Asked in that order because a
+  //! planar face carries its plane with it and everything downstream - a pad, a
+  //! sketch support, a draft's neutral plane - would rather have the plane than
+  //! a spline that happens to be flat.
+  const anyFaceOf = wire => {
+    try {
+      const face = new oc.BRepBuilderAPI_MakeFace(wire, true);
+      if (face.IsDone()) return face.Face();
+    } catch (error) { /* not planar; the patch below is the answer */ }
+    return patchOf(wire);
+  };
+
   //! Where a wire starts and where it stops, walked as one curve. Not its
   //! vertices: a wire's ends are the two the edges do not share, and picking
   //! those out of a chain of forty is work the adaptor has already done.
@@ -534,8 +572,22 @@ export function makeFactories(oc, kit) {
       } },
 
     { name: "fill", takes: "wire", gives: "shape",
-      summary: "The planar face a closed wire bounds. What makes a drawing something "
-             + "a pad can be swept from.",
+      summary: "The face a closed wire bounds - planar when the wire is flat, and a "
+             + "patch through it when it is not, so four warped corners off a loft "
+             + "still make something you can see, thicken and measure. What makes a "
+             + "drawing something a pad can be swept from.",
+      run: wire => anyFaceOf(wire) },
+
+    { name: "patch", takes: "wire", gives: "shape",
+      summary: "The same, but never planar: a minimum-energy surface through the "
+             + "boundary edges. Ask for this rather than fill when the boundary is "
+             + "nearly flat and you want the curved answer anyway.",
+      run: wire => patchOf(wire) },
+
+    { name: "flatFill", takes: "wire", gives: "shape",
+      summary: "The planar face a closed wire bounds, and an error when the wire is "
+             + "not flat. The strict one, for when out-of-plane is a mistake worth "
+             + "hearing about rather than something to work around.",
       run: wire => faceOf(wire) },
 
     { name: "fillWithHoles", takes: "outer, holes", gives: "shape",
