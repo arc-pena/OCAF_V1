@@ -999,6 +999,78 @@ body.waiting #viewport { cursor: crosshair; }
   background: var(--panel-2); padding: 3px 8px; border-radius: 5px; white-space: nowrap;
 }
 
+/* ------------------------------------------------------------- the story
+   A presentation is a thing you hand to a room. A toolbar in the corner of it
+   is a toolbar the room is reading instead of the drawing, so presenting takes
+   everything else away and leaves the narrative. */
+.st-bar { z-index: 10; }
+.st-beats { gap: 4px; }
+.st-beats button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+.caption-layer {
+  /* While a story is being WRITTEN the narrative stands above the bars, in the
+     room the model is in; while it is being SHOWN it is the only thing on the
+     screen and takes the whole width. */
+  position: fixed; z-index: 40; pointer-events: none;
+  /* IN REAL PIXELS, not in panel ones. Everything that floats is zoomed by
+     --ui and measures itself in units that are --ui times smaller; this layer
+     is not zoomed, because the narrative is read by a room and should be the
+     size it is. So the docks it keeps clear of are converted back. */
+  left: calc((var(--edge) + var(--left-dock)) * var(--ui));
+  right: calc((var(--edge) + var(--right-dock)) * var(--ui));
+  bottom: calc((var(--edge) + var(--bar-h) + var(--corner)) * var(--ui));
+  padding: 0;
+}
+body.presenting .caption-layer {
+  left: 0; right: 0; bottom: 0; padding: 0 0 max(22px, env(safe-area-inset-bottom));
+}
+.caption-layer[hidden] { display: none; }
+.caption-bar {
+  height: 2px; background: rgba(128, 138, 150, .3); margin-bottom: 18px;
+}
+.caption-bar span { display: block; height: 100%; background: var(--accent); }
+.caption-body {
+  max-width: 720px; margin: 0 auto; padding: 14px 24px 12px; text-align: center;
+  pointer-events: auto;
+  /* While it is being written the narrative sits over the model, so it is
+     given something to sit on. While it is being SHOWN there is nothing else
+     on the screen and a panel would be one more thing between the room and
+     the drawing. */
+  background: var(--panel); backdrop-filter: blur(9px); border-radius: 10px;
+  border: 1px solid var(--line-soft);
+}
+body.presenting .caption-body {
+  background: none; backdrop-filter: none; border: 0; padding: 0 24px;
+}
+body.presenting .caption-body h3 { text-shadow: 0 1px 10px rgba(0, 0, 0, .18); }
+.caption-body h3 {
+  margin: 0 0 6px; font-size: 19px; font-weight: 600; letter-spacing: -.01em;
+  color: var(--ink);
+}
+.caption-body p {
+  margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink-2);
+}
+.caption-dots { display: flex; gap: 6px; justify-content: center; margin-top: 14px; }
+.caption-dots button {
+  width: 7px; height: 7px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 0; background: var(--ink-3); opacity: .45;
+}
+.caption-dots button[aria-pressed="true"] { background: var(--accent); opacity: 1; width: 20px;
+  border-radius: 4px; }
+/* Presenting: the model, the narrative, and nothing else at all. */
+body.presenting #chip, body.presenting #status, body.presenting #view-tools,
+body.presenting #rail, body.presenting #tree-panel, body.presenting #def-panel,
+body.presenting #story-bar, body.presenting #camera-bar, body.presenting #dock,
+body.presenting #bare-hint, body.presenting #gizmo-bar, body.presenting #lens-panel,
+body.presenting #section-bar, body.presenting .safe-tag, body.presenting #packages,
+body.presenting #ai-bar, body.presenting #heads {
+  display: none !important;
+}
+/* The bars are the bars a cinema has: black, and no part of the picture. */
+body.presenting .safe-mask { background: #05070a; }
+body.presenting .caption-layer { background: linear-gradient(
+  rgba(0, 0, 0, 0), rgba(0, 0, 0, .04) 40%, rgba(0, 0, 0, .1)); }
+
 /* --------------------------------------------------------- safe frames
    What will actually be seen. The shot is drawn at the camera's own shape in
    the middle of whatever shape the window is, and the rest is dimmed - because
@@ -1678,7 +1750,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      is one row down there and while a sketch is open it belongs to the sketch. */
   #lens-panel { right: var(--edge); bottom: calc(var(--dock-h) + 6px + var(--bar-h));
                 width: auto; left: var(--edge); z-index: 8; border-radius: 9px; }
-  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
+  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, #story-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
     top: auto; transform: none; width: auto; max-width: none; z-index: 7;
   }
@@ -1686,7 +1758,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
   }
-  #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, #camera-bar, #story-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
   /* The log stands ON the status line rather than over it: the button that
      closes it is in the status line, and a popup that covers its own switch is
      a popup you cannot put away. */

@@ -1729,6 +1729,23 @@ export const CATALOGUE = [
            + "ones you actually meant - the turn of each villa, the corners of a rectangle.",
     args: [text("values", "Values", "0, 10, 20", "separated by commas or spaces"),
            real("scale", "Scale", 1, -1000, 1000, 0.01, "")] },
+  //! THE SEQUENCE THAT EXPLAINS THE SCHEME, in the model file with the model.
+  //! Every office rebuilds this by hand in a slide deck, with screenshots that
+  //! go stale the moment the model changes. A beat is where the camera is,
+  //! what is showing, what the numbers are set to, and a sentence about why -
+  //! so the deck IS the model, and it cannot go stale.
+  { type: "Story", guid: "9a1b2c30-0047-4c00-9e00-caf000000047", category: "data",
+    produces: "text",
+    summary: "A sequence that explains the scheme: beats, each one a camera to fly to, "
+           + "a few numbers to arrive at, what to show and hide, and a sentence or two "
+           + "about why. Press Present and it plays full screen with the narrative "
+           + "underneath. Nothing in it is a screenshot, so it is as live as the model.",
+    args: [code("beats", "Beats",
+                "[\n  { \"name\": \"The site\", \"text\": \"Nine hundred metres of "
+                + "frontage, and one way in.\",\n    \"camera\": \"CAM1\", \"seconds\": 3, "
+                + "\"hold\": 5 }\n]"),
+           real("speed", "Speed", 1, 0.1, 6, 0.1, "\u00d7"),
+           choice("captions", "Narrative", ["Show it", "Hide it"], 0)] },
   { type: "Panel", guid: "9a1b2c30-0045-4c00-9e00-caf000000045", category: "data",
     produces: "text",
     summary: "Shows what is wired into it, as text, in the node and in the definition "

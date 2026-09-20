@@ -27,6 +27,8 @@ import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
          onPlane, rulerAt, vUnit } from "./handle.js";
 import { ACTION_SAFE, FRAMES, TITLE_SAFE, dolly, frameAt, frameOf, fromView, letterbox,
          orbitAbout, safeAt, saysShot, truck } from "./camera.js";
+import { EASES, beatFromHere, easeAt, momentAt, moveBeat, readStory, saysStory, startOf,
+         stateAt, timeline, valuesBetween, writeStory } from "./story.js";
 import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
          refit, saysWhere, sectionEdges, styleNamed, travelOf } from "./cutter.js";
 import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
@@ -3045,6 +3047,7 @@ const through = {
   was: null,         // the view to hand back when you step out
   eye: null,
   target: null,
+  shot: null,        // while a story is flying: the lens and frame it is at
   dirty: false,
   saving: false,
 };
@@ -3061,6 +3064,10 @@ function cameraFree(entry) {
 
 function cameraNumbers(entry) {
   const v = (entry && entry.values) || {};
+  // A STORY FLYING BETWEEN TWO CAMERAS is not at either of them: it is at a
+  // lens and a frame partway between, and the letterbox has to follow. So the
+  // player may say what the shot is, and when it does not the node does.
+  if (through.shot) return through.shot;
   const stand = shapeCentre(entry && entry.refs && entry.refs.at)
     || [Number(v.x) || 0, Number(v.y) || 0, Number(v.z) || 0];
   const look = shapeCentre(entry && entry.refs && entry.refs.look)
@@ -3086,6 +3093,7 @@ function lookThrough(id) {
   if (!through.id) through.was = { target: view.target.clone(), distance: view.distance,
                                    yaw: view.yaw, pitch: view.pitch, fov: camera.fov };
   through.id = id;
+  through.shot = null;
   const now = cameraNumbers(entry);
   through.eye = now.eye.slice();
   through.target = now.target.slice();
@@ -3102,6 +3110,7 @@ function leaveThrough(save = true) {
   if (!through.id) return;
   if (save && through.dirty) saveThrough();
   through.id = null;
+  through.shot = null;
   camera.clearViewOffset();
   const wide = renderer.domElement.clientWidth || 1;
   camera.aspect = wide / (renderer.domElement.clientHeight || 1);
@@ -3238,6 +3247,11 @@ function refreshSafe() {
       + ((box.height - h) / 2) + "px;width:" + w + "px;height:" + h + 'px"></div>';
   };
   safeLayer.hidden = false;
+  // The narrative sits in the picture's own lower third, the way a subtitle
+  // does - not over the black bar under it, where half of it would be cut off
+  // by a projector that does not know the bar is there.
+  captionLayer.style.bottom = story.presenting
+    ? Math.max(8, innerHeight - (box.y + box.height) + 10) + "px" : "";
   safeLayer.innerHTML =
       '<div class="safe-mask" style="height:' + box.y + 'px;top:0"></div>'
     + '<div class="safe-mask" style="top:' + (box.y + box.height) + "px;bottom:0" + '"></div>'
@@ -3334,6 +3348,409 @@ cameraBar.addEventListener("input", event => {
   const slide = event.target.closest("[data-cam-lens]");
   if (!entry || !slide) return;
   edit({ op: "set", id: entry.id, key: "lens", value: Number(slide.value) });
+});
+
+/* ======================================================================
+   THE STORY.
+
+   A scheme is not communicated by a model. It is communicated by a SEQUENCE -
+   here is the site, here is the move, here is what that move buys you - and
+   the model is only the thing the sequence is about. Every office rebuilds
+   that sequence by hand in a slide deck, with screenshots that go stale the
+   moment the model changes. This one lives in the model file and cannot.
+
+   TWO KINDS OF CHANGE, and the difference is the whole of how it plays. A
+   camera move is free - nothing is remade, the view is simply somewhere else
+   next frame - so it is tweened every frame and it is smooth. A NUMBER is not
+   free: setting one rebuilds the feature and everything downstream of it. So
+   the clock keeps running and the value is whatever the clock says when the
+   last rebuild landed. A massing that grows in eleven steps instead of a
+   hundred and eighty still reads as a massing that grows, and nothing stalls
+   waiting for a frame rate the kernel cannot hit.
+   ====================================================================== */
+
+const story = {
+  id: null,            // the Story node being played
+  beats: [],
+  at: 0,
+  clock: 0,
+  playing: false,
+  presenting: false,
+  frame: 0,
+  last: 0,
+  busy: false,         // a rebuild is in flight; do not start another
+};
+
+const telling = () => (story.id && feature(story.id)) || null;
+const storyOn = () => !!telling();
+
+//! A code argument travels as `entry.code`, the way a Script's source does -
+//! so a story is read off the same field the editor in the panel writes.
+function storyBeats(entry) {
+  return readStory((entry && entry.code) || "[]");
+}
+
+//! Opening a story: the beats are read, the first one is arrived at, and
+//! nothing is playing yet. Pressing play is a separate decision.
+function openStory(id) {
+  const entry = feature(id);
+  if (!entry || entry.type !== "Story") { say("that is not a story"); return; }
+  story.id = id;
+  story.beats = storyBeats(entry);
+  story.playing = false;
+  story.clock = 0;
+  story.at = 0;
+  if (!story.beats.length) {
+    say(entry.name + " has no beats yet - press Add a beat with the view where you want it");
+    refreshStoryBar();
+    layout();
+    return;
+  }
+  arriveAt(0);
+  refreshStoryBar();
+  layout();
+}
+
+function closeStory(leave = true) {
+  story.playing = false;
+  story.presenting = false;
+  cancelAnimationFrame(story.frame);
+  story.frame = 0;
+  story.id = null;
+  document.body.classList.remove("presenting");
+  captionLayer.hidden = true;
+  if (leave) leaveThrough(false);
+  refreshStoryBar();
+  layout();
+  draw();
+}
+
+//! ARRIVING AT A BEAT: everything it and every beat before it asked for, in
+//! one go. Jumping into the middle of a sequence has to land in the state the
+//! sequence would have been in, not in whatever the last person left behind.
+async function arriveAt(at) {
+  const beat = story.beats[at];
+  if (!beat) return;
+  story.at = at;
+  story.clock = startOf(story.beats, at);
+  const want = stateAt(story.beats, at);
+
+  // What is showing. Done first, because a beat that turns a massing on and
+  // then flies to it should have it there when the flight starts.
+  for (const id of want.hidden) state.hidden.add(id);
+  for (const id of want.shown) state.hidden.delete(id);
+  if (want.hidden.length || want.shown.length) { applyVisibility(); buildTree(); }
+
+  // Where it is cut.
+  if (want.section) {
+    ensureCuts();
+    for (const axis of SECTION_AXES) cutter.cuts[axis.key].on = axis.key === want.section.axis;
+    cutter.cuts[want.section.axis].offset = want.section.at;
+    cutter.cuts[want.section.axis].flipped = !!want.section.flipped;
+    cutter.style = want.section.style;
+    cutter.on = true;
+    refreshSection();
+  } else if (cutter.on) { cutter.on = false; refreshSection(); }
+
+  // Where the camera is.
+  flyTo(want.camera, want.camera, 1);
+  // And the numbers, all the way to where they should be.
+  await pushValues(want.values);
+  showCaption();
+  refreshStoryBar();
+}
+
+//! The shot at a moment: the beat before's camera, this beat's camera, and how
+//! far between them. A beat with no camera of its own keeps the last one,
+//! which is how a sequence sits still while a massing grows.
+function flyTo(fromId, toId, t) {
+  const to = feature(toId), was = feature(fromId) || to;
+  if (!to || to.type !== "Camera") return;
+  through.shot = null;
+  const a = cameraNumbers(was && was.type === "Camera" ? was : to);
+  const b = cameraNumbers(to);
+  const mix = (p, q) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t,
+                         p[2] + (q[2] - p[2]) * t];
+  // The lens is mixed in the log, because 24 to 200 through the middle is 70
+  // and not 112 - a lens is a ratio, and the halfway point of a ratio is its
+  // geometric mean.
+  const lens = Math.exp(Math.log(Math.max(1, a.lens)) * (1 - t)
+                      + Math.log(Math.max(1, b.lens)) * t);
+  through.id = toId;
+  through.shot = { eye: mix(a.eye, b.eye), target: mix(a.target, b.target), lens,
+                   roll: a.roll + (b.roll - a.roll) * t,
+                   frame: t < 0.5 ? a.frame : b.frame,
+                   safe: story.presenting ? safeAt(0) : b.safe };
+  through.eye = through.shot.eye;
+  through.target = through.shot.target;
+  through.dirty = false;
+  if (!through.was) through.was = { target: view.target.clone(), distance: view.distance,
+                                    yaw: view.yaw, pitch: view.pitch, fov: camera.fov };
+  placeThrough();
+  refreshSafe();
+}
+
+//! Numbers, pushed at the model. One batch, and never a second while the first
+//! is still in flight - the clock will have moved on by the time it lands and
+//! the next batch will be the one the clock asks for then.
+async function pushValues(values) {
+  const edits = [];
+  for (const [key, value] of Object.entries(values || {})) {
+    const [id, name] = key.split(".");
+    const entry = feature(id);
+    if (!entry || !Number.isFinite(value)) continue;
+    const now = (entry.values || {})[name];
+    if (Number.isFinite(now) && Math.abs(now - value) < 1e-4) continue;
+    edits.push({ op: "set", id, key: name, value: Math.round(value * 1000) / 1000 });
+  }
+  if (!edits.length) return;
+  story.busy = true;
+  try { await mdl.runAll(edits); } catch (error) { /* a beat naming a gone feature */ }
+  finally { story.busy = false; }
+}
+
+/* ------------------------------------------------------------- the clock */
+
+function playStory(on) {
+  if (!storyOn() || !story.beats.length) return;
+  story.playing = on === undefined ? !story.playing : !!on;
+  if (story.playing) {
+    if (story.clock >= timeline(story.beats).seconds - 1e-6) story.clock = 0;
+    story.last = performance.now();
+    tickStory();
+  } else {
+    cancelAnimationFrame(story.frame);
+    story.frame = 0;
+  }
+  refreshStoryBar();
+}
+
+function tickStory() {
+  story.frame = requestAnimationFrame(tickStory);
+  if (!story.playing || !storyOn()) return;
+  const now = performance.now();
+  const entry = telling();
+  const speed = Math.max(0.05, Number((entry.values || {}).speed) || 1);
+  story.clock += (now - story.last) / 1000 * speed;
+  story.last = now;
+
+  const line = timeline(story.beats);
+  if (story.clock >= line.seconds) {
+    story.clock = line.seconds;
+    story.playing = false;
+    cancelAnimationFrame(story.frame);
+    story.frame = 0;
+    refreshStoryBar();
+    return;
+  }
+  const moment = momentAt(story.beats, story.clock);
+  if (!moment) return;
+  const arrived = moment.at !== story.at;
+  story.at = moment.at;
+
+  // Everything the beat switches on or off happens as its flight begins.
+  if (arrived) {
+    const want = stateAt(story.beats, moment.at);
+    for (const id of want.hidden) state.hidden.add(id);
+    for (const id of want.shown) state.hidden.delete(id);
+    if (want.hidden.length || want.shown.length) applyVisibility();
+    if (want.section) {
+      ensureCuts();
+      for (const axis of SECTION_AXES) cutter.cuts[axis.key].on = axis.key === want.section.axis;
+      cutter.cuts[want.section.axis].offset = want.section.at;
+      cutter.style = want.section.style;
+      cutter.on = true;
+      refreshSection();
+    } else if (cutter.on) { cutter.on = false; refreshSection(); }
+    showCaption();
+  }
+
+  // The camera, every frame, because it is free.
+  const before = stateAt(story.beats, moment.at - 1).camera;
+  const here = stateAt(story.beats, moment.at).camera;
+  if (here) flyTo(before || here, here, moment.flying ? moment.t : 1);
+
+  // And the numbers, whenever the last push has landed.
+  if (!story.busy) {
+    const live = {};
+    for (const key of Object.keys(story.beats[moment.at].set || {})) {
+      const [id, name] = key.split(".");
+      const found = feature(id);
+      if (found) live[key] = (found.values || {})[name];
+    }
+    const want = valuesBetween(story.beats, moment.at, moment.flying ? moment.t : 1, live);
+    if (Object.keys(want).length) pushValues(want);
+  }
+  refreshStoryClock();
+  draw();
+}
+
+const stepStory = by => {
+  if (!storyOn() || !story.beats.length) return;
+  story.playing = false;
+  cancelAnimationFrame(story.frame);
+  story.frame = 0;
+  arriveAt(Math.max(0, Math.min(story.beats.length - 1, story.at + by)));
+};
+
+/* ----------------------------------------------------- presenting it
+
+   FULL SCREEN, with the narrative underneath and nothing else. A presentation
+   is a thing you hand to a room; a toolbar in the corner of it is a toolbar
+   the room is reading instead of the drawing.                              */
+
+const captionLayer = document.createElement("div");
+captionLayer.className = "caption-layer";
+captionLayer.id = "caption-layer";
+captionLayer.hidden = true;
+document.body.appendChild(captionLayer);
+
+function showCaption() {
+  const entry = telling();
+  const beat = story.beats[story.at];
+  if (!entry || !beat || (entry.values || {}).captions === 1) {
+    captionLayer.hidden = true;
+    return;
+  }
+  const line = timeline(story.beats);
+  captionLayer.hidden = false;
+  captionLayer.innerHTML =
+      '<div class="caption-bar"><span style="width:' + (line.seconds
+        ? (story.clock / line.seconds * 100).toFixed(2) : 0) + '%"></span></div>'
+    + '<div class="caption-body">'
+    + '<h3>' + escapeHtml(beat.name) + "</h3>"
+    + (beat.text ? "<p>" + escapeHtml(beat.text) + "</p>" : "")
+    + '<div class="caption-dots">'
+    + story.beats.map((one, i) => '<button data-beat="' + i + '" aria-pressed="'
+        + (i === story.at ? "true" : "false") + '" title="' + escapeAttr(one.name)
+        + '"></button>').join("")
+    + "</div></div>";
+}
+
+function refreshStoryClock() {
+  const bar = captionLayer.querySelector(".caption-bar span");
+  const line = timeline(story.beats);
+  if (bar && line.seconds)
+    bar.style.width = (story.clock / line.seconds * 100).toFixed(2) + "%";
+  const clock = storyBar.querySelector("[data-story-clock]");
+  if (clock) clock.textContent = story.clock.toFixed(1) + " / " + line.seconds.toFixed(1) + " s";
+}
+
+captionLayer.addEventListener("click", event => {
+  const dot = event.target.closest("[data-beat]");
+  if (dot) arriveAt(Number(dot.dataset.beat));
+});
+
+function presentStory(on) {
+  if (!storyOn()) return;
+  story.presenting = on === undefined ? !story.presenting : !!on;
+  document.body.classList.toggle("presenting", story.presenting);
+  setBare(story.presenting);
+  if (story.presenting) { arriveAt(story.at); playStory(true); }
+  else { story.playing = false; cancelAnimationFrame(story.frame); story.frame = 0; }
+  refreshSafe();
+  refreshStoryBar();
+  layout();
+}
+
+/* ---------------------------------------------------------- writing one */
+
+//! A BEAT FROM WHERE YOU ARE. The camera you are looking through, or a new one
+//! standing exactly where the view is - because "add a beat here" has to work
+//! the first time, before anybody has made a camera at all.
+async function addBeatHere() {
+  const entry = telling();
+  if (!entry) return;
+  let shot = through.id;
+  if (!shot) {
+    const eye = camera.position, aim = view.target;
+    const lens = Math.max(6, Math.round(lensFromFov(camera.fov || 38)));
+    const born = await edit({ op: "add", type: "Camera",
+                              name: "Shot " + (story.beats.length + 1) });
+    shot = born && born.id;
+    if (!shot) return;
+    const numbers = fromView([eye.x, eye.y, eye.z], [aim.x, aim.y, aim.z]);
+    await mdl.runAll([...Object.entries(numbers).map(([key, value]) =>
+      ({ op: "set", id: shot, key, value })),
+      { op: "set", id: shot, key: "lens", value: lens }]);
+  }
+  const beats = [...story.beats,
+    beatFromHere("Beat " + (story.beats.length + 1), shot, "")];
+  await edit({ op: "code", id: entry.id, key: "beats", text: writeStory(beats) });
+  story.beats = beats;
+  arriveAt(beats.length - 1);
+}
+
+async function writeBeats(beats) {
+  const entry = telling();
+  if (!entry) return;
+  story.beats = beats;
+  await edit({ op: "code", id: entry.id, key: "beats", text: writeStory(beats) });
+  refreshStoryBar();
+}
+
+/* ------------------------------------------------------------- its own bar */
+
+const storyBar = document.createElement("section");
+storyBar.className = "float fades mx-bar st-bar";
+storyBar.id = "story-bar";
+storyBar.hidden = true;
+document.body.appendChild(storyBar);
+
+function refreshStoryBar() {
+  const entry = telling();
+  const on = !!entry && !story.presenting;
+  if (storyBar.hidden !== !on) { storyBar.hidden = !on; layout(); }
+  if (!on) return;
+  const line = timeline(story.beats);
+  storyBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">STORY</span>'
+    + '<span class="mx-count">' + escapeHtml(entry.name) + "</span>"
+    + '<button data-story-step="-1" title="The beat before">\u2039</button>'
+    + '<button data-story-play aria-pressed="' + (story.playing ? "true" : "false") + '">'
+      + (story.playing ? "Pause" : "Play") + "</button>"
+    + '<button data-story-step="1" title="The next beat">\u203a</button>'
+    + '<span class="mx-num" data-story-clock>' + story.clock.toFixed(1) + " / "
+      + line.seconds.toFixed(1) + " s</span>"
+    + '<button data-story-present>Present</button>'
+    + '<button data-story-close>Done</button>'
+    + "</div>"
+    + '<div class="mx-row mx-wrap st-beats">'
+    + (story.beats.length
+        ? story.beats.map((one, i) => '<button data-beat-go="' + i + '" aria-pressed="'
+            + (i === story.at ? "true" : "false") + '">' + (i + 1) + ". "
+            + escapeHtml(one.name) + "</button>").join("")
+        : '<span class="mx-hint">no beats yet</span>')
+    + '<button data-beat-add>+ Beat from this view</button>'
+    + (story.beats.length ? '<button data-beat-up>\u2191</button>'
+        + '<button data-beat-down>\u2193</button>'
+        + '<button data-beat-drop>Remove</button>' : "")
+    + "</div>";
+}
+
+storyBar.addEventListener("click", async event => {
+  const step = event.target.closest("[data-story-step]");
+  if (step) { stepStory(Number(step.dataset.storyStep)); return; }
+  if (event.target.closest("[data-story-play]")) { playStory(); return; }
+  if (event.target.closest("[data-story-present]")) { presentStory(true); return; }
+  if (event.target.closest("[data-story-close]")) { closeStory(true); return; }
+  const go = event.target.closest("[data-beat-go]");
+  if (go) { arriveAt(Number(go.dataset.beatGo)); return; }
+  if (event.target.closest("[data-beat-add]")) { addBeatHere(); return; }
+  if (event.target.closest("[data-beat-up]")) {
+    await writeBeats(moveBeat(story.beats, story.at, -1));
+    story.at = Math.max(0, story.at - 1); arriveAt(story.at); return;
+  }
+  if (event.target.closest("[data-beat-down]")) {
+    await writeBeats(moveBeat(story.beats, story.at, 1));
+    story.at = Math.min(story.beats.length - 1, story.at + 1); arriveAt(story.at); return;
+  }
+  if (event.target.closest("[data-beat-drop]")) {
+    const beats = story.beats.filter((one, i) => i !== story.at);
+    await writeBeats(beats);
+    if (beats.length) arriveAt(Math.min(story.at, beats.length - 1));
+    else { story.at = 0; refreshStoryBar(); }
+  }
 });
 
 /* ======================================================================
@@ -4130,6 +4547,9 @@ const ICONS = {
         + '<circle cx="4.6" cy="9.6" r="1.15" fill="currentColor"/><circle cx="10" cy="9.6" r="1.15" fill="currentColor"/>',
   Plane: '<path d="M1.5 10.5L6 4.5h8.5L10 10.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
   // Three arms from a corner: an axis system is drawn the way it is drawn.
+  Story: '<rect x="1.6" y="3" width="8.2" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
+       + '<path d="M3.4 5.6h4.6M3.4 8h4.6M3.4 10.4h3" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity=".8"/>'
+       + '<path d="M11.4 6.6l3 1.4-3 1.4z" fill="currentColor"/>',
   Camera: '<path d="M1.8 5.4h7.4v5.2H1.8z" fill="none" stroke="currentColor" stroke-width="1.25"/>'
         + '<path d="M9.2 7.6l4.9-2.2v5.4l-4.9-2.2z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>'
         + '<circle cx="4.1" cy="3.6" r="1.5" fill="none" stroke="currentColor" stroke-width="1.1"/>'
@@ -4994,7 +5414,9 @@ function placeField(entry) {
     // A camera has a mode of its own too: standing behind it. Offered where
     // you are when you are looking at one, which is here.
     + (entry.type === "Camera" ? '<button class="btn place-edit" id="place-look">'
-        + (through.id === entry.id ? "Step out of it" : "Look through it") + "</button>" : "");
+        + (through.id === entry.id ? "Step out of it" : "Look through it") + "</button>" : "")
+    + (entry.type === "Story" ? '<button class="btn place-edit" id="place-tell">'
+        + (story.id === entry.id ? "Close the story" : "Open the story") + "</button>" : "");
 
   field.querySelector("#place-eye").addEventListener("click", () =>
     showFeature(entry.id, state.hidden.has(entry.id)));
@@ -5005,6 +5427,9 @@ function placeField(entry) {
   const look = field.querySelector("#place-look");
   if (look) look.addEventListener("click", () =>
     through.id === entry.id ? leaveThrough(true) : lookThrough(entry.id));
+  const tell = field.querySelector("#place-tell");
+  if (tell) tell.addEventListener("click", () =>
+    story.id === entry.id ? closeStory(true) : openStory(entry.id));
   return field;
 }
 
@@ -8100,7 +8525,7 @@ function measureLayout() {
   // bar of its own up is covered without this knowing about it.
   let barTall = 0;
   for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-      + "#gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar")) {
+      + "#gizmo-bar, #section-bar, #camera-bar, #story-bar, .fl-bar, .an-bar, .sp-bar")) {
     if (!onScreen(bar)) continue;
     barTall = Math.max(barTall, bar.getBoundingClientRect().height / ui);
   }
@@ -8133,8 +8558,8 @@ function measureLayout() {
   if (laidOut(status)) {
     const mine = status.getBoundingClientRect();
     for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-        + "#gizmo-bar, #section-bar, #camera-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, "
-        + "#log-pop, #packages")) {
+        + "#gizmo-bar, #section-bar, #camera-bar, #story-bar, .fl-bar, .an-bar, .sp-bar, "
+        + "#ai-bar, #log-pop, #packages")) {
       if (!onScreen(bar)) continue;
       const box = bar.getBoundingClientRect();
       if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
@@ -8261,6 +8686,19 @@ addEventListener("keydown", event => {
   if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
   if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
   if (event.key === "Escape" && cutter.on) { toggleSection(false); return; }
+  if (storyOn()) {
+    if (event.key === "Escape") {
+      if (story.presenting) { presentStory(false); return; }
+      closeStory(true);
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "PageDown") {
+      event.preventDefault(); stepStory(1); return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "PageUp") {
+      event.preventDefault(); stepStory(-1); return;
+    }
+  }
   if (event.key === "Escape" && lookingThrough()) { leaveThrough(true); return; }
 
   if (event.key === "f" || event.key === "F") { if (sketching()) lookAtSketch(); else fitView(); }
@@ -8637,13 +9075,18 @@ function setBare(on) {
   bare = !!on;
   document.body.classList.toggle("bare", bare);
   const hint = document.getElementById("bare-hint");
-  hint.hidden = false;
-  hint.innerHTML = bare
-    ? "<b>Space</b> for the menu · <b>Tab</b> for the panels"
-    : "<b>Tab</b> for full screen";
-  hint.classList.add("on");
-  clearTimeout(setBare.fading);
-  setBare.fading = setTimeout(() => hint.classList.remove("on"), 2600);
+  // A presentation is a thing you hand to a room, and a keyboard hint over the
+  // narrative is a hint the room reads instead of the drawing.
+  const quiet = !!(story && story.presenting);
+  hint.hidden = quiet;
+  if (!quiet) {
+    hint.innerHTML = bare
+      ? "<b>Space</b> for the menu · <b>Tab</b> for the panels"
+      : "<b>Tab</b> for full screen";
+    hint.classList.add("on");
+    clearTimeout(setBare.fading);
+    setBare.fading = setTimeout(() => hint.classList.remove("on"), 2600);
+  }
   remember("ocafcad/bare", bare ? "on" : "off");
   layout();
 }
@@ -8846,6 +9289,9 @@ addEventListener("keydown", event => {
     event.stopPropagation();
     // Held down: the menu is already up and the hand is mid-flick.
     if (event.repeat) return;
+    // WHILE A STORY IS OPEN the space bar is play and pause, which is what it
+    // is in front of a room and what a hand reaches for without looking.
+    if (storyOn()) { playStory(); return; }
     if (pie.isOpen()) pie.close(); else openPie();
     return;
   }

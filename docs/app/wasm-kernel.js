@@ -32,6 +32,7 @@ import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPo
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
          solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
 import { cornersOf, frameAt, frameOf, saysShot } from "./camera.js";
+import { readStory, saysStory } from "./story.js";
 import { fovFromLens } from "./gizmo.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
@@ -1317,6 +1318,22 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     formulaCache.set(source, wrapped);
     return wrapped;
   }
+
+  //! A story computes nothing and builds nothing: it is a sequence, and what
+  //! it does it does to the VIEW. What it publishes is a line about itself, so
+  //! the tree says how long it runs without anybody opening it.
+  builders.Story = {
+    precondition: () => null,
+    build: f => {
+      const beats = readStory(F.text(f, "beats", "[]"));
+      const missing = beats.filter(b => b.camera && !doc.find(b.camera));
+      return { data: text([saysStory(beats)]),
+               note: missing.length
+                 ? missing.length + (missing.length === 1 ? " beat names a camera"
+                     : " beats name cameras") + " that is not in this document"
+                 : undefined };
+    },
+  };
 
   builders.Panel = {
     precondition: f => F.reference(f, "input") ? null : "nothing is wired into this panel",
