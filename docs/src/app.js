@@ -481,11 +481,13 @@ function measureScene() {
     lastX = event.clientX; lastY = event.clientY; moved += Math.abs(dx) + Math.abs(dy);
     // A left drag with no Alt is not a camera move; it is a drag that missed a
     // handle, and it is still a click as far as picking is concerned.
-    // LOOKING THROUGH A CAMERA, the drag moves the CAMERA and not the model:
-    // orbit about what it is pointed at, shift to slide it sideways and up.
-    // Asked BEFORE the navigation setting, because while you are behind a
-    // camera the camera IS what the hand is for.
-    if (lookingThrough()) {
+    // LOOKING THROUGH A CAMERA, the drag moves the CAMERA and not the model.
+    // The same three gestures as the viewport, on the same keys - Alt and the
+    // left button tumbles it, the middle tracks it, the right dollies it -
+    // because a camera IS a viewport and a second set of rules for it is a
+    // second set of rules to remember. Without Alt the button is free, so
+    // clicking a thing in the model or in the tree still picks it.
+    if (lookingThrough() && navigating) {
       if (mode === "dolly") {
         // The camera walks in, which is what a dolly is. Said as a distance
         // because that is what the rig takes, worked out from the same
@@ -539,7 +541,8 @@ function measureScene() {
     }
     if (mode === "transform") { dropGizmoWidget(); mode = null; return; }
     if (mode === "cutting") { dropSection(); mode = null; return; }
-    if (lookingThrough() && through.dirty && (mode === "orbit" || mode === "pan")) {
+    if (lookingThrough() && through.dirty
+        && (mode === "orbit" || mode === "pan" || mode === "dolly")) {
       saveThrough(); mode = null; return;
     }
     if (mode === "gizmo") dropGizmo();
@@ -615,6 +618,11 @@ function measureScene() {
     // reaching for and the one a zoom cannot make.
     if (lookingThrough()) {
       rigCamera("dolly", -Math.sign(event.deltaY) * Math.max(view.distance, 1) * 0.1);
+      // A WHEEL HAS NO BUTTON TO LET GO OF, so there is no moment that is
+      // plainly the end of the gesture. Written back a breath after the last
+      // notch instead: one step in the undo stack for one roll of the wheel,
+      // rather than one per notch.
+      settleThrough();
       return;
     }
     // Measured against how big the scene is. Fixed stops at 20 and 8000 mm meant
@@ -924,6 +932,7 @@ async function syncShapes() {
       through.target = now.target.slice();
     }
     followCamera();
+    refreshLens();
   }
   // NOW the modes can be told, with the new triangles in hand. Every mode, not
   // just the open one: a mode left holding a measurement of a shape that has
@@ -3101,6 +3110,26 @@ function cameraFree(entry) {
   return { eye: !refs.at, target: !refs.look };
 }
 
+//! WHAT THE HAND CAN DO IN HERE, said the same way in the bar and in the
+//! status line - a camera that is wired to a pair of typed points is driven
+//! exactly like a free one, because what moves is the points; one wired to
+//! points that are worked out cannot be driven at all, and should say so
+//! before the hand tries rather than after.
+function throughWrites(entry) {
+  const free = cameraFree(entry);
+  const refs = (entry && entry.refs) || {};
+  return (free.eye || movePoint(refs.at, [0, 0, 0]).length > 0)
+      || (free.target || movePoint(refs.look, [0, 0, 0]).length > 0);
+}
+
+function saysRig(entry, wheel = true) {
+  if (!throughWrites(entry))
+    return entry.name + " follows points that are worked out rather than typed";
+  return (altToOrbit ? "Alt: left tumbles, middle tracks, right dollies"
+                     : "drag to orbit \u00b7 middle tracks \u00b7 right dollies")
+       + (wheel ? " \u00b7 wheel to dolly" : "");
+}
+
 function cameraNumbers(entry) {
   const v = (entry && entry.values) || {};
   // A STORY FLYING BETWEEN TWO CAMERAS is not at either of them: it is at a
@@ -3113,6 +3142,22 @@ function cameraNumbers(entry) {
     || [Number(v.tx) || 0, Number(v.ty) || 0, Number(v.tz) || 0];
   return { eye: stand, target: look, lens: Number(v.lens) || 35,
            roll: Number(v.roll) || 0, frame: frameAt(v.frame), safe: safeAt(v.safe) };
+}
+
+//! MOVING THE POINT ITSELF, when the camera is wired to one. A camera whose
+//! eye is a Point in the tree should still be draggable - what moves is the
+//! point, which is the right answer: everything else wired to that point moves
+//! with it, and the camera is where it says it is. Only a point that is TYPED
+//! can be written to; one worked out from a curve is the curve's to say, and
+//! shoving it would be shoving the wrong thing.
+function movePoint(id, to) {
+  const point = id && feature(id);
+  if (!point || point.type !== "Point") return [];
+  if ((point.values || {}).kind !== 0) return [];
+  const refs = point.refs || {};
+  if (refs.x || refs.y || refs.z) return [];      // driven by numbers wired in
+  return ["x", "y", "z"].map((key, i) =>
+    ({ op: "set", id, key, value: Math.round(to[i] * 100) / 100 }));
 }
 
 //! Where a wired point actually ended up, read off what it computed.
@@ -3141,8 +3186,8 @@ function lookThrough(id) {
   refreshSafe();
   refreshCameraBar();
   layout();
-  say("Looking through " + entry.name + " \u00b7 drag to orbit, shift-drag to slide, "
-      + "wheel to dolly \u00b7 Esc to step out");
+  say("Looking through " + entry.name + " \u00b7 " + saysRig(entry, false)
+      + " \u00b7 Esc to step out");
 }
 
 function leaveThrough(save = true) {
@@ -3236,11 +3281,15 @@ async function saveThrough() {
   const edits = [];
   if (free.eye) for (const key of ["x", "y", "z"])
     edits.push({ op: "set", id: entry.id, key, value: numbers[key] });
+  else edits.push(...movePoint((entry.refs || {}).at,
+                               [numbers.x, numbers.y, numbers.z]));
   if (free.target) for (const key of ["tx", "ty", "tz"])
     edits.push({ op: "set", id: entry.id, key, value: numbers[key] });
+  else edits.push(...movePoint((entry.refs || {}).look,
+                               [numbers.tx, numbers.ty, numbers.tz]));
   if (!edits.length) {
-    say(entry.name + " is wired to points, so its position is theirs to say - "
-        + "disconnect them to move it by hand");
+    say(entry.name + " follows points that are worked out rather than typed - "
+        + "the view moved, but there is nothing to write it into");
     return;
   }
   through.dirty = false;
@@ -3248,6 +3297,14 @@ async function saveThrough() {
   try { await mdl.runAll(edits); } catch (error) { showError(error.message); }
   finally { through.saving = false; }
   refreshCameraBar();
+}
+
+//! The same, a moment after a gesture that has no end: the wheel. Held off
+//! until the rolling stops so a dozen notches are one number and one undo.
+let settling = 0;
+function settleThrough() {
+  clearTimeout(settling);
+  settling = setTimeout(() => { if (lookingThrough() && through.dirty) saveThrough(); }, 420);
 }
 
 /* ------------------------------------------------------------ safe frames
@@ -3350,9 +3407,7 @@ function refreshCameraBar() {
         + (now.safe.key === ["off", "safe", "thirds", "both"][i] ? "true" : "false")
         + '">' + label + "</button>").join("")
     + "</span>"
-    + '<span class="mx-hint">' + (free.eye || free.target
-        ? "drag to orbit \u00b7 shift-drag to slide \u00b7 wheel to dolly"
-        : escapeHtml(entry.name) + " follows the points it is wired to")
+    + '<span class="mx-hint">' + escapeHtml(saysRig(entry))
       + (through.dirty ? " \u00b7 <b>moved</b>" : "") + "</span>"
     + (through.dirty ? '<button data-cam-save>Keep it</button>'
                      : '<button data-cam-save disabled>Keep it</button>')
@@ -4443,6 +4498,17 @@ function rollLens(way) {
 
 function setLens(mm) {
   const want = Math.max(6, Math.min(600, mm));
+  // BEHIND A CAMERA, THE LENS IS THE CAMERA'S. Changing the window's field of
+  // view while looking through a 35 mm camera would be looking through a lens
+  // the camera does not have - and the moment anything rebuilt, the node would
+  // put it back. So it is written where it belongs.
+  const behind = lookingThrough();
+  if (behind && !through.shot) {
+    edit({ op: "set", id: behind.id, key: "lens", value: Math.round(want * 10) / 10 })
+      .catch(error => showError(error.message));
+    refreshLens();
+    return;
+  }
   const fov = fovFromLens(want);
   if (lensKeepsFraming) {
     const span = Math.max(view.span, 1);
@@ -4458,14 +4524,22 @@ function setLens(mm) {
 
 function refreshLens() {
   if (lensPanel.hidden) return;
-  const mm = lensFromFov(camera.fov);
-  const rect = freeRect ? null : null;
-  const aspect = camera.aspect || 1;
-  const covers = coversAt(view.distance, camera.fov, aspect);
+  // The number a camera is actually on, rather than the one the window's
+  // projection has been opened up to so the shot lands in the free rectangle.
+  const behind = lookingThrough();
+  const shot = behind ? cameraNumbers(behind) : null;
+  const mm = shot ? shot.lens : lensFromFov(camera.fov);
+  // ACROSS WHAT? Behind a camera the picture is the camera's own frame, not
+  // the window - so the width at the target is measured on the frame's ratio,
+  // which is the number that says whether the courtyard fits in the shot.
+  const aspect = shot ? shot.frame.ratio : (camera.aspect || 1);
+  const covers = coversAt(view.distance, behind ? fovFromLens(mm) : camera.fov, aspect);
   const trim = v => v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
   lensPanel.innerHTML = '<div class="lens-head"><span class="lens-mm">' + trim(mm)
     + '<i>mm</i></span>'
-    + '<span class="lens-fov">' + trim(camera.fov) + "\u00b0 vertical</span></div>"
+    + '<span class="lens-fov">' + trim(behind ? fovFromLens(mm) : camera.fov)
+      + "\u00b0 vertical" + (behind ? " \u00b7 " + escapeHtml(behind.name) : "")
+      + "</span></div>"
     + '<input class="lens-slide" id="lens-slide" type="range" min="6" max="300" step="0.5" value="'
     + Math.min(300, mm) + '" aria-label="Focal length">'
     + '<div class="lens-row">'
@@ -4697,6 +4771,74 @@ function fitView() {
   view.target.addScaledVector(right, -framing.shift[0])
              .addScaledVector(up, framing.shift[1]);
   placeCamera(); draw();
+}
+
+//! FIT, BUT ON ONE THING. A masterplan fitted whole is a masterplan you can
+//! see nothing in; what you wanted was the one tower you had your finger on.
+//! The same framing as fit, so the two feel like the same gesture - and it
+//! keeps the angle you were already looking from, because turning the model
+//! round as well would be two answers to one question.
+function centreOn(id) {
+  const held = shapes.get(id);
+  const entry = feature(id);
+  let box = held && held.group ? new THREE.Box3().setFromObject(held.group) : null;
+  if ((!box || box.isEmpty()) && entry) {
+    const at = shapeCentre(id);
+    if (at) box = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(at[0], at[1], at[2]),
+      new THREE.Vector3(1, 1, 1).multiplyScalar(Math.max(1, view.span * 0.05)));
+  }
+  if (!box || box.isEmpty()) {
+    say((entry ? entry.name : "that") + " has nothing on screen to centre on");
+    return;
+  }
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const framing = frameFor(Math.max(sphere.radius, 1), freeRect());
+  view.target.copy(sphere.center);
+  view.distance = framing.distance;
+  placeCamera();
+  const out = new THREE.Vector3().subVectors(camera.position, view.target).normalize();
+  const right = new THREE.Vector3().crossVectors(camera.up, out);
+  if (right.lengthSq() < 1e-8) right.set(-Math.sin(view.yaw), Math.cos(view.yaw), 0);
+  right.normalize();
+  const up = new THREE.Vector3().crossVectors(out, right).normalize();
+  view.target.addScaledVector(right, -framing.shift[0]).addScaledVector(up, framing.shift[1]);
+  placeCamera();
+  // LOOKING THROUGH A CAMERA, centring is the CAMERA moving - it is what a
+  // camera operator does, and leaving the viewport somewhere the camera is not
+  // would be two views of one thing.
+  if (lookingThrough()) {
+    through.target = [view.target.x, view.target.y, view.target.z];
+    through.eye = [camera.position.x, camera.position.y, camera.position.z];
+    through.dirty = true;
+    placeThrough();
+    refreshSafe();
+    saveThrough();
+  }
+  draw();
+  if (entry) say("centred on " + entry.name);
+}
+
+//! A CAMERA FROM WHERE YOU ARE STANDING. The view you have just composed by
+//! hand, made into a thing the document holds - which is the whole point of a
+//! camera being a node, and it should take one press rather than six numbers.
+async function cameraFromView(name) {
+  const eye = camera.position, aim = view.target;
+  const lens = Math.max(6, Math.round(lensFromFov(camera.fov || 38)));
+  const born = await edit({ op: "add", type: "Camera", name: name || undefined });
+  const id = born && born.id;
+  if (!id) return null;
+  const numbers = fromView([eye.x, eye.y, eye.z], [aim.x, aim.y, aim.z]);
+  await mdl.runAll([...Object.entries(numbers).map(([key, value]) =>
+    ({ op: "set", id, key, value })),
+    { op: "set", id, key: "lens", value: lens },
+    // Drawn at a size that suits the model it is standing in, rather than at
+    // six hundred millimetres in the middle of a masterplan.
+    { op: "set", id, key: "size", value: Math.max(60, Math.round(view.span * 0.35)) }]);
+  select(id, true);
+  say((feature(id) || {}).name + " is where you were standing \u00b7 "
+      + lens + " mm \u00b7 Look through it in its panel");
+  return id;
 }
 
 /* ==========================================================================
@@ -5450,6 +5592,8 @@ function openDocMenu() {
     () => toggleLens(true));
   menuItem("Section… · X", "cut the model open, and say how the cut is drawn",
     () => toggleSection(true));
+  menuItem("A camera from this view", "the shot you are looking at, as a node",
+    () => cameraFromView());
   menuRule();
 
   menuHead("Document");
@@ -5579,6 +5723,8 @@ function openMenu(event, entry) {
   item(dark.length === many.length ? "Show " + about("it") : "Hide " + about("it"),
     "in the 3D view, and in the file", () => showFeature(many, dark.length === many.length));
 
+  if (!several) item("Centre on it", "bring it into view, from where you are",
+                     () => centreOn(entry.id));
   if (!several) item("Open definition", "", () => select(entry.id, true));
   item(several ? "Delete " + many.length + " features"
        : entry.category === "container" ? "Delete set" : "Delete",
