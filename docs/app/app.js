@@ -25,6 +25,8 @@ import { describePicks, matchPick, pickOf } from "./subshape.js";
 // it is fine in the served build, which is the one nobody publishes.
 import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
          onPlane, rulerAt, vUnit } from "./handle.js";
+import { SECTION_AXES, SECTION_STYLES, acrossOf, activePlanes, cutLength, freshCuts,
+         refit, saysWhere, sectionEdges, styleNamed, travelOf } from "./cutter.js";
 import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
          angleAbout, coversAt, fovFromLens, framedAt, handlesFor, landOn, lensFromFov,
          reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
@@ -191,7 +193,8 @@ let grid = null, axes = null;
 
 function readTheme() {
   const style = getComputedStyle(document.documentElement);
-  for (const name of ["shape", "shape-edge", "curve", "accent", "datum", "grid", "grid-axis", "bad"])
+  for (const name of ["shape", "shape-edge", "curve", "accent", "datum", "grid", "grid-axis",
+                      "bad", "cut-fill", "cut-line"])
     THEME[name] = new THREE.Color(style.getPropertyValue("--" + name).trim() || "#888888");
   paintBackdrop();
 }
@@ -391,6 +394,9 @@ function measureScene() {
     // making the camera ask for Alt: the left button belongs to the thing on
     // screen, not to the orbit behind it.
     else if (event.button === 0 && !event.shiftKey && grabGizmoWidget(event)) mode = "transform";
+    // And the section's knob, which is the only thing a section plane can be
+    // taken hold of by.
+    else if (event.button === 0 && !event.shiftKey && grabSection(event)) mode = "cutting";
     // A sketch is looked at square on, and stays that way: the drag that would
     // orbit pans instead, because a drawing seen at an angle cannot be drawn on.
     // In select, a press that lands on an end takes hold of it.
@@ -434,6 +440,7 @@ function measureScene() {
     // And the handle about to be taken hold of, so a hand knows what it is
     // aiming at before it presses.
     if (gizmoOn() && !mode) hoverGizmo(event);
+    if (sectioning() && !mode) hoverSection(event);
     if (sketching()) {
       const uv = sketchAt(event);
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
@@ -442,6 +449,7 @@ function measureScene() {
     if (!mode) return;
     if (mode === "gizmo") { dragGizmo(event); return; }
     if (mode === "transform") { dragGizmoWidget(event); return; }
+    if (mode === "cutting") { dragSection(event); return; }
     if (mode === "handle") { dragSketchHandle(event); return; }
     if (mode === "move" || mode === "band" || mode === "draw") {
       moved += Math.abs(event.clientX - lastX) + Math.abs(event.clientY - lastY);
@@ -484,6 +492,7 @@ function measureScene() {
       return;
     }
     if (mode === "transform") { dropGizmoWidget(); mode = null; return; }
+    if (mode === "cutting") { dropSection(); mode = null; return; }
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
     else if (mode === "move") dropSketchMove(event);
@@ -508,6 +517,7 @@ function measureScene() {
   el.addEventListener("pointercancel", () => {
     meshEdit.axis = null;
     if (gizmo.grab) dropGizmoWidget();
+    if (cutter.grab) dropSection();
     if (sketcher.drag || sketcher.band || sketcher.move) {
       sketcher.drag = sketcher.band = sketcher.move = null;
       sketcher.preview = null;
@@ -794,6 +804,18 @@ function setShape(mesh) {
   const group = groupFromStream(mesh, feature(mesh.id));
   world.add(group);
   shapes.set(mesh.id, { revision: mesh.revision, group });
+  // A shape that has just arrived has to be cut with everything else, and the
+  // planes' travel re-measured against a model that may have grown.
+  if (cutter.on) sectionStale = true;
+}
+
+//! Rebuilding the caps walks every triangle, so it is done once after a batch
+//! of shapes has landed rather than once per shape.
+let sectionStale = false;
+function settleSection() {
+  if (!sectionStale) return;
+  sectionStale = false;
+  refreshSection();
 }
 
 function rebuildPickList() {
@@ -823,6 +845,7 @@ async function syncShapes() {
     rebuildPickList();
   }
 
+  settleSection();
   // NOW the modes can be told, with the new triangles in hand. Every mode, not
   // just the open one: a mode left holding a measurement of a shape that has
   // since changed must not show it again when it is reopened.
@@ -2963,6 +2986,404 @@ async function dropGizmoWidget() {
 }
 
 /* ======================================================================
+   THE SECTION.
+
+   Not a debugging aid - the drawing. A plan is a horizontal cut at a metre and
+   a half, a section is a vertical one through the thing you care about, and
+   whether either of them READS is entirely a question of how the cut face is
+   drawn. So there is a plane you drag and there is a style, and the style is
+   the half that matters: open, capped, poche, outline.
+
+   THE FILL IS A STENCIL. There is no such thing as "the cut face" in the
+   model - clipping a triangle leaves a hole, not a lid. What fills it is the
+   oldest trick in the book: count back faces up and front faces down into the
+   stencil buffer, and wherever the count is not nought the camera is looking
+   through solid, so a quad drawn on the plane is the inside of the building.
+   That is why a cap needs no geometry and works on anything, however it was
+   built.
+
+   THE LINE IS NOT. A fill has no edge and the edge is what makes it a drawing,
+   so the cut line is worked out exactly, from the triangles: where the plane
+   crosses each one is a segment, and the segments are the line.
+   ====================================================================== */
+
+const cutter = {
+  on: false,
+  cuts: null,               // per axis: { on, flipped, offset, travel }
+  style: "capped",
+  group: null,              // the caps, the outlines and the handles
+  planes: new Map(),        // axis key -> THREE.Plane, kept so a drag is cheap
+  grab: null,
+  hover: null,
+};
+
+const sectioning = () => cutter.on && activePlanes(cutter.cuts).length > 0;
+
+//! The model's own extents, which is what a plane's travel is measured
+//! against: a slider from -1000 to 1000 is no use on a building.
+function modelBox() {
+  const box = sceneBounds();
+  if (!box || box.isEmpty()) return null;
+  return { low: [box.min.x, box.min.y, box.min.z], high: [box.max.x, box.max.y, box.max.z],
+           span: box.getSize(new THREE.Vector3()).length() };
+}
+
+function ensureCuts() {
+  const box = modelBox();
+  const low = box ? box.low : [-500, -500, 0], high = box ? box.high : [500, 500, 1000];
+  cutter.cuts = cutter.cuts ? refit(cutter.cuts, low, high) : freshCuts(low, high);
+  return cutter.cuts;
+}
+
+//! Hatching, drawn rather than shipped: forty-five degree lines on a small
+//! canvas, repeated across the cut face. Poche is a convention about DENSITY
+//! more than about colour, so the lines are thin and close and the paper
+//! behind them does the rest.
+const HATCH_REPEAT = 130;
+let hatchTexture = null;
+function hatchFor(colour) {
+  if (hatchTexture && hatchTexture.userData.colour === colour) return hatchTexture;
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const pen = canvas.getContext("2d");
+  pen.strokeStyle = colour;
+  pen.lineWidth = 1.6;
+  pen.beginPath();
+  for (let i = -size; i < size * 2; i += 6) {
+    pen.moveTo(i, 0);
+    pen.lineTo(i + size, size);
+  }
+  pen.stroke();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.userData = { colour };
+  if (hatchTexture) hatchTexture.dispose();
+  hatchTexture = texture;
+  return texture;
+}
+
+//! The two extra copies of a shape that do the counting. Nothing of them is
+//! ever seen: they write only to the stencil buffer.
+function stencilCopies(geometry, plane, order) {
+  const group = new THREE.Group();
+  const base = new THREE.MeshBasicMaterial({
+    depthWrite: false, depthTest: false, colorWrite: false,
+    stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc });
+
+  const backs = base.clone();
+  backs.side = THREE.BackSide;
+  backs.clippingPlanes = [plane];
+  backs.stencilFail = THREE.IncrementWrapStencilOp;
+  backs.stencilZFail = THREE.IncrementWrapStencilOp;
+  backs.stencilZPass = THREE.IncrementWrapStencilOp;
+  const back = new THREE.Mesh(geometry, backs);
+  back.renderOrder = order;
+  group.add(back);
+
+  const fronts = base.clone();
+  fronts.side = THREE.FrontSide;
+  fronts.clippingPlanes = [plane];
+  fronts.stencilFail = THREE.DecrementWrapStencilOp;
+  fronts.stencilZFail = THREE.DecrementWrapStencilOp;
+  fronts.stencilZPass = THREE.DecrementWrapStencilOp;
+  const front = new THREE.Mesh(geometry, fronts);
+  front.renderOrder = order;
+  group.add(front);
+  return group;
+}
+
+//! Every clipping plane, as three.js wants them, kept between frames so a drag
+//! only has to move a constant rather than rebuild the world.
+function livePlanes() {
+  const out = [];
+  for (const cut of activePlanes(cutter.cuts)) {
+    let plane = cutter.planes.get(cut.key);
+    if (!plane) { plane = new THREE.Plane(); cutter.planes.set(cut.key, plane); }
+    plane.normal.set(cut.normal[0], cut.normal[1], cut.normal[2]);
+    plane.constant = cut.constant;
+    out.push(plane);
+  }
+  for (const key of [...cutter.planes.keys()])
+    if (!out.some(p => cutter.planes.get(key) === p)) cutter.planes.delete(key);
+  return out;
+}
+
+//! The planes handed to every material that draws the model, and to nothing
+//! else. Local clipping rather than global, so the widgets, the grid and the
+//! section's own handles are not cut in half by the cutter.
+function applyClipping(planes) {
+  renderer.localClippingEnabled = planes.length > 0;
+  for (const [, { group }] of shapes) {
+    group.traverse(object => {
+      const material = object.material;
+      if (!material) return;
+      for (const one of Array.isArray(material) ? material : [material]) {
+        one.clippingPlanes = planes.length ? planes : null;
+        one.clipShadows = true;
+        one.needsUpdate = true;
+      }
+    });
+  }
+}
+
+function clearSection() {
+  if (!cutter.group) return;
+  world.remove(cutter.group);
+  disposeGroup(cutter.group);
+  cutter.group = null;
+}
+
+//! Built whenever the cut moves, the style changes or the model does.
+function refreshSection() {
+  clearSection();
+  if (!cutter.on) { applyClipping([]); refreshSectionBar(); draw(); return; }
+  ensureCuts();
+  const planes = livePlanes();
+  applyClipping(planes);
+  if (!planes.length) { refreshSectionBar(); draw(); return; }
+
+  const style = styleNamed(cutter.style);
+  const box = modelBox();
+  const span = box ? Math.max(box.span, 1) : 1000;
+  const group = new THREE.Group();
+  group.renderOrder = 1;
+
+  const cuts = activePlanes(cutter.cuts);
+  cuts.forEach((cut, i) => {
+    const plane = planes[i];
+    const others = planes.filter(p => p !== plane);
+    const order = (i + 1) * 4;
+
+    if (style.caps) {
+      // The counting copies, one set per plane, over every solid that is
+      // showing. A curve has no inside, so it is left out.
+      for (const [id, { group: shapeGroup }] of shapes) {
+        if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
+        shapeGroup.traverse(object => {
+          if (!object.isMesh || object.userData.datum || !object.geometry) return;
+          const copies = stencilCopies(object.geometry, plane, order);
+          group.add(copies);
+        });
+      }
+      // And the lid: a quad on the plane, drawn only where the count says the
+      // camera is looking through solid.
+      const lid = new THREE.Mesh(new THREE.PlaneGeometry(span * 2.5, span * 2.5),
+        new THREE.MeshBasicMaterial({
+          color: THEME["cut-fill"],
+          map: style.hatch ? hatchFor("#" + THEME["cut-line"].getHexString()) : null,
+          side: THREE.DoubleSide, clippingPlanes: others.length ? others : null,
+          stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+          stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp,
+          stencilZPass: THREE.ReplaceStencilOp }));
+      if (style.hatch) {
+        // Fine and close, the way poche is hatched on a drawing. A plain
+        // count rather than a distance: the quad is already sized against the
+        // model, so repeating it a fixed number of times is the same density
+        // on a bracket and on a block of flats.
+        lid.material.map.repeat.set(HATCH_REPEAT, HATCH_REPEAT);
+        lid.material.map.anisotropy = Math.min(8,
+          renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
+      }
+      lid.renderOrder = order + 1;
+      lid.onAfterRender = () => renderer.clearStencil();
+      // Sat ON the plane, facing the way it faces.
+      lid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal);
+      lid.position.copy(plane.normal).multiplyScalar(-plane.constant);
+      group.add(lid);
+    }
+
+    if (style.edge) {
+      // The exact line of the cut, off the triangles rather than off the fill.
+      const flat = [];
+      for (const [id, { group: shapeGroup }] of shapes) {
+        if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
+        const stream = streams.get(id);
+        if (!stream || !stream.positions || !stream.index) continue;
+        sectionEdges(stream.positions, stream.index,
+          { normal: [plane.normal.x, plane.normal.y, plane.normal.z],
+            constant: plane.constant }, flat);
+      }
+      if (flat.length) {
+        const line = new THREE.LineSegments(
+          new THREE.BufferGeometry().setAttribute("position",
+            new THREE.Float32BufferAttribute(flat, 3)),
+          new THREE.LineBasicMaterial({ color: THEME["cut-line"],
+            clippingPlanes: others.length ? others : null,
+            transparent: true, opacity: 0.95 }));
+        line.renderOrder = order + 2;
+        // A HAIR TOWARDS THE CAMERA. The line and the cap are the same plane,
+        // and two things in the same plane fight over which is in front - so
+        // the line is lifted onto the removed side, where nothing else is.
+        line.position.copy(plane.normal).multiplyScalar(-span * 2e-4);
+        group.add(line);
+        cutter.cutLength = cutLength(flat);
+      } else cutter.cutLength = 0;
+    }
+
+    // THE HANDLE. A square outline on the plane with a knob in the middle,
+    // dragged along the normal - which is the only direction a section plane
+    // has anywhere to go.
+    const [u, v] = acrossOf([plane.normal.x, plane.normal.y, plane.normal.z]);
+    const half = span * 0.42;
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) =>
+      new THREE.Vector3(...[0, 1, 2].map(k => u[k] * a * half + v[k] * b * half)));
+    const seat = new THREE.Vector3().copy(plane.normal).multiplyScalar(-plane.constant);
+    const lit = cutter.hover === cut.key || (cutter.grab && cutter.grab.key === cut.key);
+    const frame = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(corners.map(p => p.clone().add(seat))),
+      new THREE.LineDashedMaterial({ color: lit ? 0xf2b134 : THEME.datum,
+        dashSize: span * 0.02, gapSize: span * 0.015, depthTest: false,
+        transparent: true, opacity: lit ? 0.95 : 0.55 }));
+    frame.computeLineDistances();
+    frame.renderOrder = 12;
+    group.add(frame);
+
+    const knob = new THREE.Mesh(
+      new THREE.ConeGeometry(span * 0.022, span * 0.06, 16),
+      new THREE.MeshBasicMaterial({ color: lit ? 0xf2b134 : THEME.accent,
+        depthTest: false, transparent: true, opacity: 0.95 }));
+    // Pointing the way the plane pushes, sat on the middle of one edge of the
+    // frame - a corner is where two edges meet and reads as neither.
+    knob.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), plane.normal.clone().negate());
+    knob.position.copy(seat).addScaledVector(new THREE.Vector3(...u), half);
+    knob.userData.cut = cut.key;
+    knob.renderOrder = 13;
+    group.add(knob);
+  });
+
+  cutter.group = group;
+  world.add(group);
+  refreshSectionBar();
+  draw();
+}
+
+//! Switching the whole thing on and off. The first time it is asked for, the
+//! level cut comes on with it - a section with no plane switched on is a
+//! section that looks broken.
+function toggleSection(force) {
+  const want = force === undefined ? !cutter.on : !!force;
+  cutter.on = want;
+  ensureCuts();
+  if (want && !activePlanes(cutter.cuts).length) cutter.cuts.z.on = true;
+  refreshSection();
+  layout();
+}
+
+function setCut(axis, changes) {
+  ensureCuts();
+  Object.assign(cutter.cuts[axis], changes);
+  if (!cutter.on && changes.on) cutter.on = true;
+  refreshSection();
+}
+
+/* ------------------------------------------------------------ its handle */
+
+function sectionUnder(event) {
+  if (!cutter.group) return null;
+  const knobs = [];
+  cutter.group.traverse(o => { if (o.userData.cut) knobs.push(o); });
+  const hits = rayFrom(event).intersectObjects(knobs, false);
+  return hits.length ? hits[0].object.userData.cut : null;
+}
+
+function hoverSection(event) {
+  if (!sectioning() || cutter.grab) return false;
+  const key = sectionUnder(event);
+  if (key === cutter.hover) return !!key;
+  cutter.hover = key;
+  refreshSection();
+  return !!key;
+}
+
+function grabSection(event) {
+  if (!sectioning()) return false;
+  const key = sectionUnder(event);
+  if (!key) return false;
+  const axis = SECTION_AXES.find(a => a.key === key);
+  const ray = rayFrom(event).ray;
+  const was = reachAlong([ray.origin.x, ray.origin.y, ray.origin.z],
+    [ray.direction.x, ray.direction.y, ray.direction.z], [0, 0, 0], axis.normal);
+  cutter.grab = { key, axis, from: was, base: cutter.cuts[key].offset };
+  return true;
+}
+
+function dragSection(event) {
+  const grab = cutter.grab;
+  if (!grab) return;
+  const ray = rayFrom(event).ray;
+  const now = reachAlong([ray.origin.x, ray.origin.y, ray.origin.z],
+    [ray.direction.x, ray.direction.y, ray.direction.z], [0, 0, 0], grab.axis.normal);
+  const travel = cutter.cuts[grab.key].travel;
+  const want = grab.base + (now - grab.from);
+  cutter.cuts[grab.key].offset = Math.max(travel.from, Math.min(travel.to,
+    (event.ctrlKey || event.metaKey) ? Math.round(want / 100) * 100 : want));
+  refreshSection();
+}
+
+function dropSection() { cutter.grab = null; refreshSection(); }
+
+/* ------------------------------------------------------------- its own bar */
+
+const sectionBar = document.createElement("section");
+sectionBar.className = "float fades mx-bar sc-bar";
+sectionBar.id = "section-bar";
+sectionBar.hidden = true;
+document.body.appendChild(sectionBar);
+
+function refreshSectionBar() {
+  const on = cutter.on;
+  if (sectionBar.hidden !== !on) { sectionBar.hidden = !on; layout(); }
+  if (!on) return;
+  const cuts = ensureCuts();
+  const live = activePlanes(cuts);
+  sectionBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">SECTION</span>'
+    + '<span class="seg">'
+    + SECTION_AXES.map(axis => '<button data-cut="' + axis.key + '" aria-pressed="'
+        + (cuts[axis.key].on ? "true" : "false") + '" title="' + escapeAttr(axis.cut) + '">'
+        + escapeHtml(axis.label) + "</button>").join("")
+    + "</span>"
+    + '<span class="seg">'
+    + SECTION_STYLES.map(one => '<button data-cut-style="' + one.key + '" aria-pressed="'
+        + (cutter.style === one.key ? "true" : "false") + '" title="'
+        + escapeAttr(one.hint) + '">' + escapeHtml(one.label) + "</button>").join("")
+    + "</span>"
+    + "</div>"
+    + '<div class="mx-row mx-wrap">'
+    + (live.length ? SECTION_AXES.filter(a => cuts[a.key].on).map(axis => {
+        const cut = cuts[axis.key];
+        return '<span class="sc-slide"><b>' + escapeHtml(axis.label) + "</b>"
+          + '<input type="range" data-cut-at="' + axis.key + '" min="'
+          + Math.round(cut.travel.from) + '" max="' + Math.round(cut.travel.to)
+          + '" step="1" value="' + Math.round(cut.offset) + '">'
+          + '<button data-cut-flip="' + axis.key + '" title="Keep the other half">'
+          + (cut.flipped ? "\u21c4" : "\u21c6") + "</button>"
+          + '<i>' + escapeHtml(saysWhere(axis.key, cut.offset)) + "</i></span>";
+      }).join("") : '<span class="mx-hint">switch a plane on to cut</span>')
+    + '<span class="mx-hint">' + escapeHtml(styleNamed(cutter.style).hint) + "</span>"
+    + '<button data-cut-off>Done</button>'
+    + "</div>";
+}
+
+sectionBar.addEventListener("click", event => {
+  const axis = event.target.closest("[data-cut]");
+  if (axis) { setCut(axis.dataset.cut, { on: !cutter.cuts[axis.dataset.cut].on }); return; }
+  const style = event.target.closest("[data-cut-style]");
+  if (style) { cutter.style = style.dataset.cutStyle; refreshSection(); return; }
+  const flip = event.target.closest("[data-cut-flip]");
+  if (flip) { setCut(flip.dataset.cutFlip, { flipped: !cutter.cuts[flip.dataset.cutFlip].flipped });
+              return; }
+  if (event.target.closest("[data-cut-off]")) toggleSection(false);
+});
+sectionBar.addEventListener("input", event => {
+  const slide = event.target.closest("[data-cut-at]");
+  if (!slide) return;
+  cutter.cuts[slide.dataset.cutAt].offset = Number(slide.value);
+  refreshSection();
+});
+
+/* ======================================================================
    THE LENS.
 
    A camera has a focal length and it is the thing an architect argues about:
@@ -4007,6 +4428,8 @@ function openDocMenu() {
     }).classList.add("on");
   menuItem("Lens…", "focal length, and what it does to the perspective",
     () => toggleLens(true));
+  menuItem("Section… · X", "cut the model open, and say how the cut is drawn",
+    () => toggleSection(true));
   menuRule();
 
   menuHead("Document");
@@ -7315,7 +7738,7 @@ function measureLayout() {
   // bar of its own up is covered without this knowing about it.
   let barTall = 0;
   for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-      + "#gizmo-bar, .fl-bar, .an-bar, .sp-bar")) {
+      + "#gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar")) {
     if (!onScreen(bar)) continue;
     barTall = Math.max(barTall, bar.getBoundingClientRect().height / ui);
   }
@@ -7348,7 +7771,8 @@ function measureLayout() {
   if (laidOut(status)) {
     const mine = status.getBoundingClientRect();
     for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-        + "#gizmo-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
+        + "#gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, "
+        + "#packages")) {
       if (!onScreen(bar)) continue;
       const box = bar.getBoundingClientRect();
       if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
@@ -7469,9 +7893,11 @@ addEventListener("keydown", event => {
       return;
     }
     if (event.key === "p" || event.key === "P") { event.preventDefault(); toggleLens(); return; }
+    if (event.key === "x" || event.key === "X") { event.preventDefault(); toggleSection(); return; }
   }
   if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
   if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
+  if (event.key === "Escape" && cutter.on) { toggleSection(false); return; }
 
   if (event.key === "f" || event.key === "F") { if (sketching()) lookAtSketch(); else fitView(); }
   if (event.key === "t" || event.key === "T") toggleTree();

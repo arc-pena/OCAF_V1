@@ -28,6 +28,8 @@
   --accent-ink:  #ffffff;
   --accent-soft: rgba(10, 108, 176, .12);
   --datum:       #b07408;
+  --cut-fill: #b8c0c8;      /* what a section fills a cut face with */
+  --cut-line: #2b3138;      /* and the line it draws round it */
   --good:        #1c7a52;
   --bad:         #bb3a2c;
   --bad-soft:    rgba(187, 58, 44, .12);
@@ -60,6 +62,8 @@
     --accent-ink:  #06131d;
     --accent-soft: rgba(74, 168, 234, .18);
     --datum:       #e0a33c;
+    --cut-fill: #3a4149;
+    --cut-line: #cdd3da;
     --good:        #4fb98a;
     --bad:         #e2705f;
     --bad-soft:    rgba(226, 112, 95, .16);
@@ -89,6 +93,8 @@
   --accent-ink:  #06131d;
   --accent-soft: rgba(74, 168, 234, .18);
   --datum:       #e0a33c;
+  --cut-fill: #3a4149;      /* what a section fills a cut face with */
+  --cut-line: #cdd3da;      /* and the line it draws round it */
   --good:        #4fb98a;
   --bad:         #e2705f;
   --bad-soft:    rgba(226, 112, 95, .16);
@@ -996,6 +1002,24 @@ body.waiting #viewport { cursor: crosshair; }
   background: var(--panel-2); padding: 3px 8px; border-radius: 5px; white-space: nowrap;
 }
 
+/* ----------------------------------------------------------- the section
+   Two rows: which planes are cut on and how the cut is drawn, then a slider
+   per live plane. Sliders are the second row because a section is switched on
+   before it is placed. */
+.sc-bar { z-index: 10; }
+.sc-slide { display: flex; align-items: center; gap: 6px; }
+.sc-slide b { font-weight: 500; font-size: 10.5px; color: var(--ink-2); }
+.sc-slide input { width: 130px; accent-color: var(--accent); }
+.sc-slide i {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink); min-width: 62px;
+}
+.sc-slide button {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  border-radius: 5px; padding: 1px 6px; cursor: pointer; font-size: 12px;
+}
+.sc-slide button:hover { color: var(--ink); }
+
 /* ------------------------------------------------------------- the lens
    Small, in the corner over the view controls, and only up while you are
    deciding. A focal length is a thing you roll through rather than type. */
@@ -1624,7 +1648,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      is one row down there and while a sketch is open it belongs to the sketch. */
   #lens-panel { right: var(--edge); bottom: calc(var(--dock-h) + 6px + var(--bar-h));
                 width: auto; left: var(--edge); z-index: 8; border-radius: 9px; }
-  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
+  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
     top: auto; transform: none; width: auto; max-width: none; z-index: 7;
   }
@@ -1632,7 +1656,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
   }
-  #mesh-bar, #pick-bar, #gizmo-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  #mesh-bar, #pick-bar, #gizmo-bar, #section-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
   /* The log stands ON the status line rather than over it: the button that
      closes it is in the status line, and a popup that covers its own switch is
      a popup you cannot put away. */
