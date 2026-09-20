@@ -25,6 +25,10 @@ import { describePicks, matchPick, pickOf } from "./subshape.js";
 // it is fine in the served build, which is the one nobody publishes.
 import { LEADS, RULERS, faceWay, leadFor, lineWay, middleOf, nearestOnEdges,
          onPlane, rulerAt, vUnit } from "./handle.js";
+import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_KEYS,
+         angleAbout, coversAt, fovFromLens, framedAt, handlesFor, landOn, lensFromFov,
+         reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
+         transformTarget } from "./gizmo.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
@@ -366,7 +370,7 @@ function measureScene() {
 }
 
 (function bindControls() {
-  let mode = null, lastX = 0, lastY = 0, moved = 0;
+  let mode = null, lastX = 0, lastY = 0, moved = 0, navigating = false;
   const el = renderer.domElement;
 
   el.addEventListener("pointerdown", event => {
@@ -383,6 +387,10 @@ function measureScene() {
     else if (meshing() && meshEditor.live && event.button === 0) { mode = "meshdrag"; }
     // An axis of the handle takes the drag before the camera does.
     else if (event.button === 0 && !event.shiftKey && grabGizmo(event)) mode = "gizmo";
+    // And so does the move, turn or size widget, which is the whole point of
+    // making the camera ask for Alt: the left button belongs to the thing on
+    // screen, not to the orbit behind it.
+    else if (event.button === 0 && !event.shiftKey && grabGizmoWidget(event)) mode = "transform";
     // A sketch is looked at square on, and stays that way: the drag that would
     // orbit pans instead, because a drawing seen at an angle cannot be drawn on.
     // In select, a press that lands on an end takes hold of it.
@@ -398,6 +406,12 @@ function measureScene() {
       else mode = "draw";
     }
     else mode = (event.shiftKey || event.button === 1 || event.button === 2) ? "pan" : "orbit";
+    // WHETHER THIS DRAG IS ALLOWED TO MOVE THE CAMERA. Decided when the button
+    // goes down and not changed after, so letting go of Alt halfway through an
+    // orbit does not strand the model at an angle nobody asked for. A pan on
+    // the middle or right button is always a pan: those buttons have nothing
+    // else to do.
+    navigating = mode !== "orbit" || !altToOrbit || event.altKey;
     lastX = event.clientX; lastY = event.clientY; moved = 0;
     el.setPointerCapture(event.pointerId);
   });
@@ -417,6 +431,9 @@ function measureScene() {
     if (meshing() && !mode) { meshEditor.hoverAt(event); return; }
     // And the same while an edge or a face is being picked for an operation.
     if (pickingOn() && !mode) { hoverPicking(event); return; }
+    // And the handle about to be taken hold of, so a hand knows what it is
+    // aiming at before it presses.
+    if (gizmoOn() && !mode) hoverGizmo(event);
     if (sketching()) {
       const uv = sketchAt(event);
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
@@ -424,6 +441,7 @@ function measureScene() {
     }
     if (!mode) return;
     if (mode === "gizmo") { dragGizmo(event); return; }
+    if (mode === "transform") { dragGizmoWidget(event); return; }
     if (mode === "handle") { dragSketchHandle(event); return; }
     if (mode === "move" || mode === "band" || mode === "draw") {
       moved += Math.abs(event.clientX - lastX) + Math.abs(event.clientY - lastY);
@@ -437,6 +455,9 @@ function measureScene() {
     }
     const dx = event.clientX - lastX, dy = event.clientY - lastY;
     lastX = event.clientX; lastY = event.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    // A left drag with no Alt is not a camera move; it is a drag that missed a
+    // handle, and it is still a click as far as picking is concerned.
+    if (!navigating) return;
     if (mode === "orbit") {
       view.yaw -= dx * 0.008;
       view.pitch = Math.max(-1.53, Math.min(1.53, view.pitch + dy * 0.008));
@@ -462,6 +483,7 @@ function measureScene() {
       mode = null;
       return;
     }
+    if (mode === "transform") { dropGizmoWidget(); mode = null; return; }
     if (mode === "gizmo") dropGizmo();
     else if (mode === "handle") dropSketchHandle(event);
     else if (mode === "move") dropSketchMove(event);
@@ -485,6 +507,7 @@ function measureScene() {
   });
   el.addEventListener("pointercancel", () => {
     meshEdit.axis = null;
+    if (gizmo.grab) dropGizmoWidget();
     if (sketcher.drag || sketcher.band || sketcher.move) {
       sketcher.drag = sketcher.band = sketcher.move = null;
       sketcher.preview = null;
@@ -523,6 +546,11 @@ function measureScene() {
   });
   el.addEventListener("wheel", event => {
     event.preventDefault();
+    // WHILE THE LENS IS OPEN THE WHEEL IS THE LENS. That is what the widget is
+    // for: you cannot judge a focal length by typing numbers at it, you judge
+    // it by rolling through them and watching the street compress. Close it
+    // and the wheel is the zoom again, which is what it is the rest of the time.
+    if (lensOpen()) { rollLens(-Math.sign(event.deltaY)); return; }
     // Measured against how big the scene is. Fixed stops at 20 and 8000 mm meant
     // a thirty-metre building could not be pulled back far enough to be seen,
     // and one turn of the wheel undid a fit.
@@ -530,6 +558,9 @@ function measureScene() {
     view.distance = Math.max(span * 0.02, Math.min(span * 40,
       view.distance * (1 + Math.sign(event.deltaY) * 0.12)));
     if (meshEdit.gizmo) refreshMeshEdit();
+    // The widget is drawn at a size measured against the camera distance, so
+    // it has to be rebuilt when that changes or it grows as you pull back.
+    if (gizmoOn() && !gizmo.grab) refreshGizmo();
     placeCamera(); draw();
   }, { passive: false });
 })();
@@ -2537,6 +2568,540 @@ function buildSketchRail() {
   rail.appendChild(changes);
 }
 
+/* ======================================================================
+   THE WIDGET, AND THE KEYBOARD IT ANSWERS TO.
+
+   W moves, E turns, R resizes, Q puts it away. Everybody's fingers already
+   know that; it has been the same four keys since Maya, and 3ds Max and
+   Blender both learned it afterwards.
+
+   WHAT IT WRITES. A widget does not move a shape - it writes numbers onto a
+   Transform node, and the node moves the shape. That is what keeps the move in
+   the tree: undoable, typeable, wireable, and still there tomorrow. Dragging
+   something that is already a Transform drives THAT one rather than stacking a
+   second on top, so pushing a tower twice leaves one number and not two nodes
+   each holding half the answer.
+
+   AND THE NAVIGATION. Holding Alt orbits, because otherwise the left button
+   cannot belong to the widget - and a widget you have to aim at between orbits
+   is a widget nobody uses. The middle and right buttons still pan, the wheel
+   still zooms, and the choice is a setting for anyone who would rather have it
+   the other way round.
+   ====================================================================== */
+
+const gizmo = {
+  mode: null,          // "move" | "rotate" | "scale", or null for none
+  id: null,            // the Transform being driven
+  over: null,          // what it is being made over, before it exists
+  at: new THREE.Vector3(),
+  group: null,
+  hover: null,
+  grab: null,          // { handle, from, was, numbers }
+  busy: false,
+};
+
+//! Alt to orbit, or drag to orbit. The request was the first; the setting is
+//! so the second is still reachable, and it is read back on the way up - the
+//! store is a long way down this file and reading it here would be reading it
+//! before it exists.
+let altToOrbit = true;
+
+const gizmoOn = () => !!(gizmo.mode && gizmo.group);
+
+//! How big the widget is, in the model's units: a share of how far away the
+//! camera is, so it is the same size on screen at any zoom.
+const gizmoSpan = () => view.distance * 0.2;
+
+//! WHERE THE WIDGET STANDS. The middle of what is selected, because a widget
+//! at the world origin while the thing you are moving is ninety metres away is
+//! a widget about nothing.
+function gizmoSeat(id) {
+  const found = shapes.get(id);
+  if (found && found.group) {
+    const box = new THREE.Box3().setFromObject(found.group);
+    if (!box.isEmpty()) return box.getCenter(new THREE.Vector3());
+  }
+  const entry = feature(id);
+  const data = entry && entry.data;
+  if (data && data.preview) {
+    const first = String(data.preview).match(/\(([^)]*)\)/);
+    if (first) {
+      const p = first[1].split(",").map(Number);
+      if (p.length === 3 && p.every(Number.isFinite)) return new THREE.Vector3(...p);
+    }
+  }
+  return new THREE.Vector3();
+}
+
+//! Can this be shoved about at all? A datum plane or a number has nothing for
+//! a Transform to take hold of, and offering a widget for one is offering a
+//! gesture that ends in an error.
+const MOVEABLE = new Set(["solid", "curve", "plane", "point"]);
+const moveable = entry => !!(entry && MOVEABLE.has(entry.produces) && entry.built);
+
+//! Arm a mode, or put the widget away. The same key twice puts it away, which
+//! is what a toggle is and what a hand expects when it presses W twice.
+function armGizmo(mode) {
+  const want = gizmo.mode === mode ? null : mode;
+  gizmo.mode = want;
+  if (!want) { dropGizmoWidget(); clearGizmo(); refreshGizmoBar(); draw(); return; }
+  const entry = feature(state.selected);
+  if (!moveable(entry)) {
+    say(entry ? entry.name + " is not a thing a widget can move - pick a body, a curve, "
+        + "a plane or a point" : "pick something first, then press W, E or R");
+    gizmo.mode = null;
+    refreshGizmoBar();
+    return;
+  }
+  refreshGizmo();
+  say(GIZMO_MODES[want].label + " \u00b7 " + GIZMO_MODES[want].hint);
+}
+
+function clearGizmo() {
+  if (!gizmo.group) return;
+  world.remove(gizmo.group);
+  disposeGroup(gizmo.group);
+  gizmo.group = null;
+}
+
+//! Built fresh whenever anything it depends on moves: the selection, the
+//! camera distance, the shape underneath. Cheap - a dozen small meshes - and
+//! rebuilding is the only way it stays the same size on screen.
+function refreshGizmo() {
+  clearGizmo();
+  if (!gizmo.mode) { refreshGizmoBar(); return; }
+  const entry = feature(state.selected);
+  if (!moveable(entry)) { gizmo.mode = null; refreshGizmoBar(); return; }
+  // A Transform already in hand keeps its own seat, so the widget does not
+  // jump to the middle of the moved shape as you drag it.
+  gizmo.at = gizmo.grab ? gizmo.at : gizmoSeat(entry.id);
+  const span = gizmoSpan();
+  const group = new THREE.Group();
+  group.position.copy(gizmo.at);
+  group.renderOrder = 7;
+
+  const lit = key => gizmo.hover === key || (gizmo.grab && gizmo.grab.handle.key === key);
+  const skin = (colour, key, strong = 0.95) => new THREE.MeshBasicMaterial({
+    color: lit(key) ? 0xf2b134 : colour, depthTest: false, transparent: true,
+    opacity: lit(key) ? 1 : strong });
+
+  for (const handle of handlesFor(gizmo.mode)) {
+    const dir = new THREE.Vector3(...(handle.dir || [0, 0, 1]));
+    if (handle.kind === "axis" || handle.kind === "grip") {
+      const material = skin(handle.colour, handle.key);
+      const shaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(span * 0.022, span * 0.022, span, 10), material);
+      const cap = handle.kind === "axis"
+        ? new THREE.Mesh(new THREE.ConeGeometry(span * 0.075, span * 0.22, 14), material)
+        : new THREE.Mesh(new THREE.BoxGeometry(span * 0.13, span * 0.13, span * 0.13), material);
+      const turn = new THREE.Quaternion()
+        .setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      shaft.quaternion.copy(turn); cap.quaternion.copy(turn);
+      shaft.position.copy(dir).multiplyScalar(span * 0.5);
+      cap.position.copy(dir).multiplyScalar(span * 1.08);
+      for (const part of [shaft, cap]) {
+        part.userData.handle = handle;
+        part.renderOrder = 8;
+        group.add(part);
+      }
+    } else if (handle.kind === "plane") {
+      // A SQUARE IN THE CORNER BETWEEN TWO ARROWS, which is where every
+      // modeller puts it: it is the plane those two axes make, and dragging it
+      // slides the thing about in that plane. Drawn both sides, because a
+      // plane seen from underneath is still the plane you meant to drag.
+      const [u, v] = handle.along.map(a => new THREE.Vector3(...a));
+      const size = span * 0.3, off = span * 0.42;
+      const sheet = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+        new THREE.MeshBasicMaterial({ color: lit(handle.key) ? 0xf2b134 : handle.colour,
+          depthTest: false, transparent: true, opacity: lit(handle.key) ? 0.75 : 0.3,
+          side: THREE.DoubleSide }));
+      const frame = new THREE.Matrix4().makeBasis(u, v,
+        new THREE.Vector3().crossVectors(u, v));
+      sheet.quaternion.setFromRotationMatrix(frame);
+      sheet.position.copy(u).multiplyScalar(off).addScaledVector(v, off);
+      sheet.userData.handle = handle;
+      sheet.renderOrder = 8;
+      group.add(sheet);
+      const edge = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-size / 2, -size / 2, 0), new THREE.Vector3(size / 2, -size / 2, 0),
+          new THREE.Vector3(size / 2, size / 2, 0), new THREE.Vector3(-size / 2, size / 2, 0)]),
+        new THREE.LineBasicMaterial({ color: handle.colour, depthTest: false,
+                                      transparent: true, opacity: 0.9 }));
+      edge.quaternion.copy(sheet.quaternion);
+      edge.position.copy(sheet.position);
+      edge.renderOrder = 9;
+      group.add(edge);
+    } else if (handle.kind === "ring") {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(span, span * 0.02, 8, 80),
+        skin(handle.colour, handle.key, 0.9));
+      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      ring.userData.handle = handle;
+      ring.renderOrder = 8;
+      group.add(ring);
+    } else if (handle.kind === "uniform") {
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(span * 0.17, span * 0.17, span * 0.17),
+        skin(handle.colour, handle.key, 0.85));
+      cube.userData.handle = handle;
+      cube.renderOrder = 9;
+      group.add(cube);
+    }
+  }
+  gizmo.group = group;
+  world.add(group);
+  refreshGizmoBar();
+  draw();
+}
+
+//! The handle under the pointer, if any. Asked on every move while nothing is
+//! being dragged, so what is about to be grabbed lights up first.
+function gizmoUnder(event) {
+  if (!gizmo.group) return null;
+  const hits = rayFrom(event).intersectObjects(gizmo.group.children, false);
+  return hits.length ? hits[0].object.userData.handle || null : null;
+}
+
+function hoverGizmo(event) {
+  if (!gizmoOn() || gizmo.grab) return false;
+  const found = gizmoUnder(event);
+  const key = found ? found.key : null;
+  if (key === gizmo.hover) return !!found;
+  gizmo.hover = key;
+  refreshGizmo();
+  draw();
+  return !!found;
+}
+
+//! Taking hold. Everything the drag will need is measured NOW, against the
+//! ray as it is at this instant: where along the axis the pointer reaches,
+//! what angle it makes about the ring, how far out it is. The drag is then the
+//! difference between that and the same measurement later, which is the only
+//! way a number comes out in millimetres rather than in pixels.
+function grabGizmoWidget(event) {
+  if (!gizmoOn()) return false;
+  let handle = gizmoUnder(event);
+  if (!handle) return false;
+  const entry = feature(state.selected);
+  if (!moveable(entry)) return false;
+  const ray = rayFrom(event).ray;
+  const from = [ray.origin.x, ray.origin.y, ray.origin.z];
+  const way = [ray.direction.x, ray.direction.y, ray.direction.z];
+  // WHERE THE MEASUREMENTS ARE TAKEN FROM, fixed at the moment the handle is
+  // taken hold of and not moved again until it is let go. The widget itself
+  // slides along with the drag so the hand can see what it is doing - and if
+  // the ruler slid with it, every frame would be measured from a point the
+  // last frame had already moved, which is the drag running away from the
+  // cursor. It is the same defect the sketcher had, and it is the same cure.
+  const seat = gizmo.at.clone();
+  const at = [seat.x, seat.y, seat.z];
+  let was = null;
+  if (handle.kind === "axis" || handle.kind === "grip")
+    was = reachAlong(from, way, at, handle.dir);
+  else if (handle.kind === "plane") was = landOn(from, way, at, handle.normal);
+  else if (handle.kind === "ring")
+    was = angleAbout(from, way, at, handle.dir, sideways(handle.dir));
+  else if (handle.kind === "uniform") {
+    const eye = [camera.position.x - gizmo.at.x, camera.position.y - gizmo.at.y,
+                 camera.position.z - gizmo.at.z];
+    const across = vUnit([-eye[1], eye[0], 0]) || [1, 0, 0];
+    was = reachAlong(from, way, at, across);
+    handle = { ...handle, across };
+  }
+  if (was === null || was === undefined) return false;
+
+  // The node the numbers go on. Made now rather than on the first frame, so
+  // the very first millimetre of the drag is already being written somewhere.
+  const target = transformTarget(entry);
+  gizmo.grab = { handle, from: was, seat, numbers: null, target, moved: false,
+                 base: transformNow(entry.type === "Transform" ? entry : null, gizmo.mode) };
+  gizmo.grab.numbers = { ...gizmo.grab.base };
+  return true;
+}
+
+//! A direction square to an axis, for a ring to measure its angle from. Any
+//! one will do as long as it is the same one for the whole drag.
+const sideways = axis => vUnit([axis[1] - axis[2], axis[2] - axis[0], axis[0] - axis[1]])
+  || [1, 0, 0];
+
+function dragGizmoWidget(event) {
+  const grab = gizmo.grab;
+  if (!grab) return;
+  const handle = grab.handle;
+  const ray = rayFrom(event).ray;
+  const from = [ray.origin.x, ray.origin.y, ray.origin.z];
+  const way = [ray.direction.x, ray.direction.y, ray.direction.z];
+  const at = [grab.seat.x, grab.seat.y, grab.seat.z];
+  // Ctrl steps it. A tower that lands on 3000 rather than on 2987.4 is a tower
+  // somebody can build, and holding a key is cheaper than typing the number in
+  // afterwards.
+  const fine = event.ctrlKey || event.metaKey;
+
+  if (gizmo.mode === "move") {
+    let by = [0, 0, 0];
+    if (handle.kind === "axis") {
+      const now = reachAlong(from, way, at, handle.dir);
+      const step = stepped(now - grab.from, fine ? 10 : 0);
+      by = handle.dir.map(v => v * step);
+    } else {
+      const now = landOn(from, way, at, handle.normal);
+      if (!now) return;
+      const moved = [now[0] - grab.from[0], now[1] - grab.from[1], now[2] - grab.from[2]];
+      by = handle.along.map(axis => {
+        const along = moved[0] * axis[0] + moved[1] * axis[1] + moved[2] * axis[2];
+        return axis.map(v => v * stepped(along, fine ? 10 : 0));
+      }).reduce((a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], [0, 0, 0]);
+    }
+    grab.numbers = { dx: grab.base.dx + by[0], dy: grab.base.dy + by[1],
+                     dz: grab.base.dz + by[2] };
+  } else if (gizmo.mode === "rotate") {
+    const now = angleAbout(from, way, at, handle.dir, sideways(handle.dir));
+    if (now === null) return;
+    const turned = shortestTurn(grab.from, now) * 180 / Math.PI;
+    grab.from = now;
+    grab.turned = (grab.turned || 0) + turned;
+    const total = stepped(grab.turned, fine ? 5 : 0);
+    grab.numbers = { rx: grab.base.rx, ry: grab.base.ry, rz: grab.base.rz };
+    grab.numbers["r" + handle.key] = grab.base["r" + handle.key] + total;
+  } else {
+    const axis = handle.kind === "uniform" ? handle.across : handle.dir;
+    const now = reachAlong(from, way, at, axis);
+    const was = grab.from;
+    // Measured as a RATIO from the middle, so pulling twice as far out is
+    // twice the size whatever the widget's own size happens to be.
+    const span = Math.max(gizmoSpan(), 1e-6);
+    const factor = Math.max(0.01, (span + (now - was)) / span);
+    grab.numbers = { factor: Math.max(0.01, grab.base.factor * (fine
+      ? stepped(factor, 0.05) || 0.05 : factor)) };
+  }
+  grab.moved = true;
+  showGizmoDrag();
+  refreshGizmoBar();
+}
+
+//! Shown while the hand is still down, without writing anything: the shape
+//! that is being moved is nudged in the viewport so the drag can be SEEN, and
+//! the truth is written once, on the way up.
+function showGizmoDrag() {
+  const grab = gizmo.grab;
+  const entry = feature(state.selected);
+  if (!grab || !entry) return;
+  const found = shapes.get(grab.target.make ? grab.target.over : entry.id)
+             || shapes.get(entry.id);
+  if (!found || !found.group) { draw(); return; }
+  const n = grab.numbers, base = grab.base;
+  const group = found.group;
+  if (!group.userData.restAt) {
+    group.userData.restAt = group.position.clone();
+    group.userData.restTurn = group.quaternion.clone();
+    group.userData.restSize = group.scale.clone();
+  }
+  const seat = gizmo.at;
+  const move = new THREE.Vector3((n.dx || 0) - (base.dx || 0), (n.dy || 0) - (base.dy || 0),
+                                 (n.dz || 0) - (base.dz || 0));
+  const turn = new THREE.Euler(((n.rx || 0) - (base.rx || 0)) * Math.PI / 180,
+                               ((n.ry || 0) - (base.ry || 0)) * Math.PI / 180,
+                               ((n.rz || 0) - (base.rz || 0)) * Math.PI / 180, "XYZ");
+  const size = (n.factor === undefined ? 1 : n.factor) / (base.factor || 1);
+  const about = new THREE.Matrix4().makeTranslation(seat.x, seat.y, seat.z);
+  const back = new THREE.Matrix4().makeTranslation(-seat.x, -seat.y, -seat.z);
+  const whole = new THREE.Matrix4().makeTranslation(move.x, move.y, move.z)
+    .multiply(about)
+    .multiply(new THREE.Matrix4().makeRotationFromEuler(turn))
+    .multiply(new THREE.Matrix4().makeScale(size, size, size))
+    .multiply(back);
+  group.position.copy(group.userData.restAt);
+  group.quaternion.copy(group.userData.restTurn);
+  group.scale.copy(group.userData.restSize);
+  group.applyMatrix4(whole);
+  // The widget follows the hand, from the seat it was grabbed at - never from
+  // where it is now, which is where it was put half a frame ago.
+  if (gizmo.group) gizmo.group.position.copy(grab.seat).add(gizmo.mode === "move"
+    ? move : new THREE.Vector3());
+  draw();
+}
+
+//! Letting go. One edit for the whole drag, whatever it travelled through - so
+//! it is one step to undo and one line in the file.
+async function dropGizmoWidget() {
+  const grab = gizmo.grab;
+  gizmo.grab = null;
+  if (!grab) return;
+  // Put the nudged group back; the rebuild is the truth and it is on its way.
+  for (const [, { group }] of shapes) {
+    if (!group.userData.restAt) continue;
+    group.position.copy(group.userData.restAt);
+    group.quaternion.copy(group.userData.restTurn);
+    group.scale.copy(group.userData.restSize);
+    delete group.userData.restAt; delete group.userData.restTurn;
+    delete group.userData.restSize;
+  }
+  gizmo.at = grab.seat.clone();
+  if (!grab.moved) { refreshGizmo(); draw(); return; }
+  const trim = v => Math.round(v * 1000) / 1000;
+  const numbers = {};
+  for (const [key, value] of Object.entries(grab.numbers)) numbers[key] = trim(value);
+  try {
+    gizmo.busy = true;
+    let id = grab.target.id;
+    if (grab.target.make) {
+      const born = await edit({ op: "add", type: "Transform", refs: { shape: grab.target.over } });
+      id = born && born.id;
+      if (!id) throw new Error("the transform could not be made");
+      select(id, false);
+    }
+    await mdl.runAll(Object.entries(numbers).map(([key, value]) =>
+      ({ op: "set", id, key, value })));
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    gizmo.busy = false;
+  }
+  refreshGizmo();
+  draw();
+}
+
+/* ======================================================================
+   THE LENS.
+
+   A camera has a focal length and it is the thing an architect argues about:
+   28 mm turns a courtyard into a canyon, 85 mm flattens a street into an
+   elevation, and the difference between two schemes is often only that
+   somebody photographed them on different lenses. three.js thinks in a
+   vertical field of view, which nobody has ever specified a view in, so this
+   says millimetres.
+
+   AND IT KEEPS THE FRAMING while it does it, which is the only way to see what
+   a lens actually does: the subject stays the size it was and everything
+   behind it rushes towards you or away. That is a dolly zoom, and it is the
+   difference between changing the lens and changing the zoom.
+   ====================================================================== */
+
+const lensPanel = document.createElement("section");
+lensPanel.className = "float fades lens-panel";
+lensPanel.id = "lens-panel";
+lensPanel.hidden = true;
+document.body.appendChild(lensPanel);
+
+const lensOpen = () => !lensPanel.hidden;
+//! Keeping the framing is what makes it a perspective control rather than a
+//! zoom, so it is on unless somebody says otherwise. Read back on the way up,
+//! for the same reason as above.
+let lensKeepsFraming = true;
+
+function toggleLens(force) {
+  const want = force === undefined ? !lensOpen() : !!force;
+  lensPanel.hidden = !want;
+  if (want) {
+    say("Lens \u00b7 roll the wheel to change it \u00b7 P or Esc to put it away");
+    refreshLens();
+  }
+  layout();
+  draw();
+}
+
+//! One notch of the wheel. Proportional rather than fixed: one step at 24 mm
+//! is a different lens, one step at 200 mm is barely anything, and stepping
+//! by a share of where you are is how a lens barrel feels.
+function rollLens(way) {
+  setLens(lensFromFov(camera.fov) * (1 + way * 0.08));
+}
+
+function setLens(mm) {
+  const want = Math.max(6, Math.min(600, mm));
+  const fov = fovFromLens(want);
+  if (lensKeepsFraming) {
+    const span = Math.max(view.span, 1);
+    view.distance = Math.max(span * 0.01, Math.min(span * 120,
+      framedAt(view.distance, camera.fov, fov)));
+  }
+  camera.fov = fov;
+  if (gizmoOn() && !gizmo.grab) refreshGizmo();
+  placeCamera();
+  refreshLens();
+  draw();
+}
+
+function refreshLens() {
+  if (lensPanel.hidden) return;
+  const mm = lensFromFov(camera.fov);
+  const rect = freeRect ? null : null;
+  const aspect = camera.aspect || 1;
+  const covers = coversAt(view.distance, camera.fov, aspect);
+  const trim = v => v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+  lensPanel.innerHTML = '<div class="lens-head"><span class="lens-mm">' + trim(mm)
+    + '<i>mm</i></span>'
+    + '<span class="lens-fov">' + trim(camera.fov) + "\u00b0 vertical</span></div>"
+    + '<input class="lens-slide" id="lens-slide" type="range" min="6" max="300" step="0.5" value="'
+    + Math.min(300, mm) + '" aria-label="Focal length">'
+    + '<div class="lens-row">'
+    + LENSES.map(one => '<button data-lens="' + one + '" aria-pressed="'
+        + (Math.abs(one - mm) < 0.6 ? "true" : "false") + '">' + one + "</button>").join("")
+    + "</div>"
+    + '<label class="lens-keep"><input type="checkbox" id="lens-keep"'
+    + (lensKeepsFraming ? " checked" : "") + "> keeps the framing</label>"
+    + '<p class="lens-note">' + (lensKeepsFraming
+        ? "the camera walks back as the lens gets longer, so what you are looking at "
+          + "stays the size it is and the perspective is what changes"
+        : "the camera stays where it is, so this is a zoom")
+    + " \u00b7 " + trim(covers) + " mm across at the target</p>"
+    + '<p class="lens-note">wheel \u00b7 P to put it away</p>';
+  lensPanel.querySelector("#lens-slide").addEventListener("input", event =>
+    setLens(Number(event.target.value)));
+  lensPanel.querySelector("#lens-keep").addEventListener("change", event => {
+    lensKeepsFraming = event.target.checked;
+    remember("ocafcad/lens-frame", lensKeepsFraming ? "on" : "off");
+    refreshLens();
+  });
+  for (const button of lensPanel.querySelectorAll("[data-lens]"))
+    button.addEventListener("click", () => setLens(Number(button.dataset.lens)));
+}
+
+//! The wheel over the panel itself does the same thing as the wheel over the
+//! model, so the hand does not have to leave the widget it is reading.
+lensPanel.addEventListener("wheel", event => {
+  event.preventDefault();
+  rollLens(-Math.sign(event.deltaY));
+}, { passive: false });
+
+/* ------------------------------------------------------------- its own bar */
+
+const gizmoBar = document.createElement("section");
+gizmoBar.className = "float fades mx-bar gz-bar";
+gizmoBar.id = "gizmo-bar";
+gizmoBar.hidden = true;
+document.body.appendChild(gizmoBar);
+
+function refreshGizmoBar() {
+  const on = !!gizmo.mode;
+  if (gizmoBar.hidden !== !on) { gizmoBar.hidden = !on; layout(); }
+  if (!on) return;
+  const entry = feature(state.selected);
+  const spec = GIZMO_MODES[gizmo.mode];
+  const numbers = gizmo.grab ? gizmo.grab.numbers
+    : transformNow(entry && entry.type === "Transform" ? entry : null, gizmo.mode);
+  gizmoBar.innerHTML = '<div class="mx-row">'
+    + '<span class="mx-tag">' + escapeHtml(spec.label.toUpperCase()) + "</span>"
+    + '<span class="mx-count">' + escapeHtml(entry ? entry.name : "nothing") + "</span>"
+    + '<span class="seg">'
+    + GIZMO_ORDER.map(key => '<button data-gizmo="' + key + '" aria-pressed="'
+        + (gizmo.mode === key ? "true" : "false") + '">'
+        + escapeHtml(GIZMO_MODES[key].label) + " \u00b7 "
+        + GIZMO_MODES[key].hotkey.toUpperCase() + "</button>").join("")
+    + "</span>"
+    + '<span class="mx-num">' + escapeHtml(saysWhat(gizmo.mode, numbers)) + "</span>"
+    + '<span class="mx-hint">' + escapeHtml(spec.hint) + "</span>"
+    + '<button data-gizmo-off>Done \u00b7 Q</button>'
+    + "</div>";
+}
+
+gizmoBar.addEventListener("click", event => {
+  const pick = event.target.closest("[data-gizmo]");
+  if (pick) { armGizmo(pick.dataset.gizmo); return; }
+  if (event.target.closest("[data-gizmo-off]")) armGizmo(gizmo.mode);
+});
+
 //! Three arrows. Sized against the camera distance so they stay the same size
 //! on screen however far out you are.
 function buildGizmo(at) {
@@ -3425,6 +3990,23 @@ function openDocMenu() {
   menuHead("Export");
   for (const format of FORMATS.filter(f => f.write))
     menuItem(format.name, format.short, () => exportAs(format.key));
+  menuRule();
+
+  menuHead("Viewport");
+  // WHO OWNS THE LEFT BUTTON. Asked here because it is a preference and not a
+  // mode: some hands want the widget under the button and the camera behind a
+  // key, some want it the other way round, and neither is wrong.
+  menuItem(altToOrbit ? "Alt to orbit" : "Drag to orbit",
+    altToOrbit ? "the left button belongs to the widgets"
+               : "the left button orbits; the widgets need a direct hit",
+    () => {
+      altToOrbit = !altToOrbit;
+      remember("ocafcad/altnav", altToOrbit ? "on" : "off");
+      say(altToOrbit ? "hold Alt to orbit · the left button is for the widgets"
+                     : "drag to orbit · the widgets take the button where they are");
+    }).classList.add("on");
+  menuItem("Lens…", "focal length, and what it does to the perspective",
+    () => toggleLens(true));
   menuRule();
 
   menuHead("Document");
@@ -4989,6 +5571,9 @@ function select(id, openDefinition, keep = false) {
     : "click a body · double-click to edit it";
   buildTree(); buildPanel(); refreshToolbar(); paintSelection();
   refreshMeshEdit();
+  // The widget belongs to whatever is selected, so it follows the selection -
+  // and goes away when what is selected is not a thing it can move.
+  if (gizmo.mode && !gizmo.grab) refreshGizmo();
   // "Open its definition" means show it, and on a phone the definition is a
   // sheet. Selecting alone does not raise it: the model is what you are
   // looking at, and a sheet over it every time you tapped a body would be
@@ -6714,6 +7299,8 @@ function measureLayout() {
   // only one of them is ever up.
   const right = [document.getElementById("def-panel"),
                  ...document.querySelectorAll(".fl-panel, .an-panel, .sp-panel")];
+  // The lens sits in the right-hand column under whatever panel is there, so
+  // it is measured with them rather than against them.
   const rightWide = Math.max(0, ...right.map(wide));
   const rightDock = rightWide ? rightWide + edge : 0;
 
@@ -6722,6 +7309,21 @@ function measureLayout() {
   // it has to be to say what it has to say, up to its own ceiling.
   const logTall = onScreen(logPop) ? logPop.getBoundingClientRect().height / ui : 0;
 
+  // AND WHAT THE BOTTOM ROW HAS TAKEN. A mode's bar sits along the bottom and
+  // anything standing in a bottom corner has to stand on top of it. Measured
+  // from the boxes rather than from a list of modes, so a package that puts a
+  // bar of its own up is covered without this knowing about it.
+  let barTall = 0;
+  for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
+      + "#gizmo-bar, .fl-bar, .an-bar, .sp-bar")) {
+    if (!onScreen(bar)) continue;
+    barTall = Math.max(barTall, bar.getBoundingClientRect().height / ui);
+  }
+  root.style.setProperty("--bar-h", (barTall ? barTall + edge : 0) + "px");
+  // What the bottom right corner has taken. The view controls grow a button
+  // per mode a package adds, so the number cannot be written into a rule.
+  const tools = document.getElementById("view-tools");
+  root.style.setProperty("--corner-r", (wide(tools) || 0) + "px");
   root.style.setProperty("--log-dock", (logTall ? logTall + edge : 0) + "px");
   root.style.setProperty("--rail-dock", railDock + "px");
   root.style.setProperty("--left-dock", leftDock + "px");
@@ -6746,7 +7348,7 @@ function measureLayout() {
   if (laidOut(status)) {
     const mine = status.getBoundingClientRect();
     for (const bar of document.querySelectorAll("#sketch-bar, #mesh-bar, #pick-bar, "
-        + ".fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
+        + "#gizmo-bar, .fl-bar, .an-bar, .sp-bar, #ai-bar, #log-pop, #packages")) {
       if (!onScreen(bar)) continue;
       const box = bar.getBoundingClientRect();
       if (Math.min(mine.right, box.right) - Math.max(mine.left, box.left) > 1
@@ -6853,6 +7455,23 @@ addEventListener("keydown", event => {
     meshEditor.begin("loopcut");
     return;
   }
+
+  // THE FOUR KEYS EVERY MODELLER HAS. Not while a sketch or a cage is open:
+  // those modes have their own hands and their own meanings for these letters,
+  // and a key that means two things is a key nobody trusts.
+  if (!sketching() && !meshing() && !headsOpen()
+      && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+    const armed = { w: "move", e: "rotate", r: "scale" }[event.key.toLowerCase()];
+    if (armed) { event.preventDefault(); armGizmo(armed); return; }
+    if (event.key === "q" || event.key === "Q") {
+      event.preventDefault();
+      if (gizmo.mode) armGizmo(gizmo.mode);
+      return;
+    }
+    if (event.key === "p" || event.key === "P") { event.preventDefault(); toggleLens(); return; }
+  }
+  if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
+  if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
 
   if (event.key === "f" || event.key === "F") { if (sketching()) lookAtSketch(); else fitView(); }
   if (event.key === "t" || event.key === "T") toggleTree();
@@ -7479,6 +8098,10 @@ addEventListener("keyup", event => {
   placeCamera();
   resize();
 
+  // The preferences that are about how the hand works, read back now that the
+  // store this file keeps them in exists.
+  altToOrbit = recall("ocafcad/altnav") !== "off";
+  lensKeepsFraming = recall("ocafcad/lens-frame") !== "off";
   if (recall("ocafcad/tree") === "off") treePanel.hidden = true;
   // A stowed rail survives a reload too: where somebody wants the room is a
   // preference, not a mood.

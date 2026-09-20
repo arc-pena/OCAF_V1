@@ -181,6 +181,12 @@ button, input, select { font: inherit; color: inherit; }
      the top of, so it is the tree's floor while it is open. Written by the page
      because how tall the log is depends on how much it has to say. */
   --log-dock: 0px;
+  /* What a bar along the bottom has taken, so a panel in the corner stands on
+     top of it rather than under it. */
+  --bar-h: 0px;
+  /* And what the bottom right corner has taken, measured rather than guessed:
+     the view controls grow a button per mode a package adds. */
+  --corner-r: 300px;
   /* The middle, and where its middle is. Every bar along the top or the bottom
      is centred on THIS rather than on the window, so opening the definition
      panel slides the bar out from under it instead of hiding half of it. */
@@ -979,6 +985,49 @@ select.wire-list { margin-top: 5px; }
 body.waiting #tree .node { cursor: crosshair; }
 body.waiting #viewport { cursor: crosshair; }
 
+/* ------------------------------------------------------- the move widget
+   Its bar reads the same way the cage editor's does, because it is the same
+   kind of moment: the model is the interface and the bar says what your hand
+   is doing to it while it is. */
+.gz-bar { z-index: 10; }
+.gz-bar .mx-hint { max-width: 320px; }
+.mx-num {
+  font-family: var(--mono); font-size: 11px; color: var(--ink);
+  background: var(--panel-2); padding: 3px 8px; border-radius: 5px; white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- the lens
+   Small, in the corner over the view controls, and only up while you are
+   deciding. A focal length is a thing you roll through rather than type. */
+#lens-panel {
+  right: calc(var(--edge) + var(--right-dock));
+  /* Above whatever bar has the bottom row, not on top of it. --bar-h is what
+     the page measured; nought when there is no bar. */
+  bottom: calc(var(--edge) + var(--corner) + var(--bar-h));
+  width: 244px; z-index: 8; padding: 12px 14px 10px;
+}
+#lens-panel[hidden] { display: none; }
+.lens-head { display: flex; align-items: baseline; justify-content: space-between; }
+.lens-mm { font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+.lens-mm i { font-size: 12px; font-style: normal; color: var(--ink-3); margin-left: 2px; }
+.lens-fov { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.lens-slide { width: 100%; margin: 8px 0 6px; accent-color: var(--accent); }
+.lens-row { display: flex; flex-wrap: wrap; gap: 3px; }
+.lens-row button {
+  flex: 1 0 auto; min-width: 30px; padding: 3px 0; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  font-family: var(--mono); font-size: 10.5px; cursor: pointer;
+}
+.lens-row button:hover { color: var(--ink); }
+.lens-row button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.lens-keep {
+  display: flex; align-items: center; gap: 6px; margin-top: 9px;
+  font-size: 11px; color: var(--ink-2); cursor: pointer;
+}
+.lens-note { margin: 6px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-3); }
+
 /* ------------------------------------------------- picking an edge or a face
    The bar that takes the viewport over while an operation is being told which
    edges it is about. Same shape as the mesh editor's, because it is the same
@@ -1126,7 +1175,17 @@ input.line:focus { outline: none; border-color: var(--accent); }
   left: var(--edge); bottom: var(--edge); z-index: 3;
   display: flex; align-items: stretch; overflow: hidden;
   font-family: var(--mono); font-size: 10.5px;
+  /* IT SAYS WHATEVER IT IS ASKED TO SAY, and some of what it is asked to say
+     is a sentence. "Move - drag an arrow along one axis, or a square to slide
+     in a plane" grew the bar straight across the bottom of the window and into
+     the view controls. It stops before them; the rest is an ellipsis, which is
+     the right answer for a line nobody reads twice. */
+  max-width: calc(var(--span) - var(--edge) * 3 - var(--corner-r));
 }
+/* The half that carries the sentence is the half that gives way. */
+#status-sel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+              display: block; padding: 6px 11px; }
+#status > *:not(#status-sel) { flex: none; }
 #status > * { padding: 6px 11px; display: flex; align-items: center; gap: 7px; }
 #status .sep { width: 1px; padding: 0; background: var(--line-soft); }
 #status-sel { color: var(--ink-2); }
@@ -1563,7 +1622,9 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
      nothing goes under it; a bar that tried has its last row behind a thumb.
      The sketcher's bar takes the status line's row for the same reason - there
      is one row down there and while a sketch is open it belongs to the sketch. */
-  #sketch-bar, #mesh-bar, #pick-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
+  #lens-panel { right: var(--edge); bottom: calc(var(--dock-h) + 6px + var(--bar-h));
+                width: auto; left: var(--edge); z-index: 8; border-radius: 9px; }
+  #sketch-bar, #mesh-bar, #pick-bar, #gizmo-bar, .fl-bar, .an-bar, .sp-bar, #log-pop {
     left: var(--edge); right: var(--edge); bottom: calc(var(--dock-h) + 6px);
     top: auto; transform: none; width: auto; max-width: none; z-index: 7;
   }
@@ -1571,7 +1632,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
     border-radius: 9px;
     flex-wrap: wrap; justify-content: space-between;
   }
-  #mesh-bar, #pick-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
+  #mesh-bar, #pick-bar, #gizmo-bar, .fl-bar, .an-bar, .sp-bar { border-radius: 9px; }
   /* The log stands ON the status line rather than over it: the button that
      closes it is in the status line, and a popup that covers its own switch is
      a popup you cannot put away. */

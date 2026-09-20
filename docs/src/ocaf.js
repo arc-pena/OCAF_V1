@@ -2196,6 +2196,35 @@ export const CATALOGUE = [
     args: [ref("shape", "Shape", ["solid", "curve", "plane", "point"], true),
            ref("centre", "About point", ["point"]),
            real("factor", "Factor", 2, 0.001, 1000, 0.01, "")] },
+  //! ONE NODE THE HANDLES DRIVE. Move, Rotate and Scale each say one thing and
+  //! say it well - a direction wired in, an axis, a centre - and none of them
+  //! is what a hand on a widget is doing. A widget is dragging a shape about in
+  //! space: a bit along X, a turn about Z, a size. So there is a node whose
+  //! arguments ARE those numbers, and the widget writes them.
+  //!
+  //! It reads as what it is in the file, too. "dz: 3000" is a storey up; the
+  //! same move said with Move is a Vector node, a distance and two wires.
+  //!
+  //! Scale first, then the turns, then the move - the order every package
+  //! composes them in, so a part turned and moved is where you expect and not
+  //! somewhere out past the origin.
+  { type: "Transform", guid: "9a1b2c30-00e5-4c00-9e00-caf0000000e5", category: "operation",
+    produces: "solid",
+    summary: "A shape moved, turned and resized by numbers - what the move, turn and "
+           + "size widgets write. Press W, E or R with something selected and drag the "
+           + "handles; the numbers here are what your hand did, and they can be typed "
+           + "over, wired to, and animated like any others.",
+    args: [ref("shape", "Shape", ["solid", "curve", "plane", "point"], true),
+           real("dx", "Move X", 0, -100000, 100000, 1),
+           real("dy", "Move Y", 0, -100000, 100000, 1),
+           real("dz", "Move Z", 0, -100000, 100000, 1),
+           real("rx", "Turn about X", 0, -3600, 3600, 1, "\u00b0"),
+           real("ry", "Turn about Y", 0, -3600, 3600, 1, "\u00b0"),
+           real("rz", "Turn about Z", 0, -3600, 3600, 1, "\u00b0"),
+           real("factor", "Size", 1, 0.001, 1000, 0.01, ""),
+           ref("about", "Turn and size about", ["point"]),
+           choice("keep", "Result", ["The shape moved",
+                                     "Both, where it was and where it went"], 0)] },
   //! The assembly transform. Nothing is typed: a part drawn about its own frame
   //! goes to wherever the target frame is, and moving the target moves the part.
   { type: "AxisToAxis", guid: "9a1b2c30-00e4-4c00-9e00-caf0000000e4", category: "operation",

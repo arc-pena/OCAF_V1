@@ -268,8 +268,11 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     if (box.IsVoid()) { box.delete(); return null; }
     const lo = box.CornerMin(), hi = box.CornerMax();
     const size = [hi.X() - lo.X(), hi.Y() - lo.Y(), hi.Z() - lo.Z()];
+    const centre = [(lo.X() + hi.X()) / 2, (lo.Y() + hi.Y()) / 2, (lo.Z() + hi.Z()) / 2];
+    const low = [lo.X(), lo.Y(), lo.Z()], high = [hi.X(), hi.Y(), hi.Z()];
     box.delete();
-    return { size, smallest: Math.min(...size), diagonal: Math.hypot(...size) };
+    return { size, centre, low, high,
+             smallest: Math.min(...size), diagonal: Math.hypot(...size) };
   }
 
   //! The smallest extent of any single solid in a shape. A fillet radius has to
@@ -3216,6 +3219,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
   //! What every transform below does with its answer: put it on, and keep the
   //! original beside it if that was asked for.
+  //! THE SAME SHAPE, AS A SHAPE OF ITS OWN. A driver that hands back the shape
+  //! it was given hands back the object its INPUT is stored in - and the next
+  //! time that driver runs, the document releases what it stored last time,
+  //! which deletes the input's shape out from under the feature that owns it.
+  //! Every build after that says "Cannot pass deleted object as a pointer of
+  //! type TopoDS_Shape" and there is nothing in the tree to explain it. So a
+  //! pass-through is a location of nothing: a new handle onto the same
+  //! geometry, which costs nothing and is safe to release.
+  const asItWas = shape => shape.Moved(new oc.TopLoc_Location(new oc.gp_Trsf()));
+
   function transformed(shape, trsf, { rebuild = false, keep = false } = {}) {
     const moved = rebuild
       ? new oc.BRepBuilderAPI_Transform(shape, trsf, true).Shape()
@@ -3352,12 +3365,79 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       const shape = F.shape(F.reference(f, "shape"));
       const at = readPoint(F.reference(f, "centre")) || [0, 0, 0];
       const factor = F.real(f, "factor", 2);
-      if (Math.abs(factor - 1) < CONFUSION) return shape;
+      if (Math.abs(factor - 1) < CONFUSION) return asItWas(shape);
       const trsf = new oc.gp_Trsf();
       trsf.SetScale(pnt(at), factor);
       return transformed(shape, trsf, { rebuild: true });
     },
   };
+
+  //! WHAT THE WIDGETS WRITE. Scale, then the three turns, then the move -
+  //! composed in that order because that is the order every package composes
+  //! them in, and a part turned and then moved has to end up where the hand
+  //! left it rather than out past the origin.
+  //!
+  //! The turns are about the point given, or about the middle of the shape
+  //! when none is: turning a tower about the world origin when you meant to
+  //! turn it on its own spot is the single most annoying thing a transform can
+  //! do, and it is not what the ring under your hand looked like it would do.
+  builders.Transform = {
+    precondition: f => {
+      const trouble = movedTrouble(f);
+      if (trouble) return trouble;
+      if (F.real(f, "factor", 1) <= CONFUSION) return "the size must be greater than zero";
+      return null;
+    },
+    build: f => {
+      const shape = F.shape(F.reference(f, "shape"));
+      const by = [F.real(f, "dx", 0), F.real(f, "dy", 0), F.real(f, "dz", 0)];
+      const turn = [F.real(f, "rx", 0), F.real(f, "ry", 0), F.real(f, "rz", 0)];
+      const factor = F.real(f, "factor", 1);
+      const about = readPoint(F.reference(f, "about")) || centreOfShape(shape) || [0, 0, 0];
+      const keep = Feature_choice(f, "keep") === 1;
+
+      const still = V.length(by) < CONFUSION && Math.abs(factor - 1) < CONFUSION
+        && turn.every(a => Math.abs(a) < 1e-9);
+      // A transform of nothing is still a transform: it hands its own shape on
+      // rather than failing, because everything downstream is wired to THIS
+      // node and a widget that has not been dragged yet must not break the tree.
+      if (still) return keep ? compoundOf([shape, asItWas(shape)]) : asItWas(shape);
+
+      // Composed by multiplying in order rather than by hand: gp_Trsf carries a
+      // scale factor of its own, so a scale and a rotation really are one
+      // transform and there is nothing to approximate.
+      let composed = new oc.gp_Trsf();
+      if (Math.abs(factor - 1) >= CONFUSION) {
+        const s = new oc.gp_Trsf();
+        s.SetScale(pnt(about), factor);
+        composed.Multiply(s);
+      }
+      const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+      for (let i = 0; i < 3; i++) {
+        if (Math.abs(turn[i]) < 1e-9) continue;
+        const r = new oc.gp_Trsf();
+        r.SetRotation(new oc.gp_Ax1(pnt(about), dir(axes[i])), turn[i] * Math.PI / 180);
+        composed.PreMultiply(r);
+      }
+      if (V.length(by) >= CONFUSION) {
+        const t = new oc.gp_Trsf();
+        t.SetTranslation(new oc.gp_Vec(by[0], by[1], by[2]));
+        composed.PreMultiply(t);
+      }
+      // A scale has to be rebuilt rather than relocated: a location carries a
+      // rigid move and nothing else, so a scaled shape put on one comes back
+      // the size it started.
+      const rebuild = Math.abs(factor - 1) >= CONFUSION;
+      return transformed(shape, composed, { rebuild, keep });
+    },
+  };
+
+  //! The middle of a shape's bounding box, which is what "about itself" means
+  //! to a hand on a ring.
+  function centreOfShape(shape) {
+    const box = extents(shape);
+    return box ? box.centre : null;
+  }
 
   builders.AxisToAxis = {
     precondition: f => {
