@@ -5020,6 +5020,16 @@ const ICONS = {
   Bisector: '<circle cx="3.4" cy="11.6" r="1.4" fill="currentColor"/>'
     + '<circle cx="12.6" cy="4.4" r="1.4" fill="currentColor"/>'
     + '<path d="M2.4 3.6L13.6 12.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-dasharray="2.4 1.8"/>',
+  // A curve through three points with a tangent arrow standing on the first.
+  BlendCurve: '<path d="M2.4 12.8C2.4 7.2 5.2 4 8 4s5.6 3.2 5.6 8.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
+    + '<path d="M2.4 12.8V6.2" stroke="currentColor" stroke-width="1" opacity=".55"/>'
+    + '<path d="M2.4 4.4l-1.5 2.6h3z" fill="currentColor" opacity=".7"/>'
+    + '<circle cx="8" cy="4" r="1.2" fill="currentColor"/>',
+  // A four-sided boundary with a patch filling it.
+  FillSurface: '<path d="M2.4 10.6C4.6 12.8 11.4 12.8 13.6 10.6 13.6 7 11 3.4 8 3.4S2.4 7 2.4 10.6z" fill="currentColor" opacity=".16"/>'
+    + '<path d="M2.4 10.6C4.6 12.8 11.4 12.8 13.6 10.6" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>'
+    + '<path d="M2.4 10.6C2.4 7 5 3.4 8 3.4s5.6 3.6 5.6 7.2" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>'
+    + '<path d="M5.4 7.6h5.2" stroke="currentColor" stroke-width=".9" opacity=".5"/>',
   Ellipse: '<ellipse cx="8" cy="8" rx="6.2" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.3"/>'
     + '<path d="M1.8 8h12.4" stroke="currentColor" stroke-width="1" opacity=".5"/>',
   Conic: '<path d="M2.6 2.4C2.6 8 5.4 13.6 8 13.6s5.4-5.6 5.4-11.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'

@@ -1970,6 +1970,33 @@ export const CATALOGUE = [
            spare("second", "Second", ["curve", "point", "plane"]),
            real("span", "How far to draw it", 0, 0, 100000, 1),
            real("steps", "Smoothness", 96, 8, 1200, 1, "")] },
+  //! THE BLEND CURVE, which CATIA calls exactly that. A spline through points
+  //! is a spline; a spline that ARRIVES somewhere in a direction you chose is
+  //! a piece of a design. The difference is one constraint per point, and
+  //! whether it is honoured.
+  //!
+  //! Tangents are matched to points BY POSITION: the first wire into Tangents
+  //! belongs to the first wire into Through, and so on. Fewer tangents than
+  //! points is normal - the ones you did not say are worked out from the
+  //! neighbours, the way a spline already does it.
+  { type: "BlendCurve", guid: "9a1b2c30-005a-4c00-9e00-caf00000005a", category: "curve",
+    produces: "curve",
+    summary: "A smooth curve through points that LEAVES AND ARRIVES the way you say. "
+           + "Wire in the points it passes through, and, for any of them, a direction "
+           + "it has to be going at that point - a vector, an axis, or a straight "
+           + "curve to run along. Tension is how hard the constraint pulls: 1 is the "
+           + "natural spline, more bulges towards the direction, less tightens onto "
+           + "the chord. One number for the whole curve, or one per point typed in "
+           + "order.",
+    args: [refs("points", "Through", ["point"]),
+           refs("tangents", "Going which way", ["vector", "axis", "curve"]),
+           real("tension", "Tension", 1, 0.05, 20, 0.05, ""),
+           text("tensions", "Tension at each", "",
+                "one per point, in order - 1, 2, 0.5 - and blank for the one above"),
+           choice("ends", "Ends", ["Open", "Closed"], 0),
+           choice("honour", "The directions are",
+                  ["Honoured exactly", "A suggestion"], 0),
+           real("steps", "Smoothness", 24, 2, 400, 1, "")] },
   { type: "Polyline", guid: "9a1b2c30-0051-4c00-9e00-caf000000051", category: "curve",
     produces: "curve",
     summary: "Straight segments through a list of points. Takes as many sources as "
@@ -1987,6 +2014,33 @@ export const CATALOGUE = [
 
   /* ----------------------------------------------------------- analysis
      The other direction: geometry back into numbers and points. */
+  //! THE FILL SURFACE, with constraints - which is the class-A tool and the
+  //! reason BRepOffsetAPI_MakeFilling exists. A boundary alone gives you a
+  //! patch; a boundary where each curve also names a surface it has to meet
+  //! TANGENTIALLY gives you a patch that disappears into the thing around it,
+  //! which is the whole of corner-blending and most of car-body surfacing.
+  //!
+  //! Supports are matched to boundary curves BY POSITION, the way the blend
+  //! curve matches tangents to points: the first wire into "Meeting" belongs
+  //! to the first wire into "Boundary". Leave one out and that edge is only
+  //! held in place, not held tangent.
+  { type: "FillSurface", guid: "9a1b2c30-005c-4c00-9e00-caf00000005c", category: "body",
+    produces: "solid",
+    summary: "A surface through a boundary of curves, made to meet what is around it. "
+           + "Each boundary curve may name a shape it has to touch, run tangent to, "
+           + "or match the curvature of - and the patch may be made to pass through "
+           + "points as well. Says how well it managed: the gap in millimetres, the "
+           + "tangency in degrees, and the curvature.",
+    args: [refs("boundary", "Boundary", ["curve"], true),
+           refs("supports", "Meeting", ["solid", "plane", "curve"]),
+           choice("continuity", "How it meets them",
+                  ["Touching \u00b7 G0", "Tangent \u00b7 G1", "Curvature \u00b7 G2"], 1),
+           text("each", "Or one per curve", "",
+                "G0, G1, G2 - one per boundary curve, in order; blank uses the "
+                + "setting above"),
+           refs("through", "Passing through", ["point"]),
+           real("degree", "Degree", 3, 2, 12, 1, ""),
+           real("tolerance", "Tolerance", 0.01, 1e-5, 10, 0.001)] },
   { type: "EvaluateCurve", guid: "9a1b2c30-0060-4c00-9e00-caf000000060", category: "analysis",
     produces: "point",
     summary: "The point at a parameter along a curve, with its tangent drawn. Wire a "

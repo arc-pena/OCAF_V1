@@ -1823,6 +1823,263 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
 
 
+  /* ------------------------------------------------------- the blend curve
+
+     A SPLINE THROUGH POINTS IS A SPLINE. A spline that LEAVES and ARRIVES the
+     way you said is a piece of a design, and the difference is one constraint
+     per point.
+
+     Written as a cubic Hermite per span, which is the shape that takes a
+     direction at each end and a magnitude to go with it. Where no direction
+     is given the Catmull-Rom one is used, so a blend curve with nothing said
+     about it is exactly the spline node - and every constraint added moves it
+     from there rather than from nowhere.
+
+     Tension scales the tangent's LENGTH, not its direction: 1 is the natural
+     spline, more bulges out towards the direction before turning, less pulls
+     the curve onto its chord. It is the knob every blend tool has and the one
+     that is actually used.                                                 */
+
+  //! A direction read off whatever was wired in: a vector, an axis, or a
+  //! straight curve to run along. Null when nothing was wired at that
+  //! position, which means "work it out from the neighbours".
+  function wayFrom(source) {
+    if (!source) return null;
+    const vector = readVector(source);
+    if (vector) return V.norm(vector);
+    const axis = readAxisSystem(source);
+    if (axis) return V.norm(axis.z);
+    const shape = F.shape(source);
+    if (!shape) return null;
+    const edges = subShapes(shape, EDGE, oc.TopoDS.Edge);
+    if (!edges.length) return null;
+    const ends = edgeEnds(edges[0]);
+    return ends ? V.norm(V.sub(ends[1], ends[0])) : null;
+  }
+
+  //! "1, 2, 0.5" - one per point, and whatever is missing falls back to the
+  //! one number on the node. Typed, because a tension per point is a row of
+  //! small numbers and a row of sliders would be a panel nobody could read.
+  function tensionList(text, fallback, many) {
+    const said = String(text || "").split(/[,\s]+/).map(Number).filter(Number.isFinite);
+    return Array.from({ length: many },
+                      (_, i) => (said[i] > 0 ? said[i] : fallback));
+  }
+
+  builders.BlendCurve = {
+    precondition: f => pointsOf(f, "points").length < 2
+      ? "a blend curve needs at least two points to run between" : null,
+    build: f => {
+      const list = pointsOf(f, "points");
+      const closed = Feature_choice(f, "ends") === 1;
+      const sources = F.references(f, "tangents");
+      const said = list.map((_, i) => wayFrom(sources[i]));
+      const tension = tensionList(F.text(f, "tensions"),
+                                  Math.max(0.05, F.real(f, "tension", 1)), list.length);
+      const strict = Feature_choice(f, "honour") === 0;
+      const n = list.length;
+      const at = i => list[closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i))];
+
+      //! The tangent AT each point. Where one was given it is used, turned to
+      //! run the way the curve is already going so a direction wired in
+      //! backwards does not fold the curve over - unless it was asked to be
+      //! honoured exactly, in which case backwards is what was asked for and
+      //! the curve turns round.
+      const ways = list.map((p, i) => {
+        const along = V.sub(at(i + 1), at(i - 1));
+        const natural = V.scale(along, 0.5);
+        const asked = said[i];
+        if (!asked) return V.scale(natural, tension[i]);
+        const size = V.length(natural) || V.length(V.sub(at(i + 1), at(i))) || 1;
+        const way = strict || V.dot(asked, natural) >= 0 ? asked : V.scale(asked, -1);
+        return V.scale(way, size * tension[i]);
+      });
+
+      const steps = Math.max(2, Math.round(F.real(f, "steps", 24)));
+      const spans = closed ? n : n - 1;
+      const out = [];
+      for (let s = 0; s < spans; s++) {
+        const p0 = at(s), p1 = at(s + 1);
+        const m0 = ways[((s % n) + n) % n], m1 = ways[((s + 1) % n + n) % n];
+        for (let j = 0; j < steps; j++) {
+          const u = j / steps, u2 = u * u, u3 = u2 * u;
+          const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u;
+          const h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+          out.push([0, 1, 2].map(k =>
+            h00 * p0[k] + h10 * m0[k] + h01 * p1[k] + h11 * m1[k]));
+        }
+      }
+      if (!closed) out.push(list[n - 1]);
+      const held = said.filter(Boolean).length;
+      return { shape: HSF.polyline(out, closed),
+               data: points(list),
+               note: n + " points · " + (held ? held + " with a direction given"
+                                                  : "no directions given") };
+    },
+  };
+
+  /* ---------------------------------------------------- the fill surface
+
+     THE CLASS-A TOOL. BRepOffsetAPI_MakeFilling takes a boundary, and for
+     each boundary edge it will take a FACE the new surface has to meet - G0
+     touching, G1 tangent, G2 matching curvature - plus points it has to pass
+     through. That is exactly CATIA's Fill with constraints, and it is the
+     move that makes a patch disappear into the thing around it.
+
+     And it SAYS HOW WELL IT DID. MakeFilling reports the worst gap, the worst
+     angle and the worst curvature difference it left behind, which for this
+     kind of work is not a detail - a patch that is tangent to within four
+     degrees is not tangent, and the only way to know is to be told.        */
+
+  const FILL_CONTINUITY = ["C0", "G1", "G2"];
+
+  //! "G1, G2, G0" - one per boundary curve, and whatever is missing falls
+  //! back to the one setting on the node.
+  function continuityList(text, fallback, many) {
+    const said = String(text || "").toUpperCase().split(/[,\s]+/).filter(Boolean)
+      .map(word => word === "G0" || word === "C0" ? 0 : word === "G1" ? 1
+                 : word === "G2" ? 2 : -1);
+    return Array.from({ length: many },
+                      (_, i) => (said[i] >= 0 ? said[i] : fallback));
+  }
+
+  //! WHICH FACE of a support a boundary edge should meet. A plane has one; a
+  //! solid has dozens, and the one that was meant is the one the edge is
+  //! lying on - so it is the nearest, measured from the middle of the edge.
+  //! Said out loud because it is a rule somebody has to be able to predict.
+  function nearestFace(shape, edge) {
+    const faces = subShapes(shape, FACE, oc.TopoDS.Face);
+    if (!faces.length) return null;
+    if (faces.length === 1) return faces[0];
+    const ends = edgeEnds(edge);
+    const mid = ends ? V.scale(V.add(ends[0], ends[1]), 0.5) : [0, 0, 0];
+    const probe = new oc.BRepBuilderAPI_MakeVertex(pnt(mid)).Vertex();
+    let best = faces[0], far = Infinity;
+    for (const face of faces) {
+      try {
+        const gap = new oc.BRepExtrema_DistShapeShape(probe, face,
+          oc.Extrema_ExtFlag.EXT_ExtFlag_MINMAX, oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
+          new oc.Message_ProgressRange());
+        if (gap.IsDone() && gap.Value() < far) { far = gap.Value(); best = face; }
+      } catch (error) { /* a face that will not measure is not the nearest */ }
+    }
+    return best;
+  }
+
+  builders.FillSurface = {
+    precondition: f => {
+      const boundary = F.references(f, "boundary").filter(one => F.shape(one));
+      if (!boundary.length) return "wire in the curves that bound the surface";
+      return null;
+    },
+    build: f => {
+      const boundary = F.references(f, "boundary").filter(one => F.shape(one));
+      const supports = F.references(f, "supports");
+      const degree = Math.max(2, Math.round(F.real(f, "degree", 3)));
+      const tol = Math.max(1e-5, F.real(f, "tolerance", 0.01));
+      //! TRIED WITH THE CONSTRAINTS, AND AGAIN WITHOUT. A tangency that the
+      //! edge cannot carry sometimes raises on the Add and sometimes waits
+      //! and raises on the Build - one is a refusal and the other is a
+      //! collapse, and from out here they are the same thing: this boundary
+      //! will not take that constraint. So it is built again holding the
+      //! edges in place only, and the note says the constraint was dropped.
+      //! A patch with a sentence attached beats an empty tree.
+      let got = attempt(true);
+      if (!got.ok) got = attempt(false);
+      if (!got.ok) throw got.error;
+      return got.answer;
+
+      function attempt(hold) {
+      const fill = new oc.BRepOffsetAPI_MakeFilling(
+        degree, 15, 2, false, tol * 0.1, tol, tol * 10, tol * 100, 8, 9);
+
+      //! EVERY EDGE OF EVERY CURVE, flattened, so a boundary given as one
+      //! polyline of nine segments is nine edges - which is what MakeFilling
+      //! wants - while the continuity is still said per CURVE, which is how a
+      //! person thinks about it.
+      const rows = [];
+      boundary.forEach((one, i) => {
+        for (const edge of subShapes(F.shape(one), EDGE, oc.TopoDS.Edge))
+          rows.push({ edge, curve: i });
+      });
+      if (rows.length < 2)
+        throw new Error("a surface needs a boundary of at least two edges");
+      const wants = continuityList(F.text(f, "each"),
+                                   Feature_choice(f, "continuity"), boundary.length);
+
+      let tangential = 0;
+      const refused = [];
+      for (const row of rows) {
+        const level = hold ? (wants[row.curve] || 0) : 0;
+        const support = supports[row.curve];
+        const face = level > 0 && support && F.shape(support)
+          ? nearestFace(F.shape(support), row.edge) : null;
+        const shape = oc.GeomAbs_Shape[
+          "GeomAbs_" + FILL_CONTINUITY[face ? level : 0]];
+        //! A TANGENCY THAT WILL NOT TAKE IS STILL A BOUNDARY. OpenCascade
+        //! wants the edge to lie ON the face it is held tangent to, and when
+        //! it does not - or when the two are coplanar, so "tangent" asks for a
+        //! surface with no room to leave in - it raises rather than answers.
+        //! Better to build the patch held in place and SAY the tangency was
+        //! refused: a surface you can look at and a sentence saying what it is
+        //! missing is a position to work from, and nothing at all is not.
+        let took = false;
+        if (face) {
+          try { fill.Add(row.edge, face, shape, true); took = true; tangential++; }
+          catch (error) { refused.push(kernelMessage(error)); }
+        }
+        if (!took) {
+          try { fill.Add(row.edge, oc.GeomAbs_Shape.GeomAbs_C0, true); }
+          catch (error) {
+            throw new Error("that boundary would not be taken: " + kernelMessage(error));
+          }
+        }
+      }
+
+      const through = pointsOf(f, "through");
+      for (const p of through) fill.Add(pnt(p));
+
+      let face = null;
+      try {
+        fill.Build(new oc.Message_ProgressRange());
+        if (fill.IsDone()) face = fill.Shape();
+      } catch (error) {
+        return { ok: false, error: new Error("no surface would pass through that "
+          + "boundary: " + kernelMessage(error)) };
+      }
+      if (!face || face.IsNull())
+        return { ok: false, error: new Error("no surface would pass through that boundary"
+          + (tangential ? " and meet what it was told to meet" : "")) };
+
+      //! HOW WELL IT DID, in the units somebody argues about: the gap in
+      //! millimetres, the tangency as an angle rather than as a sine, and the
+      //! curvature as the number the kernel gives.
+      const trim = v => Math.round(v * 1e4) / 1e4;
+      const said = ["gap " + trim(safely(() => fill.G0Error(), 0)) + " mm"];
+      if (tangential) {
+        const g1 = safely(() => fill.G1Error(), 0);
+        said.push("tangency " + trim(Math.asin(Math.max(-1, Math.min(1, g1)))
+                                     * 180 / Math.PI) + "°");
+        if (wants.some(w => w === 2))
+          said.push("curvature " + trim(safely(() => fill.G2Error(), 0)));
+      }
+      if (through.length) said.push(through.length + " points passed through");
+      if (refused.length)
+        said.push(refused.length + (refused.length === 1 ? " edge" : " edges")
+          + " would not take the constraint " + JSON.stringify(refused[0]).slice(1, -1)
+          + " \u2014 an edge has to lie ON the face it is held tangent to");
+      if (!hold && wants.some(one => one > 0))
+        said.push("the constraints would not build on this boundary, so it is held "
+          + "in place only — an edge has to lie ON the face it meets");
+      return { ok: true, answer: { shape: face,
+               note: rows.length + " edges · " + tangential + " held tangent · "
+                     + said.join(" · ") } };
+      }
+    },
+  };
+
+  const safely = (run, fallback) => { try { return run(); } catch (error) { return fallback; } };
+
   /* --------------------------------------------- rounding a curve's corners
 
      THE 2D FILLET. OpenCascade has ChFi2d for this and the WebAssembly build
