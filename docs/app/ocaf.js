@@ -1772,11 +1772,204 @@ export const CATALOGUE = [
            choice("faces", "Closed loops", ["Make faces", "Leave as wires"], 0),
            choice("solve", "Constraints", ["Solve", "Ignore"], 0),
            real("passes", "Solver passes", 24, 1, 400, 1, "")] },
+  //! THE ARGUMENTS ARE APPENDED, never inserted. An argument's index here is
+  //! its OCAF child tag, so putting the centre in front of the radius would
+  //! quietly read every circle in every file already saved as having its
+  //! radius where its centre is. New questions go at the end, whatever that
+  //! does to the order they are asked in.
   { type: "Circle", guid: "9a1b2c30-0050-4c00-9e00-caf000000050", category: "curve",
     produces: "curve",
-    summary: "A circle on a plane. A profile to extrude, a section to loft, a rail "
-           + "to sweep along.",
-    args: [ref("plane", "Plane", ["plane"]), real("radius", "Radius", 60, 0.5, 4000, 0.5)] },
+    summary: "A circle on a plane, standing where you say. Wire a point into the "
+           + "centre and it stands there; say whether the plane is only telling it "
+           + "which way to face or is also the height it sits at. Its size is a "
+           + "radius, or a point it has to pass through. A circle found from what it "
+           + "must TOUCH is the constrained circle instead.",
+    args: [ref("plane", "Plane", ["plane"]), real("radius", "Radius", 60, 0.5, 4000, 0.5),
+           spare("centre", "Centre", ["point"]),
+           //! THE QUESTION THE USER ASKED FOR, in the words it was asked in: a
+           //! plane may be the SUPPORT a circle lies on, or only the direction
+           //! it faces. Dropped onto the plane, a centre two metres above it
+           //! makes a circle on the plane; left alone, it makes one two metres
+           //! up, parallel to it.
+           choice("onPlane", "The plane",
+                  ["Only says which way it faces", "Is what it lies on"], 0),
+           choice("kind", "Its size is", ["A radius", "A point it passes through"], 0),
+           when(spare("through", "Passes through", ["point"]), "kind", 1)] },
+  { type: "Ellipse", guid: "9a1b2c30-0056-4c00-9e00-caf000000056", category: "curve",
+    produces: "curve",
+    summary: "An ellipse on a plane: a long radius, a short one, and the angle the "
+           + "long one is turned to within the plane. Wire a point into the centre "
+           + "to stand it somewhere, and a second into the long axis to point it at "
+           + "something rather than typing the angle.",
+    args: [ref("plane", "Plane", ["plane"]), spare("centre", "Centre", ["point"]),
+           choice("onPlane", "The plane",
+                  ["Only says which way it faces", "Is what it lies on"], 0),
+           real("major", "Long radius", 120, 0.5, 100000, 0.5),
+           real("minor", "Short radius", 70, 0.5, 100000, 0.5),
+           real("angle", "Turned by", 0, -180, 180, 0.5, "\u00b0"),
+           spare("towards", "Long axis towards", ["point"]),
+           choice("trim", "Draw", ["The whole ellipse", "An arc of it"], 0),
+           when(real("from", "From", 0, -360, 360, 1, "\u00b0"), "trim", 1),
+           when(real("to", "To", 180, -360, 360, 1, "\u00b0"), "trim", 1)] },
+  //! A PARABOLA AND A HYPERBOLA ARE ONE NODE, because they are one question -
+  //! how sharply does it open - and because this build carries neither
+  //! gp_Parab nor gp_Hypr, so both arrive the same way: sampled. A conic drawn
+  //! as two hundred segments lofts, sweeps and measures exactly as a conic
+  //! does; what it cannot do is come back out of a STEP file calling itself a
+  //! parabola, which is worth saying rather than hiding.
+  { type: "Conic", guid: "9a1b2c30-0057-4c00-9e00-caf000000057", category: "curve",
+    produces: "curve",
+    summary: "A parabola or a hyperbola on a plane, standing on its apex and opening "
+           + "along the plane's own direction unless you turn it. Its shape is the "
+           + "focal distance - how far the focus is from the apex - and how far out "
+           + "to draw it.",
+    args: [ref("plane", "Plane", ["plane"]), spare("apex", "Apex", ["point"]),
+           choice("onPlane", "The plane",
+                  ["Only says which way it faces", "Is what it lies on"], 0),
+           choice("kind", "Which", ["Parabola", "Hyperbola"], 0),
+           real("focal", "Focal distance", 60, 0.1, 100000, 0.5),
+           when(real("minor", "Short radius", 60, 0.1, 100000, 0.5), "kind", 1),
+           real("extent", "How far out", 300, 1, 100000, 1),
+           real("angle", "Turned by", 0, -180, 180, 0.5, "\u00b0"),
+           real("steps", "Smoothness", 96, 8, 1200, 1, "")] },
+  { type: "Oblong", guid: "9a1b2c30-0058-4c00-9e00-caf000000058", category: "curve",
+    produces: "curve",
+    summary: "A slot: two straight sides and a half-circle at each end. The shape a "
+           + "bolt hole is, and the one a running track is - given as a length "
+           + "overall and a width across.",
+    args: [ref("plane", "Plane", ["plane"]), spare("centre", "Centre", ["point"]),
+           choice("onPlane", "The plane",
+                  ["Only says which way it faces", "Is what it lies on"], 0),
+           real("length", "Length", 240, 0.5, 100000, 0.5),
+           real("width", "Width", 80, 0.5, 100000, 0.5),
+           real("angle", "Turned by", 0, -180, 180, 0.5, "\u00b0")] },
+  //! ONE RECTANGLE, WITH A CORNER RADIUS. A rounded rectangle is a rectangle
+  //! whose corners have a radius, and two nodes for that would be two places
+  //! to change a width. Nought is square, which is what a rectangle has always
+  //! been.
+  { type: "Rectangle", guid: "9a1b2c30-0059-4c00-9e00-caf000000059", category: "curve",
+    produces: "curve",
+    summary: "A rectangle on a plane, square-cornered or rounded - the corner radius "
+           + "is a number on the node, and nought is square. Anchored at its middle "
+           + "or at a corner, whichever suits what it is being lined up with.",
+    args: [ref("plane", "Plane", ["plane"]), spare("at", "At", ["point"]),
+           choice("onPlane", "The plane",
+                  ["Only says which way it faces", "Is what it lies on"], 0),
+           real("width", "Width", 240, 0.5, 100000, 0.5),
+           real("height", "Height", 160, 0.5, 100000, 0.5),
+           real("radius", "Corner radius", 0, 0, 100000, 0.5),
+           choice("anchor", "The point is", ["Its middle", "A corner"], 0),
+           real("angle", "Turned by", 0, -180, 180, 0.5, "\u00b0")] },
+  //! ROUNDING THE CORNERS OF A CURVE, which is the 2D fillet - and every
+  //! corner by default, the way the solid fillet takes every edge by default.
+  //! Clicking the ones you want in the viewport narrows it, the same gesture
+  //! and the same storage.
+  { type: "FilletCurve", guid: "9a1b2c30-005b-4c00-9e00-caf00000005b", category: "curve",
+    produces: "curve",
+    summary: "Rounds the corners of a curve. Every corner by default; click the "
+           + "ones you want in the viewport to round only those. A corner between "
+           + "two straight runs is rounded exactly; one where the curve already "
+           + "turns smoothly is left alone and said so.",
+    args: [ref("curve", "Curve", ["curve"], true),
+           subs("corners", "Corners", "vertex",
+                "which corners to round \u00b7 empty rounds every one",
+                "every corner"),
+           real("radius", "Radius", 20, 0.01, 100000, 0.5)] },
+
+  /* ------------------------------------------- lines and circles from constraints
+
+     A drawing office does not say "a circle at 40, 60 of radius 12". It says
+     "the circle of radius 12 that touches that arc and that line, on the
+     outside of both" - and the numbers fall out of the relation rather than
+     the other way about. OpenCascade has a package for exactly this, GccAna,
+     and the WebAssembly build shipped here does not carry it, so it is solved
+     in gcc.js instead. Same constructions, same four qualifiers, same
+     several-answers-and-you-pick-one.
+
+     ONE NODE, NOT NINE. A circle from constraints is a circle whichever
+     construction found it, so the construction is a choice on the node the
+     same way the point node works, and everything downstream is none the
+     wiser. */
+  { type: "ConstrainedCircle", guid: "9a1b2c30-0053-4c00-9e00-caf000000053",
+    category: "curve", produces: "curve",
+    summary: "A circle found from what it must touch rather than from where it is. "
+           + "Tangent to two things with a radius, tangent to three, tangent to two "
+           + "and centred on a third, through three points - the constructions "
+           + "GccAna offers. Several answers usually fit; say which side of each "
+           + "argument you want to be on to narrow them, then pick from what is "
+           + "left. Everything is worked out on the plane, so the things it "
+           + "touches are read as they fall on it.",
+    args: [ref("plane", "Plane", ["plane"]),
+           choice("kind", "The circle is",
+                  ["Tangent to two, with a radius", "Tangent to three",
+                   "Tangent to two, centred on a third",
+                   "Tangent to one, centred on another, with a radius",
+                   "Tangent to one, centred at a point",
+                   "Through three points", "Through two points, with a radius"], 0),
+           ref("first", "First", ["curve", "point", "plane"]),
+           whenAny(spare("second", "Second", ["curve", "point", "plane"]),
+                   "kind", [0, 1, 2, 5, 6]),
+           whenAny(spare("third", "Third", ["curve", "point", "plane"]), "kind", [1, 5]),
+           whenAny(spare("on", "Centred on", ["curve", "plane"]), "kind", [2, 3]),
+           when(spare("at", "Centred at", ["point"]), "kind", 4),
+           whenAny(real("radius", "Radius", 60, 0.01, 100000, 0.5), "kind", [0, 3, 6]),
+           whenAny(choice("askFirst", "Against the first",
+                          ["Either side", "Outside it", "Inside it", "Around it"], 0),
+                   "kind", [0, 1, 2, 3]),
+           whenAny(choice("askSecond", "Against the second",
+                          ["Either side", "Outside it", "Inside it", "Around it"], 0),
+                   "kind", [0, 1, 2]),
+           when(choice("askThird", "Against the third",
+                       ["Either side", "Outside it", "Inside it", "Around it"], 0),
+                "kind", 1),
+           //! THE SECOND AND THIRD ARRIVE EMPTY. Guessed the way every other
+           //! input is guessed, all three would point at the same feature and
+           //! the node would be born asking for a circle tangent to one thing
+           //! three times over. A constraint is about the relation BETWEEN
+           //! things, so the things have to be said.
+           //! WHICH OF THEM. Eight is the documentation's own number for a
+           //! tangency to two circles, and no amount of qualifying always gets
+           //! to one - so the last word is a number, and the note says how
+           //! many there were to choose from.
+           real("answer", "Which answer", 1, 1, 32, 1, ""),
+           whenAny(choice("trim", "Draw",
+                          ["The whole circle", "The arc between the points"], 0),
+                   "kind", [5, 6])] },
+  { type: "ConstrainedLine", guid: "9a1b2c30-0054-4c00-9e00-caf000000054",
+    category: "curve", produces: "curve",
+    summary: "A straight line found from what it must touch: tangent to two things, "
+           + "or tangent to one and parallel, square, or at an angle to another. "
+           + "A line has no ends, so it is drawn as a segment of the length you "
+           + "ask for, centred between what it touches.",
+    args: [ref("plane", "Plane", ["plane"]),
+           choice("kind", "The line is",
+                  ["Tangent to two", "Tangent to one, parallel to a line",
+                   "Tangent to one, square to a line",
+                   "Tangent to one, at an angle to a line"], 0),
+           ref("first", "First", ["curve", "point", "plane"]),
+           when(spare("second", "Second", ["curve", "point", "plane"]), "kind", 0),
+           whenAny(spare("reference", "Reference line", ["curve", "vector", "axis"]),
+                   "kind", [1, 2, 3]),
+           when(real("angle", "Angle", 30, -180, 180, 0.5, "\u00b0"), "kind", 3),
+           when(choice("askFirst", "Against the first",
+                       ["Either side", "Outside it", "Inside it"], 0), "kind", 0),
+           when(choice("askSecond", "Against the second",
+                       ["Either side", "Outside it", "Inside it"], 0), "kind", 0),
+           real("answer", "Which answer", 1, 1, 8, 1, ""),
+           real("length", "Length", 400, 1, 100000, 1)] },
+  { type: "Bisector", guid: "9a1b2c30-0055-4c00-9e00-caf000000055",
+    category: "curve", produces: "curve",
+    summary: "Everywhere that is equally far from two things. Between two points or "
+           + "two lines that is a straight line; between a line and a point it is a "
+           + "parabola; between a circle and a point inside it an ellipse, outside it "
+           + "a hyperbola. The conics arrive as a fine run of segments, because this "
+           + "build carries no parabola to hand back - they draw, loft and measure "
+           + "the same either way.",
+    args: [ref("plane", "Plane", ["plane"]),
+           ref("first", "First", ["curve", "point", "plane"]),
+           spare("second", "Second", ["curve", "point", "plane"]),
+           real("span", "How far to draw it", 0, 0, 100000, 1),
+           real("steps", "Smoothness", 96, 8, 1200, 1, "")] },
   { type: "Polyline", guid: "9a1b2c30-0051-4c00-9e00-caf000000051", category: "curve",
     produces: "curve",
     summary: "Straight segments through a list of points. Takes as many sources as "

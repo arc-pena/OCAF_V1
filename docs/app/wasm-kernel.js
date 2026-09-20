@@ -34,6 +34,10 @@ import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPo
 import { cornersOf, frameAt, frameOf, saysShot } from "./camera.js";
 import { readStory, saysStory } from "./story.js";
 import { fovFromLens } from "./gizmo.js";
+import { QUALIFIERS, bisector, cCircle, cLine, cPoint, circle2PointsRadius,
+         circle2TanOn, circle2TanRadius, circle3Tan, circleTanCentre,
+         circleTanOnRadius, circleThrough3, line2Tan, lineTanAngle,
+         saysCircle, saysLine } from "./gcc.js";
 import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
@@ -1494,6 +1498,10 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
 
   const eachEdge = shape => uniqueSubs(shape, EDGE, oc.TopoDS.Edge);
   const eachFace = shape => uniqueSubs(shape, FACE, oc.TopoDS.Face);
+  //! THE CORNERS OF A WIRE, once each and in the order the wire runs - which
+  //! matters, because a corner is named by its number and a number that means
+  //! a different corner after a rebuild is worse than no number at all.
+  const eachVertex = shape => uniqueSubs(shape, VERTEX, oc.TopoDS.Vertex);
 
   //! WHAT THE VIEWPORT PICKS FROM. Every edge as the polyline it is drawn
   //! with, every face as its own triangles - so a click can be tested against
@@ -1505,6 +1513,24 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   function pickList(shape, kind) {
     const rough = deflectionFor(shape);
     const out = [];
+    //! A CORNER IS A POINT, and a point cannot be clicked - there is nothing
+    //! of it to hit. So each one is offered as a small three-armed cross, in
+    //! the model's own units, which the viewport draws and the ray tests
+    //! exactly as it tests an edge. One kind of item, one hit test, one
+    //! highlight; the only difference is the shape of the thing drawn.
+    if (kind === "vertex") {
+      const arm = Math.max(deflectionFor(shape) * 6, 1e-6);
+      for (const corner of eachVertex(shape)) {
+        const p = oc.BRep_Tool.Pnt(corner);
+        const at = [p.X(), p.Y(), p.Z()];
+        const lines = [];
+        for (const way of [[arm, 0, 0], [0, arm, 0], [0, 0, arm]])
+          lines.push(at[0] - way[0], at[1] - way[1], at[2] - way[2],
+                     at[0] + way[0], at[1] + way[1], at[2] + way[2]);
+        out.push({ at: out.length, lines, points: [at], near: at.slice() });
+      }
+      return out;
+    }
     if (kind === "face") {
       for (const face of eachFace(shape)) {
         const mesh = oc.ReplicadMeshExtractor.extract(face, rough, 0.3, false);
@@ -1539,7 +1565,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   //! say so rather than quietly doing less.
   function pickedSubs(f, key, shape, kind) {
     const picks = readPicks(F.picks(f, key));
-    const all = kind === "face" ? eachFace(shape) : eachEdge(shape);
+    const all = kind === "face" ? eachFace(shape)
+              : kind === "vertex" ? eachVertex(shape) : eachEdge(shape);
     if (!picks.length) return { chosen: all, lost: 0, whole: true };
     const anchors = pickList(shape, kind).map(one => one.near);
     const { found, lost } = resolvePicks(anchors, picks);
@@ -1571,13 +1598,726 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     return [wireOf(F.reference(f, "profile"), "profile")];
   }
 
+  /* ------------------------------------------------ the drawn curve family
+
+     WHERE A SHAPE STANDS, and what the plane has to do with it. A plane can
+     mean two things and CAD has always been sloppy about which: it can be the
+     SUPPORT a thing lies on, or it can only be saying WHICH WAY the thing
+     faces. Wire a point two metres above a plane into a circle and both
+     answers are defensible - a circle on the plane under the point, or a
+     circle two metres up facing the same way. So it is asked rather than
+     assumed, on every one of these.                                        */
+
+  //! The frame a drawn curve stands in: the plane's direction, at the centre
+  //! point if one is wired, and turned within the plane by \p angle. The
+  //! centre is dropped onto the plane or left where it is, as the node says.
+  function seatOn(f, centreKey = "centre", angleKey = "angle") {
+    const axis = planeAxis(F.reference(f, "plane"));
+    if (!axis) return null;
+    const N = axis.Direction(), X = axis.XDirection();
+    const n = [N.X(), N.Y(), N.Z()], x = [X.X(), X.Y(), X.Z()];
+    const here = axis.Location();
+    let at = [here.X(), here.Y(), here.Z()];
+    const asked = readPoint(F.reference(f, centreKey));
+    if (asked) at = Feature_choice(f, "onPlane") === 1
+      ? V.sub(asked, V.scale(n, V.dot(V.sub(asked, at), n)))   // dropped onto it
+      : asked;                                                  // left where it is
+    const turn = angleKey ? F.real(f, angleKey, 0) * Math.PI / 180 : 0;
+    const Y = axis.YDirection();
+    const y = [Y.X(), Y.Y(), Y.Z()];
+    const along = V.add(V.scale(x, Math.cos(turn)), V.scale(y, Math.sin(turn)));
+    const across = V.add(V.scale(x, -Math.sin(turn)), V.scale(y, Math.cos(turn)));
+    return { at, n, x: along, y: across,
+             ax: new oc.gp_Ax2(pnt(at), dir(n), dir(along)),
+             //! Two numbers on the plane, one point in the world.
+             on: uv => V.add(at, V.add(V.scale(along, uv[0]), V.scale(across, uv[1]))) };
+  }
+
+  const planeNeeded = what => f =>
+    planeAxis(F.reference(f, "plane")) ? null : "a plane is needed to put the " + what + " on";
+
   builders.Circle = {
     precondition: f => {
       if (!planeAxis(F.reference(f, "plane"))) return "a plane is needed to put the circle on";
-      if (F.real(f, "radius", 60) <= CONFUSION) return "radius must be positive";
+      if (Feature_choice(f, "kind") === 0 && F.real(f, "radius", 60) <= CONFUSION)
+        return "radius must be positive";
       return null;
     },
-    build: f => HSF.circle(planeAxis(F.reference(f, "plane")), F.real(f, "radius", 60)),
+    build: f => {
+      const seat = seatOn(f, "centre", null);
+      let radius = F.real(f, "radius", 60);
+      if (Feature_choice(f, "kind") === 1) {
+        // SIZED BY A POINT IT PASSES THROUGH. Measured in the plane, not in
+        // space: a point a little off the plane should not make the circle
+        // bigger by the amount it is off, it should make one that passes
+        // under it.
+        const through = readPoint(F.reference(f, "through"));
+        if (!through) throw new Error("wire in the point it has to pass through");
+        const out = V.sub(through, seat.at);
+        const flat = V.sub(out, V.scale(seat.n, V.dot(out, seat.n)));
+        radius = V.length(flat);
+        if (radius <= CONFUSION)
+          throw new Error("that point is the centre, so there is no circle through it");
+      }
+      return { shape: HSF.circle(seat.ax, radius),
+               note: "r " + Math.round(radius * 100) / 100 };
+    },
+  };
+
+  builders.Ellipse = {
+    precondition: f => {
+      const said = planeNeeded("ellipse")(f);
+      if (said) return said;
+      if (F.real(f, "minor", 70) > F.real(f, "major", 120))
+        return "the short radius cannot be longer than the long one";
+      return null;
+    },
+    build: f => {
+      let seat = seatOn(f, "centre", "angle");
+      // POINTED AT SOMETHING rather than typed: the long axis turned to face a
+      // point is how an ellipse gets lined up with a street or a site edge,
+      // and it stays lined up when the point moves.
+      const towards = readPoint(F.reference(f, "towards"));
+      if (towards) {
+        const out = V.sub(towards, seat.at);
+        const flat = V.sub(out, V.scale(seat.n, V.dot(out, seat.n)));
+        if (V.length(flat) > CONFUSION) {
+          const along = V.norm(flat);
+          const across = V.cross(seat.n, along);
+          seat = { ...seat, x: along, y: across,
+                   ax: new oc.gp_Ax2(pnt(seat.at), dir(seat.n), dir(along)),
+                   on: uv => V.add(seat.at, V.add(V.scale(along, uv[0]),
+                                                  V.scale(across, uv[1]))) };
+        }
+      }
+      const major = F.real(f, "major", 120), minor = F.real(f, "minor", 70);
+      if (Feature_choice(f, "trim") !== 1)
+        return { shape: HSF.ellipse(seat.ax, major, minor),
+                 note: major + " × " + minor };
+      const from = F.real(f, "from", 0) * Math.PI / 180;
+      const to = F.real(f, "to", 180) * Math.PI / 180;
+      if (Math.abs(to - from) < 1e-6) throw new Error("an arc of no angle is not an arc");
+      const arc = new oc.GC_MakeArcOfEllipse(new oc.gp_Elips(seat.ax, major, minor),
+                                             from, to, true);
+      if (!arc.IsDone()) throw new Error("that arc of the ellipse is degenerate");
+      return { shape: new oc.BRepBuilderAPI_MakeWire(
+                 new oc.BRepBuilderAPI_MakeEdge(arc.Value()).Edge()).Wire(),
+               note: Math.round((to - from) * 180 / Math.PI) + "° of "
+                     + major + " × " + minor };
+    },
+  };
+
+  //! A PARABOLA OR A HYPERBOLA, SAMPLED. Both are written about their apex in
+  //! the plane's own two directions and then walked out along both arms, so
+  //! the curve is symmetric about the axis by construction rather than by
+  //! arithmetic that has to be got right twice.
+  builders.Conic = {
+    precondition: planeNeeded("conic"),
+    build: f => {
+      const seat = seatOn(f, "apex", "angle");
+      const focal = Math.max(1e-3, F.real(f, "focal", 60));
+      const reach = Math.max(1, F.real(f, "extent", 300));
+      const steps = Math.max(8, Math.round(F.real(f, "steps", 96)));
+      const hyperbola = Feature_choice(f, "kind") === 1;
+      const minor = Math.max(1e-3, F.real(f, "minor", 60));
+      const uv = [];
+      for (let i = -steps; i <= steps; i++) {
+        const t = (i / steps) * reach;
+        if (hyperbola) {
+          // x = a cosh(u), y = b sinh(u), walked in u so the arms are even.
+          const u = (i / steps) * Math.asinh(Math.max(1e-6, reach / minor));
+          uv.push([focal * Math.cosh(u) - focal, minor * Math.sinh(u)]);
+        } else {
+          // y^2 = 4 f x, apex at the origin, opening along the plane's X.
+          uv.push([(t * t) / (4 * focal), t]);
+        }
+      }
+      return { shape: HSF.polyline(uv.map(p => seat.on(p)), false),
+               data: { kind: "curve" },
+               note: (hyperbola ? "hyperbola" : "parabola") + " · focal "
+                     + Math.round(focal * 100) / 100 };
+    },
+  };
+
+  builders.Oblong = {
+    precondition: f => {
+      const said = planeNeeded("slot")(f);
+      if (said) return said;
+      if (F.real(f, "width", 80) <= CONFUSION) return "the width must be positive";
+      if (F.real(f, "length", 240) < F.real(f, "width", 80) - CONFUSION)
+        return "a slot is at least as long as it is wide - shorter than that is a circle";
+      return null;
+    },
+    build: f => {
+      const seat = seatOn(f, "centre", "angle");
+      const width = F.real(f, "width", 80), length = F.real(f, "length", 240);
+      const r = width / 2, straight = Math.max(0, length / 2 - r);
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      const arcTo = (centre, from, to) => {
+        const mid = (from + to) / 2;
+        const at = a => seat.on([centre + r * Math.cos(a), r * Math.sin(a)]);
+        maker.Add(new oc.BRepBuilderAPI_MakeEdge(new oc.GC_MakeArcOfCircle(
+          pnt(at(from)), pnt(at(mid)), pnt(at(to))).Value()).Edge());
+      };
+      const seg = (a, b) => {
+        if (V.length(V.sub(b, a)) > CONFUSION)
+          maker.Add(new oc.BRepBuilderAPI_MakeEdge(pnt(a), pnt(b)).Edge());
+      };
+      seg(seat.on([-straight, -r]), seat.on([straight, -r]));
+      arcTo(straight, -Math.PI / 2, Math.PI / 2);
+      seg(seat.on([straight, r]), seat.on([-straight, r]));
+      arcTo(-straight, Math.PI / 2, Math.PI * 1.5);
+      if (!maker.IsDone()) throw new Error("the slot would not close");
+      return { shape: maker.Wire(), note: length + " × " + width };
+    },
+  };
+
+  builders.Rectangle = {
+    precondition: f => {
+      const said = planeNeeded("rectangle")(f);
+      if (said) return said;
+      if (F.real(f, "width", 240) <= CONFUSION || F.real(f, "height", 160) <= CONFUSION)
+        return "a rectangle needs a width and a height";
+      if (F.real(f, "radius", 0) > Math.min(F.real(f, "width", 240),
+                                            F.real(f, "height", 160)) / 2 + CONFUSION)
+        return "the corner radius is more than half the short side - there would be "
+             + "nothing left of the straight";
+      return null;
+    },
+    build: f => {
+      const seat = seatOn(f, "at", "angle");
+      const w = F.real(f, "width", 240), h = F.real(f, "height", 160);
+      const r = Math.max(0, Math.min(F.real(f, "radius", 0), Math.min(w, h) / 2));
+      // Anchored at the middle, or at the corner the width and height run from.
+      const shift = Feature_choice(f, "anchor") === 1 ? [w / 2, h / 2] : [0, 0];
+      const flat = uv => seat.on([uv[0] + shift[0], uv[1] + shift[1]]);
+      const x = w / 2, y = h / 2;
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      const seg = (a, b) => {
+        if (V.length(V.sub(flat(a), flat(b))) > CONFUSION)
+          maker.Add(new oc.BRepBuilderAPI_MakeEdge(pnt(flat(a)), pnt(flat(b))).Edge());
+      };
+      const round = (cx, cy, from, to) => {
+        const at = a => flat([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        maker.Add(new oc.BRepBuilderAPI_MakeEdge(new oc.GC_MakeArcOfCircle(
+          pnt(at(from)), pnt(at((from + to) / 2)), pnt(at(to))).Value()).Edge());
+      };
+      if (r <= CONFUSION) {
+        seg([-x, -y], [x, -y]); seg([x, -y], [x, y]);
+        seg([x, y], [-x, y]); seg([-x, y], [-x, -y]);
+      } else {
+        seg([-x + r, -y], [x - r, -y]);
+        round(x - r, -y + r, -Math.PI / 2, 0);
+        seg([x, -y + r], [x, y - r]);
+        round(x - r, y - r, 0, Math.PI / 2);
+        seg([x - r, y], [-x + r, y]);
+        round(-x + r, y - r, Math.PI / 2, Math.PI);
+        seg([-x, y - r], [-x, -y + r]);
+        round(-x + r, -y + r, Math.PI, Math.PI * 1.5);
+      }
+      if (!maker.IsDone()) throw new Error("the rectangle would not close");
+      return { shape: maker.Wire(),
+               note: w + " × " + h + (r > CONFUSION ? " · r " + r : "") };
+    },
+  };
+
+
+
+  /* --------------------------------------------- rounding a curve's corners
+
+     THE 2D FILLET. OpenCascade has ChFi2d for this and the WebAssembly build
+     does not carry it, so it is done the way a draughtsman does it: at each
+     corner, back off along both arms by the tangent length, and swing an arc
+     between where you got to.
+
+        L = r / tan(a/2)      how far back along each arm
+        d = r / sin(a/2)      how far the centre is from the corner
+
+     where a is the angle the two arms make WITH EACH OTHER. Exact between two
+     straight runs, which is nearly every corner anybody wants rounded; where
+     an arm is already curved the backing-off is walked along the real curve
+     rather than along its tangent, so the arc lands on the curve and meets it
+     as near to smoothly as the curve's own bend allows.                    */
+
+  //! The edges of a wire, in the order the wire runs, each with its two ends.
+  //! This build has no BRepTools_WireExplorer, so they are chained by their
+  //! endpoints - which is what the explorer does anyway.
+  function orderedEdges(wire) {
+    const edges = subShapes(wire, EDGE, oc.TopoDS.Edge)
+      .map(edge => ({ edge, ends: edgeEnds(edge) }))
+      .filter(one => one.ends);
+    if (edges.length < 2) return edges;
+    const near = (a, b) => V.length(V.sub(a, b)) < CONFUSION * 100;
+    const left = edges.slice();
+    const run = [left.shift()];
+    for (let guard = 0; guard < edges.length * 2 && left.length; guard++) {
+      const tail = run[run.length - 1].ends[1];
+      let took = -1;
+      for (let i = 0; i < left.length; i++) {
+        if (near(left[i].ends[0], tail)) { took = i; break; }
+        if (near(left[i].ends[1], tail)) {
+          left[i] = { edge: left[i].edge, ends: [left[i].ends[1], left[i].ends[0]],
+                      flipped: true };
+          took = i; break;
+        }
+      }
+      if (took < 0) {
+        // Not joined onto this end: try the front, which is what happens when
+        // the walk started in the middle of an open chain.
+        const head = run[0].ends[0];
+        for (let i = 0; i < left.length; i++) {
+          if (near(left[i].ends[1], head)) { run.unshift(left.splice(i, 1)[0]); took = -2; break; }
+          if (near(left[i].ends[0], head)) {
+            const one = left.splice(i, 1)[0];
+            run.unshift({ edge: one.edge, ends: [one.ends[1], one.ends[0]], flipped: true });
+            took = -2; break;
+          }
+        }
+        if (took === -2) continue;
+        break;                      // a wire in pieces: round what is joined
+      }
+      run.push(left.splice(took, 1)[0]);
+    }
+    return run;
+  }
+
+  //! Which way an edge runs at one of its ends, pointing INTO the edge - so
+  //! two edges meeting at a corner give the two arms of that corner.
+  function wayAtEnd(one, atStart) {
+    const adaptor = new oc.BRepAdaptor_Curve(one.edge);
+    const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+    // The edge's own parameters run its own way; `ends` has already been put
+    // the way the chain runs, so a flipped edge reads its parameters backwards.
+    const fromStart = atStart !== !!one.flipped;
+    const a = fromStart ? first : last, b = fromStart ? last : first;
+    const step = (b - a) * 1e-4;
+    const p0 = adaptor.Value(a), p1 = adaptor.Value(a + step);
+    return V.norm([p1.X() - p0.X(), p1.Y() - p0.Y(), p1.Z() - p0.Z()]);
+  }
+
+  //! How far along an edge from one end you have to go to be \p want away from
+  //! that end, as a fraction of the edge. Bisected, because the only thing
+  //! that can be asked of a general curve is where it is at a parameter.
+  function backOff(one, atStart, want) {
+    const adaptor = new oc.BRepAdaptor_Curve(one.edge);
+    const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+    const fromStart = atStart !== !!one.flipped;
+    const a = fromStart ? first : last, b = fromStart ? last : first;
+    const at = t => { const p = adaptor.Value(a + (b - a) * t); return [p.X(), p.Y(), p.Z()]; };
+    const seat = at(0);
+    if (V.length(V.sub(at(1), seat)) < want) return null;   // the arm is too short
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (V.length(V.sub(at(mid), seat)) < want) lo = mid; else hi = mid;
+    }
+    return { t: (lo + hi) / 2, at: at((lo + hi) / 2) };
+  }
+
+  builders.FilletCurve = {
+    precondition: f => {
+      if (!F.shape(F.reference(f, "curve"))) return "wire in the curve to round";
+      if (F.real(f, "radius", 20) <= CONFUSION) return "the radius must be positive";
+      return null;
+    },
+    build: f => {
+      const source = F.shape(F.reference(f, "curve"));
+      const wires = subShapes(source, WIRE, oc.TopoDS.Wire);
+      const wire = wires.length ? wires[0] : null;
+      if (!wire) throw new Error("that is not a wire - there are no corners on it");
+      const run = orderedEdges(wire);
+      if (run.length < 2) throw new Error("one edge has no corners to round");
+      const r = F.real(f, "radius", 20);
+      const closed = V.length(V.sub(run[0].ends[0], run[run.length - 1].ends[1]))
+                     < CONFUSION * 100;
+
+      //! WHICH CORNERS. Empty is every one, the way the solid fillet takes
+      //! every edge - and the numbers are the corners as the viewport offered
+      //! them, so picking in the model and reading the file say the same thing.
+      const corners = eachVertex(wire).map(v => {
+        const p = oc.BRep_Tool.Pnt(v);
+        return [p.X(), p.Y(), p.Z()];
+      });
+      const picks = readPicks(F.picks(f, "corners"));
+      let wanted = null;
+      if (picks.length) {
+        const { found, lost } = resolvePicks(corners, picks);
+        wanted = found.map(at => corners[at]).filter(Boolean);
+        if (!wanted.length)
+          throw new Error("none of the corners picked are on this curve any more");
+        if (lost.length) wanted.lost = lost.length;
+      }
+      const asked = at => !wanted
+        || wanted.some(one => V.length(V.sub(one, at)) < CONFUSION * 100);
+
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      let rounded = 0, smooth = 0, tight = 0;
+      // Each edge is trimmed at whichever of its ends got rounded, so the
+      // trims are worked out first and the wire is built once.
+      const trims = run.map(() => ({ from: 0, to: 1 }));
+      const arcs = [];
+      const junctions = [];
+      for (let i = 0; i + 1 < run.length; i++) junctions.push([i, i + 1]);
+      if (closed && run.length > 2) junctions.push([run.length - 1, 0]);
+
+      for (const [a, b] of junctions) {
+        const corner = run[a].ends[1];
+        if (!asked(corner)) continue;
+        const into = wayAtEnd(run[a], false);          // pointing back up the arm
+        const out = wayAtEnd(run[b], true);
+        if (!into || !out) continue;
+        // The two arms as they leave the corner: one is the reverse of the way
+        // the first edge arrives.
+        const armA = V.scale(into, -1), armB = out;
+        const cos = Math.max(-1, Math.min(1, V.dot(armA, armB)));
+        const angle = Math.acos(cos);
+        if (angle > Math.PI - 1e-4) { smooth++; continue; }   // already smooth
+        if (angle < 1e-4) { smooth++; continue; }             // doubles back
+        const half = angle / 2;
+        const reach = r / Math.tan(half);
+        const backA = backOff(run[a], false, reach);
+        const backB = backOff(run[b], true, reach);
+        if (!backA || !backB) { tight++; continue; }
+        trims[a].to = 1 - backA.t;
+        trims[b].from = backB.t;
+        // The arc: through the two points it backed off to and the point on
+        // the bisector a radius away from the centre, which is the middle of
+        // the fillet. Built from three points so a curved arm still meets it.
+        const bisect = V.norm(V.add(V.norm(V.sub(backA.at, corner)),
+                                    V.norm(V.sub(backB.at, corner))));
+        if (!bisect) { tight++; continue; }
+        const centre = V.add(corner, V.scale(bisect, r / Math.sin(half)));
+        const mid = V.add(centre, V.scale(V.scale(bisect, -1), r));
+        arcs.push({ a: backA.at, mid, b: backB.at });
+        rounded++;
+      }
+      if (!rounded)
+        throw new Error(smooth && !tight
+          ? "every corner there already meets smoothly - there is nothing to round"
+          : tight ? "no arc of " + r + " fits those corners - try a smaller radius"
+                  : "there is no corner there to round");
+
+      // The wire, walked once: each edge trimmed to what is left of it, and
+      // the arc that replaced each corner put in after the edge it follows.
+      const arcAfter = new Map();
+      let at = 0;
+      for (const [a] of junctions) { arcAfter.set(a, arcs[at]); at++; }
+      run.forEach((one, i) => {
+        const cut = trims[i];
+        const piece = trimmedEdge(one, cut.from, cut.to);
+        if (piece) maker.Add(piece);
+        const arc = arcAfter.get(i);
+        if (arc) maker.Add(new oc.BRepBuilderAPI_MakeEdge(new oc.GC_MakeArcOfCircle(
+          pnt(arc.a), pnt(arc.mid), pnt(arc.b)).Value()).Edge());
+      });
+      if (!maker.IsDone()) throw new Error("the rounded curve would not join up");
+      const said = [rounded + (rounded === 1 ? " corner" : " corners") + " rounded"];
+      if (smooth) said.push(smooth + " already smooth");
+      if (tight) said.push(tight + " too tight for " + r);
+      if (wanted && wanted.lost) said.push(wanted.lost + " picked corners lost");
+      return { shape: maker.Wire(), note: said.join(" · ") };
+    },
+  };
+
+  //! What is left of an edge between two fractions of it. Straight or curved,
+  //! read off its own parameters - and nothing at all when the trims have met
+  //! in the middle, which is what a corner rounded from both sides leaves.
+  function trimmedEdge(one, from, to) {
+    if (!(to - from > 1e-9)) return null;
+    const adaptor = new oc.BRepAdaptor_Curve(one.edge);
+    const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+    const a = one.flipped ? last : first, b = one.flipped ? first : last;
+    const pa = a + (b - a) * from, pb = a + (b - a) * to;
+    try {
+      const made = new oc.BRepBuilderAPI_MakeEdge(
+        oc.BRep_Tool.Curve_2(one.edge, {}, {}),
+        Math.min(pa, pb), Math.max(pa, pb));
+      if (made.IsDone()) return made.Edge();
+    } catch (error) { /* fall through to the straight case */ }
+    const at = t => { const p = adaptor.Value(t); return [p.X(), p.Y(), p.Z()]; };
+    const ends = [at(pa), at(pb)];
+    if (V.length(V.sub(ends[1], ends[0])) < CONFUSION) return null;
+    return new oc.BRepBuilderAPI_MakeEdge(pnt(ends[0]), pnt(ends[1])).Edge();
+  }
+
+  /* ----------------------------------- lines and circles from constraints
+
+     THE ARGUMENTS ARE THINGS IN THE MODEL and the solver works in two numbers
+     on a plane, so something has to read one as the other. That is all this
+     is: a wired feature comes in, and out comes a point, a straight line or a
+     circle written in the plane's own u-v - which is what gcc.js takes.
+
+     A curve that is neither straight nor round is refused by name rather than
+     approximated, because a tangency to "roughly that spline" is not a
+     tangency and an answer that looks nearly right is worse than none.      */
+
+  //! What a shape is, as a flat element on the plane. Null when it is nothing
+  //! the constraints can be about.
+  function flatElement(frame, shape) {
+    if (!shape || shape.IsNull()) return null;
+    const type = shape.ShapeType();
+    if (type === VERTEX) {
+      const p = oc.BRep_Tool.Pnt(oc.TopoDS.Vertex(shape));
+      return cPoint(frame.of([p.X(), p.Y(), p.Z()]));
+    }
+    // A wire or a compound: whatever single edge is inside it. A circle drawn
+    // by the Circle node arrives as a wire of one edge, which is the common
+    // case and would otherwise be refused for being a wire.
+    if (type !== EDGE) {
+      const edges = subShapes(shape, EDGE, oc.TopoDS.Edge);
+      if (edges.length === 1) return flatElement(frame, edges[0]);
+      if (!edges.length) {
+        const corners = subShapes(shape, VERTEX, oc.TopoDS.Vertex);
+        if (corners.length === 1) return flatElement(frame, corners[0]);
+      }
+      return null;
+    }
+    const edge = oc.TopoDS.Edge(shape);
+    const adaptor = new oc.BRepAdaptor_Curve(edge);
+    const kind = adaptor.GetType();
+    if (kind === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      const circ = adaptor.Circle();
+      const at = circ.Location();
+      return cCircle(frame.of([at.X(), at.Y(), at.Z()]), circ.Radius());
+    }
+    // A STRAIGHT EDGE IS A LINE, and it is read off its ends rather than off
+    // gp_Lin - which this build does not bind, so asking the adaptor for it
+    // raises instead of answering. The ends are on the edge either way.
+    const ends = edgeEnds(edge);
+    if (!ends) return null;
+    const flatA = frame.of(ends[0]), flatB = frame.of(ends[1]);
+    if (kind === oc.GeomAbs_CurveType.GeomAbs_Line) return cLine(flatA, gSubFlat(flatB, flatA));
+    // Not straight and not round by declaration, but it may still BE straight
+    // - a segment built through two points comes back as a BSpline of degree
+    // one often enough to be worth the check.
+    const mid = pointAt(adaptor, 0.5);
+    if (mid) {
+      const m = frame.of(mid);
+      const along = gSubFlat(flatB, flatA);
+      const span = Math.hypot(along[0], along[1]);
+      const off = span > CONFUSION
+        ? Math.abs((m[0] - flatA[0]) * along[1] - (m[1] - flatA[1]) * along[0]) / span
+        : Infinity;
+      if (off < CONFUSION * 10) return cLine(flatA, along);
+    }
+    return null;
+  }
+
+  const gSubFlat = (a, b) => [a[0] - b[0], a[1] - b[1]];
+
+  //! The two ends of an edge, in the world - off the curve's own parameters,
+  //! which every edge has whatever it is made of.
+  function edgeEnds(edge) {
+    try {
+      const adaptor = new oc.BRepAdaptor_Curve(edge);
+      const a = adaptor.Value(adaptor.FirstParameter());
+      const b = adaptor.Value(adaptor.LastParameter());
+      const ends = [[a.X(), a.Y(), a.Z()], [b.X(), b.Y(), b.Z()]];
+      return V.length(V.sub(ends[1], ends[0])) > CONFUSION ? ends : null;
+    } catch (error) { return null; }
+  }
+
+  function pointAt(adaptor, t) {
+    try {
+      const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+      const p = adaptor.Value(first + (last - first) * t);
+      return [p.X(), p.Y(), p.Z()];
+    } catch (error) { return null; }
+  }
+
+  //! The element a wired argument comes to, with the name of what went wrong
+  //! when it comes to nothing - because "no answer" and "that spline is not
+  //! something a tangency can be about" are different things to be told.
+  function constraintOf(frame, f, key) {
+    const source = F.reference(f, key);
+    if (!source) return { error: "nothing is wired into " + key };
+    // A PLANE, read on this plane, is the line the two planes cross in - which
+    // is what a plane means to a drawing laid on another one.
+    // THE SHAPE FIRST, and the numbers only when there is no shape. A curve
+    // node carries the points it was built through as its data, so reading the
+    // numbers first would take a spline for the point it starts at - and a
+    // tangency to "the first point of that spline" is not what anybody asked
+    // for. A Point has a vertex for a shape, so nothing is lost by the order.
+    const shape = F.shape(source);
+    const element = shape ? flatElement(frame, shape)
+                          : (readPoint(source) ? cPoint(frame.of(readPoint(source))) : null);
+    if (!shape && !element)
+      return { error: (F.name(source) || key) + " has no shape to constrain against" };
+    if (!element)
+      return { error: (F.name(source) || key) + " is neither a point, a straight line nor a "
+                    + "circle on this plane - a tangency can only be about those" };
+    return { element };
+  }
+
+  const askOf = (f, key) => (QUALIFIERS[Feature_choice(f, key)] || QUALIFIERS[0]).key;
+
+  //! The answer somebody asked for, out of however many there were.
+  function pickAnswer(list, f) {
+    const want = Math.max(1, Math.round(F.real(f, "answer", 1)));
+    if (!list.length) return null;
+    return list[Math.min(list.length, want) - 1];
+  }
+
+  //! And the note that says what was on offer, because a node that silently
+  //! shows the third of eight is a node nobody can drive.
+  const howMany = (list, want) => list.length === 1 ? "one answer"
+    : Math.min(list.length, Math.max(1, Math.round(want))) + " of " + list.length + " answers";
+
+  function circlesFor(f, frame) {
+    const kind = Feature_choice(f, "kind");
+    const grab = key => constraintOf(frame, f, key);
+    const radius = F.real(f, "radius", 60);
+    if (kind === 5 || kind === 6) {
+      const a = grab("first"), b = grab("second");
+      if (a.error) throw new Error(a.error);
+      if (b.error) throw new Error(b.error);
+      if (kind === 6) return circle2PointsRadius(a.element.at, b.element.at, radius);
+      const c = grab("third");
+      if (c.error) throw new Error(c.error);
+      return circleThrough3(a.element.at, b.element.at, c.element.at);
+    }
+    const a = grab("first");
+    if (a.error) throw new Error(a.error);
+    if (kind === 4) {
+      const at = grab("at");
+      if (at.error) throw new Error(at.error);
+      return circleTanCentre(a.element, at.element.at);
+    }
+    if (kind === 3) {
+      const on = grab("on");
+      if (on.error) throw new Error(on.error);
+      return circleTanOnRadius(a.element, on.element, radius, askOf(f, "askFirst"));
+    }
+    const b = grab("second");
+    if (b.error) throw new Error(b.error);
+    if (kind === 0)
+      return circle2TanRadius(a.element, b.element, radius,
+                              askOf(f, "askFirst"), askOf(f, "askSecond"));
+    if (kind === 2) {
+      const on = grab("on");
+      if (on.error) throw new Error(on.error);
+      return circle2TanOn(a.element, b.element, on.element,
+                          [askOf(f, "askFirst"), askOf(f, "askSecond")]);
+    }
+    const c = grab("third");
+    if (c.error) throw new Error(c.error);
+    return circle3Tan(a.element, b.element, c.element,
+                      [askOf(f, "askFirst"), askOf(f, "askSecond"), askOf(f, "askThird")]);
+  }
+
+  builders.ConstrainedCircle = {
+    precondition: f => planeAxis(F.reference(f, "plane"))
+      ? null : "a plane is needed to work the constraints out on",
+    build: f => {
+      const frame = sketchFrame(f);
+      const found = circlesFor(f, frame);
+      const one = pickAnswer(found, f);
+      if (!one)
+        throw new Error(found.family
+          ? "every circle that touches one of those touches the other, so there are "
+            + "infinitely many - move one of them, or say which side to be on"
+          : "no circle answers that");
+      const kind = Feature_choice(f, "kind");
+      const arc = (kind === 5 || kind === 6) && Feature_choice(f, "trim") === 1;
+      const shape = arc ? arcThroughFlat(frame, one, f) : HSF.circle(frame.frame(one.at), one.r);
+      return { shape,
+               data: { kind: "curve",
+                       preview: saysCircle(one, Math.max(0, Math.round(F.real(f, "answer", 1)) - 1),
+                                           found.length) },
+               note: howMany(found, F.real(f, "answer", 1)) + " · r "
+                     + Math.round(one.r * 100) / 100 };
+    },
+  };
+
+  //! The arc rather than the whole circle: the piece that runs between the
+  //! points it was asked to pass through, the short way round.
+  function arcThroughFlat(frame, one, f) {
+    const kind = Feature_choice(f, "kind");
+    const keys = kind === 5 ? ["first", "second", "third"] : ["first", "second"];
+    const ends = keys.map(key => constraintOf(frame, f, key))
+                     .map(got => got.element && got.element.at).filter(Boolean);
+    if (ends.length < 2) throw new Error("an arc needs the points it runs between");
+    if (kind === 5)
+      return new oc.BRepBuilderAPI_MakeWire(new oc.BRepBuilderAPI_MakeEdge(
+        new oc.GC_MakeArcOfCircle(pnt(frame.at(ends[0])), pnt(frame.at(ends[1])),
+                                  pnt(frame.at(ends[2]))).Value()).Edge()).Wire();
+    // Two points and a radius: the short way round, through the point halfway
+    // along the near side of the circle.
+    const angle = at => Math.atan2(at[1] - one.at[1], at[0] - one.at[0]);
+    let a = angle(ends[0]), b = angle(ends[1]);
+    let by = b - a;
+    while (by > Math.PI) by -= Math.PI * 2;
+    while (by < -Math.PI) by += Math.PI * 2;
+    const mid = a + by / 2;
+    const via = [one.at[0] + one.r * Math.cos(mid), one.at[1] + one.r * Math.sin(mid)];
+    return new oc.BRepBuilderAPI_MakeWire(new oc.BRepBuilderAPI_MakeEdge(
+      new oc.GC_MakeArcOfCircle(pnt(frame.at(ends[0])), pnt(frame.at(via)),
+                                pnt(frame.at(ends[1]))).Value()).Edge()).Wire();
+  }
+
+  builders.ConstrainedLine = {
+    precondition: f => planeAxis(F.reference(f, "plane"))
+      ? null : "a plane is needed to work the constraints out on",
+    build: f => {
+      const frame = sketchFrame(f);
+      const kind = Feature_choice(f, "kind");
+      const a = constraintOf(frame, f, "first");
+      if (a.error) throw new Error(a.error);
+      let found;
+      if (kind === 0) {
+        const b = constraintOf(frame, f, "second");
+        if (b.error) throw new Error(b.error);
+        found = line2Tan(a.element, b.element,
+                         askOf(f, "askFirst"), askOf(f, "askSecond"));
+      } else {
+        const r = constraintOf(frame, f, "reference");
+        if (r.error) throw new Error(r.error);
+        if (r.element.kind !== "line")
+          throw new Error("the reference has to be a straight line to be parallel to");
+        const turn = kind === 1 ? 0 : kind === 2 ? Math.PI / 2
+                   : F.real(f, "angle", 30) * Math.PI / 180;
+        found = lineTanAngle(a.element, r.element, turn);
+      }
+      const one = pickAnswer(found, f);
+      if (!one) throw new Error("no line answers that");
+      // A line has no ends. It is drawn as a segment the length that was
+      // asked for, centred on the middle of what it touches - which is where
+      // a person is looking when they made it.
+      const half = Math.max(1, F.real(f, "length", 400)) / 2;
+      const seat = one.touches.length
+        ? one.touches.reduce((acc, p) => [acc[0] + p[0] / one.touches.length,
+                                          acc[1] + p[1] / one.touches.length], [0, 0])
+        : one.at;
+      const along = (one.at[0] - seat[0]) * one.way[0] + (one.at[1] - seat[1]) * one.way[1];
+      const mid = [one.at[0] - one.way[0] * along, one.at[1] - one.way[1] * along];
+      const ends = [[mid[0] - one.way[0] * half, mid[1] - one.way[1] * half],
+                    [mid[0] + one.way[0] * half, mid[1] + one.way[1] * half]];
+      return { shape: HSF.polyline(ends.map(uv => frame.at(uv)), false),
+               data: { kind: "curve",
+                       preview: saysLine(one, Math.max(0, Math.round(F.real(f, "answer", 1)) - 1),
+                                         found.length) },
+               note: howMany(found, F.real(f, "answer", 1)) };
+    },
+  };
+
+  builders.Bisector = {
+    precondition: f => planeAxis(F.reference(f, "plane"))
+      ? null : "a plane is needed to work the bisector out on",
+    build: f => {
+      const frame = sketchFrame(f);
+      const a = constraintOf(frame, f, "first");
+      if (a.error) throw new Error(a.error);
+      const b = constraintOf(frame, f, "second");
+      if (b.error) throw new Error(b.error);
+      const got = bisector(a.element, b.element,
+                           { span: Math.max(0, F.real(f, "span", 0)),
+                             steps: Math.max(8, Math.round(F.real(f, "steps", 96))) });
+      if (!got || got.points.length < 2)
+        throw new Error("nothing is equally far from those two");
+      return { shape: HSF.polyline(got.points.map(uv => frame.at(uv)), false),
+               data: { kind: "curve", preview: got.kind },
+               note: got.kind + " · " + got.points.length + " points" };
+    },
   };
 
   //! Catmull-Rom through the points, parameterised by index so the curve may
@@ -1650,6 +2390,10 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       normal: n, x, y, origin,
       //! Two numbers on the paper, one point in the world.
       at: uv => V.add(origin, V.add(V.scale(x, uv[0]), V.scale(y, uv[1]))),
+      //! And back the other way: where a point in the world falls on the
+      //! paper. What lets a constraint read a circle somebody drew in space
+      //! as a circle on this plane.
+      of: world => [V.dot(V.sub(world, origin), x), V.dot(V.sub(world, origin), y)],
       //! A frame for a circle or an ellipse: on the plane, centred there, and
       //! turned in the plane by \p turn so an ellipse knows which way it lies.
       frame(uv, turn = 0) {

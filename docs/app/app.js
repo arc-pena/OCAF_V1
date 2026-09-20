@@ -1398,6 +1398,11 @@ pickBar.id = "pick-bar";
 pickBar.hidden = true;
 document.body.appendChild(pickBar);
 
+//! "vertexs" is not a word. One line rather than a table, because there are
+//! three kinds of sub-shape and only one of them is irregular.
+const plural = (word, many) => many === 1 ? word
+  : word === "vertex" ? "vertices" : word + "s";
+
 function refreshPickBar() {
   if (!picking.on) return;
   const entry = feature(picking.id);
@@ -1407,7 +1412,7 @@ function refreshPickBar() {
   pickBar.innerHTML = '<div class="mx-row">'
     + '<span class="mx-tag">' + safeText((arg && arg.label) || "Pick") + "</span>"
     + '<span class="mx-count">' + picking.chosen.size + " of " + picking.items.length
-    + " " + safeText(picking.kind) + (picking.items.length === 1 ? "" : "s") + "</span>"
+    + " " + safeText(plural(picking.kind, picking.items.length)) + "</span>"
     + '<span class="mx-hint">on ' + safeText(source ? source.name : "") + " · click to take one"
     + (picking.kind === "edge" ? ", double-click for the whole arris" : "")
     + ", shift-click to add</span>"
@@ -5002,6 +5007,29 @@ const ICONS = {
   /* ------------------------------------------------------------- curves */
   Circle: '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.3"/>'
         + '<circle cx="8" cy="8" r="1.1" fill="currentColor"/>',
+  // Two circles and the one that touches both: the picture the documentation
+  // draws eight of.
+  ConstrainedCircle: '<circle cx="4.2" cy="10.4" r="3.1" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".5"/>'
+    + '<circle cx="11.6" cy="10.4" r="2.4" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".5"/>'
+    + '<circle cx="7.9" cy="5.6" r="3.5" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+  // A line laid across two circles, touching each.
+  ConstrainedLine: '<circle cx="4" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".5"/>'
+    + '<circle cx="12" cy="8.6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".5"/>'
+    + '<path d="M1.2 6.6L15 5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  // Two marks and the line of equal distance running between them.
+  Bisector: '<circle cx="3.4" cy="11.6" r="1.4" fill="currentColor"/>'
+    + '<circle cx="12.6" cy="4.4" r="1.4" fill="currentColor"/>'
+    + '<path d="M2.4 3.6L13.6 12.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-dasharray="2.4 1.8"/>',
+  Ellipse: '<ellipse cx="8" cy="8" rx="6.2" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.3"/>'
+    + '<path d="M1.8 8h12.4" stroke="currentColor" stroke-width="1" opacity=".5"/>',
+  Conic: '<path d="M2.6 2.4C2.6 8 5.4 13.6 8 13.6s5.4-5.6 5.4-11.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
+    + '<circle cx="8" cy="10.2" r="1.1" fill="currentColor"/>',
+  Oblong: '<path d="M5.6 4.6h4.8a3.4 3.4 0 0 1 0 6.8H5.6a3.4 3.4 0 0 1 0-6.8z" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  Rectangle: '<rect x="2.2" y="4.4" width="11.6" height="7.2" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  // A corner with the arc that takes it off.
+  FilletCurve: '<path d="M2.4 13.4h6a5 5 0 0 0 5-5v-6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
+    + '<path d="M13.4 13.4h-2.6M13.4 13.4v-2.6" stroke="currentColor" stroke-width="1" opacity=".45"/>'
+    + '<path d="M13.4 13.4L8.4 13.4M13.4 13.4L13.4 8.4" stroke="currentColor" stroke-width="1" stroke-dasharray="1.4 1.4" opacity=".45"/>',
   Polyline: '<path d="M2.2 12.4l3.4-6.2 3.2 3.6 4.9-6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>'
           + '<circle cx="2.2" cy="12.4" r="1.2" fill="currentColor"/><circle cx="5.6" cy="6.2" r="1.2" fill="currentColor"/>'
           + '<circle cx="8.8" cy="9.8" r="1.2" fill="currentColor"/><circle cx="13.7" cy="3.8" r="1.2" fill="currentColor"/>',
@@ -6799,8 +6827,8 @@ function subsField(entry, arg) {
     + "</span></div>"
     + '<button class="btn row-btn" data-pick="' + escapeAttr(arg.key) + '"'
     + (source && source.built ? "" : " disabled") + ">"
-    + (picks.length ? "Change the " + escapeHtml(arg.of) + "s"
-                    : "Pick " + escapeHtml(arg.of) + "s on the model") + "</button>"
+    + (picks.length ? "Change the " + escapeHtml(plural(arg.of, 2))
+                    : "Pick " + escapeHtml(plural(arg.of, 2)) + " on the model") + "</button>"
     + (picks.length ? '<button class="btn row-btn" data-unpick="' + escapeAttr(arg.key)
         + '">Back to ' + escapeHtml(arg.whole || "all of them") + "</button>" : "")
     + '<p class="hint">' + escapeHtml(arg.summary || "") + "</p>"
