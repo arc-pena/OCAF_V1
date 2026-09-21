@@ -93,6 +93,32 @@ GENERATED = {GLUE_MODULE}
 DATA = ROOT / "data"
 PAYLOADS = [("climate-sites", "cities.json")]
 
+# A sample kept as a model file rides the same way. These are models somebody
+# BUILT in the program and saved, so they are data and not source: the folder
+# is what GitHub Pages serves and what the single-file build packs, and the
+# element id is "sample-" + the key SAMPLES gives it in src/ocaf.js. Keep the
+# two in step - a sample listed there with no file here loads in the served
+# build and not in the Artifact, which is the kind of difference that is only
+# found by somebody else.
+SAMPLES = [
+    ("3dspline", "3dspline.json"),
+    ("columns-on-a-curve", "Columns_on_a_curve.json"),
+    ("fillsurface", "fillsurface.json"),
+    ("fillsurface-extrude", "fillsurface_extrude.json"),
+    ("wideflange", "wideflange.json"),
+]
+PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
+
+# Listed and present, both ways round: a file in the folder that nobody lists
+# never reaches the Artifact, and a listed file that is not there fails the
+# build here rather than in somebody's browser.
+_on_disk = {f.name for f in sorted((DATA / "samples").glob("*.json"))}
+_listed = {name for _, name in SAMPLES}
+if _on_disk != _listed:
+    sys.exit("data/samples does not match SAMPLES in build.py: "
+             + ", ".join(sorted(("unlisted " + n) for n in _on_disk - _listed)
+                         + sorted(("missing " + n) for n in _listed - _on_disk)))
+
 # An import may wrap across lines; nothing but the statement itself may
 # contain a semicolon before its end.
 IMPORT = re.compile(r"^\s*import\s[^;]*;\s*$", re.M)

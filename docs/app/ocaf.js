@@ -1017,6 +1017,13 @@ export const SKETCHER_PART = {
   ],
 };
 
+//! WHERE A SAMPLE'S MODEL COMES FROM. The first two are written here, because
+//! they are written BY hand and read as source. The rest are files - models
+//! somebody built in the program and saved - and a model file is data, not
+//! source: it lives in data/samples/ beside the page, packed into the
+//! single-file build and fetched from the folder when the page is served, the
+//! same way a package's table does. So a sample here carries EITHER a model or
+//! the name of its file, and nothing reads one until it is asked for.
 export const SAMPLES = [
   { key: "hillside-town", name: "Hillside town",
     summary: "A landform, six villas terraced across it, and the plan projected onto "
@@ -1029,6 +1036,37 @@ export const SAMPLES = [
            + "on its side, and a chain that does not close, swept as a surface. "
            + "Double-click any of them to draw on it.",
     model: SKETCHER_PART },
+
+  { key: "3dspline", name: "3dspline", file: "samples/3dspline.json",
+    summary: "A blend curve run between the ends of two sketched splines, with "
+           + "its tangent direction and tension set at each end - so the join "
+           + "is smooth and you can see what changes it. The set it is built in "
+           + "collapses to one node in the graph. Two cameras: double-click "
+           + "either to look through it. 14 nodes." },
+  { key: "columns-on-a-curve", name: "Columns on a curve",
+    file: "samples/Columns_on_a_curve.json",
+    summary: "A column built once - five named numbers, an expression for the "
+           + "top, a solved section sketch, an extrude - and placed at every "
+           + "one of ten stations evaluated along a sketched curve. Two "
+           + "geometrical sets, each a single node in the graph. 25 nodes." },
+  { key: "fillsurface", name: "fillsurface", file: "samples/fillsurface.json",
+    summary: "The blend curve worked out in full: two of them run between two "
+           + "sketched splines, each with its tangent direction drawn as a line "
+           + "you can see, and a surface filled across the loop they make. The "
+           + "fill is left reporting on purpose - the loop has a 500 mm gap in "
+           + "it, and the node names both loose ends and how far apart they "
+           + "are. 29 nodes." },
+  { key: "fillsurface-extrude", name: "fillsurface_extrude",
+    file: "samples/fillsurface_extrude.json",
+    summary: "The small one: a rounded rectangle, extruded, and a surface filled "
+           + "across its top held tangent to the sides and pulled through a "
+           + "point. Point the fill at the draft instead to see it let the "
+           + "curved corners go. 8 nodes." },
+  { key: "wideflange", name: "wideflange", file: "samples/wideflange.json",
+    summary: "Nine wide flange sections, each a solved sketch, and a column "
+           + "built from one of them: named numbers for where it stands, an "
+           + "expression for its top, planes off those and an extrude between "
+           + "them. The set it is in is what Instantiate copies. 34 nodes." },
 ];
 
 /* ------------------------------------------------------------- catalogue */

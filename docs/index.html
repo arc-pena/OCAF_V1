@@ -1482,7 +1482,13 @@ body.barred #status { visibility: hidden; pointer-events: none; }
   position: fixed; z-index: 20; min-width: 268px; max-width: 320px; padding: 6px;
   background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow);
+  /* The list grows as samples are added and the window does not. So the list
+     scrolls and the warning underneath it does not - it is the one line here
+     that says a sample replaces what is open, and a warning you have to
+     scroll to find is a warning nobody reads. */
+  display: flex; flex-direction: column; max-height: calc(var(--sky) - 84px);
 }
+#sample-menu .scroller { overflow-y: auto; min-height: 0; }
 #sample-menu[hidden] { display: none; }
 #sample-menu button {
   display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px;
@@ -1492,7 +1498,8 @@ body.barred #status { visibility: hidden; pointer-events: none; }
 #sample-menu b { display: block; font-size: 12.5px; font-weight: 600; }
 #sample-menu span { display: block; margin-top: 3px; font-size: 11px; color: var(--ink-3); line-height: 1.45; }
 #sample-menu .warn {
-  padding: 6px 10px 2px; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3);
+  flex: 0 0 auto; padding: 6px 10px 2px; font-family: var(--mono); font-size: 9.5px;
+  color: var(--ink-3); border-top: 1px solid var(--line); margin-top: 4px;
 }
 
 /* ------------------------------------------------------------- showroom */

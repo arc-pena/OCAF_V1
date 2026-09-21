@@ -14,7 +14,7 @@ import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMP
          sliderSpan } from "./ocaf.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
-import { PluginHost } from "./plugin.js";
+import { PluginHost, unpackResource } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
 import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
@@ -5680,9 +5680,16 @@ function treeNode(entry, keep = null, hit = null) {
     else select(entry.id, false);
   });
   li.addEventListener("dblclick", () => {
-    // A sketch opens into the sketcher, the way a CAD modeller does. Everything
-    // else opens its definition.
+    // A sketch opens into the sketcher and a camera opens into its view: the
+    // gesture is the same one either way - double-click steps INTO the thing.
+    // Doubling on the camera you are already looking through steps back out,
+    // so the way in is also the way out. Everything else opens its definition.
     if (entry.sketch) { select(entry.id, false); enterSketch(entry.id); return; }
+    if (entry.type === "Camera") {
+      select(entry.id, false);
+      if (through.id === entry.id) leaveThrough(true); else lookThrough(entry.id);
+      return;
+    }
     select(entry.id, true);
   });
   li.addEventListener("keydown", event => {
@@ -8202,8 +8209,29 @@ document.getElementById("btn-connect").addEventListener("click", async () => {
 
 const sampleMenu = document.getElementById("sample-menu");
 
+//! THE MODEL BEHIND A SAMPLE, whichever way this page keeps it. Two of them are
+//! written in the source and are simply there; the rest are model files in
+//! data/samples/ - packed into the single-file build, served from the folder
+//! otherwise - and this is the one place that difference is handled. Read once
+//! and kept, so opening the same sample twice does not fetch it twice.
+const sampleModels = new Map();
+
+async function sampleModel(sample) {
+  if (sample.model) return sample.model;
+  if (sampleModels.has(sample.key)) return sampleModels.get(sample.key);
+  const model = await unpackResource("sample-" + sample.key,
+                                     "the " + sample.name + " sample",
+                                     "data/" + sample.file);
+  sampleModels.set(sample.key, model);
+  return model;
+}
+
 function buildSampleMenu() {
   sampleMenu.textContent = "";
+  // The samples scroll and the warning under them does not: see the stylesheet.
+  const scroller = document.createElement("div");
+  scroller.className = "scroller";
+  sampleMenu.appendChild(scroller);
   for (const sample of SAMPLES) {
     const button = document.createElement("button");
     button.innerHTML = "<b>" + escapeHtml(sample.name) + "</b><span>" +
@@ -8214,10 +8242,15 @@ function buildSampleMenu() {
       state.selected = null;
       state.edited = null;
       // Straight down the same channel as everything else, so it lands in the
-      // graph console like any other edit.
-      if (await edit({ op: "model", model: sample.model })) fitView();
+      // graph console like any other edit. A sample kept as a file has to be
+      // read first, and a read that fails says so where the click was rather
+      // than leaving an empty document and no reason for it.
+      let model;
+      try { model = await sampleModel(sample); }
+      catch (error) { say("could not open " + sample.name + ": " + error.message); return; }
+      if (await edit({ op: "model", model })) fitView();
     });
-    sampleMenu.appendChild(button);
+    scroller.appendChild(button);
   }
   const warn = document.createElement("div");
   warn.className = "warn";

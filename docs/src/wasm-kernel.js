@@ -1996,6 +1996,34 @@ function sprawl(face, edges) {
   return made.diagonal > reach * 3 ? { reach, got: made.diagonal } : null;
 }
 
+  //! WHEN THE TANGENCY WILL NOT BUILD, ASK FOR LESS OF IT. GeomPlate reaches
+  //! through a face's surface class, and this cut-down WebAssembly kernel does
+  //! not carry every one of them. Handed a class it is missing it does not
+  //! refuse - it TRAPS, "null function or function signature mismatch" - and a
+  //! trap arrives on the Build, long after the Add that caused it, with no
+  //! saying which edge it belonged to.
+  //!
+  //! A DENY-LIST WAS TRIED AND IT WAS WRONG. The draft that started this
+  //! holds eight tangencies as an extrude and traps as a draft of that same
+  //! extrude, and the faces that changed are cones - but a cone built on its
+  //! own holds a tangency perfectly well, as do planes, cylinders, surfaces of
+  //! revolution and B-spline patches. So it is not the CLASS that cannot be
+  //! held, it is this particular geometry, and no list of type names can know
+  //! that in advance.
+  //!
+  //! So it is found out by asking, in three goes, each one asking for less:
+  //! every tangency it was told to hold, then only the ones against flat
+  //! faces - the curved corners of a draft are what falls away, and its flats
+  //! are what a person was mostly after - then none at all, the boundary held
+  //! in place and a sentence saying the tangency was dropped. A patch with an
+  //! explanation attached beats an empty tree.
+  const HOLD_ALL = 2, HOLD_FLATS = 1, HOLD_NONE = 0;
+
+  function surfaceKind(face) {
+    try { return String(new oc.BRepAdaptor_Surface(face, true).GetType()); }
+    catch (error) { return ""; }
+  }
+
   const FILL_CONTINUITY = ["C0", "G1", "G2"];
 
   //! "G1, G2, G0" - one per boundary curve, and whatever is missing falls
@@ -2038,19 +2066,31 @@ function sprawl(face, edges) {
       const supports = F.references(f, "supports");
       const degree = Math.max(2, Math.round(F.real(f, "degree", 3)));
       const tol = Math.max(1e-5, F.real(f, "tolerance", 0.01));
-      //! TRIED WITH THE CONSTRAINTS, AND AGAIN WITHOUT. A tangency that the
-      //! edge cannot carry sometimes raises on the Add and sometimes waits
-      //! and raises on the Build - one is a refusal and the other is a
-      //! collapse, and from out here they are the same thing: this boundary
-      //! will not take that constraint. So it is built again holding the
-      //! edges in place only, and the note says the constraint was dropped.
-      //! A patch with a sentence attached beats an empty tree.
-      let got = attempt(true);
-      if (!got.ok) got = attempt(false);
+      //! TRIED, AND TRIED AGAIN ASKING FOR LESS. A tangency the edge cannot
+      //! carry sometimes raises on the Add and sometimes waits and collapses
+      //! on the Build - one is a refusal and the other is a wasm trap, and
+      //! from out here they are the same thing: this boundary will not take
+      //! that constraint. So it goes down the rungs, holding every tangency,
+      //! then only the flat ones, then none, and the note says what it let go
+      //! of. A patch with a sentence attached beats an empty tree.
+      let got = attempt(HOLD_ALL);
+      //! WHY IT WOULD NOT TAKE, carried down each rung. A patch that quietly
+      //! drops its tangency and says only "it would not build" sends somebody
+      //! hunting; the same patch saying what OpenCascade actually objected to
+      //! sends them to the thing that is wrong.
+      let why = got.refused && got.refused.length ? got.refused[0] : "";
+      if (!got.ok) {
+        got = attempt(HOLD_FLATS, why);
+        if (!got.ok) {
+          why = (got.refused && got.refused.length ? got.refused[0] : "") || why;
+          got = attempt(HOLD_NONE, why);
+        }
+      }
       if (!got.ok) throw got.error;
       return got.answer;
 
-      function attempt(hold) {
+      function attempt(rung, why = "") {
+      const hold = rung > HOLD_NONE;
       //! NOT EVERY TOLERANCE IS A LENGTH. MakeFilling takes four, and only
       //! two of them are distances: Tol2d is parametric, TolAng is an ANGLE
       //! in radians and TolCurv is a curvature. Scaling all four by the
@@ -2092,6 +2132,7 @@ function sprawl(face, edges) {
 
       let tangential = 0;
       const refused = [];
+      const cannot = [];
       for (const row of rows) {
         const level = hold ? (wants[row.curve] || 0) : 0;
         const support = supports[row.curve];
@@ -2107,7 +2148,12 @@ function sprawl(face, edges) {
         //! refused: a surface you can look at and a sentence saying what it is
         //! missing is a position to work from, and nothing at all is not.
         let took = false;
-        if (face) {
+        const kind = face ? surfaceKind(face).replace("GeomAbs_", "") : "";
+        if (face && rung === HOLD_FLATS && kind !== "Plane") {
+          //! Set down rather than tried: this rung exists because the last one
+          //! trapped, and trying the curved ones again is how you trap again.
+          cannot.push(kind.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase());
+        } else if (face) {
           try { fill.Add(row.edge, face, shape, true); took = true; tangential++; }
           catch (error) { refused.push(kernelMessage(error)); }
         }
@@ -2123,17 +2169,29 @@ function sprawl(face, edges) {
       for (const p of through) fill.Add(pnt(p));
       const wanted = through;
 
+      //! A CONSTRAINT THAT IS ACCEPTED AND THEN COLLAPSES. Adding a tangency
+      //! to a face OpenCascade will not project the edge onto does not raise
+      //! on the Add - it raises, or quietly fails, on the Build, long after
+      //! the thing that caused it. So the reason is caught here as well and
+      //! carried out with the answer.
       let face = null;
       try {
         fill.Build(new oc.Message_ProgressRange());
         if (fill.IsDone()) face = fill.Shape();
+        else if (hold && tangential)
+          refused.push("OpenCascade could not solve it with the tangency held");
       } catch (error) {
-        return { ok: false, error: new Error("no surface would pass through that "
-          + "boundary: " + kernelMessage(error)) };
+        const said = kernelMessage(error);
+        if (hold && tangential) refused.push(said);
+        return { ok: false, refused, error: new Error("no surface would pass through that "
+          + "boundary: " + said) };
       }
-      if (!face || face.IsNull())
-        return { ok: false, error: new Error("no surface would pass through that boundary"
-          + (tangential ? " and meet what it was told to meet" : "")) };
+      if (!face || face.IsNull()) {
+        if (hold && tangential && !refused.length)
+          refused.push("OpenCascade could not solve it with the tangency held");
+        return { ok: false, refused, error: new Error("no surface would pass through that "
+          + "boundary" + (tangential ? " and meet what it was told to meet" : "")) };
+      }
       //! MEASURED, NOT TRUSTED. Raising the number of pieces the surface is
       //! allowed does not save this case - it was tried at twenty and at
       //! forty and the answer was still tens of metres across - so there is
@@ -2175,14 +2233,24 @@ function sprawl(face, edges) {
           + (Number.isFinite(worst) ? ", the furthest missed by " + trim(worst) + " mm"
                                     : ""));
       }
+      //! SAID, NOT SWALLOWED. Four of eight held tangent with a sentence
+      //! about the other four is a useful answer; "0 held tangent" with no
+      //! reason is the report that sent somebody looking.
+      if (cannot.length) {
+        const sorts = Array.from(new Set(cannot));
+        said.push(cannot.length + (cannot.length === 1 ? " edge meets a " : " edges meet a ")
+          + sorts.join(" or a ") + ", which this boundary will not take a tangency "
+          + "against \u2014 the flat faces are held and the curved ones are not");
+      }
       if (refused.length)
         said.push(refused.length + (refused.length === 1 ? " edge" : " edges")
           + " would not take the constraint " + JSON.stringify(refused[0]).slice(1, -1)
           + " \u2014 an edge has to lie ON the face it is held tangent to");
-      if (!hold && wants.some(one => one > 0))
+      if (rung === HOLD_NONE && wants.some(one => one > 0))
         said.push("the constraints would not build on this boundary, so it is held "
-          + "in place only — an edge has to lie ON the face it meets");
-      return { ok: true, answer: { shape: face,
+          + "in place only \u2014 "
+          + (why || "an edge has to lie ON the face it meets"));
+      return { ok: true, refused, answer: { shape: face,
                note: rows.length + " edges · " + tangential + " held tangent · "
                      + said.join(" · ") } };
       }

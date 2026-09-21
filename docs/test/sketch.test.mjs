@@ -339,7 +339,7 @@ console.log("\n12. the sample the sketcher ships with");
 {
   const { SAMPLES } = await import("../src/ocaf.js");
   const sample = SAMPLES.find(s => s.key === "sketcher");
-  check("it sits after the hillside", SAMPLES.map(s => s.key).join(",")
+  check("it sits after the hillside", SAMPLES.slice(0, 2).map(s => s.key).join(",")
     === "hillside-town,sketcher", SAMPLES.map(s => s.key).join(","));
   const built = await kernel.loadModel(sample.model);
   check("the Sketcher sample builds", built.report.failed.length === 0,
