@@ -1056,8 +1056,23 @@ async function syncShapes() {
 //! beside the graph's layout, under its own key. The alternative is a hide
 //! that a reload forgets, which is a tree saying one thing and a viewport
 //! saying another.
+//! EVERYTHING A SET HOLDS, however deep. A set is a folder, so hiding one is
+//! hiding what is in it - a folder has no geometry of its own to hide, and an
+//! eye on it that did nothing would be an eye that lies.
+function withContents(ids) {
+  const out = new Set();
+  const take = id => {
+    if (out.has(id)) return;
+    out.add(id);
+    for (const child of (state.tree ? state.tree.features : []))
+      if (child.parent === id) take(child.id);
+  };
+  for (const id of ids) take(id);
+  return [...out];
+}
+
 function showFeature(id, on) {
-  const ids = Array.isArray(id) ? id : [id];
+  const ids = withContents(Array.isArray(id) ? id : [id]);
   for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
   buildTree(); applyVisibility(); draw();
   // The panel says whether the thing it is showing is showing, so it has to
@@ -5847,7 +5862,14 @@ function survives(entry, keep) {
 
 function treeNode(entry, keep = null, hit = null) {
   const consumed = !!entry.consumedBy;
-  const hidden = state.hidden.has(entry.id);
+  //! A SET'S EYE IS ABOUT WHAT IS IN IT. A folder has no geometry of its own,
+  //! so "is it hidden" is a question about its contents - shut when everything
+  //! inside is hidden, open while any of it is showing. An empty folder reads
+  //! as showing, because there is nothing in it to be putting away.
+  const hidden = entry.category === "container"
+    ? (list => list.length > 0 && list.every(id => state.hidden.has(id)))
+      (withContents([entry.id]).filter(id => id !== entry.id))
+    : state.hidden.has(entry.id);
   treeOrder.push(entry.id);
 
   const li = document.createElement("li");
@@ -5904,7 +5926,14 @@ function treeNode(entry, keep = null, hit = null) {
 
   li.append(glyph, label, kind);
 
-  if (!consumed && entry.built) {
+  //! A SET GETS AN EYE TOO, and it is the only row whose eye is about
+  //! something other than itself. A folder has no geometry - `built` is false
+  //! on one - so the test that gave every other row its eye left folders
+  //! without, and hiding a geometrical set meant opening it and clicking eight
+  //! eyes. What the eye reads on a folder is what is INSIDE it: shut when
+  //! everything in there is hidden, open while any of it is showing, which is
+  //! what makes one click put a whole set away and one click bring it back.
+  if (!consumed && (entry.built || entry.category === "container")) {
     // The same switch a sketch layer has: always there, pressed or not, one
     // click either way. An eye that only appears on hover is a control you
     // have to know about before you can find it.
@@ -5912,8 +5941,11 @@ function treeNode(entry, keep = null, hit = null) {
     eye.type = "button";
     eye.className = "eye" + (hidden ? " off" : "");
     eye.innerHTML = svg(hidden ? ICONS.eyeOff : ICONS.eye);
-    eye.title = hidden ? "Hidden in the 3D view. Click to show it."
-      : "Showing. Click to hide it in the 3D view.";
+    eye.title = entry.category === "container"
+      ? (hidden ? "Everything in this set is hidden. Click to show it all."
+                : "Click to hide everything in this set.")
+      : hidden ? "Hidden in the 3D view. Click to show it."
+               : "Showing. Click to hide it in the 3D view.";
     eye.setAttribute("aria-pressed", String(!hidden));
     eye.addEventListener("click", event => { event.stopPropagation(); showFeature(entry.id, hidden); });
     li.appendChild(eye);
