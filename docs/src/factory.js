@@ -1005,6 +1005,79 @@ export function makeFactories(oc, kit) {
                      turnAbout([n.X(), n.Y(), n.Z()], axis, degrees * Math.PI / 180));
       } },
 
+    //! EVERYTHING ON ONE SIDE OF A PLANE, CUT AWAY.
+    //!
+    //! "Extrude up to that plane" was being done as arithmetic: measure from
+    //! the middle of the profile to the plane along the direction, and sweep
+    //! that far. That is exact for a plane square to the sweep and wrong for
+    //! every other one - an angled plane is nearer at one edge of the profile
+    //! than the other, and a prism of one length cannot be flush with it. What
+    //! came back was a plain prism of the average depth, which looks right
+    //! from the front and is not trimmed to anything.
+    //!
+    //! The real answer is to sweep PAST the plane and cut, which is what every
+    //! kernel does underneath. OpenCascade's own BRepFeat_MakePrism would do
+    //! it in one call and is not in this build; a half-space is, and it is the
+    //! same operation with the steps showing. The half-space is the infinite
+    //! solid on the far side of the plane, so cutting it off leaves exactly
+    //! the part on the near side, flush with the plane however it is angled.
+    //!
+    //! Measured: a cylinder of radius 100 swept along Z and trimmed at a plane
+    //! through z = 150 tilted 24 degrees - volume 4712389.0, against
+    //! pi*100^2*150 = 4712389.0 for the flat cut at the same height, which is
+    //! what the tilt has to come to when it turns about the axis.
+    { name: "trimAtPlane", takes: "shape, plane, from", gives: "shape",
+      summary: "A shape with everything on the far side of a plane cut off, keeping "
+             + "the side \p from is on. What \"up to that plane\" really means, and "
+             + "the only form of it that is right for a plane at an angle.",
+      run: (shape, plane, from) => {
+        const origin = plane.Location(), normal = plane.Direction();
+        const at = [origin.X(), origin.Y(), origin.Z()];
+        const n = V.norm([normal.X(), normal.Y(), normal.Z()]);
+        if (!n) throw new Error("that plane has no normal");
+        const side = V.dot(V.sub(from, at), n);
+        if (Math.abs(side) < CONFUSION)
+          throw new Error("that is on the plane, so there is no side to keep");
+        //! The half-space is named by a point INSIDE it, and the point has to
+        //! be far enough out to be unambiguous - the reach of the shape being
+        //! cut is the only length here that is guaranteed to be big enough.
+        const reach = Math.max(extentsOf(shape) || 0, Math.abs(side)) * 4 + 1;
+        const away = V.add(at, V.scale(n, side > 0 ? -reach : reach));
+        const face = new oc.BRepBuilderAPI_MakeFace(
+          new oc.gp_Pln(new oc.gp_Ax3(plane)), -reach, reach, -reach, reach).Face();
+        const beyond = new oc.BRepPrimAPI_MakeHalfSpace(face, pnt(away)).Solid();
+        const cut = new oc.BRepAlgoAPI_Cut(shape, beyond);
+        cut.Build();
+        if (!cut.IsDone()) throw new Error("that shape will not trim at that plane");
+        const made = cut.Shape();
+        if (!made || made.IsNull() || (count(made, FACE) === 0 && count(made, EDGE) === 0))
+          throw new Error("nothing of that shape is on this side of the plane");
+        return made;
+      } },
+
+    //! How big a shape is, corner to corner. Declared because the drivers need
+    //! it too - an extrude that has to overshoot a plane has to know by how
+    //! much - and reaching into the factory's own helper from outside it is
+    //! how two definitions of "how big" come to disagree.
+    //! THE PLANE A FLAT SHAPE LIES IN, or nothing when it does not lie in one.
+    //! Declared so a driver can ask - an extrude taking its direction from the
+    //! profile needs exactly this, and a sketch built out of loose curves has
+    //! no frame written on it to read instead.
+    { name: "planeOfShape", takes: "shape", gives: "vector",
+      summary: "The normal of the plane a flat shape lies in, or nothing when it is "
+             + "not flat. What \"normal to the profile\" is asking for.",
+      run: shape => {
+        try {
+          const wires = each(shape, WIRE, oc.TopoDS.Wire);
+          for (const wire of wires) { const n = planeOfWire(wire); if (n) return n; }
+          return null;
+        } catch (e) { return null; }
+      } },
+
+    { name: "extentsOf", takes: "shape", gives: "number",
+      summary: "The diagonal of a shape's bounding box: one number for how big it is.",
+      run: shape => extentsOf(shape) || 0 },
+
     { name: "planeFace", takes: "plane, size", gives: "shape",
       summary: "A plane as something you can see: a square of it, centred on its "
              + "origin. The size is display only and drives no geometry.",
@@ -1369,8 +1442,21 @@ export function makeFactories(oc, kit) {
     { name: "intersect", takes: "a, b", gives: "shape",
       summary: "Where two shapes cross, as wireframe: the section curve of two "
              + "surfaces, the point where two curves meet.",
-      run: (a, b) => {
-        const section = new oc.BRepAlgoAPI_Section(a, b, false);
+      //! \p plane, when one of the two IS a plane, is that plane UNBOUNDED.
+      //!
+      //! A datum plane is drawn as a square because a plane has to be drawn as
+      //! something, and its size is display only - the catalogue calls it
+      //! "Display size" and it drives no geometry. It drove this. Sectioning a
+      //! 400 mm cube against a plane drawn 200 mm across gave "those two do
+      //! not cross anywhere", because the little square is entirely inside the
+      //! cube and never touches its surface; the same plane drawn 400 across
+      //! gave the four edges anybody would expect. A plane is infinite or it
+      //! is not a plane, so the driver hands the plane over as itself and the
+      //! square is left to the viewport.
+      run: (a, b, plane = null) => {
+        const section = plane
+          ? new oc.BRepAlgoAPI_Section(plane.on, new oc.gp_Pln(new oc.gp_Ax3(plane.ax)), false)
+          : new oc.BRepAlgoAPI_Section(a, b, false);
         section.ComputePCurveOn1(false);
         section.Approximation(true);
         section.Build();

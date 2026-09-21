@@ -1636,9 +1636,20 @@ export const CATALOGUE = [
            + "two curves come closest, or a point dropped onto a plane or a surface. "
            + "Wire a list of numbers into a coordinate and one point becomes a row of "
            + "them - and a list of points projected onto a plane comes back as a list.",
+    //! ON A PLANE IS APPENDED, never inserted: the index of an option is what
+    //! a document stores, and reordering this list would turn every saved
+    //! "Centre of" into something else.
+    //!
+    //! It is the default a person gets, and it is NOT the default here. A
+    //! point on a plane needs a plane, and whether there is one is a fact
+    //! about the document rather than about the catalogue - so the rule lives
+    //! where the document is known, in the add path, and this stays
+    //! Coordinates. That also keeps {"op":"add","type":"Point"} followed by
+    //! setting x, y and z doing what it has always done, which is the most
+    //! basic thing anybody writes in this language.
     args: [choice("kind", "Point", ["Coordinates", "On a curve", "Centre of",
                                     "Extreme along", "Between two curves",
-                                    "Projected onto"], 0),
+                                    "Projected onto", "On a plane"], 0),
            when(real("x", "X", 0, -2000, 2000, 0.5), "kind", 0),
            when(real("y", "Y", 0, -2000, 2000, 0.5), "kind", 0),
            when(real("z", "Z", 0, -2000, 2000, 0.5), "kind", 0),
@@ -1653,7 +1664,18 @@ export const CATALOGUE = [
            when(ref("what", "Point", ["point"]), "kind", 5),
            when(ref("onto", "Onto", ["plane", "solid", "curve", "mesh"]), "kind", 5),
            when(choice("way", "How", ["Nearest point", "Straight down"], 0),
-                "kind", 5)] },
+                "kind", 5),
+           //! APPENDED, as every new argument is: the index is the tag on
+           //! disk. The plane is wired the way every other plane input is, so
+           //! a new point lands on the first plane in the document - which in
+           //! a part that opens on its origin is the XY plane.
+           when(ref("plane", "Plane", ["plane"]), "kind", 6),
+           //! H and V, not X and Y: they are measured IN the plane, along its
+           //! own two directions, so a point stays where it was put when the
+           //! plane is turned. Calling them X and Y would be inviting somebody
+           //! to type world coordinates into them.
+           when(real("h", "H", 0, -4000, 4000, 0.5), "kind", 6),
+           when(real("v", "V", 0, -4000, 4000, 0.5), "kind", 6)] },
   //! And one vector node, the same way the point node works. A direction typed
   //! in and a direction read off the model are the same thing to everything
   //! downstream, so they are two settings of one node.
@@ -2449,11 +2471,23 @@ export const CATALOGUE = [
            + "bodies. On Surface the wires are swept open instead, which is what to "
            + "use when the profile is a rib, a wall or a skin rather than a body.",
     args: [ref("profile", "Profile", ["curve", "plane"], true),
-           ref("direction", "Direction", ["vector"]),
+           //! Only asked for when the direction is not the profile's own. A
+           //! `when` here is what stops it being auto-wired as well as what
+           //! hides it, which is the point: a new extrude with "Normal to the
+           //! profile" set has no direction wired at all, and that absence is
+           //! what tells an old file apart from a new one. See the driver.
+           when(ref("direction", "Direction", ["vector"]), "way", 1),
            choice("limit", "Limit", ["Distance", "Up to plane"], 0),
            when(real("distance", "Distance", 120, -4000, 4000, 1), "limit", 0),
            when(ref("until", "Up to", ["plane"]), "limit", 1),
-           choice("cap", "Result", ["Solid", "Surface"], 0)] },
+           choice("cap", "Result", ["Solid", "Surface"], 0),
+           //! APPENDED, and the default is Normal because that is what an
+           //! extrude of a sketch means nine times in ten - a pad comes off
+           //! the paper it was drawn on. Wiring a vector to say so was asking
+           //! for a fact the profile already knows, and getting it wrong is
+           //! how you extrude a plan sideways.
+           choice("way", "Direction from",
+                  ["Normal to the profile", "A direction"], 0)] },
   { type: "Loft", guid: "9a1b2c30-0071-4c00-9e00-caf000000071", category: "operation",
     produces: "solid",
     summary: "A skin through section curves, in the order they are wired. Two or more "
@@ -3718,10 +3752,40 @@ export class Doc {
     this.deleteFeature(container);
   }
 
-  deleteFeature(f) {
-    if (this.isContainer(f) && this.contents(f).length) { this.dissolve(f); return; }
+  //! \p cutWires does two things, and both of them are what "delete this set
+  //! AND everything in it" has to mean.
+  //!
+  //! A CONTAINER IS NOT DISSOLVED. Deleting a folder normally hands its
+  //! contents back to whatever the folder was in, because you are usually
+  //! undoing the folder rather than the work. Told to take the contents too,
+  //! the caller has already listed them for deletion - dissolving would empty
+  //! the set first and leave the list pointing at features that have moved.
+  //!
+  //! AND A READER IS NOT A REFUSAL. The whole point is to get rid of an idea,
+  //! and something outside still wired to a piece of it has to hear about that
+  //! now rather than keep a wire to something that is gone. The wire is cut
+  //! and the reader is left with an empty input, which is a thing the panel
+  //! can say out loud.
+  deleteFeature(f, cutWires = false) {
+    if (!cutWires && this.isContainer(f) && this.contents(f).length) {
+      this.dissolve(f);
+      return;
+    }
     const readers = this.dependents(f);
-    if (readers.length) throw new Error(F.name(readers[0]) + " still reads from " + F.name(f));
+    if (readers.length) {
+      if (!cutWires)
+        throw new Error(F.name(readers[0]) + " still reads from " + F.name(f));
+      for (const reader of readers)
+        for (const arg of F.spec(reader).args) {
+          if (arg.kind !== "ref" && arg.kind !== "refs") continue;
+          this.clearReference(reader, arg.key, f);
+        }
+    }
+    //! A container going with cutWires set still has to let go of whatever is
+    //! left filed under it, or those become children of a label that is not
+    //! there any more.
+    if (this.isContainer(f))
+      for (const child of this.contents(f)) F.setParent(child, null);
     const shape = F.shape(f);
     const driver = this.driverOf(f);
     if (shape && driver) driver.release(shape);

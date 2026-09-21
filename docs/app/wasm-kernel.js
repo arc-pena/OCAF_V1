@@ -429,6 +429,11 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           if (!(mesh && mesh.kind === "mesh") && !F.shape(onto))
             return F.name(onto) + " has not been built";
         }
+        if (kind === 6) {
+          const plane = F.reference(f, "plane");
+          if (!plane) return "no plane to sit on";
+          return planeTrouble(plane);
+        }
         return null;
       },
       build: f => {
@@ -469,6 +474,22 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
               + F.name(onto) + " - it is past its edge, or the normal misses it");
             return landed;
           });
+        } else if (kind === 6) {
+          //! ON A PLANE: two numbers measured in the plane's OWN directions,
+          //! not in the world's. That is the whole point of it - a point put
+          //! 40 across and 25 up a face stays 40 across and 25 up when the
+          //! face turns, and three world coordinates do not.
+          const ax = planeAxis(F.reference(f, "plane"));
+          if (!ax) throw new Error("that plane cannot be worked out");
+          const at = ax.Location(), x = ax.XDirection(), y = ax.YDirection();
+          const origin = [at.X(), at.Y(), at.Z()];
+          const across = [x.X(), x.Y(), x.Z()], up = [y.X(), y.Y(), y.Z()];
+          //! Lists here too, the same as coordinates: a row of H values and
+          //! one V lays a row of points along the plane.
+          rows = zip([F.reals(f, "h", 0), F.reals(f, "v", 0)]).map(([h, v]) =>
+            [origin[0] + across[0] * h + up[0] * v,
+             origin[1] + across[1] * h + up[1] * v,
+             origin[2] + across[2] * h + up[2] * v]);
         } else {
           // Coordinates. Wire a list of numbers into one and a point becomes a
           // row of them: the shortest list repeats its last value, the rule
@@ -4968,12 +4989,49 @@ function sprawl(face, edges) {
 
   /* --------------------------------------------------------- operations */
 
+//! WHICH WAY AN EXTRUDE GOES, and it is the profile's own answer unless told
+//! otherwise.
+//!
+//! A pad comes off the paper it was drawn on. Asking for a vector to say so
+//! was asking for a fact the profile already knows, and getting it wrong is
+//! how a plan gets extruded sideways.
+//!
+//! THE MISSING LABEL IS WHAT TELLS AN OLD FILE APART. A choice reports its
+//! default when nothing was ever stored, so "Normal to the profile" and "never
+//! asked" read the same - and every extrude saved before this existed has a
+//! direction wired and no `way`. Turning those into normal extrudes would
+//! quietly re-point geometry in files that were finished. So: nothing stored
+//! AND a direction wired means the direction, which is exactly what that file
+//! has always done. A new extrude has no direction wired, because the argument
+//! only applies when `way` says so, and takes the normal.
+  const extrudeWay = f => {
+    const said = Feature_choice(f, "way", -1);
+    const wired = V.norm(readVector(F.reference(f, "direction")) || [0, 0, 0]);
+    if (said === 1 || (said < 0 && wired)) return wired;
+    const profile = F.reference(f, "profile");
+    const frame = F.frame(profile);
+    if (frame && frame.normal) return V.norm(frame.normal);
+    //! A FACE FIRST, then the wires. firstFace throws when there are none -
+    //! which a curve profile has - so it is asked inside a try rather than
+    //! guarded with a second walk of the same shape.
+    try {
+      const off = normalOfFace(firstFace(F.shape(profile), "profile"));
+      if (off) return off;
+    } catch (e) { /* no faces: it is a curve, and curves have wires */ }
+    //! A flat WIRE has a plane too, and a sketch that was never given a frame
+    //! - one built from loose curves - is the common case for that.
+    return HSF.planeOfShape(F.shape(profile)) || null;
+  };
+
   builders.Extrude = {
     precondition: f => {
       const profile = F.reference(f, "profile");
       if (!profile) return "no profile to extrude";
       if (!F.shape(profile)) return F.name(profile) + " has not been built";
-      if (!readVector(F.reference(f, "direction"))) return "a direction vector is needed";
+      if (!extrudeWay(f)) return Feature_choice(f, "way") === 1
+        ? "a direction vector is needed"
+        : "that profile is not flat, so it has no normal to come off - "
+          + "set Direction from to \"A direction\" and wire one";
       if (Feature_choice(f, "limit") === 1) {
         if (!F.reference(f, "until")) return "no plane to extrude up to";
         return planeTrouble(F.reference(f, "until"));
@@ -4983,17 +5041,35 @@ function sprawl(face, edges) {
     },
     build: f => {
       const source = F.shape(F.reference(f, "profile"));
-      const v = V.norm(readVector(F.reference(f, "direction")));
+      const v = extrudeWay(f);
       // How far is either a number or a plane. "Up to that face" is the
       // measurement a person actually has, and it keeps being true when the
       // plane moves - which a number typed once does not.
-      const reach = Feature_choice(f, "limit") === 1
-        ? HSF.lineDistanceToPlane(HSF.pointCenter(source), v,
-                                  planeAxis(F.reference(f, "until")))
+      //! UP TO A PLANE IS A TRIM, NOT A LENGTH.
+      //!
+      //! This measured from the middle of the profile to the plane and swept
+      //! that far, which is exact for a plane square to the sweep and wrong
+      //! for every other one: an angled plane is nearer at one edge of the
+      //! profile than at the other, and no prism of a single length is flush
+      //! with it. What came back was a plain prism of the average depth.
+      //!
+      //! So it sweeps PAST the plane and cuts - see trimAtPlane. Past by
+      //! enough that the prism crosses the plane everywhere, which is the
+      //! centre distance plus the profile's own reach, doubled and then some:
+      //! the cut is what decides where it ends, so overshooting costs nothing
+      //! but a boolean.
+      const stop = Feature_choice(f, "limit") === 1
+        ? planeAxis(F.reference(f, "until")) : null;
+      const middle = HSF.pointCenter(source);
+      const reach = stop
+        ? HSF.lineDistanceToPlane(middle, v, stop)
         : F.real(f, "distance", 120);
       if (Math.abs(reach) < CONFUSION)
         throw new Error("the profile is already on that plane, so there is nothing to extrude");
-      const along = V.scale(v, reach);
+      const over = stop
+        ? Math.sign(reach) * (Math.abs(reach) + HSF.extentsOf(source) * 2 + 1)
+        : reach;
+      const along = V.scale(v, over);
 
       // Solid or surface is a real choice, not a hint, and the two factories
       // are where it is made. A pad is swept from the faces of the profile -
@@ -5001,14 +5077,17 @@ function sprawl(face, edges) {
       // rather than the first. A surface is swept from the wires, so the same
       // sketch on "Surface" gives six tubes; a profile that arrived as a face
       // has its own outlines taken back off it.
+      //! The trim keeps the side the PROFILE is on, which is the only side
+      //! anybody means by "up to".
+      const cut = made => stop ? HSF.trimAtPlane(made, stop, middle) : made;
       if (Feature_choice(f, "cap") === 0) {
         const faces = capped(f, source);
         if (!faces.length) throw new Error("the profile has nothing to extrude");
-        return SF.pad(HSF.join(faces), along);
+        return cut(SF.pad(HSF.join(faces), along));
       }
       const wires = outlines(f, source);
       if (!wires.length) throw new Error("the profile has nothing to extrude");
-      return HSF.extrude(HSF.join(wires), along);
+      return cut(HSF.extrude(HSF.join(wires), along));
     },
   };
 
@@ -5235,7 +5314,19 @@ function sprawl(face, edges) {
       return null;
     },
     build: f => {
-      const shape = HSF.intersect(F.shape(F.reference(f, "a")), F.shape(F.reference(f, "b")));
+      const a = F.reference(f, "a"), b = F.reference(f, "b");
+      //! A PLANE IS INFINITE. Its drawn square is display only, and sectioning
+      //! against the square is how a 400 cube failed to cross a plane through
+      //! the middle of it - see the factory's intersect. Asked of the feature
+      //! rather than of the shape, because only the document knows that this
+      //! face stands for a plane and that one is a face somebody made.
+      const boundless = side => {
+        if (!side || F.spec(side).type !== "Plane") return null;
+        const ax = planeAxis(side);
+        return ax ? { ax, on: F.shape(side === a ? b : a) } : null;
+      };
+      const plane = boundless(b) || boundless(a);
+      const shape = HSF.intersect(F.shape(a), F.shape(b), plane);
       const marks = verticesOf(shape);
       // A section that came out as points is a point: say so in the data as
       // well as in the shape, so it can drive anything that wants one.
@@ -6196,10 +6287,10 @@ function sprawl(face, edges) {
                contents: doc.within(f).map(x => ({ id: F.id(x), name: F.name(x) })) };
     },
 
-    async deleteFeature(id) {
+    async deleteFeature(id, cutWires = false) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
-      doc.deleteFeature(f);
+      doc.deleteFeature(f, !!cutWires);
       return state(settle(false));
     },
 

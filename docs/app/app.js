@@ -84,6 +84,7 @@ const state = {
   anchor: null,        // where a shift-click measures its block from
   edited: null,        // feature id whose definition the panel shows
   hidden: new Set(),   // per-view hide; the document is not touched
+  hover: null,         // the feature under the pointer, lit orange
   //! THE SET BEING WORKED IN - CATIA's work object. Everything made from now
   //! on is filed here. A property of the session rather than of the document:
   //! two people opening one model are not necessarily working in the same
@@ -247,8 +248,8 @@ let grid = null, axes = null;
 
 function readTheme() {
   const style = getComputedStyle(document.documentElement);
-  for (const name of ["shape", "shape-edge", "curve", "accent", "datum", "grid", "grid-axis",
-                      "bad", "cut-fill", "cut-line"])
+  for (const name of ["shape", "shape-edge", "curve", "accent", "hover", "datum", "grid",
+                      "grid-axis", "bad", "cut-fill", "cut-line"])
     THEME[name] = new THREE.Color(style.getPropertyValue("--" + name).trim() || "#888888");
   paintBackdrop();
 }
@@ -510,6 +511,17 @@ function measureScene() {
       if (uv && (sketcher.clicks.length || sketcher.hover)) { sketcher.hover = uv; refreshSketch(); }
       else sketcher.hover = uv;
     }
+    //! WHAT THE POINTER IS OVER, lit before it is clicked. The last of the
+    //! modes to get this and the one everybody meets first: edit mode has had
+    //! it, sub-shape picking has had it, and choosing a body - the ordinary
+    //! thing - had nothing at all, so there was no way to know what a click
+    //! was about to take until after it had taken it.
+    //!
+    //! Only while nothing else owns the pointer. Mid-orbit the answer changes
+    //! every frame and means nothing; inside a sketch or the mesh editor
+    //! another kind of hover is already running.
+    if (!mode && !sketching() && !meshing() && !pickingOn() && !handEditing())
+      hoverFeature(event);
     if (!mode) return;
     if (mode === "gizmo") { dragGizmo(event); return; }
     if (mode === "transform") { dragGizmoWidget(event); return; }
@@ -614,6 +626,8 @@ function measureScene() {
     }
     mode = null;
   });
+  //! Off the viewport, nothing is under the pointer.
+  el.addEventListener("pointerleave", clearHover);
   el.addEventListener("pointercancel", () => {
     meshEdit.axis = null;
     if (gizmo.grab) dropGizmoWidget();
@@ -929,7 +943,14 @@ function groupFromStream(mesh, entry) {
     solid.userData.id = mesh.id;
     solid.userData.datum = datum;
     group.add(solid);
-    if (!datum) pickable.push(solid);
+    //! A PLANE IS A THING YOU CLICK ON. It was left out of the pick list on
+    //! the grounds that a datum is scenery - and it is not: a plane is the
+    //! commonest input in the whole program, it is drawn where you can see it,
+    //! and every other way of choosing one asks you to recognise it by name in
+    //! a list of nine. The one real objection is that a plane is big and gets
+    //! in front of things, and that is answered where the pick is resolved
+    //! rather than by refusing to offer it at all - see `pick`.
+    pickable.push(solid);
   }
 
   if (mesh.edges && mesh.edges.length) {
@@ -1113,9 +1134,31 @@ function applyVisibility() {
 //! a blue model, and arctic's whole claim is that everything is the same clay.
 const SELECTED_TINT = 0.42;
 const tintFor = style => (style.clay ? 0.14 : style.materials ? 0.22 : SELECTED_TINT);
+//! TWO STATES, TWO COLOURS, AND NEITHER OF THEM TIMID.
+//!
+//! Orange is what the pointer is over; blue is what is chosen. They answer
+//! different questions - "this one?" and "this one." - and reading one as the
+//! other is how you delete the wrong thing, so they are not two shades of the
+//! same idea.
+//!
+//! The strength was the other half of the complaint. A selected body was
+//! tinted towards the accent and given an emissive of 0.06, which on a mid
+//! grey in a lit scene is a body that looks very slightly bluer than it did -
+//! findable if you already know which one it is, which is not what a highlight
+//! is for. Both states now light as well as tint, and the edges take the
+//! colour at full strength, which is what actually reads at a distance.
+const HOVER_TINT = 0.5;
+const GLOW = { hover: 0.4, selected: 0.3 };
+
 function paintSelection() {
+  const style = findStyle(state.style);
   for (const [id, { group }] of shapes) {
-    const selected = id === state.selected;
+    const selected = id === state.selected || state.picked.includes(id);
+    //! Hover is not shown on something already chosen. It would be saying
+    //! "this one?" about the thing it is already saying "this one." about,
+    //! and the flicker as the pointer crosses a selected body reads as a bug.
+    const lit = !selected && id === state.hover;
+    const mark = selected ? THEME.accent : THEME.hover;
     group.traverse(object => {
       if (object.isMesh && object.material.isMeshStandardMaterial) {
         // Back to whatever the style painted it, THEN the tint. Reading the
@@ -1123,18 +1166,31 @@ function paintSelection() {
         // body stay brass when something else is picked.
         const base = object.material.userData.base || THEME.shape;
         object.material.color.copy(base);
-        if (selected) object.material.color.lerp(THEME.accent, tintFor(findStyle(state.style)));
-        object.material.emissive.copy(THEME.accent);
-        object.material.emissiveIntensity = selected ? 0.06 : 0;
+        if (selected) object.material.color.lerp(THEME.accent, tintFor(style));
+        else if (lit) object.material.color.lerp(THEME.hover, HOVER_TINT * (style.clay ? 0.45 : 1));
+        object.material.emissive.copy(mark);
+        object.material.emissiveIntensity = selected ? GLOW.selected : lit ? GLOW.hover : 0;
+      }
+      //! A DATUM LIGHTS UP TOO, and it is the one that needed it most: a plane
+      //! is five per cent opaque, so a tint of it is nothing. It goes opaque
+      //! enough to see instead.
+      if (object.isMesh && object.material.isMeshBasicMaterial && object.userData.datum) {
+        object.material.color.copy(selected || lit ? mark : THEME.datum);
+        object.material.opacity = selected ? 0.3 : lit ? 0.22 : 0.05;
       }
       if (object.isLineSegments && object.material.isLineBasicMaterial &&
           object.parent && object.parent.userData.solid) {
         // A curve keeps its own colour: the line is the feature, not the
         // silhouette of one, and dimming it to a tangent edge loses it.
         const own = object.parent.userData.curve ? THEME.curve : THEME["shape-edge"];
-        object.material.color.copy(selected ? THEME.accent : own);
-        object.material.opacity = selected ? 0.9 : object.parent.userData.curve ? 1 : 0.4;
+        object.material.color.copy(selected || lit ? mark : own);
+        object.material.opacity = selected || lit ? 1 : object.parent.userData.curve ? 1 : 0.4;
       }
+      //! And the markers a Point or a DivideCurve is drawn as, which carry no
+      //! triangles and no edges and so were the one kind of feature that could
+      //! not show either state at all.
+      if (object.isPoints && object.material)
+        object.material.color.copy(selected || lit ? mark : THEME.curve);
     });
   }
   draw();
@@ -4905,13 +4961,51 @@ function pickVertex(event) {
   return true;
 }
 
+//! WHAT IS UNDER THE POINTER, with a plane never standing in front of a
+//! solid.
+//!
+//! A datum plane is 200 mm of nearly transparent sheet and it is usually
+//! between the camera and the part. Nearest-hit-wins would mean clicking a
+//! body and getting the plane it was drawn on, which is why datums used to be
+//! left out of picking altogether - and that made a plane impossible to choose
+//! by pointing at it, which is the only way anybody wants to choose one.
+//!
+//! So both are collected and solids win. A datum is only the answer when there
+//! is nothing solid along the ray at all, which is exactly when you meant it.
+function idUnder(ray) {
+  const hits = ray.intersectObjects(
+    pickable.filter(m => m.parent && m.parent.visible && m.material.visible !== false), false);
+  const solid = hits.find(hit => !hit.object.userData.datum);
+  return (solid || hits[0] || {}).object ? (solid || hits[0]).object.userData.id : null;
+}
+
+//! Lit as the pointer passes, and repainted only when the answer CHANGES -
+//! a pointermove fires on every pixel and repainting the scene on each of them
+//! is a way to make a fast viewport feel slow.
+function hoverFeature(event) {
+  const id = idUnder(rayFrom(event));
+  if (id === state.hover) return;
+  state.hover = id;
+  //! The cursor says it too, because a highlight you have to be looking at the
+  //! right part of the screen to notice is half a signal.
+  renderer.domElement.style.cursor = id ? "pointer" : "";
+  paintSelection();
+}
+
+//! The pointer leaving the viewport leaves nothing lit behind it.
+function clearHover() {
+  if (state.hover === null) return;
+  state.hover = null;
+  renderer.domElement.style.cursor = "";
+  paintSelection();
+}
+
 function pick(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   raycaster.setFromCamera(new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
     -((event.clientY - rect.top) / rect.height) * 2 + 1), camera);
-  const hits = raycaster.intersectObjects(pickable.filter(m => m.parent && m.parent.visible), false);
-  const id = hits.length ? hits[0].object.userData.id : null;
+  const id = idUnder(raycaster);
   // AN INPUT IS WAITING. Then this click is the answer to its question rather
   // than a change of selection - which is the whole of what "click the field,
   // then click the thing" means.
@@ -6470,6 +6564,23 @@ function openMenu(event, entry) {
     several ? "and everything selected with it"
       : entry.category === "container" ? "keeps what is in it" : "",
     () => deleteFeature(many));
+  //! AND THE OTHER KIND OF DELETE, which a folder needs and nothing else does.
+  //!
+  //! "Delete set" hands the contents back to whatever the set was in, which is
+  //! right when you are undoing the folder and wrong when you are undoing the
+  //! WORK. A geometrical set holding a sketch, an extrude and three planes is
+  //! usually one idea, and getting rid of the idea means getting rid of all of
+  //! it - one command, not "delete the five things, then delete the folder
+  //! they were in", in dependency order, by hand.
+  //!
+  //! Separate from Delete rather than a setting on it, because they are
+  //! genuinely different amounts of damage and the menu should say which one
+  //! you are about to do.
+  const inside = withContents(many).filter(id => !many.includes(id));
+  if (inside.length)
+    item("Delete " + (several ? "them" : "it") + " and everything inside",
+      inside.length + (inside.length === 1 ? " feature goes too" : " features go too"),
+      () => deleteFeature(withContents(many), true));
 
   placeMenu(event.clientX, event.clientY);
 }
@@ -8578,6 +8689,25 @@ async function addFeature(type) {
   // rest. Typing the same edit into the graph console gets the same wiring.
   const payload = await edit({ op: "add", type });
   if (!payload) return;
+  //! A POINT LANDS ON A PLANE WHEN THERE IS ONE.
+  //!
+  //! "On a plane" is what a person wants from the Point button: two numbers
+  //! measured in a plane they can see, which stay meaningful when the plane
+  //! moves. Three world coordinates are the answer when you already know
+  //! where the thing is in space, which is the last thing you know while a
+  //! model is being built.
+  //!
+  //! Done here and not as the catalogue's default, because it depends on the
+  //! document: a point on a plane needs a plane. With none, the node stays on
+  //! Coordinates rather than arriving broken - and {"op":"add","type":"Point"}
+  //! from a script or a file still means what it has always meant.
+  if (type === "Point" && !payload.refs) {
+    const plane = (state.tree.features || []).find(f => f.produces === "plane" && f.built);
+    if (plane) {
+      await mdl.runAll([{ op: "set", id: payload.id, key: "kind", value: 6 },
+                        { op: "connect", id: payload.id, key: "plane", from: plane.id }]);
+    }
+  }
   if (taking.length)
     await mdl.runAll(taking.map(id => ({ op: "group", id, into: payload.id })));
   //! AND INTO THE SET BEING WORKED IN, which is CATIA's "define in work
@@ -8604,17 +8734,35 @@ async function addFeature(type) {
 //! In falling order, because the kernel refuses to delete anything that is
 //! still being read from: select a sketch and the pad made out of it and the
 //! pad has to go first, which is not the order anybody clicked them in.
-async function deleteFeature(what) {
+//! \p andWires says to take the wires with it: a delete that would be refused
+//! because something still reads from what is going is done anyway, and the
+//! readers are left with the input empty. That is the right answer for "delete
+//! this set and everything in it" - you are removing an idea, and what was
+//! reading it has to hear about that now rather than keep a wire to something
+//! that is gone.
+async function deleteFeature(what, andWires = false) {
   const ids = (Array.isArray(what) ? what : [what]).filter(Boolean);
   if (!ids.length) return;
+  //! ASKED FIRST, because it is the one command here that cannot be explained
+  //! by looking at the result. The count is in the question: a menu that does
+  //! not say how much it is about to remove is a menu that removes four more
+  //! than you meant.
+  if (andWires) {
+    const reading = state.tree.features.filter(f => !ids.includes(f.id)
+      && ids.some(id => dependsOn(f.id, id)));
+    const said = ids.length + (ids.length === 1 ? " feature" : " features")
+      + (reading.length ? ", and " + reading.length
+         + (reading.length === 1 ? " other loses an input" : " others lose an input") : "");
+    if (!window.confirm("Delete " + said + "?")) return;
+  }
   const was = { selected: state.selected, edited: state.edited, picked: state.picked.slice() };
   if (ids.includes(state.selected)) { state.selected = null; state.anchor = null; }
   if (ids.includes(state.edited)) state.edited = null;
   state.picked = state.picked.filter(id => !ids.includes(id));
   const order = inFallingOrder(ids);
-  const done = ids.length === 1
+  const done = ids.length === 1 && !andWires
     ? await edit({ op: "delete", id: order[0] })
-    : await edit.many(order.map(id => ({ op: "delete", id })));
+    : await edit.many(order.map(id => ({ op: "delete", id, cutWires: andWires })));
   if (!done) {
     state.selected = was.selected;
     state.edited = was.edited;
