@@ -854,9 +854,30 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
    being drawn. Which is what the eye beside it says, in the one place this
    program says that about anything. Dimmed, because it is not what you are
    looking at; legible, because you may be about to be. */
+/* FOUND. A row scrolled to and left the same colour as the forty around it
+   has not been found for you, it has been put in front of you. Two flashes and
+   then it is only selected, like everything else. */
+@keyframes tree-found {
+  0%, 100% { background: transparent; }
+  20%, 60% { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+#tree .node.found { animation: tree-found 1.5s ease-in-out; }
+@media (prefers-reduced-motion: reduce) { #tree .node.found { animation: none; } }
+
 .node.consumed .label, .node.consumed .glyph { opacity: .55; }
 .node.failed .label { color: var(--bad); }
-.node .kind { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+/* THE KIND IS A WORD ABOUT THE ROW, NOT A NAME - so it is allowed to be cut
+   short and the name is not. It was neither: a consumed body's kind is "in
+   <whatever ate it>", and out of an IFC file that is sixty characters of
+   family name which took the whole row and left the NAME one letter per line.
+   The tooltip still has all of it. */
+.node .kind {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-3);
+  max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto;
+}
+/* And the name never squeezes below something you can read a word of. */
+.node .label { min-width: 8ch; }
 /* ALWAYS THERE, BOTH WAYS ROUND. The eye used to be opacity:0 until the row
    was hovered, which makes it a control you have to already know about before
    you can find it - and on a touch screen there is no hover to find it with.
@@ -2309,6 +2330,16 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
     <input id="tree-search" type="search" hidden placeholder="Search the tree…"
            list="tree-names" autocomplete="off" aria-label="Search the tree">
     <datalist id="tree-names"></datalist>
+<!-- FOLD EVERYTHING, OPEN EVERYTHING. A building out of IFC has 1,665 sets
+         in it and every one of them open; there is no folding that one set at a
+         time. Beside the text size because both are about how much tree you are
+         looking at. -->
+    <span class="tree-zoom">
+      <button type="button" id="tree-fold" title="Fold every set"
+              aria-label="Fold every set">⊟</button>
+      <button type="button" id="tree-unfold" title="Open every set"
+              aria-label="Open every set">⊞</button>
+    </span>
     <span class="tree-zoom">
       <button type="button" id="tree-smaller" title="Smaller text (Ctrl and the wheel)"
               aria-label="Smaller tree text">−</button>

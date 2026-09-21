@@ -119,12 +119,13 @@ export const IFC = offerPlugin({
         const model = readIfc(text);
         if (!model.entities.size)
           throw new Error("there are no entities in that file - it may not be IFC");
-        const { features, report, scale } = ifcFeatures(model, {});
+        const { features, report, scale, hidden } = ifcFeatures(model, {});
         if (!features.length)
           throw new Error("nothing in that file has geometry this can rebuild");
         return {
           model: { format: "ocaf-parametric-model", version: 1,
-                   name: (name || "IFC").replace(/\.ifc$/i, ""), units: "mm", features },
+                   name: (name || "IFC").replace(/\.ifc$/i, ""), units: "mm",
+                   features, hidden },
           say: ifcSummary(report, (name || "IFC")
             + (model.schema ? " \u00b7 " + model.schema : "")),
           report, scale,

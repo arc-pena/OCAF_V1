@@ -345,16 +345,28 @@ function placeCamera() {
 //! Everything that would be photographed: the built shapes that are showing,
 //! leaving out the datums, whose drawn size is arbitrary and would swamp a
 //! small part. When there is nothing but datums, they are what there is.
+//! HOW BIG THE MODEL IS - which is a question about the MODEL and not about
+//! what the camera can currently see.
+//!
+//! This read group.visible, and group.visible is now two facts in one flag:
+//! what the document says, and what this frame's culling decided. Asked
+//! during a fit, the second one is circular - the camera is where it is
+//! BECAUSE of the fit that has not happened yet - and on a building set out
+//! on survey coordinates it framed the three origin planes and left the
+//! building four hundred kilometres off screen. Ask what the document says.
+const showsInModel = (id, group) =>
+  group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
+
 function sceneBounds() {
   const box = new THREE.Box3();
   let any = false;
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
-    if (!group.visible || !entry || entry.category === "datum") continue;
+    if (!showsInModel(id, group) || !entry || entry.category === "datum") continue;
     box.expandByObject(group); any = true;
   }
-  if (!any) for (const [, { group }] of shapes)
-    if (group.visible) { box.expandByObject(group); any = true; }
+  if (!any) for (const [id, { group }] of shapes)
+    if (showsInModel(id, group)) { box.expandByObject(group); any = true; }
   return any && !box.isEmpty() ? box : null;
 }
 
@@ -433,6 +445,12 @@ function measureScene() {
 
 (function bindControls() {
   let mode = null, lastX = 0, lastY = 0, moved = 0, navigating = false;
+  //! WAS THE RIGHT BUTTON A PAN OR A CLICK? The right button has always panned
+  //! here, and it now also opens a menu - so the two are told apart the only
+  //! way they can be: a drag that moved is a pan, and one that did not is a
+  //! click. `contextmenu` fires after the button comes up, which is late
+  //! enough to know.
+  let rightDragged = false;
   const el = renderer.domElement;
 
   el.addEventListener("pointerdown", event => {
@@ -486,6 +504,7 @@ function measureScene() {
     // that decides who owns a plain left drag.
     if (mode === "dolly") navigating = true;
     lastX = event.clientX; lastY = event.clientY; moved = 0;
+    if (event.button === 2) rightDragged = false;
     el.setPointerCapture(event.pointerId);
   });
   el.addEventListener("pointermove", event => {
@@ -545,6 +564,7 @@ function measureScene() {
     }
     const dx = event.clientX - lastX, dy = event.clientY - lastY;
     lastX = event.clientX; lastY = event.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    if ((event.buttons & 2) && moved > 4) rightDragged = true;
     // A left drag with no Alt is not a camera move; it is a drag that missed a
     // handle, and it is still a click as far as picking is concerned.
     // LOOKING THROUGH A CAMERA, the drag moves the CAMERA and not the model.
@@ -671,9 +691,16 @@ function measureScene() {
   el.addEventListener("contextmenu", event => {
     event.preventDefault();
     // In edit mode the right button is the menu for whatever you are picking,
-    // where the pointer is. Everywhere else the viewport has no menu and the
-    // right button is a pan.
-    if (meshing()) openMeshContext(event);
+    // where the pointer is.
+    if (meshing()) { openMeshContext(event); return; }
+    //! AND OUTSIDE IT, THE MENU FOR WHAT IS UNDER THE POINTER. The right
+    //! button was a pan and nothing else, so a body you could see and click
+    //! had no menu at all - everything you might want to do to it was in the
+    //! tree, which on a building of seven thousand rows is not somewhere you
+    //! can get to. Dragging with the right button still pans; this fires when
+    //! it did not move.
+    if (rightDragged) { rightDragged = false; return; }
+    openViewportMenu(event);
   });
   el.addEventListener("wheel", event => {
     event.preventDefault();
@@ -714,6 +741,7 @@ function draw() {
   frameQueued = true;
   requestAnimationFrame(() => {
     frameQueued = false;
+    lookAtDetail();
     if (state.style !== "arctic") { renderer.render(scene, camera); return; }
     // How far the occlusion reaches is a length in the model's own units: a
     // twentieth of what is on screen darkens the inside of a corner and leaves
@@ -723,6 +751,162 @@ function draw() {
                     reach: view.distance + view.span * 3 });
     pass.render(scene, camera);
   });
+}
+
+/* ----------------------------------------------------- the three questions
+
+   Run once per frame, before the render. Everything here is arithmetic over
+   one sphere per feature: no triangles are touched, nothing is allocated in
+   the loop, and a thousand features cost about as much as one draw call.   */
+
+const detailFrustum = new THREE.Frustum();
+const detailMatrix = new THREE.Matrix4();
+const detailBall = new THREE.Sphere();
+let boxHome = null;
+
+function lookAtDetail() {
+  if (!detail.on || !shapes.size) return;
+  const tall = renderer.domElement.clientHeight || 1;
+  //! Pixels across, from one sphere: the radius over the distance, through
+  //! the lens. Exact at short range and near enough at long.
+  const lens = (tall / 2) / Math.tan((camera.fov * Math.PI / 180) / 2);
+  detailMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  detailFrustum.setFromProjectionMatrix(detailMatrix);
+  const eye = camera.position;
+
+  //! FIRST PASS: what is on screen at all, and how big it is there. Nothing is
+  //! decided yet - the budget decides, and it cannot until it knows the whole
+  //! bill.
+  const onScreen = [];
+  let bill = 0;
+  detail.gone = 0;
+  for (const [id, held] of shapes) {
+    const group = held.group;
+    //! What the document says comes first: a body somebody put away is away
+    //! whatever the camera thinks, and this must not fight applyVisibility.
+    if (group.userData.hiddenByDoc) { group.userData.want = "off"; continue; }
+    const ball = group.userData.ball;
+    if (!ball) { group.userData.want = "full"; continue; }
+
+    detailBall.center.copy(ball.at); detailBall.radius = ball.r;
+    if (!detailFrustum.intersectsSphere(detailBall)) {
+      group.userData.want = "off"; detail.gone++; continue;
+    }
+    const away = Math.max(eye.distanceTo(ball.at) - ball.r, 1e-3);
+    const across = (ball.r / away) * lens * 2;
+    if (across < detail.vanish) { group.userData.want = "off"; detail.gone++; continue; }
+    group.userData.want = "full";
+    group.userData.across = across;
+    //! WHATEVER YOU ARE POINTING AT IS ALWAYS ITSELF, whatever the budget says
+    //! later. It is the one thing on screen being looked at closely, and it is
+    //! the one place a box would be noticed.
+    group.userData.pinned = id === state.selected || id === state.hover
+                         || state.picked.includes(id);
+    onScreen.push(group);
+    bill += group.userData.triangles || 0;
+  }
+
+  /* ------------------------------------------------------------ the budget
+
+     UP TO HERE NOTHING HAS BEEN APPROXIMATED - what is on screen and big
+     enough to see is drawn as itself, which is what anybody would want and
+     what a part always gets.
+
+     Over the budget is where the cheap representation earns its place. The
+     smallest things on screen go first, because a box is indistinguishable
+     from a beam at fifteen pixels and obvious at two hundred, and it stops
+     the moment the bill is under. That is the whole heuristic: the memory the
+     card is asked for per frame is capped, and what it is spent on is
+     whatever is biggest in front of you.                                   */
+  detail.boxed = 0;
+  if (bill > detail.frame) {
+    //! WORST VALUE FIRST, which is not the same as smallest first.
+    //!
+    //! Sorted by size alone, the first things boxed are the ones with the
+    //! fewest triangles - so the bill barely moves and the loop goes on
+    //! boxing until nearly everything is a box. What is wanted is the most
+    //! triangles for the fewest pixels: a thousand-triangle bolt twelve
+    //! pixels across is the thing to give up, and a two-triangle slab filling
+    //! the screen is the last.
+    const value = g => (g.userData.triangles || 0)
+                     / Math.max(g.userData.across * g.userData.across, 1e-3);
+    onScreen.sort((a, b) => value(b) - value(a));
+    //! Down to nine tenths rather than to the line, so a frame that is a
+    //! triangle over does not box something and unbox it on the next.
+    const want = detail.frame * 0.9;
+    for (const group of onScreen) {
+      if (bill <= want) break;
+      if (group.userData.pinned) continue;
+      group.userData.want = "box";
+      bill -= group.userData.triangles || 0;
+      detail.boxed++;
+    }
+  }
+  detail.drawn = onScreen.length - detail.boxed;
+
+  let boxesChanged = false;
+  for (const [, held] of shapes) {
+    const group = held.group;
+    if (group.userData.hiddenByDoc) continue;
+    const want = group.userData.want;
+    const shownNow = want === "full";
+    if (group.visible !== shownNow) group.visible = shownNow;
+    if ((group.userData.boxed === true) !== (want === "box")) {
+      group.userData.boxed = want === "box";
+      boxesChanged = true;
+    }
+  }
+  if (boxesChanged) rebuildBoxes();
+}
+
+/* ----------------------------------------------------- the boxes, as one thing
+
+   A THOUSAND BOXES IS A THOUSAND DRAW CALLS, which is the cost we were trying
+   to get away from. So every shape standing in as a box is in ONE geometry,
+   rebuilt when the set of them changes - which is when you move far enough
+   for something to cross the threshold, not every frame.                    */
+
+function rebuildBoxes() {
+  if (boxHome) { world.remove(boxHome); boxHome.geometry.dispose(); boxHome = null; }
+  const corners = [], index = [];
+  let at = 0;
+  for (const [, held] of shapes) {
+    const group = held.group;
+    if (!group.userData.boxed || !group.userData.ball) continue;
+    const { lo, hi } = group.userData.ball;
+    const x = [lo.x, hi.x], y = [lo.y, hi.y], z = [lo.z, hi.z];
+    for (let i = 0; i < 8; i++) corners.push(x[i & 1], y[(i >> 1) & 1], z[(i >> 2) & 1]);
+    //! The twelve triangles of a box, by corner number. Written out because a
+    //! BoxGeometry each would be a thousand allocations per rebuild.
+    for (const [a, b, c] of BOX_FACES) index.push(at + a, at + b, at + c);
+    at += 8;
+  }
+  if (!corners.length) { draw(); return; }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(corners, 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  boxHome = new THREE.Mesh(geometry, boxMaterial());
+  boxHome.frustumCulled = false;
+  boxHome.renderOrder = -1;
+  world.add(boxHome);
+}
+
+//! Two triangles a side, wound outwards, by the corner numbering above:
+//! bit 0 is x, bit 1 is y, bit 2 is z.
+const BOX_FACES = [
+  [0, 2, 3], [0, 3, 1], [4, 5, 7], [4, 7, 6],
+  [0, 1, 5], [0, 5, 4], [2, 6, 7], [2, 7, 3],
+  [0, 4, 6], [0, 6, 2], [1, 3, 7], [1, 7, 5],
+];
+
+let boxPaint = null;
+function boxMaterial() {
+  if (!boxPaint) boxPaint = new THREE.MeshLambertMaterial({ color: 0x9aa4ad,
+    flatShading: true, side: THREE.FrontSide });
+  const style = findStyle(state.style);
+  boxPaint.color.set(style && style.solid ? style.solid : 0x9aa4ad);
+  return boxPaint;
 }
 
 function resize() {
@@ -736,6 +920,68 @@ function resize() {
   if (lookingThrough()) { placeThrough(); refreshSafe(); }
   sizeRibbons();
   draw();
+}
+
+/* ======================================= how much of the model is drawn
+
+   A BUILDING IS NOT A PART, and the difference is not one of degree.
+
+   The sample that brought this on is 7,548 features and 655,339 triangles -
+   eleven storeys of structure out of Revit - and every one of them was drawn
+   every frame whether it was on screen, behind a slab, or a beam four hundred
+   metres away projecting to less than a pixel. Nothing about that is
+   OpenCascade's doing or the browser's: it is asking the card to rasterise a
+   building that is mostly not in shot.
+
+   Three questions, asked per feature per frame, in the order they cost:
+
+     is it on screen          the frustum. Answered with a sphere worked out
+                              once when the shape landed, never from the
+                              triangles.
+     is it worth drawing      how many pixels across it comes to. Under a
+                              couple, nothing you draw can be seen; under a
+                              dozen, its bounding box is as much of it as the
+                              screen can tell.
+     is it worth KEEPING      the budget. What is held is capped; over the cap
+                              the furthest things give their triangles back
+                              and keep a box, and get them again when you go
+                              near. The kernel still has the B-Rep, so nothing
+                              is lost - this is a cache, and the point of a
+                              cache is that it has a size.
+
+   What this is NOT: an occlusion query. Deciding that a beam is behind a slab
+   needs the depth buffer read back, which costs a stall per frame and is
+   worse than drawing the beam. The honest version of "cheap representation
+   for occluded objects" at this scale is the box, and the box is here.     */
+
+const detail = {
+  //! Off for a part, on for a building - decided by the size of the thing
+  //! rather than by a preference, because nobody wants to be asked.
+  on: false,
+  //! Under this many pixels across, nothing is drawn at all. Two and a half
+  //! pixels is a smudge: there is no drawing of a beam at that size that
+  //! differs from not drawing it.
+  vanish: 2.5,
+  //! HOW MANY TRIANGLES ONE FRAME MAY COST. Over it, the smallest things on
+  //! screen are drawn as their bounding boxes instead - smallest first,
+  //! stopping the moment the bill is under. 350,000 is a number a laptop
+  //! holds sixty times a second; the building that brought this on is
+  //! 655,339, and about half of it is never more than a few pixels wide.
+  frame: 350000,
+  //! Below this many features the whole thing stays off: a part of forty
+  //! bodies has nothing to gain and a box where a fillet was is a lie.
+  from: 400,
+  held: 0, drawn: 0, boxed: 0, gone: 0, evicted: 0,
+};
+
+//! The sphere a group sits in, in world coordinates. Taken once, off the
+//! bounding box, because a group's own boundingSphere is per geometry.
+function ballOf(group) {
+  const box = new THREE.Box3().setFromObject(group);
+  if (box.isEmpty()) return null;
+  const ball = box.getBoundingSphere(new THREE.Sphere());
+  return { at: ball.center.clone(), r: Math.max(ball.radius, 1e-6),
+           lo: box.min.clone(), hi: box.max.clone() };
 }
 
 /* -------------------------------------------------- the streamed triangles */
@@ -1216,6 +1462,12 @@ function setShape(mesh) {
   if (existing) disposeGroup(existing.group);
   const group = groupFromStream(mesh, feature(mesh.id));
   world.add(group);
+  //! HOW BIG IT IS AND WHERE, worked out once when it lands. Every frame asks
+  //! whether this is on screen and whether it is worth drawing, and neither
+  //! question can be asked a thousand times a frame if answering it means
+  //! walking the triangles. See lookAtDetail.
+  group.userData.ball = ballOf(group);
+  group.userData.triangles = mesh.triangles || 0;
   shapes.set(mesh.id, { revision: mesh.revision, group });
   // A shape that has just arrived has to be cut with everything else, and the
   // planes' travel re-measured against a model that may have grown.
@@ -1237,6 +1489,33 @@ function settleSection() {
 //! never hears about it. Every tree that lands marks the section stale; a
 //! refresh is a few small meshes and it only happens while a section is open.
 function touchSection() { if (cutter.on) sectionStale = true; }
+
+//! IS THIS A PART OR A BUILDING? Asked of the model rather than of the person,
+//! because nobody wants a preference for this and the answer is not a
+//! judgement: below a few hundred shapes there is nothing to gain and a box
+//! where a fillet was is a lie, above it the frame rate is the only thing
+//! anybody is thinking about.
+function weighModel() {
+  let held = 0, drawn = 0;
+  for (const [, { group }] of shapes) { held += group.userData.triangles || 0; drawn++; }
+  detail.held = held;
+  const wants = drawn >= detail.from || held > detail.frame * 2;
+  if (wants === detail.on) return;
+  detail.on = wants;
+  if (!wants) {
+    for (const [, { group }] of shapes) group.userData.boxed = false;
+    rebuildBoxes();
+    for (const [id, { group }] of shapes) {
+      const entry = feature(id);
+      group.visible = !!entry && entry.visible && !state.hidden.has(id);
+    }
+  }
+  say(wants
+    ? drawn.toLocaleString() + " shapes · drawing what is on screen, and the smallest of it "
+      + "as boxes when a frame goes over " + (detail.frame / 1000) + "k triangles"
+    : "small enough to draw whole");
+  draw();
+}
 
 //! WHAT CAN BE POINTED AT. Rebuilt whenever the scene is, and it has to agree
 //! with what groupFromStream put in the list the first time round - it did
@@ -1271,6 +1550,7 @@ async function syncShapes() {
     for (const mesh of payload.features) { setShape(mesh); triangles += mesh.triangles || 0; }
     state.stream = { shapes: stale.length, triangles, ms: Math.round(performance.now() - started) };
     rebuildPickList();
+    weighModel();
   }
 
   touchSection();
@@ -1321,13 +1601,43 @@ async function syncShapes() {
 //! EVERYTHING A SET HOLDS, however deep. A set is a folder, so hiding one is
 //! hiding what is in it - a folder has no geometry of its own to hide, and an
 //! eye on it that did nothing would be an eye that lies.
+/* ------------------------------------------------ who is in which set
+
+   ASKED ONCE PER DOCUMENT, NOT ONCE PER QUESTION.
+
+   "What is in this set" was a filter over every feature in the document, and
+   the tree asks it twice for every folder it draws, plus once more for the
+   eye. On a part of forty features that is free. On a building imported from
+   IFC - 7,548 features, 1,665 of them sets - it is a hundred million
+   comparisons to draw one tree, and the tree is drawn again every time
+   anything at all is selected. Measured: 3,754 ms to fold one branch, and the
+   same 3,754 ms to click a column in the viewport.
+
+   Keyed on the tree object itself, which is REPLACED on every edit rather
+   than mutated - so the index cannot go stale, only be rebuilt.             */
+
+let kidIndex = new Map(), kidIndexOf = null;
+function kidsOf(id) {
+  if (kidIndexOf !== state.tree) {
+    kidIndex = new Map();
+    for (const f of (state.tree ? state.tree.features : [])) {
+      const at = f.parent || null;
+      const list = kidIndex.get(at);
+      if (list) list.push(f); else kidIndex.set(at, [f]);
+    }
+    kidIndexOf = state.tree;
+  }
+  return kidIndex.get(id) || [];
+}
+//! How many, without building the list - which is all the tree row wants.
+const kidCount = id => kidsOf(id).length;
+
 function withContents(ids) {
   const out = new Set();
   const take = id => {
     if (out.has(id)) return;
     out.add(id);
-    for (const child of (state.tree ? state.tree.features : []))
-      if (child.parent === id) take(child.id);
+    for (const child of kidsOf(id)) take(child.id);
   };
   for (const id of ids) take(id);
   return [...out];
@@ -1364,8 +1674,17 @@ function showFeature(id, on) {
 function applyVisibility() {
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
-    group.visible = !!entry && entry.visible && !state.hidden.has(id);
+    const shown = !!entry && entry.visible && !state.hidden.has(id);
+    //! WHAT THE DOCUMENT SAYS, kept apart from what the CAMERA says. The two
+    //! both end up at group.visible and they are different facts: one is "you
+    //! put this away", the other is "it is a pixel wide from here". Written
+    //! down so the frame's own culling cannot quietly bring back something
+    //! that was hidden on purpose - see lookAtDetail.
+    group.userData.hiddenByDoc = !shown;
+    group.visible = shown;
+    if (!shown && group.userData.boxed) group.userData.boxed = false;
   }
+  if (detail.on) { rebuildBoxes(); lookAtDetail(); }
 }
 
 //! How far a selected body is pulled towards the accent colour. Gentler in the
@@ -2066,6 +2385,56 @@ function openMeshMenu(which, x, y, up = false) {
 
 //! Right-click in the viewport: the menu for the level you are at, where the
 //! pointer is. No hunting for a header.
+/* ------------------------------------------ the menu on the model itself
+
+   WHAT YOU CAN SEE IS WHAT YOU CAN ASK ABOUT. A right-click on a body offers
+   the things that are about THAT body and nowhere else to reach them from -
+   above all, where it is in the tree.
+
+   Going the other way has always worked: pick a row, press Centre on it. This
+   is the way back, and on a model where the tree is seven thousand rows deep
+   it is the only way there is.                                              */
+
+function openViewportMenu(event) {
+  const id = idUnder(rayFrom(event));
+  const entry = feature(id);
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+  if (!entry) {
+    menuHead("Nothing under the pointer");
+    menuItem("Fit the model", "everything, framed", () => fitView());
+    menuItem("Fold the tree", "every set, shut", () => foldAll(true));
+    placeMenu(event.clientX, event.clientY);
+    return;
+  }
+  //! Clicking with the right button selects what it landed on, the way it
+  //! does in the tree - a menu about something that is not marked is a menu
+  //! about something you cannot see it is about.
+  if (!state.picked.includes(entry.id)) select(entry.id, false);
+  menuHead(entry.name);
+  menuItem("Show in tree", "scroll to it, opening whatever is folded over it",
+           () => { if (!revealInTree(entry.id)) say(entry.name + " has no row in the tree"); });
+  menuItem("Centre on it", "bring it into view, from where you are",
+           () => centreOn(entry.id));
+  menuItem("Open definition", "its parameters, in the panel",
+           () => select(entry.id, true));
+  menuRule();
+  menuItem("Hide it", "take it out of the 3D view",
+           () => showFeature(entry.id, false));
+  //! The set it is in, because in an imported building the thing you actually
+  //! want to put away is the storey, not the one beam you happened to hit.
+  const home = feature(entry.parent);
+  if (home) {
+    menuItem("Hide " + home.name, "everything in that set",
+             () => showFeature(home.id, false));
+    menuItem("Show " + home.name + " in tree", "the set it is filed in",
+             () => revealInTree(home.id));
+  }
+  menuRule();
+  menuItem("Fold the tree", "every set, shut", () => foldAll(true));
+  placeMenu(event.clientX, event.clientY);
+}
+
 function openMeshContext(event) {
   const menu = document.getElementById("menu");
   menu.textContent = "";
@@ -5226,9 +5595,26 @@ function pickVertex(event) {
 //!
 //! So both are collected and solids win. A datum is only the answer when there
 //! is nothing solid along the ray at all, which is exactly when you meant it.
+//! WHAT THE RAY IS ALLOWED TO HIT, without allocating a new list for it.
+//!
+//! This filtered `pickable` on every pointermove - a thousand-entry array
+//! rebuilt for every pixel the cursor travels - and then asked the raycaster
+//! to walk all of it. The array is now filled in place and reused, and what
+//! the camera has already decided not to draw is not offered to the ray
+//! either: you cannot point at something that is not on the screen.
+const rayList = [];
+function pickableNow() {
+  rayList.length = 0;
+  for (const m of pickable) {
+    if (!m.parent || !m.parent.visible) continue;
+    if (m.material && m.material.visible === false) continue;
+    rayList.push(m);
+  }
+  return rayList;
+}
+
 function idUnder(ray) {
-  const hits = ray.intersectObjects(
-    pickable.filter(m => m.parent && m.parent.visible && m.material.visible !== false), false);
+  const hits = ray.intersectObjects(pickableNow(), false);
   //! A MARK BEATS EVERYTHING. A point is a few pixels across and is nearly
   //! always sitting ON the thing it was made from - a corner of a cube, a
   //! station along a curve - so nearest-hit-wins would mean it could never be
@@ -5924,6 +6310,60 @@ function toggleShut(key) {
   buildTree();
 }
 
+/* -------------------------------------------------- what opens folded
+
+   A SET OF THREE THOUSAND PLACEMENTS IS NOT SOMETHING ANYBODY OPENED THE TREE
+   TO READ. An imported building arrives with every set open, which is 9,227
+   rows of which perhaps forty are the ones you came for - and the rest are
+   the datums holding it up.
+
+   So a set that is big when it is FIRST SEEN opens folded. Decided once per
+   set and never again: fold it or open it after that and it stays as you left
+   it, because that was a decision and this is only a starting point.       */
+
+const SET_IS_BIG = 60;
+const decided = new Set();
+function seedFolds() {
+  if (!state.tree) return;
+  let any = false;
+  for (const f of state.tree.features) {
+    if (f.category !== "container" || decided.has(f.id)) continue;
+    decided.add(f.id);
+    if (kidCount(f.id) >= SET_IS_BIG) { shut.add(f.id); any = true; }
+  }
+  if (any) rememberShut();
+}
+
+/* ------------------------------------------------------ folding wholesale
+
+   A MODEL WITH 1,665 SETS IN IT CANNOT BE FOLDED ONE SET AT A TIME. Scrolling
+   the panel to find the next minus sign is not a way of tidying a tree, it is
+   a way of spending an afternoon - and it is exactly the case a building
+   imported from IFC arrives in: project, site, building, eleven storeys, a
+   set per element, and every one of them open.
+
+   So: fold everything, open everything, and fold or open one branch and all
+   the way down it. Four lines each, on the header and on the menu.          */
+
+//! Every set in the document, and the headings with them.
+function foldAll(on, root = null) {
+  const inside = root ? withContents([root]).filter(id => id !== root) : null;
+  for (const f of (state.tree ? state.tree.features : [])) {
+    if (f.category !== "container") continue;
+    if (inside && !inside.includes(f.id)) continue;
+    if (on) shut.add(f.id); else shut.delete(f.id);
+  }
+  //! The root itself folds with its contents when the whole branch is asked
+  //! for, because "fold this" means this, not everything under it.
+  if (root) { if (on) shut.add(root); else shut.delete(root); }
+  else for (const name of ["Datums", "Parameters", "Meshes", "PartBody"])
+    if (on) shut.add("section:" + name); else shut.delete("section:" + name);
+  rememberShut();
+  buildTree();
+  say((on ? "folded " : "opened ") + (root ? (feature(root) || {}).name || "that set"
+                                            : "every set in the tree"));
+}
+
 //! The little button. One place, so the section headers and the sets get the
 //! same thing and it behaves the same way in both.
 function twist(key, many, label) {
@@ -6044,6 +6484,14 @@ document.getElementById("tree").addEventListener("wheel", event => {
   event.preventDefault();
   setTreeText(treeText * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
 }, { passive: false });
+document.getElementById("tree-fold").addEventListener("click", event => {
+  event.stopPropagation();
+  foldAll(true);
+});
+document.getElementById("tree-unfold").addEventListener("click", event => {
+  event.stopPropagation();
+  foldAll(false);
+});
 document.getElementById("tree-bigger").addEventListener("click", event => {
   event.stopPropagation();
   setTreeText(treeText * 1.1);
@@ -6091,6 +6539,7 @@ function buildTree() {
   list.textContent = "";
   treeOrder.length = 0;
   if (!state.tree) return;
+  seedFolds();
   const keep = searchKeeps();
   const hit = searchRe();
 
@@ -6242,8 +6691,77 @@ function sketchRelationRow(relation, at) {
 
 //! Whether a feature survives the filter - itself, or because something
 //! inside it did.
+/* ------------------------------------------- the selection, without a rebuild
+
+   SELECTING SOMETHING DOES NOT CHANGE THE TREE. It changes which row is
+   marked, which is three class names - and building the whole tree again to
+   set them cost 3,754 ms on a building, every time anything was clicked in
+   the viewport. That is the difference between a model you can work in and
+   one you cannot.                                                           */
+
+function paintTree() {
+  const several = state.picked.length > 1;
+  for (const li of document.querySelectorAll("#tree li.node[data-id]")) {
+    const id = li.dataset.id;
+    li.classList.toggle("selected", id === state.selected);
+    li.classList.toggle("alongside", several && state.picked.includes(id));
+    li.classList.toggle("working", id === state.workingIn);
+  }
+}
+
+//! THE ROW FOR A FEATURE, BROUGHT INTO VIEW - opening whatever is folded over
+//! it on the way. The other half of clicking a body: the tree is where a
+//! feature's name, its place in the building and everything it was made from
+//! are, and on a model of seven thousand nodes finding the row by hand is not
+//! a thing anybody is going to do twice.
+function revealInTree(id, { open = true } = {}) {
+  if (!id) return false;
+  //! Every set above it is unfolded first, and the tree built once afterwards
+  //! rather than once per level.
+  if (open) {
+    let moved = false;
+    for (let f = feature(id); f; f = feature(f.parent)) {
+      if (!f.parent) break;
+      if (shut.delete(f.parent)) moved = true;
+    }
+    //! The headings are folded by their own keys, not by a feature id.
+    for (const key of [...shut]) if (/^section:/.test(key)) { /* left alone */ }
+    if (moved) { rememberShut(); buildTree(); }
+  }
+  const row = document.querySelector('#tree li.node[data-id="' + cssEscape(id) + '"]');
+  if (!row) return false;
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  //! A flash, because a row that was scrolled to and is the same colour as the
+  //! forty around it has not been found for you, it has been put in front of
+  //! you.
+  row.classList.remove("found");
+  void row.offsetWidth;
+  row.classList.add("found");
+  setTimeout(() => row.classList.remove("found"), 1600);
+  return true;
+}
+
+//! An id is ours and short, but it goes into a selector, so it is escaped.
+const cssEscape = value => (window.CSS && CSS.escape)
+  ? CSS.escape(String(value)) : String(value).replace(/[^\w-]/g, "\\$&");
+
 function survives(entry, keep) {
   return !keep || keep.has(entry.id);
+}
+
+//! Is every last thing in this set put away? Stops at the first that is not.
+function allHidden(id) {
+  let any = false;
+  const walk = set => {
+    for (const child of kidsOf(set)) {
+      if (child.category === "container") { if (walk(child)) return true; continue; }
+      any = true;
+      if (!(state.hidden.has(child.id) || child.visible === false)) return true;
+    }
+    return false;
+  };
+  const showing = walk(id);
+  return any && !showing;
 }
 
 function treeNode(entry, keep = null, hit = null) {
@@ -6252,9 +6770,10 @@ function treeNode(entry, keep = null, hit = null) {
   //! so "is it hidden" is a question about its contents - shut when everything
   //! inside is hidden, open while any of it is showing. An empty folder reads
   //! as showing, because there is nothing in it to be putting away.
-  const hidden = entry.category === "container"
-    ? (list => list.length > 0 && list.every(id => state.hidden.has(id)))
-      (withContents([entry.id]).filter(id => id !== entry.id))
+  //! WALKED UNTIL IT KNOWS, not walked to the end. "Is everything in here
+  //! hidden" is answered by the first thing that is not, and a set of three
+  //! thousand placements answers on its first child.
+  const hidden = entry.category === "container" ? allHidden(entry.id)
     //! `visible === false` is the document saying so - a body something
     //! swallowed - and it reads the same way to the eye as this view's own
     //! hidden list, because to the person looking at it, it is the same fact.
@@ -6262,6 +6781,10 @@ function treeNode(entry, keep = null, hit = null) {
   treeOrder.push(entry.id);
 
   const li = document.createElement("li");
+  //! The row knows which feature it is, so the selection can be repainted
+  //! without the tree being built again, and so a body clicked in the viewport
+  //! can be found in it. See paintTree and revealInTree.
+  li.dataset.id = entry.id;
   li.className = "node pick " + entry.category + (consumed ? " consumed" : "")
     //! The set being worked in is marked in the tree and nowhere else,
     //! because the tree is where you would look to find out - and a status
@@ -6308,7 +6831,7 @@ function treeNode(entry, keep = null, hit = null) {
     // person wants to know about a folder is how much is in it.
     : entry.category === "container"
       ? (count => count ? count + (count === 1 ? " item" : " items") : "empty")
-        (state.tree.features.filter(f => f.parent === entry.id).length)
+        (kidCount(entry.id))
     : entry.data && !entry.built
       ? entry.data.count + " " + entry.data.kind + (entry.data.count === 1 ? "" : "s")
       : entry.type.toLowerCase();
@@ -6408,7 +6931,7 @@ function treeNode(entry, keep = null, hit = null) {
   }
 
   if (entry.category === "container") {
-    const all = state.tree.features.filter(f => f.parent === entry.id);
+    const all = kidsOf(entry.id);
     const inside = keep ? all.filter(f => survives(f, keep)) : all;
     // A SEARCH OPENS WHAT IT FOUND. Folding is a thing you did on purpose and
     // it is still remembered, but a set that is shut is not a reason to hide
@@ -6418,6 +6941,23 @@ function treeNode(entry, keep = null, hit = null) {
     const branch = document.createElement("ul");
     branch.className = "branch";
     branch.hidden = folded;
+    //! A FOLDED BRANCH COSTS NOTHING, which is what makes folding worth doing.
+    //!
+    //! This built every row inside a shut folder and then hid the lot, so
+    //! folding a set of three thousand placements saved a scroll and not one
+    //! millisecond - the rows were still made, still laid out, still there to
+    //! be walked on the next redraw. A building came in at 9,227 rows in the
+    //! DOM with most of them behind a plus sign.
+    //!
+    //! Now shut means not built. The tree costs what is OPEN in it, and "fold
+    //! everything" is the answer to a big model rather than a tidier way of
+    //! looking at the same cost.
+    if (folded) {
+      const holder = document.createElement("li");
+      holder.className = "holds";
+      holder.append(li, branch);
+      return holder;
+    }
     if (!inside.length) {
       const empty = document.createElement("li");
       empty.className = "node";
@@ -6824,6 +7364,17 @@ function openMenu(event, entry) {
         () => edit({ op: "reorder", ids: [entry.id], after: siblings[siblings.length - 1] }));
   }
   rule();
+
+  //! FOLD OR OPEN THE WHOLE BRANCH, which is the only way to deal with a set
+  //! that has a hundred sets in it. On the set's own menu because that is
+  //! where you are when you decide you have seen enough of it.
+  if (!several && entry.category === "container" && kidCount(entry.id)) {
+    item("Fold it all away", "this set and every set inside it",
+         () => foldAll(true, entry.id));
+    item("Open it all up", "this set and every set inside it",
+         () => foldAll(false, entry.id));
+    rule();
+  }
 
   if (!several) item("Centre on it", "bring it into view, from where you are",
                      () => centreOn(entry.id));
@@ -8990,6 +9541,14 @@ function buildLog() {
     line("streamed " + state.stream.shapes + " shape" + (state.stream.shapes === 1 ? "" : "s") +
          " · " + state.stream.triangles.toLocaleString() + " triangles · " + state.stream.ms + " ms",
          "stream");
+  //! WHAT THE VIEWPORT IS ACTUALLY DOING WITH THEM, when it is doing anything
+  //! other than drawing the lot. Said here rather than left to be guessed at:
+  //! a box standing in for a beam is a thing a person should be told about,
+  //! not something they find out by wondering why a detail went square.
+  if (detail.on)
+    line("holding " + detail.held.toLocaleString() + " triangles · drawing " + detail.drawn
+         + " shapes whole · " + detail.boxed + " as boxes · " + detail.gone
+         + " off screen or under " + detail.vanish + " px", "stream");
   // It just got taller or shorter, and the tree above it stands on it.
   if (!host.hidden) layout();
 }
@@ -9211,7 +9770,15 @@ function select(id, openDefinition, keep = false) {
     ? "<b>" + escapeHtml(entry.name) + "</b> · " + entry.entry + " · " + entry.type
     : "click a body · double-click to edit it";
   sayCurrentSet();
-  buildTree(); buildPanel(); refreshToolbar(); paintSelection();
+  //! PAINTED, NOT REBUILT. Nothing about the tree's shape depends on what is
+  //! selected - only which rows are marked - and rebuilding it to mark them is
+  //! what made a click in a large model take four seconds.
+  paintTree(); buildPanel(); refreshToolbar(); paintSelection();
+  //! And the row is brought into view when it is already on screen somewhere.
+  //! Opening folded sets is NOT done here: folding is a thing somebody did on
+  //! purpose, and a click should not undo it. "Show in tree" is the command
+  //! that opens them, and it is on the menu.
+  if (id) revealInTree(id, { open: false });
   refreshMeshEdit();
   // The widget belongs to whatever is selected, so it follows the selection -
   // and goes away when what is selected is not a thing it can move.
@@ -9979,6 +10546,21 @@ function leaveShowroom() {
 //! only one is ever open, because they all draw over the same model.
 let modes = [];
 let openMode = null;
+
+//! A HANDLE FOR DRIVING THE PAGE FROM OUTSIDE IT, which is how the browser
+//! tests look at what the viewport decided. Nothing in the program reads it.
+globalThis.__cad = {
+  detail, shapes, view,
+  get camera() { return camera; },
+  look: () => lookAtDetail(),
+  sample: n => [...shapes.entries()].slice(0, n).map(([id, held]) => ({
+    id, visible: held.group.visible, want: held.group.userData.want,
+    across: held.group.userData.across, tris: held.group.userData.triangles,
+    ball: held.group.userData.ball
+      ? { r: held.group.userData.ball.r,
+          at: held.group.userData.ball.at.toArray().map(v => Math.round(v)) } : null,
+  })),
+};
 
 const packageKit = {
   get kernel() { return kernel; },
@@ -11626,8 +12208,7 @@ const rayOf = event => {
 //! the reason it is one function is that "there" has three answers.
 function placeAt(event) {
   const { from, way } = rayOf(event);
-  const hits = rayFrom(event).intersectObjects(
-    pickable.filter(m => m.parent && m.parent.visible), false);
+  const hits = rayFrom(event).intersectObjects(pickableNow(), false);
   // A curve first, wherever the ray passed near one: a point dropped on a
   // curve belongs ON it, not on whatever is behind it.
   let best = null;

@@ -1592,7 +1592,22 @@ export function ifcFeatures(model, options = {}) {
       for (const one of structure.loose) walk(one, home);
     }
     void top;
-    return { features, report, scale };
+    //! THE SCAFFOLDING IS PUT AWAY, not deleted. Every placement in the file
+    //! is a point, two directions and a plane, and a building has thousands -
+    //! drawn, they are a fog of orange marks over the thing you came to look
+    //! at, and they are most of what the picker has to test a click against.
+    //! They are still in the tree and still what the geometry stands on; they
+    //! are just not drawn until somebody asks for them.
+    const away = [];
+    for (const home of [datumSet, familyHome]) {
+      if (!home) continue;
+      away.push(home);
+      const walk = at => {
+        for (const f of features) if (f.parent === at) { away.push(f.id); walk(f.id); }
+      };
+      walk(home);
+    }
+    return { features, report, scale, hidden: away };
   }
 
   //! The tail of a GlobalId, which is what tells two walls of the same type

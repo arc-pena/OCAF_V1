@@ -419,6 +419,82 @@ and opening one is the same thing as opening your own.
 | **samplecap_onecaponly** | one of those caps with a `Generator` in it: the same part written as a plan that emits its own nodes, beside the hand-built one. |
 | **3dspline, fillsurface, Columns on a curve, wideflange** | the curve and surface work, and the two that show a set being instanced. |
 
+## A building is not a part
+
+Seven and a half thousand features, 1,665 sets, 655,339 triangles — an IFC
+import — and nearly everything in the interface was written for a part with
+forty nodes in it. Three things had to change, and all three are the same
+mistake: **asking a question about the whole document to answer a question
+about one row.**
+
+### The tree
+
+| | was | is |
+|---|---|---|
+| fold one branch | 3,754 ms | 11 ms |
+| click a body in the viewport | 3,754 ms | 0 ms |
+| fold every set | — | 3 ms |
+| rows in the DOM when it opens | 9,227 | 1,340 |
+
+What was wrong, in order of cost:
+
+- **"What is in this set" was a filter over every feature in the document**,
+  asked twice for every folder drawn and once more for its eye. Indexed once
+  per document instead — the tree is replaced rather than mutated on every
+  edit, so the index cannot go stale.
+- **A folded branch built every row inside it and then hid them.** Folding
+  saved a scroll and not one millisecond. Shut now means *not built*, which is
+  what makes folding worth doing and what makes ⊟ in the header the answer to
+  a big model rather than a tidier way of paying the same cost.
+- **Selecting anything rebuilt the whole tree** to move three class names.
+  It repaints instead.
+- **A set that is big when it is first seen opens folded.** Decided once per
+  set; fold it or open it after that and it stays as you left it.
+
+⊟ and ⊞ in the tree header fold and open everything; a set's own menu has
+**Fold it all away** and **Open it all up** for one branch and all the way down
+it.
+
+### From the model to the tree, and back
+
+Right-click anything in the viewport: **Show in tree** scrolls to its row,
+opening whatever is folded over it, and flashes it. **Centre on it** is the way
+back, and has always been on the tree's menu. The set it is filed in is on the
+menu too — in a building the thing you want to put away is usually the storey,
+not the one beam you happened to hit.
+
+### The viewport
+
+Three questions, asked per feature per frame, in the order they cost:
+
+| | |
+|---|---|
+| **is it on screen** | the frustum, against a sphere worked out once when the shape landed — never from the triangles |
+| **is it worth drawing** | how many pixels across it comes to. Under two and a half there is no drawing of it that differs from not drawing it |
+| **is it worth this frame** | over a 350,000-triangle budget the rest is drawn as bounding boxes — **worst value first**, the most triangles for the fewest pixels, stopping the moment the bill is under |
+
+The boxes are **one geometry**, rebuilt when the set of them changes rather
+than every frame: a thousand boxes drawn separately is a thousand draw calls,
+which is the cost being got away from. Whatever is selected or under the
+pointer is always itself.
+
+None of it is on for a part. Below a few hundred shapes there is nothing to
+gain and a box where a fillet was is a lie, so it switches itself on by the
+size of the model and says in the log what it is doing: how many it is holding,
+how many it is drawing whole, how many as boxes, how many are off screen.
+
+**What this is not.** An occlusion query — deciding that a beam is behind a
+slab — needs the depth buffer read back, which costs a stall per frame and is
+worse than drawing the beam. At this scale the honest version of "a cheap
+representation for what you cannot make out" is the box.
+
+**One thing that bit.** `group.visible` came to mean two different things —
+what the document says, and what this frame's culling decided — and `fitView`
+asks how big the model is by reading it. That is circular: the camera is where
+it is *because* of the fit that has not happened yet. A building set out on
+survey coordinates framed its three origin planes and left the building four
+hundred kilometres off screen. The two facts are written down separately now.
+
 ## Four primitives, so a graph can compose
 
 Before these, a definition of any size fell back to a written feature — and a

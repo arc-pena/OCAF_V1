@@ -228,5 +228,66 @@ console.log("\n5. the tree reads, folds and searches");
         /\.node \.label mark/.test(bare));
 }
 
+console.log("\n8. a tree with seven thousand rows in it");
+{
+  //! A BUILDING IS NOT A PART. An IFC import is 7,548 features and 1,665
+  //! sets; the tree drew every row of every folded branch and then hid them,
+  //! rebuilt itself whenever anything was SELECTED, and asked "what is in
+  //! this set" by filtering the whole document twice per folder. Measured on
+  //! the model that brought it up: 3,754 ms to fold one branch, and the same
+  //! 3,754 ms to click a column in the viewport.
+  //!
+  //! These are the things that fixed it, checked in the source because each
+  //! of them is a one-line mistake to make again.
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+
+  check("what is in a set is indexed, not filtered out of the whole document",
+        /function kidsOf\(/.test(app)
+        && !/state\.tree\.features\.filter\(f => f\.parent === entry\.id\)/.test(app));
+  check("a folded branch builds no rows at all",
+        /if \(folded\) \{[\s\S]{0,240}?return holder;/.test(app));
+  check("selecting repaints the tree rather than building it",
+        /function paintTree\(/.test(app) && /paintTree\(\); buildPanel\(\)/.test(app));
+  check("every set can be folded at once, and opened again", /function foldAll\(/.test(app));
+  check("and a row can be found from the model", /function revealInTree\(/.test(app));
+  check("the tree header has a fold-everything and an open-everything",
+        /id="tree-fold"/.test(html) && /id="tree-unfold"/.test(html));
+  check("a row that was scrolled to says so",
+        /#tree \.node\.found\s*\{[^}]*animation/.test(bare));
+  //! A name may wrap and a KIND may not: one is what the thing is called, the
+  //! other is a word about it. A consumed body's kind is "in <whatever ate
+  //! it>", which out of an IFC file is sixty characters and took the row.
+  check("the kind is cut short rather than taking the row",
+        /\.node \.kind\s*\{[^}]*text-overflow:\s*ellipsis/.test(bare));
+  check("and the name keeps a width it can be read in",
+        /\.node \.label\s*\{[^}]*min-width:\s*\d+ch/.test(bare));
+}
+
+console.log("\n9. and a viewport with seven hundred thousand triangles in it");
+{
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  check("what is off screen is not drawn", /detailFrustum\.intersectsSphere/.test(app));
+  check("  asked of a sphere worked out once, not of the triangles",
+        /function ballOf\(/.test(app) && /userData\.ball = ballOf\(group\)/.test(app));
+  check("what is under a couple of pixels is not drawn either",
+        /across < detail\.vanish/.test(app));
+  check("and over the budget the rest is drawn as boxes",
+        /if \(bill > detail\.frame\)/.test(app));
+  check("  worst value first - the most triangles for the fewest pixels",
+        /across \* g\.userData\.across/.test(app));
+  check("  in ONE geometry, or a thousand boxes is a thousand draw calls",
+        /function rebuildBoxes\(/.test(app));
+  //! The one that broke it while it was being written: how big the MODEL is
+  //! and what THIS FRAME can see are different questions, and both were
+  //! answered by group.visible - so a fit framed whatever the last frame had
+  //! culled, and a building on survey coordinates was left four hundred
+  //! kilometres off screen.
+  check("how big the model is does not ask what the camera culled",
+        /showsInModel/.test(app) && /showsInModel\(id, group\)/.test(app));
+  check("and the picker is not handed a new array on every pointer move",
+        /function pickableNow\(/.test(app)
+        && !/pickable\.filter\(m => m\.parent/.test(app));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
