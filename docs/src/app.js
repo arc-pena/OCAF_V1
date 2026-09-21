@@ -92,15 +92,52 @@ const state = {
 };
 
 //! The part the page opens on, so the first thing you see is a real solid.
+//! WHAT AN EMPTY DOCUMENT IS, and it is not empty.
+//!
+//! A part opens on the same four folders every CATIA part opens on, because
+//! the first thing anybody does in a blank document is make them: an Origin
+//! holding the axis system and the three principal planes, then somewhere for
+//! the numbers, somewhere for the relations between them, and somewhere for
+//! the part itself.
+//!
+//! There is no cube. A starter body is a guess at what is being modelled and
+//! it is wrong every time; what a person wants on opening is the datums to
+//! start from, which is what this is.
+//!
+//! The point and the three direction vectors live in the Origin folder with
+//! the rest. They are what the axis system and the planes are BUILT from -
+//! a plane's normal is a wire to a vector, not a number typed on it - so
+//! hiding them would be hiding the model from itself. The folder folds.
 const STARTER = {
   format: "ocaf-parametric-model", version: 1, name: "Part1", units: "mm",
   features: [
-    { id: "PT1", type: "Point",  name: "Origin",      args: { x: 0, y: 0, z: 0 } },
-    { id: "VZ",  type: "Vector", name: "Z Direction", args: { dx: 0, dy: 0, dz: 1 } },
-    { id: "PL1", type: "Plane",  name: "XY Plane",
+    { id: "ORIGIN", type: "GeometricalSet", name: "Origin", args: {} },
+    { id: "PT1", type: "Point",  name: "Origin",      parent: "ORIGIN",
+      args: { x: 0, y: 0, z: 0 } },
+    { id: "VX",  type: "Vector", name: "X Direction", parent: "ORIGIN",
+      args: { dx: 1, dy: 0, dz: 0 } },
+    { id: "VY",  type: "Vector", name: "Y Direction", parent: "ORIGIN",
+      args: { dx: 0, dy: 1, dz: 0 } },
+    { id: "VZ",  type: "Vector", name: "Z Direction", parent: "ORIGIN",
+      args: { dx: 0, dy: 0, dz: 1 } },
+    { id: "AX1", type: "AxisSystem", name: "Origin Axis System", parent: "ORIGIN",
+      args: { kind: "Origin and directions", origin: { ref: "PT1" },
+              xdir: { ref: "VX" }, ydir: { ref: "VY" }, size: 200 } },
+    //! The three principal planes, each square to the direction it is named
+    //! across: XY is normal to Z, YZ to X, ZX to Y.
+    { id: "PL1", type: "Plane",  name: "XY Plane", parent: "ORIGIN",
       args: { origin: { ref: "PT1" }, normal: { ref: "VZ" }, size: 200 } },
-    { id: "CB1", type: "Cube",   name: "Cube.1",
-      args: { origin: { ref: "PT1" }, plane: { ref: "PL1" }, dx: 80, dy: 80, dz: 80 } },
+    { id: "PL2", type: "Plane",  name: "YZ Plane", parent: "ORIGIN",
+      args: { origin: { ref: "PT1" }, normal: { ref: "VX" }, size: 200 } },
+    { id: "PL3", type: "Plane",  name: "ZX Plane", parent: "ORIGIN",
+      args: { origin: { ref: "PT1" }, normal: { ref: "VY" }, size: 200 } },
+    { id: "PARAMS", type: "GeometricalSet", name: "Parameters", args: {} },
+    { id: "RELS",   type: "GeometricalSet", name: "Relations",  args: {} },
+    //! A Body rather than a geometrical set, which is the one place this
+    //! departs from the words asked for. The two containers differ in exactly
+    //! one thing - what belongs in them - and solids belong in a Body. It is
+    //! CATIA's own distinction and the one the two factories here draw.
+    { id: "PART",   type: "Body", name: "Part", args: {} },
   ],
 };
 
@@ -2063,6 +2100,12 @@ function lookAtSketch() {
 /* ------------------------------------------------------- drawing overlay */
 
 function refreshSketch() {
+  //! THE TREE FOLLOWS THE DRAWING. While a sketch is open its elements are
+  //! rows in the tree, and what is picked in the drawing is what is lit up
+  //! there - one selection, two places showing it. Rebuilt here because this
+  //! is the one function every change inside a sketch goes through, entering
+  //! and leaving included.
+  buildTree();
   if (sketcher.group) { world.remove(sketcher.group); disposeGroup(sketcher.group); sketcher.group = null; }
   const bar = document.getElementById("sketch-bar");
   const rail = document.getElementById("sketch-rail");
@@ -5607,17 +5650,46 @@ function buildTree() {
   // of the user's own is drawn inside that set instead of here, so every
   // feature appears exactly once however deeply it is put away.
   const loose = state.tree.features.filter(f => !f.parent);
+  //! A FOLDER SOMEBODY MADE IS A FOLDER AT THE TOP LEVEL.
+  //!
+  //! The four headings below are not features - they are a sorting of the
+  //! loose features by what kind of thing they are, and they exist because a
+  //! document with forty datums and one solid is unreadable as one list. A set
+  //! the user made IS a feature, and putting it inside "PartBody" because it
+  //! is not a datum files a folder called Origin under the part body, which is
+  //! the wrong way up.
+  //!
+  //! So top-level containers are drawn first, at the top level, in document
+  //! order. What is left over is sorted into the headings as before.
+  const folders = loose.filter(f => f.category === "container");
+  const rest = loose.filter(f => f.category !== "container");
+  //! And when the document is ARRANGED - somebody has made folders - the
+  //! headings stop insisting on themselves. A new part opens on Origin,
+  //! Parameters, Relations and Part with nothing loose at all, and two empty
+  //! headings under them would be two rows of nothing. A document with no
+  //! folders keeps Datums and PartBody always there, the way it always has.
+  const arranged = folders.length > 0;
   const sets = [
-    { name: "Datums", features: loose.filter(f => f.category === "datum") },
+    { name: "Datums", optional: arranged,
+      features: rest.filter(f => f.category === "datum") },
     { name: "Parameters", optional: true,
-      features: loose.filter(f => f.category === "data") },
+      features: rest.filter(f => f.category === "data") },
     { name: "Meshes", optional: true,
-      features: loose.filter(f => f.category === "mesh") },
-    { name: "PartBody", features: loose.filter(f =>
+      features: rest.filter(f => f.category === "mesh") },
+    { name: "PartBody", optional: arranged, features: rest.filter(f =>
         f.category !== "datum" && f.category !== "data" && f.category !== "mesh") },
   ];
 
   let shown = 0;
+  //! The folders somebody made, at the top level, before any heading. In
+  //! document order, so a part opens on Origin, Parameters, Relations, Part -
+  //! the order they were written in, which is the order they are thought in.
+  for (const folder of folders) {
+    if (keep && !survives(folder, keep)) continue;
+    list.appendChild(treeNode(folder, keep, hit));
+    shown++;
+  }
+
   for (const set of sets) {
     // Datums and PartBody are always there, the way CATIA has them. The sets
     // that only exist when something is in them do not announce themselves.
@@ -5659,6 +5731,64 @@ function buildTree() {
     none.textContent = "nothing in the tree is called that";
     list.appendChild(none);
   }
+}
+
+//! One element of an open drawing, as a row. Picked here or picked in the
+//! viewport is the same pick - sketcher.picked is the one list - so the tree
+//! lights up with the drawing and a relation can be built by clicking two
+//! rows.
+function sketchTreeRow(element) {
+  const li = document.createElement("li");
+  const picked = sketcher.picked.includes(element.id);
+  li.className = "node pick sketch-el" + (picked ? " selected" : "");
+  li.tabIndex = 0;
+  li.title = element.type + " " + element.id;
+  const glyph = document.createElement("span");
+  glyph.className = "glyph";
+  //! The sketcher's own icon for that element type, which is the one on the
+  //! button that drew it - so the row and the tool that made it look alike.
+  glyph.innerHTML = svg(SKETCH_ICONS[element.type] || SKETCH_ICONS.select);
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = element.id;
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = element.type
+    //! isConstruction, not a layer test. SKETCH_LAYER is the name of the
+    //! DEFAULT layer - the string "0" - so reading a `.CONSTRUCTION` off it
+    //! gives undefined, which matched every element that had never been put on
+    //! a layer and labelled the whole drawing construction.
+    + (isConstruction(element) ? " · construction" : "")
+    + (element.layer && element.layer !== SKETCH_LAYER ? " · " + element.layer : "");
+  li.append(glyph, label, kind);
+  li.addEventListener("click", event => pickInSketch(element.id, event.shiftKey));
+  return li;
+}
+
+//! And one relation. Clicking it does what clicking its mark in the drawing
+//! does: takes it as the thing being looked at, which is how it is removed.
+function sketchRelationRow(relation, at) {
+  const li = document.createElement("li");
+  li.className = "node pick sketch-rel" + (sketcher.relation === at ? " selected" : "");
+  li.tabIndex = 0;
+  const spec = SKETCH_RELATIONS.find(r => r.key === relation.type);
+  const glyph = document.createElement("span");
+  glyph.className = "glyph";
+  glyph.innerHTML = svg(SKETCH_ICONS[relation.type] || SKETCH_ICONS.select);
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = (spec ? spec.label : relation.type);
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = (relation.of || []).join(", ");
+  li.title = (spec ? spec.hint : relation.type) + " — " + kind.textContent;
+  li.append(glyph, label, kind);
+  li.addEventListener("click", () => {
+    sketcher.relation = sketcher.relation === at ? -1 : at;
+    sketcher.picked = [];
+    refreshSketch();
+  });
+  return li;
 }
 
 //! Whether a feature survives the filter - itself, or because something
@@ -5814,6 +5944,54 @@ function treeNode(entry, keep = null, hit = null) {
     holder.append(li, branch);
     return holder;
   }
+  //! A SKETCH IS A FOLDER TOO, BUT ONLY FROM INSIDE IT.
+  //!
+  //! The elements of a drawing are a tree in their own right - a rectangle, an
+  //! arc, the line it was filleted off - and while somebody is drawing they are
+  //! the thing being worked on, so they belong in the tree like anything else.
+  //! From OUTSIDE the sketch they are not: a part with nine sketches of a dozen
+  //! elements each would put a hundred rows nobody is looking at between the
+  //! reader and the part, and the whole point of a sketch as a feature is that
+  //! it is ONE thing to the model around it.
+  //!
+  //! So the branch exists exactly while the sketch is open, and folds back to
+  //! one row on the way out. That is CATIA's behaviour and it is the same
+  //! argument as the black box above: what is inside a thing is not the
+  //! reader's business until they go in.
+  //!
+  //! Nothing here is a feature. The drawing is one string on one label - which
+  //! is what makes the sketcher, the node editor and the model file three
+  //! windows onto one text - so these rows are a VIEW of that string, and
+  //! clicking one picks it in the sketcher exactly as clicking the geometry
+  //! would.
+  if (entry.sketch && sketcher.id === entry.id) {
+    //! What is STORED, not the mid-drag preview: the tree is a list of what
+    //! is in the drawing, and a row does not appear or vanish because
+    //! something is being dragged past it.
+    const drawing = readSketch(entry.sketch.drawing);
+    const elements = (drawing && drawing.elements) || [];
+    const folded = shut.has("sketch:" + entry.id) && !keep;
+    li.insertBefore(twist("sketch:" + entry.id, elements.length, entry.name), li.firstChild);
+    const branch = document.createElement("ul");
+    branch.className = "branch";
+    branch.hidden = folded;
+    if (!elements.length) {
+      const empty = document.createElement("li");
+      empty.className = "node";
+      empty.innerHTML = '<span class="kind" style="padding-left:22px">nothing drawn yet</span>';
+      branch.appendChild(empty);
+    }
+    for (const element of elements) branch.appendChild(sketchTreeRow(element));
+    //! The relations after the elements, because that is the order they are
+    //! made in and the order they are read in: these lines, held like this.
+    for (let at = 0; at < (drawing.constraints || []).length; at++)
+      branch.appendChild(sketchRelationRow(drawing.constraints[at], at));
+    const holder = document.createElement("li");
+    holder.className = "holds";
+    holder.append(li, branch);
+    return holder;
+  }
+
   // Everything that is not a set gets the same blank box where the sign would
   // be, so the names all line up.
   li.insertBefore(twist(entry.id, 0, entry.name), li.firstChild);
