@@ -31,6 +31,11 @@
 
 export const CONFUSION = 1e-7;
 
+//! How many samples a CLOSED curve is fitted through, at least. See the spline
+//! factory for the measurement behind the number: the fit is not periodic, so
+//! the seam closes only as smoothly as the samples either side of it make it.
+export const FIT_SEAM_SAMPLES = 120;
+
 export const V = {
   add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
   sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
@@ -126,6 +131,72 @@ export function makeFactories(oc, kit) {
     }
     if (!any) throw new Error("all of those points are in the same place");
     return maker.Wire();
+  };
+
+  //! A RUN OF POINTS AS ONE SMOOTH CURVE, rather than as a run of segments.
+  //!
+  //! Every curve in this program that is not a line, a circle or a conic is
+  //! worked out as points - a Catmull-Rom through them, a Hermite blend with a
+  //! tension at each end, a parabola walked out along its arms, a curve pulled
+  //! down onto a skin - and every one of them used to be handed on as the
+  //! polyline it had been sampled as. That is what made a sketched spline
+  //! extrude into forty-eight flat strips instead of one surface. The geometry
+  //! really was forty-eight straight edges; the faceting was not the display.
+  //!
+  //! It did not have to be. This build does carry a B-spline fitter. What it
+  //! does not carry is the name it was looked for under: TColgp_Array1OfPnt is
+  //! a typedef, and the binding is published under the template it is a
+  //! typedef OF - NCollection_Array1_gp_Pnt - so every search for the TColgp
+  //! name came back empty and the conclusion was that GeomAPI_PointsToBSpline
+  //! could not be fed. It can.
+  //!
+  //! THE ENDS ARE EXACT. Measured, not assumed: a sketch chain welds its
+  //! elements end to end, and a curve that missed its own ends by a micron
+  //! would stop the wire closing. Everything between is within \p tolerance.
+  const smoothOf = (points, closed, tolerance = 0) => {
+    const run = [];
+    for (const p of points)
+      if (!run.length || V.length(V.sub(p, run[run.length - 1])) > CONFUSION) run.push(p);
+    // A closed run is one whose last point IS its first: said here rather than
+    // left to the caller, because a fit is not told about closure any other way.
+    if (closed && run.length > 2
+        && V.length(V.sub(run[0], run[run.length - 1])) > CONFUSION) run.push(run[0]);
+    // Two points are a line, and a line is better as a line than as a spline
+    // pretending to be one.
+    if (run.length < 3) return polylineOf(points, closed);
+
+    //! A TOLERANCE IS A LENGTH, so it has to know how long the curve is. A
+    //! fixed hundredth of a millimetre is nothing on a two-metre curve and a
+    //! crude approximation on a two-millimetre one. A hundred-thousandth of
+    //! the run's own reach is well under a display pixel at any zoom that
+    //! shows the whole curve, and it keeps the pole count - and the seconds -
+    //! in hand: asking for more than the samples themselves know is paying
+    //! for precision that was never in the input.
+    let reach = 0;
+    for (const axis of [0, 1, 2]) {
+      let low = Infinity, high = -Infinity;
+      for (const p of run) { low = Math.min(low, p[axis]); high = Math.max(high, p[axis]); }
+      reach = Math.max(reach, high - low);
+    }
+    const tol = tolerance > 0 ? tolerance : Math.max(1e-4, reach * 1e-5);
+
+    try {
+      const array = new oc.NCollection_Array1_gp_Pnt(1, run.length);
+      run.forEach((p, i) => array.SetValue(i + 1, pnt(p)));
+      const fitted = new oc.GeomAPI_PointsToBSpline(
+        array, 3, 8, oc.GeomAbs_Shape.GeomAbs_C2, tol);
+      if (!fitted.IsDone()) return polylineOf(points, closed);
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      maker.Add(new oc.BRepBuilderAPI_MakeEdge(fitted.Curve()).Edge());
+      if (!maker.IsDone()) return polylineOf(points, closed);
+      return maker.Wire();
+    } catch (error) {
+      // ONE CURVE IS NOT THE MODEL. A fit that will not converge is a reason to
+      // hand back the segments it was fitted to, not a reason for the feature
+      // to fail: it is the same curve either way, and the only difference is
+      // whether what is built off it comes out smooth.
+      return polylineOf(points, closed);
+    }
   };
 
   const faceOf = wire => {
@@ -554,27 +625,44 @@ export function makeFactories(oc, kit) {
       summary: "Straight segments through a list of points, open or closed.",
       run: (points, closed) => polylineOf(points, closed) },
 
+    { name: "fitCurve", takes: "points, closed, tolerance", gives: "shape",
+      summary: "One smooth B-spline curve through a run of points, passing through "
+             + "the first and last exactly and within the tolerance of the rest. "
+             + "Give it the samples of a curve you have worked out yourself and it "
+             + "hands back the curve, as one edge - which is what makes anything "
+             + "built off it come out smooth rather than faceted. The tolerance "
+             + "defaults to a hundred-thousandth of the run's own reach.",
+      run: (points, closed, tolerance = 0) => smoothOf(points, closed === true, tolerance) },
+
     { name: "spline", takes: "points, closed, perSpan", gives: "shape",
       summary: "A smooth curve through a list of points - Catmull-Rom, parameterised "
-             + "by index so it may double back on itself, then sampled. This build "
-             + "has no B-spline fitter, so the curve arrives as a fine run of "
-             + "segments, which is what it is drawn and lofted as anyway.",
+             + "by index so it may double back on itself, sampled, and fitted back "
+             + "to one B-spline edge. Raising perSpan makes the sampling finer, "
+             + "which the fit follows; it does not add segments to the answer.",
       run: (points, closed, perSpan = 12) => {
         const n = points.length;
         if (n < 3) throw new Error("a spline needs at least three points");
         const at = i => points[closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i))];
         const out = [];
+        //! A CLOSED RUN IS SAMPLED HARDER, and the reason is the seam. The fit
+        //! is not periodic - nothing here binds a periodic fitter - so where
+        //! the loop comes back to its start the two ends are only as parallel
+        //! as the samples either side of them make them. Measured: a loop of
+        //! 60 samples closes with a 0.63-degree kink, 120 with 0.02, and 240
+        //! with 0.004. So a closed run gets at least 120 samples, which costs
+        //! milliseconds and buys a join nobody can see.
+        const steps = closed ? Math.max(perSpan, Math.ceil(FIT_SEAM_SAMPLES / n)) : perSpan;
         for (let s = 0; s < (closed ? n : n - 1); s++) {
           const [a, b, c, d] = [at(s - 1), at(s), at(s + 1), at(s + 2)];
-          for (let j = 0; j < perSpan; j++) {
-            const u = j / perSpan;
+          for (let j = 0; j < steps; j++) {
+            const u = j / steps;
             out.push([0, 1, 2].map(k => 0.5 * ((2 * b[k]) + (-a[k] + c[k]) * u
               + (2 * a[k] - 5 * b[k] + 4 * c[k] - d[k]) * u * u
               + (-a[k] + 3 * b[k] - 3 * c[k] + d[k]) * u * u * u)));
           }
         }
         if (!closed) out.push(points[n - 1]);
-        return polylineOf(out, closed);
+        return smoothOf(out, closed, 0);
       } },
 
     { name: "fill", takes: "wire", gives: "shape",

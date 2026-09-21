@@ -1062,6 +1062,13 @@ export const SAMPLES = [
            + "across its top held tangent to the sides and pulled through a "
            + "point. Point the fill at the draft instead to see it let the "
            + "curved corners go. 8 nodes." },
+  { key: "fillsurface-draft", name: "fillsurface_draft",
+    file: "samples/fillsurface_draft.json",
+    summary: "The same rounded rectangle drafted rather than extruded, so the "
+           + "sides the fill is held tangent to are cones instead of cylinders. "
+           + "The fill keeps the tangency it can and says which edges it had to "
+           + "let go of, which is the difference worth looking at beside "
+           + "fillsurface_extrude. 8 nodes." },
   { key: "wideflange", name: "wideflange", file: "samples/wideflange.json",
     summary: "Nine wide flange sections, each a solved sketch, and a column "
            + "built from one of them: named numbers for where it stands, an "

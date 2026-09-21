@@ -339,13 +339,19 @@ await run([
         near(got, want, want * 0.005), got + " wanted " + want.toFixed(0));
 }
 
-console.log("\n10. a real file that went wrong, and both reasons it did");
+console.log("\n10. a real file that went wrong, and what closing it up does now");
 // The model that started this. Its boundary is four curves - two sketches and
 // two blend curves - but one of the blends is wired to the tip of a tangent
 // ray rather than to the end of the sketch, so the loop has a 500 mm hole in
-// it. And even closed, the boundary is 132 tessellated edges, which is more
-// than this build's filling can hold: it returns a sheet tens of metres
-// across. Both used to come back as a surface with no complaint attached.
+// it, and it used to come back as a surface with no complaint attached.
+//
+// It also used to be unfillable even CLOSED, and that has changed: the
+// boundary was 132 tessellated edges, because a sketched spline and a blend
+// curve were each handed on as the run of segments they had been sampled as,
+// and a filling with a fixed number of pieces cannot span that many. Fitted
+// back to one B-spline edge apiece it is EIGHT edges, and the same filling
+// solves it. So what is checked here is that it builds, and that it is still
+// honest about how far it missed the point it was told to pass through.
 {
   const kernel2 = await createWasmKernel({ initModule: init,
     wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
@@ -368,15 +374,15 @@ console.log("\n10. a real file that went wrong, and both reasons it did");
                      { op: "connect", id: "BL2", key: "points", from: "PO4" },
                      { op: "set", id: "FI2", key: "tolerance", value: 0.01 }]);
   const shut = await read("FI2");
-  check("closed up, the sprawl is caught rather than handed back",
-        !!shut.error && /did not converge/.test(shut.error), shut.error || shut.note);
-  check("with both sizes said, so the scale of it is plain",
-        /mm across and the surface that came back is/.test(shut.error || ""), shut.error);
-  check("and it names the tool that does work on this shape",
-        /Loft/.test(shut.error || ""), shut.error);
+  check("closed up, it fills", !shut.error, shut.error || shut.note);
+  check("off eight edges, not a hundred and thirty-two",
+        /^8 edges/.test(shut.note || ""), shut.note);
+  check("and it still says how far it missed the point it was aimed at",
+        /point to pass through, the furthest missed by/.test(shut.note || ""), shut.note);
 
-  // Which it does: a loft through the same two sketches lands on the
-  // boundary's own reach rather than tens of metres past it.
+  // A loft through the same two sketches, as a second reading of the same
+  // boundary: it lands on the boundary's own reach, which is what says the
+  // fill above is looking at the shape somebody drew.
   await mdl2.runAll([
     { op: "add", type: "Loft", id: "LO", name: "Between the rails", refs: { sections: "SK1" } },
     { op: "connect", id: "LO", key: "sections", from: "SK2" },

@@ -105,6 +105,7 @@ SAMPLES = [
     ("columns-on-a-curve", "Columns_on_a_curve.json"),
     ("fillsurface", "fillsurface.json"),
     ("fillsurface-extrude", "fillsurface_extrude.json"),
+    ("fillsurface-draft", "fillsurface_draft.json"),
     ("wideflange", "wideflange.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]

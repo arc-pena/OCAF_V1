@@ -38,7 +38,8 @@ import { QUALIFIERS, bisector, cCircle, cLine, cPoint, circle2PointsRadius,
          circle2TanOn, circle2TanRadius, circle3Tan, circleTanCentre,
          circleTanOnRadius, circleThrough3, line2Tan, lineTanAngle,
          saysCircle, saysLine } from "./gcc.js";
-import { CONFUSION, V, factorySchema, makeFactories, turnAbout } from "./factory.js";
+import { CONFUSION, FIT_SEAM_SAMPLES, V, factorySchema, makeFactories,
+         turnAbout } from "./factory.js";
 import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
 import { DXF_LIMIT, describeDrawing, dxfDrawing, ignoredName, writeDxf } from "./dxf.js";
@@ -1732,7 +1733,12 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           uv.push([(t * t) / (4 * focal), t]);
         }
       }
-      return { shape: HSF.polyline(uv.map(p => seat.on(p)), false),
+      //! Walked out as points and handed back as ONE curve. gp_Parab and
+      //! gp_Hypr are not in this build, so a parabola cannot be an analytic
+      //! edge here - but it does not have to be a hundred and ninety-two
+      //! straight ones either. The samples are exact on the conic; the fit
+      //! through them is a B-spline within a hundred-thousandth of the reach.
+      return { shape: HSF.fitCurve(uv.map(p => seat.on(p)), false, 0),
                data: { kind: "curve" },
                note: (hyperbola ? "hyperbola" : "parabola") + " · focal "
                      + Math.round(focal * 100) / 100 };
@@ -1911,7 +1917,10 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       }
       if (!closed) out.push(list[n - 1]);
       const held = said.filter(Boolean).length;
-      return { shape: HSF.polyline(out, closed),
+      //! The Hermite is worked out here and fitted back to one edge: what a
+      //! blend curve is FOR is joining two curves smoothly, and a join made of
+      //! twenty-four straight steps is not smooth however fine the steps are.
+      return { shape: HSF.fitCurve(out, closed, 0),
                data: points(list),
                note: n + " points · " + (held ? held + " with a direction given"
                                                   : "no directions given") };
@@ -2373,6 +2382,96 @@ function sprawl(face, edges) {
     return { t: (lo + hi) / 2, at: at((lo + hi) / 2) };
   }
 
+  //! THE NEAREST POINT ON AN EDGE, with the parameter it sits at. Nearest is
+  //! the whole point: the line from a point to the nearest place on a curve is
+  //! perpendicular to that curve, and perpendicular to the curve at distance r
+  //! is what being tangent to a circle of radius r MEANS. So this is how a
+  //! fillet finds where it touches without ever solving for a tangent.
+  function touchOnEdge(edge, from) {
+    try {
+      const gap = new oc.BRepExtrema_DistShapeShape();
+      gap.LoadS1(new oc.BRepBuilderAPI_MakeVertex(pnt(from)).Vertex());
+      gap.LoadS2(edge);
+      gap.Perform();
+      if (!gap.IsDone() || gap.NbSolution() < 1) return null;
+      const p = gap.PointOnShape2(1);
+      // AN OUT-PARAMETER COMES BACK AS AN OBJECT. ParOnEdgeS2's second argument
+      // is a reference OpenCascade writes the parameter into, and embind hands
+      // that back as {t}. Read as a number it is NaN, which then travels: a
+      // trim fraction of NaN fails every comparison it is put through, so the
+      // corner is quietly counted as too tight and the whole fillet reports
+      // "no arc of that radius fits" with nothing wrong with the radius.
+      const par = gap.ParOnEdgeS2(1);
+      const u = typeof par === "number" ? par : par && par.t;
+      if (!Number.isFinite(u)) return null;
+      return { at: [p.X(), p.Y(), p.Z()], u, away: gap.Value() };
+    } catch (error) { return null; }
+  }
+
+  //! Where a parameter on an edge sits as a fraction of the way the CHAIN
+  //! walks it, which is the direction everything downstream trims in.
+  function chainFraction(one, u) {
+    const adaptor = new oc.BRepAdaptor_Curve(one.edge);
+    const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+    const a = one.flipped ? last : first, b = one.flipped ? first : last;
+    return Math.max(0, Math.min(1, (u - a) / (b - a || 1)));
+  }
+
+  //! WHERE A FILLET OF RADIUS r REALLY SITS IN A CORNER.
+  //!
+  //! Between two straight arms this is trigonometry: back off r/tan(half the
+  //! corner) along each arm and put the centre r/sin(half) out along the
+  //! bisector. That was already here and it was being handed the wrong angle -
+  //! one arm was read pointing INTO the corner and the other pointing out of
+  //! it, so the angle used was the corner's SUPPLEMENT. tan and sin of the
+  //! wrong half-angle put the centre in the wrong place and the ends at the
+  //! wrong distance, and the arc through them was a real arc that met neither
+  //! arm tangentially. It came out right at exactly one corner - ninety
+  //! degrees, where the supplement is the angle - which is why it looked fine
+  //! for as long as it did.
+  //!
+  //! And straight arms are only half of it: an arm that is a CURVE has a
+  //! different tangent at every point along it, so where the fillet touches
+  //! depends on where it touches. So the trigonometry is the first guess and
+  //! then it is walked in. Each pass takes the nearest point on each arm to
+  //! the current centre - nearest is perpendicular, and perpendicular at r is
+  //! tangent - and moves the centre to the place that is r out from both. It
+  //! settles in two or three passes on a straight corner and half a dozen on
+  //! a curved one, and it is CHECKED at the end rather than trusted.
+  function filletSeat(armA, armB, corner, radius, guess) {
+    let centre = guess;
+    let touchA = null, touchB = null;
+    for (let pass = 0; pass < 12; pass++) {
+      touchA = touchOnEdge(armA.edge, centre);
+      touchB = touchOnEdge(armB.edge, centre);
+      if (!touchA || !touchB) return null;
+      const awayA = V.norm(V.sub(centre, touchA.at));
+      const awayB = V.norm(V.sub(centre, touchB.at));
+      if (!awayA || !awayB) return null;
+      const moved = V.scale(V.add(V.add(touchA.at, V.scale(awayA, radius)),
+                                  V.add(touchB.at, V.scale(awayB, radius))), 0.5);
+      const step = V.length(V.sub(moved, centre));
+      centre = moved;
+      if (step < radius * 1e-9) break;
+    }
+    if (!touchA || !touchB) return null;
+    // MEASURED, NOT ASSUMED. The iteration can settle on a centre that is r
+    // from neither arm - a corner too tight for the radius does exactly that -
+    // and an arc drawn from it would be the wrong arc, drawn confidently.
+    const offA = Math.abs(V.length(V.sub(centre, touchA.at)) - radius);
+    const offB = Math.abs(V.length(V.sub(centre, touchB.at)) - radius);
+    if (offA > radius * 1e-4 || offB > radius * 1e-4) return null;
+    // The two touch points have to be on the arms either side of THIS corner,
+    // not somewhere else on a curve that loops back past the centre.
+    const reachA = V.length(V.sub(touchA.at, corner));
+    const reachB = V.length(V.sub(touchB.at, corner));
+    if (!(reachA > CONFUSION) || !(reachB > CONFUSION)) return null;
+    const inward = V.norm(V.add(V.norm(V.sub(touchA.at, centre)),
+                                V.norm(V.sub(touchB.at, centre))));
+    if (!inward) return null;
+    return { centre, a: touchA, b: touchB, mid: V.add(centre, V.scale(inward, radius)) };
+  }
+
   builders.FilletCurve = {
     precondition: f => {
       if (!F.shape(F.reference(f, "curve"))) return "wire in the curve to round";
@@ -2422,45 +2521,96 @@ function sprawl(face, edges) {
       for (const [a, b] of junctions) {
         const corner = run[a].ends[1];
         if (!asked(corner)) continue;
-        const into = wayAtEnd(run[a], false);          // pointing back up the arm
-        const out = wayAtEnd(run[b], true);
-        if (!into || !out) continue;
-        // The two arms as they leave the corner: one is the reverse of the way
-        // the first edge arrives.
-        const armA = V.scale(into, -1), armB = out;
+        // BOTH ARMS READ THE SAME WAY: out of the corner and along the edge.
+        // wayAtEnd points INTO the edge from whichever end it is asked about,
+        // so at the corner that IS the arm leaving it - for both of them. It
+        // used to negate the first one, on the reading that wayAtEnd gave the
+        // way the edge arrives, and that turned the corner into its own
+        // supplement: tan and sin of the wrong half-angle put the centre in
+        // the wrong place and the ends at the wrong distance, so the arc
+        // through them was a real arc that met neither arm tangentially. It
+        // came out right at one angle only - ninety degrees, where a corner
+        // and its supplement are the same - which is why it passed for long.
+        const armA = wayAtEnd(run[a], false), armB = wayAtEnd(run[b], true);
+        if (!armA || !armB) continue;
         const cos = Math.max(-1, Math.min(1, V.dot(armA, armB)));
         const angle = Math.acos(cos);
-        if (angle > Math.PI - 1e-4) { smooth++; continue; }   // already smooth
-        if (angle < 1e-4) { smooth++; continue; }             // doubles back
+        if (angle > Math.PI - 1e-4) { smooth++; continue; }   // doubles back
+        if (angle < 1e-4) { smooth++; continue; }             // already smooth
         const half = angle / 2;
+        // The straight-arm answer: exact when the arms are straight, and the
+        // opening move for filletSeat when they are not.
         const reach = r / Math.tan(half);
         const backA = backOff(run[a], false, reach);
         const backB = backOff(run[b], true, reach);
         if (!backA || !backB) { tight++; continue; }
-        trims[a].to = 1 - backA.t;
-        trims[b].from = backB.t;
-        // The arc: through the two points it backed off to and the point on
-        // the bisector a radius away from the centre, which is the middle of
-        // the fillet. Built from three points so a curved arm still meets it.
         const bisect = V.norm(V.add(V.norm(V.sub(backA.at, corner)),
                                     V.norm(V.sub(backB.at, corner))));
         if (!bisect) { tight++; continue; }
-        const centre = V.add(corner, V.scale(bisect, r / Math.sin(half)));
-        const mid = V.add(centre, V.scale(V.scale(bisect, -1), r));
-        arcs.push({ a: backA.at, mid, b: backB.at });
+        const seat = filletSeat(run[a], run[b], corner, r,
+                                V.add(corner, V.scale(bisect, r / Math.sin(half))));
+        if (!seat) { tight++; continue; }
+        const cutA = chainFraction(run[a], seat.a.u);
+        const cutB = chainFraction(run[b], seat.b.u);
+        if (!(cutA > 0) || !(cutB < 1)) { tight++; continue; }
+        trims[a].to = cutA;
+        trims[b].from = cutB;
+        // Three points on the circle it settled on: where it touches each arm,
+        // and the middle of the arc between them, on the corner's side. Which
+        // two edges it cut travels with it, so that giving a corner up below
+        // can hand both of them back.
+        arcs.push({ after: a, onto: b, a: seat.a.at, mid: seat.mid, b: seat.b.at });
         rounded++;
       }
+      //! TWO FILLETS CANNOT EAT THE SAME EDGE TWICE. Every corner is worked
+      //! out on its own, and on a short edge between two rounded corners both
+      //! arcs can back off past the middle of it. What is left of that edge is
+      //! then nothing - or less than nothing - so it drops out of the wire and
+      //! leaves a hole where it used to be, and the only thing OpenCascade has
+      //! to say about that is that the wire would not join up. Which sends
+      //! somebody looking at the arcs, and there is nothing wrong with any of
+      //! the arcs.
+      //!
+      //! So the overlap is settled here, by giving up whole corners rather
+      //! than by shaving radii: the corner taking the bigger bite out of the
+      //! starved edge goes, both of the edges it cut are handed back, and the
+      //! next starved edge is looked at. Giving up a corner is what "too
+      //! tight" already means, and it is counted and said as that - the rest
+      //! of the curve still gets rounded, which beats refusing all of it over
+      //! one short edge.
+      for (let guard = 0; guard <= arcs.length; guard++) {
+        const starved = trims.findIndex(cut => !(cut.to - cut.from > 1e-9));
+        if (starved < 0) break;
+        const atEnd = arcs.find(one => one.after === starved);
+        const atStart = arcs.find(one => one.onto === starved);
+        const drop = !atStart ? atEnd
+          : !atEnd ? atStart
+          : (1 - trims[starved].to) >= trims[starved].from ? atEnd : atStart;
+        if (!drop) break;                      // nothing left to give up
+        trims[drop.after].to = 1;
+        trims[drop.onto].from = 0;
+        arcs.splice(arcs.indexOf(drop), 1);
+        rounded--; tight++;
+      }
+
       if (!rounded)
         throw new Error(smooth && !tight
           ? "every corner there already meets smoothly - there is nothing to round"
           : tight ? "no arc of " + r + " fits those corners - try a smaller radius"
                   : "there is no corner there to round");
 
-      // The wire, walked once: each edge trimmed to what is left of it, and
-      // the arc that replaced each corner put in after the edge it follows.
+      //! THE WIRE, WALKED ONCE: each edge trimmed to what is left of it, and
+      //! the arc that replaced each corner put in after the edge it follows.
+      //!
+      //! Which edge that is comes off the arc itself rather than off a count.
+      //! It used to be zipped: the nth junction got the nth arc, on the
+      //! assumption that every junction makes one - and every junction that is
+      //! already smooth, too tight for the radius, or simply not one of the
+      //! corners that was picked makes none. One skipped corner shifted every
+      //! arc after it onto the wrong edge, and the wire came back "would not
+      //! join up" with nothing wrong with any of the arcs in it.
       const arcAfter = new Map();
-      let at = 0;
-      for (const [a] of junctions) { arcAfter.set(a, arcs[at]); at++; }
+      for (const arc of arcs) arcAfter.set(arc.after, arc);
       run.forEach((one, i) => {
         const cut = trims[i];
         const piece = trimmedEdge(one, cut.from, cut.to);
@@ -2893,6 +3043,21 @@ function sprawl(face, edges) {
     return new oc.BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
   }
 
+  //! A RUN OF DRAWN POINTS AS ONE SMOOTH EDGE, in the plane's own coordinates.
+  //! A sketched spline is worked out here - by de Boor for a B-spline, by
+  //! Catmull-Rom for a spline - and what it is worked out as is points. Handed
+  //! on as points it was a run of straight edges, and a pad off it came out as
+  //! that many flat strips; fitted, it is one B-spline edge and the pad off it
+  //! is one surface. The fit keeps the welded ends exactly, which is what lets
+  //! the chain either side of it still close.
+  const smoothEdge = (frame, list) => {
+    const wire = HSF.fitCurve(list.map(uv => frame.at(uv)), false, 0);
+    const edges = subShapes(wire, EDGE, oc.TopoDS.Edge);
+    // The fit falls back to segments when it will not converge, and segments
+    // are still the curve - so whatever came back is what the chain gets.
+    return edges.length ? edges : runOfEdges(frame, list);
+  };
+
   const runOfEdges = (frame, list) => {
     const out = [];
     for (let i = 0; i + 1 < list.length; i++) {
@@ -2968,17 +3133,17 @@ function sprawl(face, edges) {
         const run = splinePoints(el, 12);
         if (run.length < 2) return [];
         const walk = a && b ? [a, ...run.slice(1, -1), b] : run;
-        return runOfEdges(frame, walk);
+        return smoothEdge(frame, walk);
       }
-      // A B-spline arrives as a fine run of edges for the same reason a
-      // spline does: this kernel build carries Geom_BSplineCurve but not the
-      // arrays needed to hand it a knot vector, so the curve is evaluated here
-      // - exactly, by de Boor - and built as what it passes through.
+      // A B-spline is evaluated here rather than handed to the kernel with a
+      // knot vector - nothing in this build takes one - so it is walked out
+      // exactly, by de Boor, and fitted back to a single edge through what it
+      // passes through. Which is a B-spline again, and reads as one downstream.
       case "bspline": {
         const run = bsplinePoints(el, 16);
         if (run.length < 2) return [];
         const walk = a && b ? [a, ...run.slice(1, -1), b] : run;
-        return runOfEdges(frame, walk);
+        return smoothEdge(frame, walk);
       }
       default: return [];
     }
@@ -3142,8 +3307,14 @@ function sprawl(face, edges) {
       // Degree is what it means here: 1 is the polyline itself, higher degrees
       // ask for a finer sampling of the same spline.
       const perSpan = Math.max(1, Math.round(F.real(f, "degree", 3)) * 6);
-      const run = catmullRom(list, closed, perSpan);
-      return { shape: shapeApi().polyline(run, { closed }), data: points(list) };
+      //! A closed loop is sampled harder than an open one, because the fit is
+      //! not periodic and the seam closes only as smoothly as the samples
+      //! either side of it make it. Same number, same reason, as the spline
+      //! factory: see FIT_SEAM_SAMPLES.
+      const steps = closed
+        ? Math.max(perSpan, Math.ceil(FIT_SEAM_SAMPLES / list.length)) : perSpan;
+      const run = catmullRom(list, closed, steps);
+      return { shape: HSF.fitCurve(run, closed, 0), data: points(list) };
     },
   };
 
@@ -4886,9 +5057,14 @@ function sprawl(face, edges) {
         if (best) list.push(best);
       }
       if (list.length < 2) throw new Error("nothing of that curve lands on the target");
+      //! Smoothed means fitted, not resampled: the landings are where the
+      //! curve really met the target, and a B-spline through them is the
+      //! projected curve. Taking it straight is still a polyline, because
+      //! "straight" is a request for exactly the points that were measured.
       const smooth = Feature_choice(f, "fit") === 0;
-      const run = smooth && list.length > 3 ? catmullRom(list, false, 3) : list;
-      return { shape: HSF.polyline(run, false), data: points(list) };
+      return { shape: smooth && list.length > 2 ? HSF.fitCurve(list, false, 0)
+                                                : HSF.polyline(list, false),
+               data: points(list) };
     },
   };
 
