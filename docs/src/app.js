@@ -698,29 +698,74 @@ const drawsFaint = entry => !!entry && entry.category === "datum" && entry.type 
 //! the whole point of having one. Arctic takes the same clay for everything,
 //! because the moment two objects are different colours you are reading the
 //! colours rather than the form.
+//! EVERY SURFACE IS DRAWN FROM BOTH SIDES.
+//!
+//! WebGL's default is to throw away the back of a face, which is free and
+//! right for a closed solid: you cannot see the inside of a box. It is wrong
+//! for everything else this program makes. A filled surface, a swept skin, a
+//! drafted face, a loft - each of those is a sheet with a front and a back,
+//! and which one is the front is whatever the kernel happened to decide when
+//! it built it. Half of them come out facing away, and a face facing away is
+//! not drawn dark or drawn flipped: it is not drawn at all, and you look
+//! straight through a surface that is definitely there.
+//!
+//! So nothing here is culled. three.js flips the normal for a back face
+//! before it lights it, so the far side of a sheet shades like a surface
+//! rather than like a hole, and a solid looks exactly as it did - its inside
+//! is still behind its outside. What it costs is the fill rate of faces that
+//! are usually hidden anyway, which is nothing a model of this size notices.
+//!
+//! The one place this rule does not apply is stencilCopies, which counts
+//! front and back faces SEPARATELY to work out where a section plane cuts
+//! through solid. That one is about sidedness itself.
+//!
+//! AND THE FAR SIDE HAS TO BE LIT. Drawing a back face is only half of it: the
+//! normal it is shaded with still points away, so every light misses it and it
+//! comes back ambient-only - a flat near-black patch where a surface should
+//! be, which reads as broken rather than as a surface seen from behind. Later
+//! three.js turns the normal round for a back face on its own; the revision
+//! this page carries does not, and that was measured rather than assumed - one
+//! plane, one light, read off the buffer: 178,244,255 lit and 14,20,28 from
+//! behind, which is the ambient term and nothing else.
+//!
+//! So the flip is done here, in four words of GLSL dropped in after the
+//! normal is worked out. A sheet now shades the same from either side, which
+//! is the truth about a sheet: it has no inside.
+const TURN_BACK_FACES = shader => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "#include <normal_fragment_begin>",
+    "#include <normal_fragment_begin>\n\tnormal = gl_FrontFacing ? normal : -normal;");
+};
+
+const bothSides = material => {
+  material.side = THREE.DoubleSide;
+  material.onBeforeCompile = TURN_BACK_FACES;
+  return material;
+};
+
 function surfaceMaterial(entry, style = findStyle(state.style)) {
   if (style.clay) {
-    const clay = new THREE.MeshStandardMaterial({
+    const clay = bothSides(new THREE.MeshStandardMaterial({
       color: new THREE.Color(...style.clay), metalness: 0, roughness: 1,
-    });
+    }));
     clay.userData.base = clay.color.clone();
     return clay;
   }
   if (!style.materials) {
-    const shaded = new THREE.MeshStandardMaterial({
+    const shaded = bothSides(new THREE.MeshStandardMaterial({
       color: THEME.shape.clone(), metalness: 0.15, roughness: 0.55,
-    });
+    }));
     shaded.userData.base = THEME.shape.clone();
     return shaded;
   }
   const made = materialOf(entry && entry.appearance);
-  const material = new THREE.MeshStandardMaterial({
+  const material = bothSides(new THREE.MeshStandardMaterial({
     color: new THREE.Color(...made.color),
     metalness: made.metalness, roughness: made.roughness,
     envMap: skyMap(), envMapIntensity: 1,
     transparent: made.opacity < 0.999, opacity: made.opacity,
-    depthWrite: made.opacity >= 0.999, side: THREE.DoubleSide,
-  });
+    depthWrite: made.opacity >= 0.999,
+  }));
   material.userData.base = material.color.clone();
   return material;
 }
