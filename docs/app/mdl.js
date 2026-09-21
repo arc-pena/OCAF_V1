@@ -186,6 +186,15 @@ export const MDL_OPS = [
     { op: "appearance", id: "CB1", appearance: { finish: "brass" } },
     (ctx, edit) => ctx.kernel.setAppearance(needText(edit, "id"), edit.appearance || null)),
 
+  modelOp("spread", ["id"],
+    "How a feature pairs up the lists arriving on it - Grasshopper's data matching. "
+    + "`match` is \"longest\" (a short list repeats its last value), \"shortest\" (the "
+    + "surplus is dropped) or \"cross\" (every combination). `graft` names inputs that "
+    + "should make a row each even when only one value arrives.",
+    { op: "spread", id: "PA1", match: "cross", graft: ["distance"] },
+    (ctx, edit) => ctx.kernel.setSpread(needText(edit, "id"), {
+      match: edit.match, graft: edit.graft, flatten: edit.flatten })),
+
   modelOp("model", ["model"],
     "Replace the whole document with a model file. Everything else above is a small "
     + "edit of the text this one writes wholesale.",

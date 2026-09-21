@@ -409,6 +409,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     //! out as a point and nothing downstream knows the difference - which is
     //! the reason for having one node rather than five.
     Point: {
+      //! Pairs up its own lists - see Driver.spreadLists.
+      ownLists: true,
       precondition: f => {
         const kind = Feature_choice(f, "kind");
         if (kind === 1 && !F.shape(F.reference(f, "curve"))) return "no curve to sit on";
@@ -1267,6 +1269,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   ];
 
   builders.Math = {
+      //! Pairs up its own lists - see Driver.spreadLists.
+      ownLists: true,
     precondition: f => {
       const op = Feature_choice(f, "op");
       if ((op === 3 || op === 7) && F.reals(f, "b", 1).every(b => Math.abs(b) < 1e-12))
@@ -1284,6 +1288,8 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   };
 
   builders.Expression = {
+      //! Pairs up its own lists - see Driver.spreadLists.
+      ownLists: true,
     //! Compiled before anything reads it, so a half-written formula reads as a
     //! syntax error rather than as a modelling failure.
     precondition: f => {
@@ -3371,6 +3377,8 @@ function sprawl(face, edges) {
   }
 
   builders.EvaluateCurve = {
+      //! Pairs up its own lists - see Driver.spreadLists.
+      ownLists: true,
     precondition: f => F.reference(f, "curve") ? null : "no curve to evaluate",
     build: f => {
       const curve = sampleCurve(wireOf(F.reference(f, "curve"), "curve"));
@@ -3411,6 +3419,8 @@ function sprawl(face, edges) {
   };
 
   builders.EvaluateSurface = {
+      //! Pairs up its own lists - see Driver.spreadLists.
+      ownLists: true,
     precondition: f => F.reference(f, "surface") ? null : "no surface to evaluate",
     build: f => {
       const shape = F.shape(F.reference(f, "surface"));
@@ -5653,7 +5663,11 @@ function sprawl(face, edges) {
   for (const spec of CATALOGUE) {
     const builder = builders[spec.type];
     if (!builder) continue;
-    drivers.set(spec.guid, new Driver(spec, { ...builder, release, describeError }));
+    //! `compound` is how a driver's several rows become one feature's shape;
+    //! `ownLists` is declared on the five builders that pair up their own
+    //! lists. See Driver.spreadLists.
+    drivers.set(spec.guid, new Driver(spec,
+      { ...builder, release, describeError, compound: list => HSF.join(list) }));
   }
 
   /* ---------------------------------------------------------- meshing */
@@ -6181,6 +6195,15 @@ function sprawl(face, edges) {
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setAppearance(f, appearance);
       return { ok: true, tree: doc.treeJson(), report: null };
+    },
+
+    //! How this feature pairs up the lists arriving on it. Unlike the
+    //! appearance above, it rebuilds: see Doc.setSpread.
+    async setSpread(id, spread) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      doc.setSpread(f, spread);
+      return state(settle(false));
     },
 
     //! The scene as STEP, for taking into any other CAD system. Every visible

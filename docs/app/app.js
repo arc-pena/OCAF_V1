@@ -6455,6 +6455,11 @@ function buildPanel() {
                    : refField(entry, arg));
   }
 
+  // HOW ITS LISTS PAIR UP, under the arguments they pair up. Nothing at all
+  // unless two of them are carrying lists - see spreadField.
+  const spreading = spreadField(entry);
+  if (spreading) host.appendChild(spreading);
+
   // A SET'S ARGUMENTS ARE THE WIRES THAT REACH INTO IT. Listed after its own
   // arguments, which for a plain geometrical set is none of them - so for the
   // usual set this IS the panel, which is the point.
@@ -6884,6 +6889,64 @@ function argApplies(entry, arg) {
   if (!arg.showWhen) return true;
   const now = entry.values[arg.showWhen.key];
   return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+}
+
+//! HOW THIS FEATURE PAIRS UP THE LISTS ARRIVING ON IT.
+//!
+//! Offered only where it can do something - two or more inputs carrying lists,
+//! which is the "multiple against multiple" case and the only one where the
+//! three rules give three different answers. With one list there is nothing to
+//! pair it with and every rule agrees, so a control saying so would be a
+//! control that never does anything.
+//!
+//! The counts are on the page beside it, because "Cross reference" means
+//! nothing until you can see it is 28 x 4 and read the 112 off the row below.
+function spreadField(entry) {
+  const lists = Object.entries(entry.lists || {})
+    .filter(([, count]) => typeof count === "number" && count > 1);
+  if (lists.length < 2) return null;
+  const spread = entry.spread || { match: "longest" };
+  const spec = schemaType(entry.type);
+  const named = key => {
+    const arg = (spec.args || []).find(a => a.key === key);
+    return (arg && arg.label) || key;
+  };
+  const counts = lists.map(([key, count]) => named(key) + " " + count).join(" \u00d7 ");
+  const longest = Math.max(...lists.map(([, c]) => c));
+  const shortest = Math.min(...lists.map(([, c]) => c));
+  const cross = lists.reduce((all, [, c]) => all * c, 1);
+  const rows = { longest, shortest, cross };
+
+  const field = document.createElement("div");
+  field.className = "field";
+  field.innerHTML = '<div class="field-head"><label>Lists</label>'
+    + '<span class="unit">' + escapeHtml(counts) + "</span></div>";
+  const group = document.createElement("div");
+  group.className = "segmented";
+  group.setAttribute("role", "group");
+  [["longest", "Longest"], ["shortest", "Shortest"], ["cross", "Cross"]]
+    .forEach(([key, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.title = label + " list \u2014 " + rows[key]
+        + (rows[key] === 1 ? " build" : " builds");
+      button.setAttribute("aria-pressed", spread.match === key ? "true" : "false");
+      button.addEventListener("click", () =>
+        edit({ op: "spread", id: entry.id, match: key,
+               graft: spread.graft || [], flatten: spread.flatten || [] }));
+      group.appendChild(button);
+    });
+  field.appendChild(group);
+  const said = document.createElement("div");
+  said.className = "wired";
+  said.innerHTML = "<span>" + rows[spread.match]
+    + (rows[spread.match] === 1 ? " build" : " builds")
+    + " \u00b7 " + (spread.match === "cross" ? "every combination"
+      : spread.match === "shortest" ? "the surplus is dropped"
+      : "a short list repeats its last value") + "</span>";
+  field.appendChild(said);
+  return field;
 }
 
 function choiceField(entry, arg) {
@@ -7505,10 +7568,16 @@ function realField(entry, arg) {
     const wire = document.createElement("div");
     wire.className = "wired";
     const source = (feature(from) || {}).name || from;
+    //! IT NO LONGER READS THE FIRST, so it no longer says it does. A wire
+    //! carrying twenty-eight numbers builds this feature twenty-eight times
+    //! and hands the results on together - see Driver.execute.
+    const grafted = ((entry.spread && entry.spread.graft) || []).includes(arg.key);
+    const many = count > 1 || grafted;
     wire.innerHTML = '<span title="' + escapeAttr(source +
-      (count > 1 ? " sends " + count + " values; this input reads the first" : "")) +
+      (many ? " sends " + count + (count === 1 ? " value" : " values")
+            + "; this feature is built once for each of them" : "")) +
       '">driven by <b>' + escapeHtml(source) + "</b>" +
-      (count > 1 ? " · " + count + " values" : "") + "</span>";
+      (count > 1 ? " · " + count + " values · one build each" : "") + "</span>";
     const off = document.createElement("button");
     off.type = "button";
     off.textContent = "Unwire";

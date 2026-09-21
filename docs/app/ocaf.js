@@ -2775,6 +2775,35 @@ export const FRAME_TAG = 53;
 //! never orders a rebuild.
 export const PARENT_TAG = 54;
 
+//! HOW A FEATURE PAIRS UP THE LISTS ARRIVING ON IT - Grasshopper's data
+//! matching, stored beside the appearance rather than among the arguments.
+//!
+//! Outside the arguments for the same reason the appearance is: it drives no
+//! geometry of its own. It changes how the arguments that DO drive geometry are
+//! read, which makes it a property of the reading rather than a thing read.
+//! Keeping it out of args also means every feature type in the catalogue gets
+//! it without a single catalogue entry being touched - and an argument added to
+//! a hundred entries is a hundred chances to insert rather than append.
+//!
+//! Held as {"match":"longest"|"shortest"|"cross","graft":[key],"flatten":[key]}.
+//! Absent means the default, which is `longest` and nothing grafted.
+export const SPREAD_TAG = 55;
+
+//! WHICH ROW OF ITS LISTS A FEATURE IS BEING BUILT FOR.
+//!
+//! A number that arrived on a wire from a Series is not one number, it is
+//! twenty-eight, and the feature is built twenty-eight times. Every driver
+//! reads its numbers through F.real, so the row is set here, once, and every
+//! driver in the catalogue iterates without knowing it does - which is the
+//! only way this was ever going to reach a hundred feature types.
+//!
+//! Module state, and safe as module state because drivers run one at a time:
+//! regeneration walks the graph in order and no build calls another. Set and
+//! cleared in a finally by Driver.execute, which is the only thing that may
+//! touch it.
+let rowPick = null;
+export function spreadRow(row) { const was = rowPick; rowPick = row; return was; }
+
 const byType = new Map();
 const byGuid = new Map();
 
@@ -2892,7 +2921,16 @@ export const F = {
     const label = F.argLabel(f, key);
     if (!label) return fallback;
     const wired = F.wiredNumbers(label);
-    if (wired && wired.length) return wired[0];
+    //! THE ROW, NOT THE FIRST. A wire carrying twenty-eight numbers used to
+    //! hand over the first of them and drop the other twenty-seven on the
+    //! floor - the Series was wired up, the slider showed -97, and one curve
+    //! came out where twenty-eight were asked for. Which row is being built is
+    //! decided by Driver.execute; with no row set this is row zero, which is
+    //! the old behaviour exactly.
+    if (wired && wired.length) {
+      const at = rowPick && Number.isInteger(rowPick[key]) ? rowPick[key] : 0;
+      return wired[Math.min(Math.max(0, at), wired.length - 1)];
+    }
     return typeof label.attr.TDataStd_Real === "number" ? label.attr.TDataStd_Real : fallback;
   },
   //! The whole list arriving on an argument's wire, or null when it has none.
@@ -3008,6 +3046,34 @@ export const F = {
     const label = f.findChild(APPEARANCE_TAG, true);
     if (!appearance) label.attr.TDataStd_AsciiString = "";
     else label.attr.TDataStd_AsciiString = JSON.stringify(appearance);
+  },
+
+  //! The data-matching settings, defaulted rather than nullable: every reader
+  //! wants the three fields and none of them wants to write the default twice.
+  spread(f) {
+    const label = f && f.findChild(SPREAD_TAG);
+    let said = null;
+    try {
+      if (label && typeof label.attr.TDataStd_AsciiString === "string"
+          && label.attr.TDataStd_AsciiString)
+        said = JSON.parse(label.attr.TDataStd_AsciiString);
+    } catch (e) { said = null; }
+    const match = said && MATCHES.includes(said.match) ? said.match : MATCHES[0];
+    const list = of => Array.isArray(said && said[of]) ? said[of].map(String) : [];
+    return { match, graft: list("graft"), flatten: list("flatten") };
+  },
+  setSpread(f, spread) {
+    const label = f.findChild(SPREAD_TAG, true);
+    const clean = {};
+    if (spread && MATCHES.includes(spread.match) && spread.match !== MATCHES[0])
+      clean.match = spread.match;
+    for (const of of ["graft", "flatten"])
+      if (spread && Array.isArray(spread[of]) && spread[of].length)
+        clean[of] = spread[of].map(String);
+    //! An empty setting is stored as nothing at all, so a model file carries a
+    //! line about matching only where somebody chose something.
+    label.attr.TDataStd_AsciiString = Object.keys(clean).length ? JSON.stringify(clean) : "";
+    return F.spread(f);
   },
 
   parent(f) {
@@ -3200,14 +3266,93 @@ export class Logbook {
 
 //! A driver is registered against its type's GUID and supplies two things: a
 //! check that runs before the kernel is called, and the build itself.
+//! HOW SEVERAL LISTS ARRIVING ON ONE FEATURE ARE PAIRED UP. Grasshopper's
+//! three, under Grasshopper's names, because anybody who wants this already
+//! knows them.
+//!
+//!   longest   as many rows as the longest list; a shorter one repeats its
+//!             last value. Twenty-eight distances and one angle is
+//!             twenty-eight rows of that one angle. The default, and the same
+//!             rule the Point node has always used for its x, y and z.
+//!   shortest  as many rows as the shortest; the surplus is dropped. What you
+//!             want when two lists are meant to be the same length and you
+//!             would rather see the short answer than a repeated tail.
+//!   cross     every combination. Twenty-eight distances and four angles is a
+//!             hundred and twelve rows.
+export const MATCHES = ["longest", "shortest", "cross"];
+export const MATCH_LABELS = ["Longest list", "Shortest list", "Cross reference"];
+
+//! The rows themselves: one object per row, mapping an argument key to the
+//! index of the value it should read. Handed to spreadRow, read by F.real.
+export function spreadRows(lists, match = MATCHES[0]) {
+  if (!lists.length) return [null];
+  if (match === "cross") {
+    let rows = [{}];
+    for (const { key, count } of lists) {
+      const wider = [];
+      for (const row of rows)
+        for (let i = 0; i < count; i++) wider.push({ ...row, [key]: i });
+      rows = wider;
+    }
+    return rows;
+  }
+  const counts = lists.map(l => l.count);
+  const n = match === "shortest" ? Math.min(...counts) : Math.max(...counts);
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const row = {};
+    //! The shorter list repeats its LAST value rather than wrapping round.
+    //! Wrapping is defensible and is what a modulo would give for free; it is
+    //! also how you get a list of twenty-eight setbacks whose twenty-ninth
+    //! quietly goes back to the first. Repeating the last is what Grasshopper
+    //! does and what the Point node here already did.
+    for (const { key, count } of lists) row[key] = Math.min(i, count - 1);
+    rows.push(row);
+  }
+  return rows;
+}
+
 export class Driver {
-  constructor(spec, { precondition, build, release, describeError }) {
+  constructor(spec, { precondition, build, release, describeError, ownLists, compound }) {
     this.spec = spec;
     this.precondition = precondition || (() => null);
     this.build = build;
     this.release = release || (() => {});
     // Each kernel knows how its own failures arrive; ours is the fallback.
     this.describeError = describeError || kernelMessage;
+    //! A DRIVER THAT READS ITS OWN LISTS IS LEFT ALONE. Point, Math,
+    //! Expression and the two Evaluate nodes call F.reals and pair up x, y and
+    //! z themselves - they have done since before this existed. Iterated from
+    //! outside as well they would spread over their lists twice, and a Point
+    //! fed twenty-eight x values would come back as seven hundred and
+    //! eighty-four points.
+    this.ownLists = !!ownLists;
+    //! Gathering several shapes into one belongs to the kernel, which is the
+    //! only thing here that knows what a shape is.
+    this.compound = compound || null;
+  }
+
+  //! WHICH OF THIS FEATURE'S NUMBERS ARRIVED AS LISTS, and how long each is.
+  //! Only `real` arguments: those are the ones a wire of numbers can land on.
+  //! A list of one is not a list - it is a number that came down a wire, and
+  //! it builds once like any other.
+  spreadLists(f) {
+    if (this.ownLists) return [];
+    const spread = F.spread(f);
+    const lists = [];
+    for (const arg of this.spec.args || []) {
+      if (arg.kind !== "real") continue;
+      const label = F.argLabel(f, arg.key);
+      const wired = label && F.wiredNumbers(label);
+      if (!wired) continue;
+      //! GRAFTED MEANS "ONE ROW EACH WHATEVER THE LENGTH". On a list of one it
+      //! is the difference between a feature that builds a shape and one that
+      //! builds a compound holding a shape - which is nothing to look at and
+      //! everything to whatever is downstream counting items.
+      if (wired.length > 1 || spread.graft.includes(arg.key))
+        lists.push({ key: arg.key, count: wired.length });
+    }
+    return lists;
   }
 
   //! A reference argument depends on the *result* of the feature it points at.
@@ -3238,6 +3383,46 @@ export class Driver {
     walk(f);
     return args;
   }
+  //! SEVERAL ROWS' WORTH OF ANSWER, MADE INTO ONE FEATURE'S WORTH.
+  //!
+  //! Shapes go into a compound, which is how OpenCascade says "these several
+  //! things, together" and is already what a sketch with three loops in it
+  //! hands over. That matters more than it looks: extruding a compound of
+  //! twenty-eight wires gives twenty-eight solids without anything downstream
+  //! being told about lists at all. The multiplication carries itself.
+  //!
+  //! Data is concatenated when every row agrees on what kind it is, and
+  //! dropped when they do not, which cannot happen from one driver but is
+  //! cheap to be sure of.
+  gather(made, rows, refused = []) {
+    const shapes = made.map(one =>
+      (one && typeof one.ShapeType === "function") ? one : (one && one.shape)).filter(Boolean);
+    const datas = made.map(one =>
+      (one && typeof one.ShapeType === "function") ? null : (one && one.data)).filter(Boolean);
+    const shape = shapes.length && this.compound
+      ? (shapes.length === 1 ? shapes[0] : this.compound(shapes))
+      : (shapes[0] || null);
+    let data = null;
+    if (datas.length && datas.every(d => d.kind === datas[0].kind)) {
+      data = { ...datas[0], values: datas.flatMap(d => d.values || []) };
+      if (datas.some(d => d.lines)) data.lines = datas.flatMap(d => d.lines || []);
+    }
+    //! The row note is kept when every row said the same thing, which they
+    //! almost always do - "1 run · open · sharp corners" is about the curve,
+    //! not about the distance. When they differ it is dropped rather than
+    //! picked from, because one row's note standing for twenty-eight is a lie
+    //! that reads like a fact.
+    const notes = new Set(made.map(one => (one && one.note) || ""));
+    const shared = notes.size === 1 ? [...notes][0] : "";
+    const count = shapes.length || datas.length;
+    const note = [
+      count + (count === 1 ? " item" : " items")
+        + (refused.length ? " of " + rows + " - " + refused.length + " would not build" : ""),
+      shared,
+    ].filter(Boolean).join(" \u00b7 ");
+    return { shape, data, note };
+  }
+
   results(f) { return [F.resultLabel(f, true), F.dataLabel(f, true)]; }
   mustExecute(f, log) {
     return log.isModified(f) || this.arguments(f).some(a => log.isModified(a));
@@ -3246,23 +3431,69 @@ export class Driver {
   //! Never lets the kernel take the process with it: the arguments are checked
   //! first, the call itself is guarded, and a failure keeps the last good shape
   //! so the rest of the tree still regenerates.
+  //! A failure clears the note as well as setting the error. A note is a
+  //! report on the last thing that built, and left beside an error it is a
+  //! report on something that is no longer there - "4 items" sitting under
+  //! "every side length must be positive", describing a build two edits ago.
+  fail(f, why) { F.setError(f, why); F.setNote(f, ""); return 1; }
+
   execute(f, log) {
-    const objection = this.precondition(f);
-    if (objection) { F.setError(f, objection); return 1; }
+    //! ONCE PER ROW OF ITS LISTS, which for almost every feature is once.
+    const lists = this.spreadLists(f);
+    const rows = spreadRows(lists, F.spread(f).match);
 
     let built = null;
-    try {
-      built = this.build(f);
-    } catch (err) {
-      F.setError(f, this.describeError(err));
-      return 1;
+    if (rows.length === 1 && !rows[0]) {
+      const objection = this.precondition(f);
+      if (objection) return this.fail(f, objection);
+      try {
+        built = this.build(f);
+      } catch (err) {
+        return this.fail(f, this.describeError(err));
+      }
+    } else {
+      const made = [], refused = [];
+      const was = spreadRow(null);
+      try {
+        for (const row of rows) {
+          spreadRow(row);
+          //! THE PRECONDITION IS PART OF THE ROW, not part of the feature.
+          //! It reads the same numbers the build does - "every side length
+          //! must be positive" is a question about THIS row's numbers - so
+          //! asked once before the loop it was asked about row zero and
+          //! answered for all of them. A Series starting at 0 wired into a
+          //! cube's height refused all eight boxes because the first was
+          //! flat.
+          const objection = this.precondition(f);
+          if (objection) { refused.push(objection); continue; }
+          try {
+            const one = this.build(f);
+            if (one) made.push(one);
+          } catch (err) {
+            //! A ROW THAT WILL NOT BUILD IS SKIPPED AND COUNTED, not thrown.
+            //! Twenty-eight setbacks off one curve, and the four tightest of
+            //! them have nowhere to go: refusing all twenty-eight because of
+            //! those four is refusing the answer because part of it is
+            //! interesting. The count goes in the note, so the four are not
+            //! silent either.
+            refused.push(this.describeError(err));
+          }
+        }
+      } finally { spreadRow(was); }
+      if (!made.length)
+        return this.fail(f, refused.length
+          ? refused[0] + (refused.length > 1
+              ? " (and " + (refused.length - 1) + " more of the " + rows.length + ")" : "")
+          : "none of those " + rows.length + " rows built anything");
+      built = this.gather(made, rows.length, refused);
     }
+
     // A driver hands back a shape, or { shape, data }, or data alone - a Number
     // and a Series compute something and build nothing.
     const bare = built && typeof built.ShapeType === "function";
     const shape = bare ? built : (built && built.shape) || null;
     const data = bare ? null : (built && built.data) || null;
-    if (!shape && !data) { F.setError(f, "the driver produced nothing"); return 1; }
+    if (!shape && !data) return this.fail(f, "the driver produced nothing");
 
     const result = F.resultLabel(f, true);
     if (result.attr.TNaming_NamedShape) this.release(result.attr.TNaming_NamedShape);
@@ -3508,6 +3739,16 @@ export class Doc {
   //! nothing needs rebuilding, only redrawing.
   setAppearance(f, appearance) { F.setAppearance(f, appearance); }
 
+  //! TOUCHED, unlike the appearance beside it. How a feature pairs up its
+  //! lists decides how many shapes it makes and what each one is built from,
+  //! so changing it is changing the geometry and the graph has to know.
+  setSpread(f, spread) {
+    const stored = F.setSpread(f, spread);
+    this.log.touch(f.findChild(SPREAD_TAG, true));
+    this.log.touch(f);
+    return stored;
+  }
+
   //! Wiring. An input says what a source may *produce*, not which feature types
   //! it will take, so a component added later is accepted everywhere its output
   //! makes sense. A slider takes a wire too: any input at all accepts numbers.
@@ -3733,6 +3974,10 @@ export class Doc {
         }
         const appearance = F.appearance(f);
         if (appearance) entry.appearance = appearance;
+        //! Published on every feature, not only the ones with a list on them,
+        //! because the panel offers the setting wherever an input COULD carry
+        //! one - which is every real argument there is.
+        entry.spread = F.spread(f);
         if (F.error(f)) entry.error = F.error(f);
         if (F.note(f)) entry.note = F.note(f);
         if (consumer) entry.consumedBy = F.id(consumer);
@@ -3790,6 +4035,15 @@ export class Doc {
         if (holder) entry.parent = F.id(holder);
         const appearance = F.appearance(f);
         if (appearance) entry.appearance = appearance;
+        //! Only where somebody chose something. A file full of
+        //! "spread":{"match":"longest","graft":[],"flatten":[]} on every
+        //! feature is a file nobody can read a diff of.
+        const spread = F.spread(f);
+        const chosen = {};
+        if (spread.match !== MATCHES[0]) chosen.match = spread.match;
+        for (const of of ["graft", "flatten"])
+          if (spread[of].length) chosen[of] = spread[of];
+        if (Object.keys(chosen).length) entry.spread = chosen;
         return entry;
       }),
     };
@@ -3802,6 +4056,8 @@ export class Doc {
       const f = doc.addFeature(entry.type, entry.id, entry.name);
       if (entry.appearance && typeof entry.appearance === "object")
         F.setAppearance(f, entry.appearance);
+      if (entry.spread && typeof entry.spread === "object")
+        F.setSpread(f, entry.spread);
     }
     for (const entry of model.features) {
       const f = doc.find(entry.id);

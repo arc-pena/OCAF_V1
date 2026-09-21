@@ -409,6 +409,29 @@ export function makeFactories(oc, kit) {
     } catch (e) { return null; }
   };
 
+  //! A SUPPORT THAT IS FLAT IS NOT A SUPPORT, IT IS A PLANE.
+  //!
+  //! Offsetting a curve "within a surface" is a different road from offsetting
+  //! it in a plane, and a much worse one: it samples, projects, steps in the
+  //! tangent plane, re-projects and fits, and its own report says how far off
+  //! it came out. That is the price of a surface that curves. A PLANE does not
+  //! curve, so none of it is necessary - offsetting in a plane is the exact 2D
+  //! road, and a planar support is only telling us which plane.
+  //!
+  //! It matters because wiring the plane a curve was drawn on is the obvious
+  //! thing to do, and doing it used to quietly swap an exact answer for a
+  //! sampled one. Returns the plane's normal, or null when the support really
+  //! does curve.
+  const flatSupport = face => {
+    try {
+      if (!face) return null;
+      const on = new oc.BRepAdaptor_Surface(face, true);
+      if (String(on.GetType()) !== "GeomAbs_Plane") return null;
+      const d = on.Plane().Axis().Direction();
+      return V.norm([d.X(), d.Y(), d.Z()]);
+    } catch (e) { return null; }
+  };
+
   //! IS THAT ANSWER A CURVE OR A KNOT?
   //!
   //! An offset has a length bound and it is exact: a simple curve offset by d
@@ -1114,6 +1137,9 @@ export function makeFactories(oc, kit) {
         const flatOf = wire => normal || planeOfWire(wire);
         const out = [];
         let rounded = 0, flipped = 0, strayed = 0;
+        //! Whether the support turned out to be flat, for the note. Read once
+        //! here rather than per run: one support, one answer.
+        const flatWhole = support ? flatSupport(support) : null;
         for (const wire of runs) {
           // The third argument is isOpenResult, and it is the whole difference
           // between a parallel curve and a racetrack. Told an open spine is
@@ -1156,14 +1182,17 @@ export function makeFactories(oc, kit) {
           //! build it again with the sign turned over. One extra solve on half
           //! the cases, and the number in the field means one thing.
           //! A SUPPORT MEANS A DIFFERENT ROAD ENTIRELY, not a different
-          //! argument to the same call - see offsetInSurface for why.
-          if (support) {
+          //! argument to the same call - see offsetInSurface for why. Unless
+          //! the support is FLAT, in which case it is not a different road at
+          //! all: see flatSupport.
+          const level = support ? flatSupport(support) : null;
+          if (support && !level) {
             const got = offsetInSurface(wire, distance, support);
             strayed = Math.max(strayed, got.worst);
             out.push(got.shape);
             continue;
           }
-          const flat = flatOf(wire);
+          const flat = level || flatOf(wire);
           const bare = made => !made || made.IsNull() || count(made, EDGE) === 0;
 
           //! BOTH SIGNS ARE ASKED FOR, AND THEN THE RIGHT ONE IS CHOSEN.
@@ -1298,7 +1327,8 @@ export function makeFactories(oc, kit) {
             runs.length + (runs.length === 1 ? " run" : " runs"),
             rounded ? (rounded === runs.length ? "closed" : rounded + " of them closed")
                     : "open",
-            support ? "offset within its support" : JOINS[join].toLowerCase() + " corners",
+            support && !flatWhole ? "offset within its support"
+                                  : JOINS[join].toLowerCase() + " corners",
             //! SAID BECAUSE IT IS APPROXIMATE. The in-surface road samples and
             //! projects, so the distance can come out slightly short where the
             //! surface curves across it. A number nobody can see is still a
