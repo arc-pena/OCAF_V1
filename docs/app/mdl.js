@@ -262,13 +262,23 @@ export const MDL_OPS = [
     + "form when you are editing the file rather than clicking the model. An empty list "
     + "means the operation's own default, which on a fillet is every edge and on a Face "
     + "is every face. Ask Measure for \"How many faces\" first if you need to know what "
-    + "the numbers run to.",
+    + "the numbers run to. `mode` says how a pick SPREADS, and it is re-asked on every "
+    + "rebuild rather than resolved once: \"one\" takes exactly what is listed, "
+    + "\"touching\" takes everything sharing a rim with it, \"tangent\" everything that "
+    + "continues it smoothly within `angle` degrees. That is what keeps a fillet on the "
+    + "whole arris of a cylinder after the cylinder changes size.",
     { op: "pick", id: "FL1", key: "edges",
       picks: [{ of: "CB1", kind: "edge", at: 2, near: [40, 0, 40, 0, 1, 0, 40] },
               { of: "CB1", kind: "edge", at: 5 }] },
     (ctx, edit) => {
-      if (!Array.isArray(edit.picks)) throw new Error('"picks" must be a list');
-      return ctx.kernel.setPicks(needText(edit, "id"), needText(edit, "key"), edit.picks);
+      //! `picks` may be left out when only the spreading rule is changing:
+      //! "grow these the other way" is an edit of the rule, not a re-pick.
+      if (edit.picks !== undefined && !Array.isArray(edit.picks))
+        throw new Error('"picks" must be a list');
+      if (edit.picks === undefined && edit.mode === undefined)
+        throw new Error('"pick" needs "picks", or a "mode" to change how they spread');
+      return ctx.kernel.setPicks(needText(edit, "id"), needText(edit, "key"),
+                                 edit.picks, edit.mode, edit.angle);
     }),
 
   modelOp("meshop", ["id", "ops"],

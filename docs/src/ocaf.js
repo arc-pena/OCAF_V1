@@ -11,6 +11,7 @@
 // browser, the same OpenCascade natively behind the HTTP kernel.
 
 import { EMPTY_SKETCH, readSketch, sketchSummary } from "./sketch.js";
+import { PICK_MODES, PICK_ANGLE } from "./subshape.js";
 
 /* --------------------------------------------------------------- samples
 
@@ -3005,6 +3006,28 @@ export const F = {
     return clean;
   },
 
+  //! HOW A SUB-SHAPE PICK SPREADS, stored beside the picks rather than inside
+  //! them. The list is a JSON string on TDataStd_AsciiString; the rule is two
+  //! attributes on the same label that were not being used - which means a
+  //! file written before this existed reads back as "one", exactly as it
+  //! behaved, without the pick format changing at all.
+  pickMode(f, key) {
+    const label = F.argLabel(f, key);
+    const at = label && label.attr.TDataStd_Integer;
+    const mode = PICK_MODES[Number.isInteger(at) ? at : 0] || PICK_MODES[0];
+    const angle = label && typeof label.attr.TDataStd_Real === "number"
+                && label.attr.TDataStd_Real > 0 ? label.attr.TDataStd_Real : PICK_ANGLE;
+    return { mode, angle };
+  },
+  setPickMode(f, key, mode, angle) {
+    const label = F.argLabel(f, key, true);
+    const at = PICK_MODES.indexOf(String(mode));
+    label.attr.TDataStd_Integer = at < 0 ? 0 : at;
+    const want = Number(angle);
+    label.attr.TDataStd_Real = Number.isFinite(want) && want > 0 ? want : PICK_ANGLE;
+    return F.pickMode(f, key);
+  },
+
   setEdits(f, key, moves) {
     const clean = {};
     for (const [index, offset] of Object.entries(moves || {})) {
@@ -3915,7 +3938,13 @@ export class Doc {
           else if (arg.kind === "text") texts[arg.key] = F.text(f, arg.key, arg.def);
           else if (arg.kind === "blob") sizes[arg.key] = F.code(f, arg.key, "").length;
           else if (arg.kind === "edits") lists[arg.key] = F.edits(f, arg.key);
-          else if (arg.kind === "subs") lists[arg.key] = F.picks(f, arg.key);
+          else if (arg.kind === "subs") {
+            lists[arg.key] = F.picks(f, arg.key);
+            //! The RULE travels with the list, because the panel has to offer
+            //! it and the tree has to be able to say "tangent" rather than
+            //! "eight edges".
+            values[arg.key] = F.pickMode(f, arg.key);
+          }
           else if (arg.kind === "sketch") { /* published whole, below */ }
           else if (arg.kind === "refs") lists[arg.key] = F.references(f, arg.key).map(F.id);
           else {
@@ -4011,7 +4040,14 @@ export class Doc {
             // Left out when nothing is picked, so a fillet that rounds
             // everything reads in the file exactly as it always did.
             const picked = F.picks(f, arg.key);
-            if (picked.length) args[arg.key] = picked;
+            const rule = F.pickMode(f, arg.key);
+            //! A bare list when nothing spreads, which is what every file
+            //! written before this looks like and what most of them still
+            //! will. The object form appears only where a rule was chosen.
+            if (picked.length)
+              args[arg.key] = rule.mode === PICK_MODES[0]
+                ? picked
+                : { mode: rule.mode, angle: rule.angle, picks: picked };
           }
           else if (arg.kind === "text") args[arg.key] = F.text(f, arg.key, arg.def);
           else if (arg.kind === "blob") args[arg.key] = F.code(f, arg.key, arg.def);
@@ -4092,9 +4128,15 @@ export class Doc {
             throw new Error(key + " of " + entry.id + " must be an object of index → offset");
           F.setEdits(f, key, value);
         } else if (arg.kind === "subs") {
-          if (!Array.isArray(value))
-            throw new Error(key + " of " + entry.id + " must be a list of picked sub-shapes");
-          F.setPicks(f, key, value);
+          //! Either form: the bare list every earlier file holds, or the
+          //! object that carries a spreading rule with it.
+          const list = Array.isArray(value) ? value : (value && value.picks);
+          if (!Array.isArray(list))
+            throw new Error(key + " of " + entry.id + " must be a list of picked sub-shapes, "
+              + "or an object with a \"picks\" list and a \"mode\"");
+          F.setPicks(f, key, list);
+          if (!Array.isArray(value) && value)
+            F.setPickMode(f, key, value.mode, value.angle);
         } else if (arg.kind === "sketch") {
           if (typeof value !== "string" && (!value || typeof value !== "object"))
             throw new Error(key + " of " + entry.id + " must be a drawing");

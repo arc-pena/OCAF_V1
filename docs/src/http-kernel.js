@@ -50,7 +50,9 @@ export async function createHttpKernel(base) {
       return this.get("/api/tangent?id=" + encodeURIComponent(id) + "&at=" + at
         + "&angle=" + angle);
     },
-    setPicks(id, key, picks) { return this.post("/api/picks", { id, key, picks }); },
+    setPicks(id, key, picks, mode, angle) {
+      return this.post("/api/picks", { id, key, picks, mode, angle });
+    },
     setMeshOps(id, ops) { return this.post("/api/meshops", { id, ops }); },
     addFeature(type, refs, id) { return this.post("/api/feature", { type, refs, id }); },
     deleteFeature(id) { return this.post("/api/delete", { id }); },

@@ -18,7 +18,7 @@ import { PluginHost, unpackResource } from "./plugin.js";
 import { makePie, pieMenu } from "./pie.js";
 import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
-import { describePicks, matchPick, pickOf } from "./subshape.js";
+import { PICK_MODES, PICK_MODE_LABELS, describePicks, matchPick, pickOf } from "./subshape.js";
 // No `as` here, nor anywhere else in this tree. The single-file build strips
 // the imports and lets every module share one scope, so a name renamed on the
 // way in is a name that does not exist in the page that gets published - and
@@ -1198,6 +1198,12 @@ const picking = {
   hover: -1,
   group: null,
   busy: false,
+  //! WHICH RULE THE PICKS WILL CARRY. A double-click used to walk the arris
+  //! there and then and write down the edges it found, which stored the answer
+  //! and threw away the question. Now it sets the rule and keeps the one edge
+  //! that was clicked as its seed, so the arris is worked out again on every
+  //! rebuild - see growPicks.
+  mode: null,
 };
 
 const pickingOn = () => picking.on;
@@ -1251,6 +1257,10 @@ async function enterPicking(entry, arg) {
   picking.id = entry.id;
   picking.key = arg.key;
   picking.kind = arg.of;
+  //! Whatever rule this argument already carries is what a re-pick keeps,
+  //! unless a double-click asks for tangency again. Cleared here so a plain
+  //! re-pick does not silently inherit the last session's double-click.
+  picking.mode = null;
   picking.of = source.id;
   picking.items = got.items;
   picking.hover = -1;
@@ -1275,8 +1285,10 @@ async function leavePicking(save = true) {
   const key = picking.key, of = picking.of, kind = picking.kind;
   const chosen = [...picking.chosen].sort((a, b) => a - b);
   const items = picking.items;
+  const mode = picking.mode;
   picking.on = false;
   picking.items = [];
+  picking.mode = null;
   clearPicking();
   document.body.classList.remove("picking");
   pickBar.hidden = true;
@@ -1284,7 +1296,8 @@ async function leavePicking(save = true) {
   draw();
   if (save && entry)
     await edit({ op: "pick", id: entry.id, key,
-                 picks: chosen.map(at => pickOf(of, kind, at, items[at].near)) });
+                 picks: chosen.map(at => pickOf(of, kind, at, items[at].near)),
+                 ...(mode ? { mode } : {}) });
   buildPanel();
 }
 
@@ -1354,15 +1367,23 @@ async function clickPicking(event, whole) {
     return;
   }
   let take = [at];
-  // A DOUBLE-CLICK TAKES THE ARRIS. Everything tangent to the edge, walked in
-  // the kernel off the same polylines the viewport is drawing.
-  if (whole && picking.kind === "edge" && !picking.busy) {
-    picking.busy = true;
-    try {
-      const got = await kernel.tangentFrom(picking.of, at, 5);
-      if (got && got.chain && got.chain.length) take = got.chain;
-    } catch (error) { /* one edge is still a perfectly good answer */ }
-    picking.busy = false;
+  // A DOUBLE-CLICK TAKES THE ARRIS - and, since this became a rule rather than
+  // a result, it says so instead of doing it. The chain is still walked, but
+  // only to LIGHT UP what the rule will take: what gets written down is the one
+  // edge clicked, plus "tangent", and the arris is worked out again every time
+  // the model rebuilds. That is the difference between a fillet that survives
+  // its cylinder being resized and one that quietly rounds the half it
+  // remembers.
+  if (whole && picking.kind !== "vertex" && !picking.busy) {
+    picking.mode = "tangent";
+    if (picking.kind === "edge") {
+      picking.busy = true;
+      try {
+        const got = await kernel.tangentFrom(picking.of, at, 5);
+        if (got && got.chain && got.chain.length) take = got.chain;
+      } catch (error) { /* one edge is still a perfectly good answer */ }
+      picking.busy = false;
+    }
   }
   const had = take.every(one => picking.chosen.has(one));
   for (const one of take) {
@@ -7431,6 +7452,56 @@ function subsField(entry, arg) {
   const back = field.querySelector("[data-unpick]");
   if (back) back.addEventListener("click", () =>
     edit({ op: "pick", id: entry.id, key: arg.key, picks: [] }));
+  //! HOW THE PICKS SPREAD, and it is a rule rather than a result.
+  //!
+  //! This is the difference between a fillet that survives its cylinder being
+  //! resized and one that does not. "One by one" is what a list of indices has
+  //! always meant. "Tangent" says: these edges AND everything that continues
+  //! them smoothly - re-asked on every rebuild, so an arris that gains a
+  //! segment gains it in the fillet too. "Touching" says the same of anything
+  //! sharing a rim, whatever the angle, which is how you take a whole pocket
+  //! off one face of it.
+  //!
+  //! Offered only once something is picked: there is nothing for a rule to
+  //! grow from until then, and the default of "all of them" needs no help.
+  if (picks.length && arg.of !== "vertex") {
+    const rule = (entry.values && entry.values[arg.key]) || { mode: "one", angle: 5 };
+    const spread = document.createElement("div");
+    spread.className = "field-head";
+    spread.style.marginTop = "6px";
+    spread.innerHTML = "<label>Spreads by</label>";
+    field.appendChild(spread);
+    const group = document.createElement("div");
+    group.className = "segmented";
+    group.setAttribute("role", "group");
+    PICK_MODES.forEach((mode, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = PICK_MODE_LABELS[index];
+      button.title = mode === "one"
+        ? "Exactly the " + plural(arg.of, picks.length) + " listed"
+        : mode === "touching"
+          ? "Those, and everything sharing a rim with them - worked out again "
+            + "every time the model rebuilds"
+          : "Those, and everything that continues them smoothly - worked out "
+            + "again every time the model rebuilds, so the run survives a change "
+            + "of size";
+      button.setAttribute("aria-pressed", rule.mode === mode ? "true" : "false");
+      button.addEventListener("click", () =>
+        edit({ op: "pick", id: entry.id, key: arg.key, mode }));
+      group.appendChild(button);
+    });
+    field.appendChild(group);
+    const said = document.createElement("p");
+    said.className = "hint";
+    said.textContent = rule.mode === "one"
+      ? picks.length + " " + plural(arg.of, picks.length) + ", and only those."
+      : (rule.mode === "tangent"
+          ? "Grown along tangency from " : "Grown to everything touching ")
+        + picks.length + " " + plural(arg.of, picks.length)
+        + ", again on every rebuild.";
+    field.appendChild(said);
+  }
   return field;
 }
 

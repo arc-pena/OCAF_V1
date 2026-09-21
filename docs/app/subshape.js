@@ -257,6 +257,49 @@ export function endsOf(points) {
   };
 }
 
+//! HOW A PICK SPREADS, and the reason a fillet survives its cylinder being
+//! resized.
+//!
+//! A pick used to be a list of indices and nothing else. Double-clicking an
+//! edge walked the arris at the time of the click and wrote down the eight
+//! edges it found - so the SELECTION was stored and the REASON for it was not.
+//! Make the cylinder taller and the eight are still eight; split one of them
+//! and the fillet rounds seven and says nothing.
+//!
+//! What CATIA stores instead is the rule. "This edge, and everything tangent
+//! to it" is a standing instruction, re-asked of whatever the shape is today,
+//! so a face that arrives already belonging to the arris is taken and one that
+//! leaves is not missed. The pick is the SEED; the mode is what grows from it.
+//!
+//!   one       exactly what was picked, which is what this always did
+//!   touching  everything that shares a rim with it, whatever the angle
+//!   tangent   everything that continues it smoothly, within `angle`
+//!
+//! Touching and tangent are the same two walks below at different angles -
+//! 180 degrees accepts any join at all - which is worth knowing because it
+//! means there is one implementation to be wrong in rather than two.
+export const PICK_MODES = ["one", "touching", "tangent"];
+export const PICK_MODE_LABELS = ["One by one", "Touching", "Tangent"];
+export const PICK_ANGLE = 5;
+
+//! The seeds grown by the rule, against the shape as it is NOW. \p parts is
+//! the list of polylines for edges or of tessellated faces for faces, in the
+//! shape's own order; \p seeds are indices into it.
+export function growPicks(kind, parts, seeds, { mode = "one", angle = PICK_ANGLE } = {}) {
+  const unique = [...new Set((seeds || []).filter(at => Number.isInteger(at) && at >= 0))];
+  if (mode === "one" || !PICK_MODES.includes(mode) || !parts || !parts.length)
+    return unique.sort((a, b) => a - b);
+  //! 180 degrees is "any join at all", which is what touching means. One walk,
+  //! two settings - see above.
+  const open = mode === "touching" ? 180 : Math.max(0, angle);
+  const grown = new Set(unique);
+  for (const seed of unique)
+    for (const at of (kind === "face" ? smoothPatch(parts, seed, { angle: open })
+                                      : tangentChain(parts, seed, { angle: open })))
+      grown.add(at);
+  return [...grown].sort((a, b) => a - b);
+}
+
 //! Walk out from one edge along everything tangent to it.
 //!
 //! \p edges is a list of polylines, in the shape's own order. \p angle is how

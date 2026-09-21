@@ -29,7 +29,7 @@ import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
 import { freshId, freshName, instantiateEdits } from "./reuse.js";
 import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
-import { edgeAnchor, faceAnchor, readPicks, resolvePicks,
+import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
 import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
@@ -1578,9 +1578,26 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     const all = kind === "face" ? eachFace(shape)
               : kind === "vertex" ? eachVertex(shape) : eachEdge(shape);
     if (!picks.length) return { chosen: all, lost: 0, whole: true };
-    const anchors = pickList(shape, kind).map(one => one.near);
+    const parts = pickList(shape, kind);
+    const anchors = parts.map(one => one.near);
     const { found, lost } = resolvePicks(anchors, picks);
-    return { chosen: found.map(at => all[at]).filter(Boolean), lost: lost.length, whole: false };
+    //! AND THEN GROWN AGAIN, against the shape as it is now.
+    //!
+    //! This is the whole of what makes a fillet survive its cylinder being
+    //! resized. Double-clicking an edge used to walk the arris once, at the
+    //! time of the click, and write down the edges it found - the selection
+    //! stored, the reason for it thrown away. Rebuild with the arris split in
+    //! two and the fillet rounds the half it remembers.
+    //!
+    //! Re-asked here, every rebuild, the pick is a seed and the rule grows it:
+    //! a face that has joined the arris is taken, one that has left is not
+    //! missed. A vertex has nothing to spread along, so it never grows.
+    const rule = F.pickMode(f, key);
+    const chosen = kind === "vertex" || rule.mode === "one"
+      ? found
+      : growPicks(kind, kind === "face" ? parts : parts.map(one => one.points), found, rule);
+    return { chosen: chosen.map(at => all[at]).filter(Boolean),
+             lost: lost.length, whole: false };
   }
 
   //! Every face a profile offers, capping its wires if it offers none. What a
@@ -6069,12 +6086,17 @@ function sprawl(face, edges) {
     //! The picks on an argument, written. One call, one list, one undo step -
     //! the same shape as the mesh editor's, for the same reason: a pick is a
     //! record rather than a change to a number.
-    async setPicks(id, key, picks) {
+    async setPicks(id, key, picks, mode, angle) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       const arg = F.spec(f).args.find(a => a.key === key && a.kind === "subs");
       if (!arg) throw new Error(F.name(f) + " has no picked sub-shapes called '" + key + "'");
-      F.setPicks(f, key, Array.isArray(picks) ? picks : []);
+      if (Array.isArray(picks)) F.setPicks(f, key, picks);
+      //! The rule is set without touching the list, so "spread this the other
+      //! way" is one edit rather than a re-pick. Passing neither is how the
+      //! list is cleared, which is what "back to all of them" sends.
+      if (mode !== undefined || angle !== undefined)
+        F.setPickMode(f, key, mode === undefined ? F.pickMode(f, key).mode : mode, angle);
       doc.log.touch(F.argLabel(f, key, true));
       return state(settle(false));
     },
