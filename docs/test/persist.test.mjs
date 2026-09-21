@@ -182,5 +182,71 @@ console.log("\n4. and when the edge really is gone, it says so");
         /lost|not found|gone|missing/i.test(said) || !!entry.error, said.trim() || "(silent)");
 }
 
+console.log("\n5. a pick survives a parametric change of ANY size");
+{
+  //! THE ONE THAT CAME IN AS A BUG REPORT: a cap whose cylinder is driven by
+  //! a top-level radius, filleted on its rim. Grow the radius and the fillet
+  //! failed - "none of the picked edges is in this body any more" - which was
+  //! never about the fillet. The PICK was being thrown away, by two absolute
+  //! tolerances measured against a shape that is supposed to change:
+  //!
+  //!   radius 200   the body had shrunk, so 1.5 spans of it had shrunk too,
+  //!                while the stored position had not moved: gap 495, limit
+  //!                362, refused.
+  //!   radius 900   the rim was 5.03 times the length it was picked at, and
+  //!                the size test allows 4.
+  //!
+  //! The edge was index 2 of 3 every single time, pointing the same way to
+  //! three decimal places. What was missing was the evidence that says so:
+  //! how many edges the body HAD when the pick was taken. Same count, same
+  //! list, same edge - and no opinion about radius at all.
+  const pt = await add("Point");
+  const up = await add("Vector"); await set(up, "dx", 0); await set(up, "dz", 1);
+  const plane = await add("Plane", { refs: { origin: pt, normal: up } });
+  const radius = await add("Number", { name: "Radius" });
+  await set(radius, "value", 155);
+  const disc = await add("Circle", { refs: { plane } });
+  await kernel.setReference(disc, "radius", radius);
+  const pipe = await add("Extrude", { refs: { profile: disc, direction: up } });
+  await set(pipe, "distance", 300);
+
+  const edges = (await kernel.picks(pipe, "edge")).items || [];
+  const top = edges.findIndex(one => Math.abs(one.near[2] - 300) < 1);
+  const round = await add("Fillet", { refs: { body: pipe } });
+  await set(round, "radius", 12);
+  //! Picked the way the interface picks it, count and all.
+  await mdl.run({ op: "pick", id: round, key: "edges",
+                  picks: [{ of: pipe, kind: "edge", at: top,
+                            near: edges[top].near, count: edges.length }] });
+  check("the fillet builds at the radius it was picked at",
+        !(await at(round)).error, (await at(round)).error || "built");
+
+  //! Fifty thousand to one, in both directions from where the pick was taken.
+  const swept = [];
+  for (const r of [40, 80, 155, 400, 900, 1500, 4000, 20000, 200000, 2000000]) {
+    await set(radius, "value", r);
+    const entry = await at(round);
+    swept.push(r + (entry.error ? " FAILED" : " ok"));
+    check("r=" + r + ": the fillet is still on the rim",
+          !entry.error, entry.error || "built");
+  }
+  check("across a 50,000 to 1 range of radius", !/FAILED/.test(swept.join(" ")),
+        swept.join(", "));
+
+  //! And the guard still guards. A pick whose count does NOT match is a pick
+  //! about a different topology, and the ordering of a list it was never
+  //! about says nothing - so it falls through to the geometric tests rather
+  //! than being trusted on its index.
+  await set(radius, "value", 155);
+  const wrong = await add("Fillet", { refs: { body: pipe } });
+  await set(wrong, "radius", 8);
+  await mdl.run({ op: "pick", id: wrong, key: "edges",
+                  picks: [{ of: pipe, kind: "edge", at: 1,
+                            near: [90000, 90000, 90000, 0, 0, 1, 5], count: 99 }] });
+  const nonsense = await at(wrong);
+  check("a pick with the wrong count and nothing near it is still refused",
+        !!nonsense.error, nonsense.error || "built anyway");
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

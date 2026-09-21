@@ -102,9 +102,14 @@ export function faceAnchor(positions, index) {
 
 //! A pick, as it goes into the file. \p of is the feature whose shape it
 //! belongs to, so a reference reads "edge 2 of CB1" and can be checked.
-export function pickOf(of, kind, at, near) {
-  return { of: String(of), kind, at: Math.max(0, Math.round(at)),
-           near: (near || []).map(v => Math.round(v * 1e4) / 1e4) };
+//! \p count is how many sub-shapes of this kind the body had when the pick was
+//! taken. See matchPick: it is the difference between a pick that survives a
+//! parametric change of any size and one that survives a small one.
+export function pickOf(of, kind, at, near, count) {
+  const made = { of: String(of), kind, at: Math.max(0, Math.round(at)),
+                 near: (near || []).map(v => Math.round(v * 1e4) / 1e4) };
+  if (Number.isInteger(count) && count > 0) made.count = count;
+  return made;
 }
 
 //! The list, read out of the argument's text. Tolerant on purpose: a file
@@ -119,9 +124,17 @@ export function readPicks(text) {
   if (!Array.isArray(read)) return [];
   return read.filter(one => one && typeof one === "object" && one.kind
                      && Number.isFinite(Number(one.at)))
-             .map(one => ({ of: one.of ? String(one.of) : "", kind: String(one.kind),
-                            at: Math.max(0, Math.round(Number(one.at))),
-                            near: Array.isArray(one.near) ? one.near.map(Number) : [] }));
+             .map(one => {
+               const made = { of: one.of ? String(one.of) : "", kind: String(one.kind),
+                              at: Math.max(0, Math.round(Number(one.at))),
+                              near: Array.isArray(one.near) ? one.near.map(Number) : [] };
+               //! Absent on every pick written before this existed, which is
+               //! what makes it safe to add: no count, no claim, and the tests
+               //! below it answer as they always did.
+               if (Number.isInteger(Number(one.count)) && Number(one.count) > 0)
+                 made.count = Number(one.count);
+               return made;
+             });
 }
 
 export const writePicks = picks => JSON.stringify((picks || []).map(p =>
@@ -167,18 +180,54 @@ export function matchPick(anchors, pick, size = 0) {
   });
   if (best >= 0) return best;
 
+  //! AND THEN THE COUNT, which is the strongest evidence there is and was not
+  //! being collected.
+  //!
+  //! OpenCascade enumerates the sub-shapes of a shape in a deterministic
+  //! order. If a body has the same NUMBER of edges it had when the pick was
+  //! made, the list is the same list and edge 2 is edge 2 - whatever has
+  //! happened to its size or its position. A cylinder has three edges at
+  //! r = 80 and three at r = 1400; nothing about the ordering has an opinion
+  //! about radius.
+  //!
+  //! That is what a parametric model needs and the two tests below cannot
+  //! give: they measure a stored position and a stored length against a shape
+  //! that is SUPPOSED to change, so they fail whenever the change is large
+  //! enough to matter. Measured on a cap whose cylinder is driven by a top
+  //! level radius: at 900 the rim is 5.03 times the length it was picked at
+  //! and the size test threw it away; at 200 the body had shrunk and the
+  //! position test threw it away. The edge was index 2 of 3 every single time.
+  //!
+  //! Direction is still asked, because it costs nothing and it is the one
+  //! property of an edge that does not care how big the thing is: a rim stays
+  //! tangential however wide it gets, and a pick that now lands on the seam
+  //! instead is a pick that should be refused.
+  if (here && Number.isInteger(pick.count) && pick.count === anchors.length
+      && agrees(here, want, Infinity, 0.86, false)) return pick.at;
+
   // AND THEN THE NUMBER, when it still lands on something of the same
   // character. A box stretched from 80 to 160 moves two of its four uprights
   // eighty millimetres - further than any proximity test should reach - and
   // does not renumber a single edge. The ordering is the only evidence left and
-  // it is good evidence: the thing it points at is upright, it is the same
-  // length, and it is in the same place in the list. Refusing it here would
-  // mean a fillet that falls off its own box the first time anybody resizes it.
+  // it is good evidence: the thing it points at is upright and it is in the
+  // same place in the list. Refusing it here would mean a fillet that falls
+  // off its own box the first time anybody resizes it.
   // ...but only when the pick is about THIS shape. An anchor nine metres away
   // from a hundred-millimetre block is not an edge that moved, it is a pick
   // from another model, and the ordering of a list it was never about says
   // nothing at all.
-  if (here && agrees(here, want, span * 1.5, 0.86)) return pick.at;
+  //! MEASURED AGAINST THE BIGGER OF THE TWO SHAPES, not against this one. The
+  //! reach used to be 1.5 spans of the shape as it is NOW, which shrinks when
+  //! the model shrinks while the stored position does not move - so a cylinder
+  //! driven down from 540 to 80 lost a pick that was 495 away from a limit of
+  //! 362, and the same pick at the same distance was fine on the way up. The
+  //! pick's own half-length says how big the shape was when it was taken; the
+  //! reach is generous to whichever of the two is larger.
+  //! AND NOT BY SIZE. An edge that grew nine times is what a parametric model
+  //! IS - this rule exists for the case where the thing resized, so refusing
+  //! it because the thing resized leaves the rule with nothing to do.
+  const then = Math.max(span, (want[6] || 0) * 2);
+  if (here && agrees(here, want, then * 1.5, 0.86, false)) return pick.at;
   return -1;
 }
 
@@ -186,12 +235,17 @@ export function matchPick(anchors, pick, size = 0) {
 //! the same way, and about the same size. The direction test is two-sided: an
 //! edge has no direction of its own, only a line, and which way round the
 //! kernel walked it is not something a file should depend on.
-function agrees(anchor, want, within, along) {
+//! \p sized asks the length test as well, which is right when the evidence is
+//! PROXIMITY - two edges in the same place pointing the same way are told apart
+//! by how long they are - and wrong when the evidence is the ORDERING, where a
+//! change of size is the very thing being allowed for.
+function agrees(anchor, want, within, along, sized = true) {
   if (sLen(sSub([anchor[0], anchor[1], anchor[2]], [want[0], want[1], want[2]])) > within)
     return false;
   const a = sUnit([anchor[3], anchor[4], anchor[5]]);
   const b = sUnit([want[3], want[4], want[5]]);
   if (sLen(a) && sLen(b) && Math.abs(sDot(a, b)) < along) return false;
+  if (!sized) return true;
   const one = anchor[6] || 0, two = want[6] || 0;
   if (one > 0 && two > 0 && (one / two > 4 || two / one > 4)) return false;
   return true;

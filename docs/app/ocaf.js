@@ -3022,11 +3022,19 @@ export const F = {
     const clean = (Array.isArray(picks) ? picks : []).filter(one =>
       one && typeof one === "object" && one.kind
       && Number.isInteger(Number(one.at)) && Number(one.at) >= 0)
-      .map(one => ({ of: one.of ? String(one.of) : "", kind: String(one.kind),
-                     at: Number(one.at),
-                     near: (Array.isArray(one.near) ? one.near : [])
-                       .map(v => Math.round(Number(v) * 1e4) / 1e4)
-                       .filter(Number.isFinite) }));
+      .map(one => {
+        const made = { of: one.of ? String(one.of) : "", kind: String(one.kind),
+                       at: Number(one.at),
+                       near: (Array.isArray(one.near) ? one.near : [])
+                         .map(v => Math.round(Number(v) * 1e4) / 1e4)
+                         .filter(Number.isFinite) };
+        //! How many of that kind the body had when the pick was taken - see
+        //! matchPick. Dropped here would mean a pick that survives the session
+        //! it was made in and not the file.
+        if (Number.isInteger(Number(one.count)) && Number(one.count) > 0)
+          made.count = Number(one.count);
+        return made;
+      });
     F.argLabel(f, key, true).attr.TDataStd_AsciiString = JSON.stringify(clean);
     return clean;
   },

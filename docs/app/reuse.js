@@ -195,7 +195,8 @@ export function duplicateEdits(model, ids, { taken = new Set(), takenNames = new
     if (holder) edits.push({ op: "group", id: renamed.get(entry.id), into: holder });
   }
   for (const entry of wanted)
-    edits.push(...valueEdits(entry, renamed.get(entry.id), spec ? spec(entry.type) : null));
+    edits.push(...valueEdits(entry, renamed.get(entry.id),
+                             spec ? spec(entry.type) : null, renamed));
   for (const entry of wanted) {
     const id = renamed.get(entry.id);
     for (const wire of wiresIn(entry)) {
@@ -218,7 +219,13 @@ export function duplicateEdits(model, ids, { taken = new Set(), takenNames = new
 //! wrong before - a sketch's drawing is an object and fell straight through a
 //! test for numbers, so a copied sketch arrived empty with everything else
 //! about it intact. One copy of that, tested once.
-export function valueEdits(entry, id, types = null) {
+//! \p renamed maps old ids to new ones, for the one value that contains an id:
+//! a pick names the body it was taken from. Left unmapped, a duplicated fillet
+//! carries "edge 2 of Extrude.1" while sitting on the copy of Extrude.1 - which
+//! resolves anyway, because a pick is matched against the body it is actually
+//! wired to, and reads as a lie in the file for as long as anybody looks at it.
+export function valueEdits(entry, id, types = null, renamed = null) {
+  const moved = of => (renamed && renamed.get && renamed.get(of)) || of;
   const edits = [];
   const args = entry.args || {};
   for (const [key, value] of Object.entries(args)) {
@@ -248,7 +255,8 @@ export function valueEdits(entry, id, types = null) {
       //! the file, and a copy that kept the seeds and lost the rule would
       //! round one edge where the original rounds eight.
       if (Array.isArray(value.picks)) {
-        edits.push({ op: "pick", id, key, picks: value.picks,
+        edits.push({ op: "pick", id, key,
+                     picks: value.picks.map(one => ({ ...one, of: moved(one.of) })),
                      mode: value.mode, angle: value.angle });
         continue;
       }
@@ -293,7 +301,8 @@ export function valueEdits(entry, id, types = null) {
   for (const [key, value] of Object.entries(args)) {
     const arg = types ? (types.args || []).find(one => one.key === key) : null;
     if (arg && arg.kind === "subs" && Array.isArray(value) && value.length)
-      edits.push({ op: "pick", id, key, picks: value });
+      edits.push({ op: "pick", id, key,
+                   picks: value.map(one => ({ ...one, of: moved(one.of) })) });
   }
   return edits;
 }
@@ -340,7 +349,8 @@ export function instantiateEdits(model, setId, { taken = new Set(),
   // rather than a wire. See valueEdits: one copy of it, two callers.
   const dropped = [];
   for (const entry of members)
-    edits.push(...valueEdits(entry, renamed.get(entry.id), spec ? spec(entry.type) : null));
+    edits.push(...valueEdits(entry, renamed.get(entry.id),
+                             spec ? spec(entry.type) : null, renamed));
 
   // And last the wires, now that everything they could point at exists.
   for (const entry of members) {

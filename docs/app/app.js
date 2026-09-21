@@ -1374,7 +1374,10 @@ async function leavePicking(save = true) {
   draw();
   if (save && entry)
     await edit({ op: "pick", id: entry.id, key,
-                 picks: chosen.map(at => pickOf(of, kind, at, items[at].near)),
+                 //! items.length is how many of that kind the body had when
+                 //! these were picked, and it is the evidence that survives a
+                 //! parametric change of any size - see matchPick.
+                 picks: chosen.map(at => pickOf(of, kind, at, items[at].near, items.length)),
                  ...(mode ? { mode } : {}) });
   buildPanel();
 }
