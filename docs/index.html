@@ -762,6 +762,12 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 }
 #tree .kind { font-size: calc(9.5px * var(--tree-text, 1)); }
 /* A black-boxed set: one row, no twist, and a count where the branch was. */
+/* THE SET BEING WORKED IN. A rule down the left and the name in the accent
+   colour: enough to find at a glance in a tree of eighty rows, quiet enough
+   not to compete with the selection, which is a different fact about a
+   different thing. */
+#tree .node.working > .label { color: var(--accent); font-weight: 600; }
+#tree .node.working { box-shadow: inset 2px 0 0 var(--accent); }
 #tree .node.blackbox .glyph { opacity: 0.75; }
 #tree .node.blackbox .label { font-weight: 600; }
 #tree .kind.boxed {

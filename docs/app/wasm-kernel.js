@@ -6219,6 +6219,15 @@ function sprawl(face, edges) {
       return { ok: true, tree: doc.treeJson(), report: null };
     },
 
+    //! Where a feature sits in the tree. A view change, like the appearance:
+    //! the rebuild order is the dependency graph and this is not it.
+    async reorder(ids, target, after) {
+      const list = Array.isArray(ids) ? ids : [ids];
+      if (!doc.reorder(list, target, !!after))
+        throw new Error("those features cannot be put there");
+      return { ok: true, tree: doc.treeJson(), report: null };
+    },
+
     //! How this feature pairs up the lists arriving on it. Unlike the
     //! appearance above, it rebuilds: see Doc.setSpread.
     async setSpread(id, spread) {

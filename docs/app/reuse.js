@@ -132,6 +132,172 @@ export function freshName(want, taken) {
 //! as its own words - "Closed", "Make faces" - goes back to the number the
 //! document stores. Without it, choices are left at their defaults rather
 //! than guessed at, because a guessed choice is a silently different model.
+//! DUPLICATING A SELECTION, IN PLACE.
+//!
+//! The other half of instantiateEdits, and the difference between them is one
+//! decision taken the opposite way: WHAT TO DO WITH A WIRE THAT LEAVES.
+//!
+//! Instantiating a set somewhere else CUTS those wires and declares them as
+//! the component's inputs, because the point of reuse is that the somewhere
+//! else is different and a wire pointed at whatever was lying about would be
+//! worse than an empty field. Duplicating KEEPS them, pointed at the same
+//! things the original reads, because the point of a duplicate is another one
+//! of these - two columns on the same plane, off the same sketch, at different
+//! heights. Cut those wires and what comes back is a pile of unbuilt features.
+//!
+//! Wires INSIDE the selection are rewritten to the copies, both ways round: a
+//! fillet duplicated with its cube rounds the new cube, and a fillet
+//! duplicated alone rounds the old one. That falls out of the rule rather than
+//! being two rules.
+//!
+//! A container brings its contents. Duplicating a folder and getting an empty
+//! folder is not what anybody means by duplicating a folder.
+export function duplicateEdits(model, ids, { taken = new Set(), takenNames = new Set(),
+                                             spec = null, into = undefined } = {}) {
+  const all = featuresOf(model);
+  const wanted = [];
+  const seen = new Set();
+  const want = id => {
+    if (seen.has(id)) return;
+    const entry = all.find(one => one.id === id);
+    if (!entry) return;
+    seen.add(id);
+    wanted.push(entry);
+    for (const child of contentsOf(model, id)) want(child.id);
+  };
+  //! In the order the DOCUMENT has them, not the order they were clicked, so
+  //! a copy reads down the tree the way the original does.
+  for (const entry of all) if ((ids || []).includes(entry.id)) want(entry.id);
+  if (!wanted.length) throw new Error("nothing to duplicate");
+
+  const used = new Set(taken);
+  const usedNames = new Set(takenNames);
+  const renamed = new Map();
+  for (const entry of wanted) {
+    const id = freshId(entry.id, used);
+    used.add(id);
+    renamed.set(entry.id, id);
+  }
+
+  const edits = [];
+  for (const entry of wanted) {
+    const given = freshName(entry.name || entry.type, usedNames);
+    usedNames.add(given);
+    edits.push({ op: "add", type: entry.type, id: renamed.get(entry.id),
+                 name: given, refs: {} });
+  }
+  //! Filed after they all exist, so a copy going into a copied folder finds
+  //! the folder. A copy of something loose goes where `into` says, or stays
+  //! loose - which for a duplicate means beside the thing it came from.
+  for (const entry of wanted) {
+    const holder = renamed.get(entry.parent)
+      || (seen.has(entry.parent) ? undefined : (into !== undefined ? into : entry.parent));
+    if (holder) edits.push({ op: "group", id: renamed.get(entry.id), into: holder });
+  }
+  for (const entry of wanted)
+    edits.push(...valueEdits(entry, renamed.get(entry.id), spec ? spec(entry.type) : null));
+  for (const entry of wanted) {
+    const id = renamed.get(entry.id);
+    for (const wire of wiresIn(entry)) {
+      const to = renamed.get(wire.to) || wire.to;
+      if (to) edits.push({ op: "connect", id, key: wire.key, from: to });
+    }
+  }
+  return { edits, renamed: Object.fromEntries(renamed),
+           made: wanted.map(entry => renamed.get(entry.id)) };
+}
+
+//! EVERY VALUE ON ONE FEATURE, AS EDITS. A number, a choice, a line of text,
+//! a script, a drawing, a vertex somebody moved by hand, a set of picked edges,
+//! a finish - everything that is stored ON a feature rather than wired INTO it.
+//!
+//! Split out because two callers need it and only one of them existed when it
+//! was written: instantiating a set somewhere else, and duplicating a
+//! selection in place. They differ entirely in what they do about WIRES and
+//! not at all in what they do about values, and this is the half that has been
+//! wrong before - a sketch's drawing is an object and fell straight through a
+//! test for numbers, so a copied sketch arrived empty with everything else
+//! about it intact. One copy of that, tested once.
+export function valueEdits(entry, id, types = null) {
+  const edits = [];
+  const args = entry.args || {};
+  for (const [key, value] of Object.entries(args)) {
+    const arg = types ? (types.args || []).find(one => one.key === key) : null;
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) continue;                      // a list of wires
+    if (typeof value === "object") {
+      //! A DRAWING IS AN OBJECT, and it came here as one. The model writer
+      //! publishes a sketch's drawing whole - {elements, constraints} - and
+      //! this used to look at objects only for a driven number or a hand-
+      //! moved vertex, so a sketch fell straight through and the copy
+      //! arrived with an empty one. Everything else about the sketch came
+      //! across, which is what made it look like the sketch had been
+      //! skipped rather than emptied.
+      //!
+      //! Recognised two ways: by the argument's kind when the catalogue is
+      //! to hand, and by the shape of the thing itself when it is not - an
+      //! object with an elements array in it is a drawing whatever anybody
+      //! says, and dropping it quietly is the one outcome worth ruling out
+      //! twice.
+      if ((arg && arg.kind === "sketch") || Array.isArray(value.elements)) {
+        edits.push({ op: "sketch", id, drawing: value });
+        continue;
+      }
+      //! A PICK MAY CARRY ITS SPREADING RULE, which makes it an object too.
+      //! {mode, angle, picks} is what a fillet on a whole arris looks like in
+      //! the file, and a copy that kept the seeds and lost the rule would
+      //! round one edge where the original rounds eight.
+      if (Array.isArray(value.picks)) {
+        edits.push({ op: "pick", id, key, picks: value.picks,
+                     mode: value.mode, angle: value.angle });
+        continue;
+      }
+      // { value, from } - the number is stored, the wire is made later.
+      if (value.from !== undefined && Number.isFinite(Number(value.value)))
+        edits.push({ op: "set", id, key, value: Number(value.value) });
+      else if (value.ref === undefined && arg && arg.kind === "edits")
+        // Vertices somebody moved by hand, one edit each - which is how the
+        // language spells them, and the only op there is for it.
+        for (const [at, to] of Object.entries(value))
+          if (Array.isArray(to) && to.length >= 3)
+            edits.push({ op: "vertex", id, index: Number(at),
+                         x: Number(to[0]), y: Number(to[1]), z: Number(to[2]) });
+      continue;
+    }
+    if (typeof value === "number") { edits.push({ op: "set", id, key, value }); continue; }
+    if (typeof value === "string") {
+      if (arg && arg.kind === "choice") {
+        const at = (arg.options || []).indexOf(value);
+        if (at >= 0) edits.push({ op: "set", id, key, value: at });
+        continue;
+      }
+      // And a drawing written as text rather than as an object, which the
+      // model format also allows.
+      if (arg && arg.kind === "sketch") {
+        edits.push({ op: "sketch", id, drawing: value });
+        continue;
+      }
+      edits.push({ op: "code", id, key, text: value });
+      continue;
+    }
+  }
+  if (entry.appearance && typeof entry.appearance === "object")
+    edits.push({ op: "appearance", id, appearance: entry.appearance });
+  //! And how it pairs up the lists arriving on it, which is stored beside the
+  //! appearance for the same reason and copies for the same reason.
+  if (entry.spread && typeof entry.spread === "object")
+    edits.push({ op: "spread", id, match: entry.spread.match,
+                 graft: entry.spread.graft, flatten: entry.spread.flatten });
+  // The picks written as a bare list, which is what a pick with no rule looks
+  // like and what every file written before rules existed holds.
+  for (const [key, value] of Object.entries(args)) {
+    const arg = types ? (types.args || []).find(one => one.key === key) : null;
+    if (arg && arg.kind === "subs" && Array.isArray(value) && value.length)
+      edits.push({ op: "pick", id, key, picks: value });
+  }
+  return edits;
+}
+
 export function instantiateEdits(model, setId, { taken = new Set(),
                                                  takenNames = new Set(),
                                                  spec = null,
@@ -171,72 +337,10 @@ export function instantiateEdits(model, setId, { taken = new Set(),
                  into: renamed.get(entry.parent) || setId2 });
 
   // Then the numbers, the text and the picks - everything that is a value
-  // rather than a wire.
+  // rather than a wire. See valueEdits: one copy of it, two callers.
   const dropped = [];
-  for (const entry of members) {
-    const id = renamed.get(entry.id);
-    const args = entry.args || {};
-    const types = spec ? spec(entry.type) : null;
-    for (const [key, value] of Object.entries(args)) {
-      const arg = types ? (types.args || []).find(one => one.key === key) : null;
-      if (value === null || value === undefined) continue;
-      if (Array.isArray(value)) continue;                      // a list of wires
-      if (typeof value === "object") {
-        //! A DRAWING IS AN OBJECT, and it came here as one. The model writer
-        //! publishes a sketch's drawing whole - {elements, constraints} - and
-        //! this used to look at objects only for a driven number or a hand-
-        //! moved vertex, so a sketch fell straight through and the copy
-        //! arrived with an empty one. Everything else about the sketch came
-        //! across, which is what made it look like the sketch had been
-        //! skipped rather than emptied.
-        //!
-        //! Recognised two ways: by the argument's kind when the catalogue is
-        //! to hand, and by the shape of the thing itself when it is not - an
-        //! object with an elements array in it is a drawing whatever anybody
-        //! says, and dropping it quietly is the one outcome worth ruling out
-        //! twice.
-        if ((arg && arg.kind === "sketch") || Array.isArray(value.elements)) {
-          edits.push({ op: "sketch", id, drawing: value });
-          continue;
-        }
-        // { value, from } - the number is stored, the wire is made later.
-        if (value.from !== undefined && Number.isFinite(Number(value.value)))
-          edits.push({ op: "set", id, key, value: Number(value.value) });
-        else if (value.ref === undefined && arg && arg.kind === "edits")
-          // Vertices somebody moved by hand, one edit each - which is how the
-          // language spells them, and the only op there is for it.
-          for (const [at, to] of Object.entries(value))
-            if (Array.isArray(to) && to.length >= 3)
-              edits.push({ op: "vertex", id, index: Number(at),
-                           x: Number(to[0]), y: Number(to[1]), z: Number(to[2]) });
-        continue;
-      }
-      if (typeof value === "number") { edits.push({ op: "set", id, key, value }); continue; }
-      if (typeof value === "string") {
-        if (arg && arg.kind === "choice") {
-          const at = (arg.options || []).indexOf(value);
-          if (at >= 0) edits.push({ op: "set", id, key, value: at });
-          continue;
-        }
-        // And a drawing written as text rather than as an object, which the
-        // model format also allows.
-        if (arg && arg.kind === "sketch") {
-          edits.push({ op: "sketch", id, drawing: value });
-          continue;
-        }
-        edits.push({ op: "code", id, key, text: value });
-        continue;
-      }
-    }
-    if (entry.appearance && typeof entry.appearance === "object")
-      edits.push({ op: "appearance", id, appearance: entry.appearance });
-    // The picks, which are their own kind of text.
-    for (const [key, value] of Object.entries(args)) {
-      const arg = types ? (types.args || []).find(one => one.key === key) : null;
-      if (arg && arg.kind === "subs" && Array.isArray(value) && value.length)
-        edits.push({ op: "pick", id, key, picks: value });
-    }
-  }
+  for (const entry of members)
+    edits.push(...valueEdits(entry, renamed.get(entry.id), spec ? spec(entry.type) : null));
 
   // And last the wires, now that everything they could point at exists.
   for (const entry of members) {

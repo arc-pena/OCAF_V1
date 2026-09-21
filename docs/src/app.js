@@ -38,7 +38,7 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
 import { readValue, saysFormula } from "./formula.js";
-import { instantiateEdits, reachesOut, saysReuse, setInputGroups,
+import { duplicateEdits, instantiateEdits, reachesOut, saysReuse, setInputGroups,
          setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
@@ -84,6 +84,12 @@ const state = {
   anchor: null,        // where a shift-click measures its block from
   edited: null,        // feature id whose definition the panel shows
   hidden: new Set(),   // per-view hide; the document is not touched
+  //! THE SET BEING WORKED IN - CATIA's work object. Everything made from now
+  //! on is filed here. A property of the session rather than of the document:
+  //! two people opening one model are not necessarily working in the same
+  //! part of it, and which folder somebody's hands are in is not a fact about
+  //! the model.
+  workingIn: null,
   stream: null,        // what the last triangle fetch cost
   // How the model is drawn. A property of the window rather than of the
   // document: two people looking at one model may want different answers, and
@@ -5671,6 +5677,14 @@ document.getElementById("tree-search").addEventListener("blur", () => {
 });
 
 function buildTree() {
+  //! Checked here rather than where it is set, because the document can change
+  //! under it: opening another model, or deleting the set, leaves a remembered
+  //! id pointing at nothing and everything new would be filed into a folder
+  //! that is not there.
+  if (state.workingIn && !(state.tree
+      && state.tree.features.some(f => f.id === state.workingIn
+                                    && f.category === "container")))
+    state.workingIn = null;
   closeMenu();
   const list = document.getElementById("tree");
   list.textContent = "";
@@ -5838,6 +5852,10 @@ function treeNode(entry, keep = null, hit = null) {
 
   const li = document.createElement("li");
   li.className = "node pick " + entry.category + (consumed ? " consumed" : "")
+    //! The set being worked in is marked in the tree and nowhere else,
+    //! because the tree is where you would look to find out - and a status
+    //! line saying it is a status line you stop reading by lunchtime.
+    + (entry.id === state.workingIn ? " working" : "")
     + (entry.error ? " failed" : "")
     + (entry.id === state.selected ? " selected" : "")
     + (state.picked.length > 1 && state.picked.includes(entry.id) ? " alongside" : "");
@@ -6272,6 +6290,11 @@ function openMenu(event, entry) {
     const outputs = (entry.outputs || []).map(id => (feature(id) || {}).name || id);
     item("Inputs", inputs.length ? inputs.length + " from outside" : "nothing comes in",
          () => showBoundary(entry));
+    item(state.workingIn === entry.id ? "Stop working in it" : "Work in it",
+         state.workingIn === entry.id
+           ? "new features go to the top level again"
+           : "everything made from now on is filed here",
+         () => workIn(state.workingIn === entry.id ? null : entry.id));
     item(boxed(entry) ? "White box" : "Black box",
          boxed(entry) ? "show what is inside it again"
                       : "show it as one node, with its parameters",
@@ -6312,6 +6335,32 @@ function openMenu(event, entry) {
   item(dark.length === many.length ? "Show " + about("it") : "Hide " + about("it"),
     "in the 3D view, and in the file", () => showFeature(many, dark.length === many.length));
 
+  //! DUPLICATE, AND THE ORDER OF THE TREE.
+  //!
+  //! Both are about the same thing: a tree somebody has to live in. Copying a
+  //! column and moving it up two rows are the two edits a person makes most
+  //! after the model works, and neither of them was here.
+  item("Duplicate " + about("it"),
+       several ? "another " + many.length + ", wired the same"
+               : "another one, wired the same", () => duplicate(many));
+  const siblings = orderedSiblings(entry);
+  const at = siblings.indexOf(entry.id);
+  if (!several && siblings.length > 1) {
+    if (at > 0)
+      item("Move up", "before " + ((feature(siblings[at - 1]) || {}).name || ""),
+        () => edit({ op: "reorder", ids: [entry.id], before: siblings[at - 1] }));
+    if (at >= 0 && at < siblings.length - 1)
+      item("Move down", "after " + ((feature(siblings[at + 1]) || {}).name || ""),
+        () => edit({ op: "reorder", ids: [entry.id], after: siblings[at + 1] }));
+    if (at > 0)
+      item("Move to the top", "first in " + ((feature(entry.parent) || {}).name || "the tree"),
+        () => edit({ op: "reorder", ids: [entry.id], before: siblings[0] }));
+    if (at >= 0 && at < siblings.length - 1)
+      item("Move to the end", "last in " + ((feature(entry.parent) || {}).name || "the tree"),
+        () => edit({ op: "reorder", ids: [entry.id], after: siblings[siblings.length - 1] }));
+  }
+  rule();
+
   if (!several) item("Centre on it", "bring it into view, from where you are",
                      () => centreOn(entry.id));
   if (!several) item("Open definition", "", () => select(entry.id, true));
@@ -6322,6 +6371,55 @@ function openMenu(event, entry) {
     () => deleteFeature(many));
 
   placeMenu(event.clientX, event.clientY);
+}
+
+//! DEFINE IN WORK OBJECT. Said once, and everything made afterwards goes
+//! there - which is the difference between a tree you tidy as you go and a
+//! tree you tidy on Friday.
+function workIn(id) {
+  state.workingIn = id && feature(id) ? id : null;
+  remember("ocafcad/workingIn", state.workingIn || "");
+  buildTree();
+  say(state.workingIn
+    ? "working in " + (feature(state.workingIn) || {}).name
+      + " \u00b7 new features are filed there"
+    : "working at the top level again");
+}
+
+//! WHAT A FEATURE'S NEIGHBOURS ARE, in tree order. Moving a row up means
+//! moving it past the row drawn above it, which is the one filed in the same
+//! place - not the one that happens to be above it on screen because a folder
+//! ended there.
+function orderedSiblings(entry) {
+  const holder = entry.parent || null;
+  return state.tree.features
+    .filter(f => (f.parent || null) === holder)
+    .map(f => f.id);
+}
+
+//! ANOTHER ONE OF THESE, WIRED THE SAME. See duplicateEdits for what happens
+//! to the wires, which is the whole of the difference between this and
+//! instantiating a set from a file.
+async function duplicate(ids) {
+  const model = await kernel.model();
+  const here = state.tree.features;
+  let plan;
+  try {
+    plan = duplicateEdits(model, Array.isArray(ids) ? ids : [ids], {
+      taken: new Set(here.map(f => f.id)),
+      takenNames: new Set(here.map(f => f.name)),
+      spec: schemaType,
+    });
+  } catch (error) { showError(error.message); return; }
+  try { await mdl.runAll(plan.edits); }
+  catch (error) { showError(error.message); return; }
+  //! The copies are what is selected afterwards, because the next thing
+  //! anybody does to a copy is move it.
+  state.picked = plan.made.slice();
+  select(plan.made[0], false, true);
+  say(plan.made.length === 1
+    ? (feature(plan.made[0]) || {}).name + " is a copy of " + (feature(ids[0]) || {}).name
+    : plan.made.length + " copies made");
 }
 
 //! The second page of the menu: which set. Same menu, same place - a menu that
@@ -8356,6 +8454,20 @@ async function addFeature(type) {
   if (!payload) return;
   if (taking.length)
     await mdl.runAll(taking.map(id => ({ op: "group", id, into: payload.id })));
+  //! AND INTO THE SET BEING WORKED IN, which is CATIA's "define in work
+  //! object" and the reason its tree stays readable in a long session.
+  //!
+  //! Without it every new feature lands at the top level and the tidying is a
+  //! job you do afterwards, one right-click at a time, by which point you have
+  //! forgotten which of forty loose points belonged with which surface. With
+  //! it, the set you are working in is stated once and everything made after
+  //! that goes there.
+  //!
+  //! A set does NOT go inside itself, and a set made while working in one
+  //! DOES go inside it - which is how a sub-set is made, and the same gesture
+  //! CATIA uses.
+  if (state.workingIn && feature(state.workingIn) && payload.id !== state.workingIn)
+    await mdl.run({ op: "group", id: payload.id, into: state.workingIn });
   select(payload.id, true);
   if (spec.category !== "datum" && spec.category !== "container") fitView();
   offerHeads(payload.id);
@@ -10307,6 +10419,10 @@ let layoutQueued = 0;
 
 const DRAG_SLOP = 4;
 
+//! WHAT WAS COPIED: a list of ids, not a pile of geometry. See the Ctrl+C
+//! handler for why that is the right shape here.
+let clipboard = [];
+
 function dragToScroll(el) {
   if (!el || el.dataset.dragScroll) return;
   el.dataset.dragScroll = "1";
@@ -10524,6 +10640,49 @@ addEventListener("keydown", event => {
     return;
   }
   if (event.target.matches("input, textarea, select")) return;
+
+  //! COPY, PASTE AND DUPLICATE, on the keys everybody's hands already know.
+  //!
+  //! There is no clipboard of geometry here and there does not need to be: a
+  //! copy is a LIST OF IDS, and what makes the copy is reading them out of the
+  //! document when the paste happens. That means a paste always copies what
+  //! those features are NOW rather than what they were when Ctrl+C was
+  //! pressed, which is the behaviour you want in a parametric modeller and the
+  //! one you would have had to go out of your way to break.
+  //!
+  //! Ctrl+D is the same thing in one keystroke, which is what it means
+  //! everywhere else.
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey
+      && "cvdCVD".includes(event.key) && !sketching() && !meshing()) {
+    const chosen = state.picked.length ? state.picked.slice()
+                 : state.selected ? [state.selected] : [];
+    const key = event.key.toLowerCase();
+    if (key === "c") {
+      if (!chosen.length) return;
+      event.preventDefault();
+      clipboard = chosen;
+      say(chosen.length === 1
+        ? (feature(chosen[0]) || {}).name + " copied"
+        : chosen.length + " features copied");
+      return;
+    }
+    if (key === "v") {
+      if (!clipboard.length) return;
+      event.preventDefault();
+      //! Whatever is still there. A paste after a delete copies what survives
+      //! rather than refusing the lot.
+      const alive = clipboard.filter(id => feature(id));
+      if (!alive.length) { say("what was copied is not in the document any more"); return; }
+      duplicate(alive);
+      return;
+    }
+    if (key === "d") {
+      if (!chosen.length) return;
+      event.preventDefault();
+      duplicate(chosen);
+      return;
+    }
+  }
 
   // EDIT MODE OWNS THE KEYBOARD while it is open, because the keys everybody's
   // hands already know - 1, 2, 3 for the levels, E to extrude, I to inset -
@@ -11313,6 +11472,11 @@ addEventListener("keyup", event => {
   // The hint that comes up with it is what stops that being a page with no
   // interface on it and no way of knowing why.
   if (recall("ocafcad/bare") === "on") setBare(true);
+  //! The set being worked in is remembered across a reload, but not trusted:
+  //! it is only applied once a document is open and only if the set is still
+  //! in it. A remembered id pointing at nothing would file everything new
+  //! into a folder that is not there.
+  state.workingIn = recall("ocafcad/workingIn") || null;
   foldAI(recall("ocafcad/ai-fold") === "shut");
 
   const params = new URLSearchParams(location.search);

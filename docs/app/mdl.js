@@ -186,6 +186,21 @@ export const MDL_OPS = [
     { op: "appearance", id: "CB1", appearance: { finish: "brass" } },
     (ctx, edit) => ctx.kernel.setAppearance(needText(edit, "id"), edit.appearance || null)),
 
+  viewOp("reorder", ["ids", "before?", "after?"],
+    "Move features up or down the tree, to sit just before or just after another one. "
+    + "What the tree shows is the order the features were written in; this is how that "
+    + "order is tidied without anything being rebuilt. It does not change what depends "
+    + "on what - the rebuild order is the wiring, not the tree - so a feature can be "
+    + "moved above something it is built from and will still build after it.",
+    { op: "reorder", ids: ["EX1", "FL1"], after: "SK1" },
+    (ctx, edit) => {
+      const ids = Array.isArray(edit.ids) ? edit.ids : [edit.id].filter(Boolean);
+      if (!ids.length) throw new Error('"reorder" needs "ids"');
+      const target = edit.after || edit.before;
+      if (!target) throw new Error('"reorder" needs "before" or "after"');
+      return ctx.kernel.reorder(ids, String(target), !!edit.after);
+    }),
+
   modelOp("spread", ["id"],
     "How a feature pairs up the lists arriving on it - Grasshopper's data matching. "
     + "`match` is \"longest\" (a short list repeats its last value), \"shortest\" (the "

@@ -3760,6 +3760,50 @@ export class Doc {
 
   //! Appearance drives no geometry, so it is set without touching the logbook:
   //! nothing needs rebuilding, only redrawing.
+  //! MOVING A FEATURE UP OR DOWN THE TREE.
+  //!
+  //! What the tree shows, top to bottom, is the order the feature labels sit
+  //! in under the document - childList sorts by tag - so moving a row is
+  //! renumbering tags. That is safe here for one reason worth saying out loud:
+  //! a feature's IDENTITY is a string stored on it, not its tag, and a wire is
+  //! a pointer to a label rather than a path to one. So nothing that refers to
+  //! a feature refers to where it sits.
+  //!
+  //! It does not touch the rebuild order either. Regeneration walks the
+  //! DEPENDENCY graph, which is what the arguments say and not what the tree
+  //! shows, so a feature dragged above the thing it is built from still builds
+  //! after it. CATIA forbids that arrangement; this only declines to pretend
+  //! the tree is the graph.
+  //!
+  //! \p ids move together, in the order they are given, to just before or
+  //! after \p target.
+  reorder(ids, target, after = false) {
+    const all = this.features();
+    const moving = ids.map(id => this.find(id)).filter(Boolean);
+    if (!moving.length || !target) return false;
+    const landing = this.find(target);
+    if (!landing || moving.includes(landing)) return false;
+    const rest = all.filter(f => !moving.includes(f));
+    const at = rest.indexOf(landing);
+    if (at < 0) return false;
+    const cut = at + (after ? 1 : 0);
+    const order = [...rest.slice(0, cut), ...moving, ...rest.slice(cut)];
+    //! Renumbered from one, into a map rebuilt from scratch. Writing tags into
+    //! the map they are keys of, one at a time, walks over entries that have
+    //! not moved yet.
+    const root = this.featuresRoot;
+    const others = root.childList().filter(l => !l.attr.TFunction_Function);
+    root.children = new Map();
+    order.forEach((f, index) => { f.tag = index + 1; root.children.set(f.tag, f); });
+    let next = order.length;
+    for (const spare of others) { spare.tag = ++next; root.children.set(spare.tag, spare); }
+    root.nextTag = Math.max(root.nextTag, next);
+    //! Nothing is TOUCHED. A feature that moved did not change, and neither
+    //! did anything reading it - the tree is drawn from this order and that is
+    //! the whole of what changed.
+    return true;
+  }
+
   setAppearance(f, appearance) { F.setAppearance(f, appearance); }
 
   //! TOUCHED, unlike the appearance beside it. How a feature pairs up its
