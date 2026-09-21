@@ -408,8 +408,13 @@ console.log("\n10. a curve that cannot hold the distance says so");
   const tight = await offset(pin, -20);
   check("a curve that cannot hold the distance is refused rather than faked",
         !!tight.error, tight.error || ("built: " + tight.note));
-  check("  and the refusal says what to do about it",
-        /turns tighter|smaller distance/.test(tight.error || ""), tight.error || "");
+  //! And it says WHICH side, because the hairpin has plenty of room on the
+  //! outside - it is only the inside, eight millimetres across, that has none.
+  //! A refusal that says "try a smaller distance" when the answer is "try the
+  //! other side" sends somebody looking for a number that does not exist.
+  check("  and the refusal says which side, and what to type instead",
+        /THAT side/.test(tight.error || "") && /try 20\b/.test(tight.error || ""),
+        tight.error || "");
   //! And a distance it CAN hold comes back normally.
   const small = await offset(pin, 0.5);
   check("a distance inside the tightest bend still offsets",
@@ -482,7 +487,76 @@ console.log("\n11. against a drawing somebody else made");
         worstAnywhere < 0.01, worstAnywhere.toFixed(6) + " mm");
 }
 
-console.log("\n12. nothing asked for, nothing done");
+console.log("\n12. the two sides run out at different distances");
+{
+  //! AWAY FROM A CURVE THERE IS NO LIMIT. INTO IT THERE IS, and they are not
+  //! the same number - so "this distance is too big" is never a fact about a
+  //! curve, only about a curve AND a side.
+  //!
+  //! Offsetting outward, every bend opens: the answer gains d times the total
+  //! turning and that is the whole of it, at any d you like. Offsetting
+  //! inward, the bends close, and the moment the inside of a turn is nearer
+  //! than d the two sides of it cross and there is no such curve.
+  //!
+  //! This open four-segment polyline is the one that came in as a bug report.
+  //! Which way OpenCascade calls positive on it happens to be the INWARD
+  //! side, and inward it runs out past about 400. The program asked for that
+  //! side first, got nothing, and reported "it turns tighter than 831
+  //! somewhere along it" - true of the side nobody asked for. Outward, 831
+  //! was sitting right there.
+  const RUN = [[0, 0], [69, -433], [-551.5, -497], [-733, 564.5], [261.5, 712.5]];
+  const ids = [];
+  for (const [x, y] of RUN) {
+    const p = await add("Point");
+    await set(p, "x", x); await set(p, "y", y); await set(p, "z", 0);
+    ids.push(p);
+  }
+  const run = await add("Polyline");
+  await kernel.setReference(run, "points", null, true);
+  for (const p of ids) await kernel.setReference(run, "points", p);
+  const RUN_LENGTH = await lengthOf(run);
+  check("the polyline is as long as it is drawn",
+        near(RUN_LENGTH, 3144.612, 0.01), String(RUN_LENGTH));
+  //! The identity: an OPEN curve offset outward by d gains d times its total
+  //! turning, which for a polyline is the sum of the angles it turns through.
+  //! Nothing approximate about it, and it holds at every distance.
+  let turning = 0;
+  for (let i = 1; i + 1 < RUN.length; i++) {
+    const a = [RUN[i][0] - RUN[i - 1][0], RUN[i][1] - RUN[i - 1][1]];
+    const b = [RUN[i + 1][0] - RUN[i][0], RUN[i + 1][1] - RUN[i][1]];
+    turning += Math.abs(Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]));
+  }
+  check("and turns through what the arithmetic says",
+        near(turning, 4.722679, 1e-5), turning.toFixed(6) + " rad");
+  //! 831 is the number from the report. 2000 is there because "no limit"
+  //! means no limit, and a bound that only shows up at three times the
+  //! reported distance is still a bound.
+  for (const d of [200, 400, 831, 2000]) {
+    const got = await offset(run, d, { join: 0 });
+    check("outward by " + d + " builds", !got.error, got.error || got.note);
+    if (got.error) continue;
+    check("  and gains exactly " + d + " times the turning",
+          near(got.length, RUN_LENGTH + d * turning, 0.05),
+          got.length + " vs " + (RUN_LENGTH + d * turning).toFixed(3));
+  }
+  //! And the other side really does run out, so the refusal is not just
+  //! switched off. It has to say WHICH side, and what to type instead.
+  const inward = await offset(run, -831, { join: 0 });
+  check("inward by 831 is refused, because that side has no offset",
+        !!inward.error, inward.error || ("built: " + inward.note));
+  check("  and the refusal names the side and the distance that works",
+        /THAT side/.test(inward.error || "") && /try 831/.test(inward.error || ""),
+        inward.error || "");
+  //! Inward still works where there IS room, which is the check that the
+  //! refusal is about the geometry and not about the sign.
+  const close = await offset(run, -200, { join: 0 });
+  check("inward by 200 builds, because there is room for it",
+        !close.error, close.error || close.note);
+  check("  and loses length rather than gaining it",
+        close.length < RUN_LENGTH, close.length + " vs " + RUN_LENGTH);
+}
+
+console.log("\n13. nothing asked for, nothing done");
 {
   const c = await add("Circle", { refs: { plane: PL } });
   await set(c, "radius", 100);

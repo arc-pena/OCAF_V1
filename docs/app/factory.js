@@ -569,52 +569,61 @@ export function makeFactories(oc, kit) {
     } catch (e) { return null; }
   };
 
-  //! DID IT GO WHERE IT WAS TOLD? Measured off the two shapes rather than
-  //! reasoned about from the wire's orientation, because orientation is
-  //! exactly the thing that is not reliable here.
+  //! DID IT GO WHERE IT WAS TOLD, AND IS THAT A QUESTION THIS CAN ANSWER?
+  //! Three answers, not two: 1 for the side the sign asked for, -1 for the
+  //! other one, and 0 for "cannot tell from here".
   //!
-  //! Closed: a positive distance has to make the loop bigger, so the bounding
-  //! reach decides it. Open: a positive distance has to land on the left of
-  //! the way the curve is drawn, so the vector from a point half way along the
-  //! source to the nearest place on the result is compared with normal x
-  //! tangent. Neither needs to know which way OpenCascade thought it was going.
-  const wentWrongWay = (wire, made, distance, shut, normal) => {
-    if (!made || made.IsNull()) return false;
+  //! The third is not pedantry. Reading it as "not wrong" - which is what a
+  //! boolean forces - made an offset that had gone to the WRONG side
+  //! indistinguishable from one nobody could measure, and the caller then had
+  //! no way to prefer an answer it had read as right over one it had not read
+  //! at all. What came of that: a distance whose own side has no offset was
+  //! answered with the OTHER side's offset, built, with no error on it, on
+  //! the opposite side of the curve from where the number said.
+  //!
+  //! Measured off the two shapes rather than reasoned about from the wire's
+  //! orientation, because orientation is exactly the thing that is not
+  //! reliable here.
+  //!
+  //! Closed: a simple closed curve offset OUTWARD by d gains exactly 2*pi*d
+  //! of length, whatever shape it is, because its total turning is one
+  //! revolution - the arcs added at the convex corners and the runs trimmed
+  //! at the concave ones come to that and nothing else. So the sign of the
+  //! change in length says which way it went, and it says it for a kidney
+  //! shape as surely as for a circle.
+  //!
+  //! Open: the vector from a point half way along the source to the nearest
+  //! place on the result is compared with normal x tangent. RIGHT of the way
+  //! it is drawn, and not left, because that is the side that agrees with
+  //! what a CLOSED curve does. A circle drawn the usual way round grows
+  //! outward on a positive distance, and outward is to the right of travel;
+  //! an arc of that same circle has to move the same way or the two disagree
+  //! - which is exactly the surprise this started from, an arc of r100 offset
+  //! by +25 coming back at r75 while the whole circle came back at r125.
+  const sideRead = (wire, made, distance, shut, normal) => {
+    if (!made || made.IsNull()) return 0;
     try {
       if (shut) {
-        //! A simple closed curve offset OUTWARD by d gains exactly 2*pi*d of
-        //! length, whatever shape it is, because its total turning is one
-        //! revolution - the arcs added at the convex corners and the runs
-        //! trimmed at the concave ones come to that and nothing else. So the
-        //! sign of the change in length says which way it went, and it says it
-        //! for a kidney shape as surely as for a circle.
         const grew = lengthOf(made) - lengthOf(wire);
-        if (!Number.isFinite(grew) || Math.abs(grew) < CONFUSION) return false;
-        return (distance > 0) !== (grew > 0);
+        if (!Number.isFinite(grew) || Math.abs(grew) < CONFUSION) return 0;
+        return (distance > 0) === (grew > 0) ? 1 : -1;
       }
-      if (!normal) return false;            // no plane to have a side of
+      if (!normal) return 0;                      // no plane to have a side of
       const mid = midOf(wire);
-      if (!mid) return false;
-      //! RIGHT of the way it is drawn, and not left, because that is the side
-      //! that agrees with what a CLOSED curve does. A circle drawn the usual
-      //! way round grows outward on a positive distance, and outward is to the
-      //! right of travel; an arc of that same circle has to move the same way
-      //! or the two disagree - which is exactly the surprise this started
-      //! from, an arc of r100 offset by +25 coming back at r75 while the whole
-      //! circle came back at r125.
+      if (!mid) return 0;
       const side = V.norm(V.cross(mid.way, normal));
-      if (!side) return false;
+      if (!side) return 0;
       const gap = new oc.BRepExtrema_DistShapeShape();
       gap.LoadS1(new oc.BRepBuilderAPI_MakeVertex(pnt(mid.at)).Vertex());
       gap.LoadS2(made);
       gap.Perform();
-      if (!gap.IsDone() || gap.NbSolution() < 1) return false;
+      if (!gap.IsDone() || gap.NbSolution() < 1) return 0;
       const p = gap.PointOnShape2(1);
       const went = V.sub([p.X(), p.Y(), p.Z()], mid.at);
       const on = V.dot(went, side);
-      if (Math.abs(on) < CONFUSION) return false;
-      return (distance > 0) !== (on > 0);
-    } catch (e) { return false; }
+      if (Math.abs(on) < CONFUSION) return 0;
+      return (distance > 0) === (on > 0) ? 1 : -1;
+    } catch (e) { return 0; }
   };
 
   //! Where a wire is, and which way it is going, half way along it. Used to
@@ -1155,10 +1164,52 @@ export function makeFactories(oc, kit) {
             continue;
           }
           const flat = flatOf(wire);
-          const made = offsetOnce(wire, distance, turn, open);
-          const wrong = wentWrongWay(wire, made, distance, shut, flat);
-          let answer = wrong ? offsetOnce(wire, -distance, turn, open) : made;
-          if (wrong) flipped++;
+          const bare = made => !made || made.IsNull() || count(made, EDGE) === 0;
+
+          //! BOTH SIGNS ARE ASKED FOR, AND THEN THE RIGHT ONE IS CHOSEN.
+          //!
+          //! OpenCascade does not use one convention for which side a positive
+          //! distance goes to, so the convention is this program's and is
+          //! enforced by measurement: build it, see which side it landed on,
+          //! keep the one that landed where the sign said. That used to be
+          //! done by building ONE and flipping if it was wrong - which works
+          //! only as long as the first attempt lands SOMEWHERE. When it comes
+          //! back empty it has landed nowhere, the side check has nothing to
+          //! measure and reports "not wrong", and the other sign - the side
+          //! that was asked for, and which exists - was never tried.
+          //!
+          //! Measured on an open four-segment polyline 3144.612 long. The way
+          //! OpenCascade calls positive on this wire is the INWARD side, and
+          //! inward it runs out past about 400: the inside of the turns is
+          //! nearer than that, so the offset crosses itself and nothing comes
+          //! back. Outward has no limit at all - at 831 it is 7069.16 long in
+          //! seven edges, exactly as it should be. What came up on screen was
+          //! "that curve cannot be offset by 831 - it turns tighter than that
+          //! somewhere along it", which is true of the side nobody asked for
+          //! and false of the side they did. And 200 worked, because there the
+          //! wrong-side answer was merely wrong rather than absent.
+          //!
+          //! Two solves rather than one-and-sometimes-two. It is one extra
+          //! offset on a curve somebody is looking at, and it is what lets the
+          //! refusal below know whether the other side has room.
+          const ahead = offsetOnce(wire, distance, turn, open);
+          const astern = offsetOnce(wire, -distance, turn, open);
+          //! Asked of BOTH with the requested `distance`, because the question
+          //! is the same for both: is this shape on the side that sign means?
+          const went = made => bare(made) ? 0 : sideRead(wire, made, distance, shut, flat);
+          const aheadWent = went(ahead), asternWent = went(astern);
+          //! READ AS RIGHT FIRST, UNREADABLE SECOND, READ AS WRONG NEVER. An
+          //! offset whose side could not be measured is worth handing over -
+          //! that is most of what a curve with no plane and no nearest point
+          //! can give. One that WAS measured and came back on the other side
+          //! is not: it is an answer to the opposite question, and passing it
+          //! off as this one is how a -400 came back as the +400 curve, built,
+          //! with nothing on it to say so.
+          let answer = null;
+          if (aheadWent > 0) answer = ahead;
+          else if (asternWent > 0) { answer = astern; flipped++; }
+          else if (aheadWent === 0 && !bare(ahead)) answer = ahead;
+          else if (asternWent === 0 && !bare(astern)) { answer = astern; flipped++; }
 
           //! IT REFUSED, AND A REFUSAL IS THE ANSWER.
           //!
@@ -1168,7 +1219,7 @@ export function makeFactories(oc, kit) {
           //! parallel curve - it is a curve that passes near where a parallel
           //! curve would be, with an error nobody chose and a shape that
           //! depends on the sampling. Worse, it took over from a perfectly
-          //! good answer whenever the check below fired, which at a concave
+          //! good answer whenever the stray check fired, which at a concave
           //! corner it always does.
           //!
           //! What is here instead is OpenCascade's own planar offset, which is
@@ -1180,18 +1231,28 @@ export function makeFactories(oc, kit) {
           //! the XY plane and in one tilted 37 degrees and yawed 63 - the
           //! worst point is 0.0000 mm off the distance asked for. There is
           //! nothing for a sampled road to improve on.
-          //!
-          //! So when it refuses, it refuses because there IS no offset: the
-          //! curve turns tighter than the distance somewhere along it. Say so.
-          if (!answer || answer.IsNull() || count(answer, EDGE) === 0)
+          if (bare(answer)) {
+            //! AND THE REFUSAL NAMES THE SIDE, because it is almost never both
+            //! of them. An offset AWAY from a curve has no limit whatever the
+            //! curve does; it is the offset INTO the bends that runs out, when
+            //! the inside of a turn is nearer than the distance asked for. So
+            //! when the other side did build, say so and give the number to
+            //! type - which is the same number with its sign turned over.
+            const roomOver = !bare(ahead) || !bare(astern);
             throw new Error(runs.length > 1
               ? "one of those " + runs.length + " runs will not offset by " + distance
               : !flat
                 ? "that curve is not flat, so there is no plane to offset it in - "
                   + "wire the surface it lies on as its support"
-                : "that curve cannot be offset by " + distance
-                  + " - it turns tighter than that somewhere along it, so there is no "
-                  + "curve that stays that far from it. Try a smaller distance");
+                : roomOver
+                  ? "that curve cannot be offset by " + distance + " on THAT side - the "
+                    + "inside of a turn along it is nearer than " + Math.abs(distance)
+                    + ", so the offset would cross itself. The other side has room: "
+                    + "try " + (-distance)
+                  : "that curve cannot be offset by " + distance
+                    + " - it turns tighter than that somewhere along it, so there is no "
+                    + "curve that stays that far from it. Try a smaller distance");
+          }
 
           //! MEASURED AND REPORTED, NOT MEASURED AND SECOND-GUESSED - and only
           //! where the measure means anything, which is a run with no corners
