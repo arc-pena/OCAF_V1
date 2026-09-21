@@ -5391,11 +5391,45 @@ function buildToolbar() {
   const groups = state.schema.categories
     || [{ key: "datum" }, { key: "data" }, { key: "curve" },
         { key: "body" }, { key: "analysis" }, { key: "operation" }];
-  groups.forEach((group, index) => {
-    if (index) rail.appendChild(document.createElement("hr"));
+  //! COLLAPSIBLE ZONES, because a hundred and twenty buttons in one column is
+  //! not a toolbar, it is a list you scroll past.
+  //!
+  //! The rule dividers that used to separate the categories said where one
+  //! ended and the next began and nothing else - you still had to walk the
+  //! whole rail to find the operations. A heading you can shut takes its
+  //! category out of the way entirely, and what is shut is remembered, so a
+  //! person who never uses meshes stops scrolling past them for good.
+  //!
+  //! Datums and curves are open to begin with because that is where a part
+  //! starts. Nothing else is: the rail opens short and grows where it is
+  //! asked to.
+  const OPEN_FIRST = new Set(["datum", "curve", "body"]);
+  groups.forEach(group => {
+    const key = "rail:" + group.key;
+    const remembered = recall("ocafcad/" + key);
+    const shutNow = remembered ? remembered === "off" : !OPEN_FIRST.has(group.key);
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "rail-head" + (shutNow ? " shut" : "");
+    head.dataset.group = group.key;
+    head.innerHTML = '<span class="rail-twist">' + (shutNow ? "\u203a" : "\u02c5")
+      + "</span><span>" + escapeHtml(group.label || group.key) + "</span>";
+    head.title = (shutNow ? "Show " : "Hide ") + (group.label || group.key);
+    rail.appendChild(head);
     const box = document.createElement("div");
+    box.className = "rail-zone";
     box.dataset.group = group.key;
+    box.hidden = shutNow;
     rail.appendChild(box);
+    head.addEventListener("click", () => {
+      const nowShut = !box.hidden;
+      box.hidden = nowShut;
+      head.classList.toggle("shut", nowShut);
+      head.querySelector(".rail-twist").textContent = nowShut ? "\u203a" : "\u02c5";
+      head.title = (nowShut ? "Show " : "Hide ") + (group.label || group.key);
+      remember("ocafcad/" + key, nowShut ? "off" : "on");
+      layout();
+    });
     targets[group.key] = box;
   });
 
@@ -8557,6 +8591,9 @@ async function attachKernel(next, model) {
   state.schema = await kernel.schema();
   buildToolbar();
   buildDock();
+  //! After the rail is built, because there is nothing to arm until the
+  //! elements exist. Idempotent - dragToScroll marks what it has already done.
+  armScrolling();
 
   for (const [, { group }] of shapes) disposeGroup(group);
   shapes.clear();
@@ -10241,6 +10278,99 @@ const onScreen = el => {
 };
 
 let layoutQueued = 0;
+/* ==========================================================================
+   PANELS YOU DRAG RATHER THAN PANELS WITH BARS DOWN THE SIDE.
+
+   A scrollbar is a control whose whole job is to tell you the panel is too
+   short, and it charges a permanent gutter for the news. These panels float
+   over the model and are narrow - the rail is three buttons wide - so seven
+   pixels is a real fraction of them, and on a trackpad or a touch screen
+   nobody reaches for the bar anyway.
+
+   So the bar goes and the panel becomes the thing you drag: press on any blank
+   part of it and pull, the way a map moves. Three rules keep that from
+   swallowing the interface it is drawn over:
+
+     A DRAG IS NOT A CLICK, and four pixels is the line. Under four the press
+     goes through to whatever was under it, so a button still presses; over
+     four the click that would follow is swallowed, so letting go of a drag
+     over a button does not fire it.
+
+     THE MIDDLE BUTTON ALWAYS DRAGS, wherever it is pressed - over a button,
+     over a field, anywhere. That is the one gesture that cannot mean anything
+     else here, which is why it is the one that never has to ask.
+
+     A PANEL THAT FITS IS NOT DRAGGABLE, and says so by not offering the
+     cursor. `can-scroll` is re-measured on every layout, because a panel that
+     fits until the tree grows is a panel whose answer changes.
+   ========================================================================== */
+
+const DRAG_SLOP = 4;
+
+function dragToScroll(el) {
+  if (!el || el.dataset.dragScroll) return;
+  el.dataset.dragScroll = "1";
+  el.classList.add("scrollable");
+  let from = null;
+  const holdable = event => event.button === 1
+    //! The left button drags only from the SPACE between things. Pressing a
+    //! button and pulling is how a slider is used, and stealing that to scroll
+    //! the panel would make every control in it unusable.
+    || (event.button === 0 && !event.target.closest(
+      "button, input, select, textarea, a, .node, .segmented, [contenteditable]"));
+  el.addEventListener("pointerdown", event => {
+    if (!holdable(event) || el.scrollHeight <= el.clientHeight + 1) return;
+    from = { y: event.clientY, top: el.scrollTop, moved: 0, id: event.pointerId };
+    //! Not captured yet: capturing on the press would take the pointer away
+    //! from a button before we know whether this is a drag at all. It is
+    //! captured at the moment it becomes one, below.
+  });
+  el.addEventListener("pointermove", event => {
+    if (!from || event.pointerId !== from.id) return;
+    const by = event.clientY - from.y;
+    if (!from.moved && Math.abs(by) < DRAG_SLOP) return;
+    if (!from.moved) {
+      from.moved = 1;
+      el.classList.add("dragging");
+      try { el.setPointerCapture(event.pointerId); } catch (e) { /* already gone */ }
+    }
+    el.scrollTop = from.top - by;
+    event.preventDefault();
+  });
+  const letGo = event => {
+    if (!from || (event && event.pointerId !== undefined && event.pointerId !== from.id)) return;
+    const dragged = !!from.moved;
+    from = null;
+    el.classList.remove("dragging");
+    //! The click that follows a drag is swallowed, once. Letting go over a
+    //! button after pulling the panel past it must not press it.
+    if (dragged) el.addEventListener("click",
+      swallow => { swallow.stopPropagation(); swallow.preventDefault(); },
+      { capture: true, once: true });
+  };
+  el.addEventListener("pointerup", letGo);
+  el.addEventListener("pointercancel", letGo);
+  //! The middle button's own default is the browser's autoscroll, which draws
+  //! its own compass over the page and fights this.
+  el.addEventListener("auxclick", event => { if (event.button === 1) event.preventDefault(); });
+  el.addEventListener("pointerdown", event => { if (event.button === 1) event.preventDefault(); });
+}
+
+//! Every panel that scrolls, told it does. Called once at boot; the
+//! `can-scroll` class is refreshed by layout(), because whether a panel
+//! overflows is a thing that changes as the document does.
+function armScrolling() {
+  for (const id of ["rail", "sketch-rail", "tree", "def", "graph-side"])
+    dragToScroll(document.getElementById(id));
+}
+
+function markScrollable() {
+  for (const id of ["rail", "sketch-rail", "tree", "def", "graph-side"]) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("can-scroll", el.scrollHeight > el.clientHeight + 1);
+  }
+}
+
 function layout() {
   if (layoutQueued) return;
   layoutQueued = requestAnimationFrame(() => { layoutQueued = 0; measureLayout(); });
@@ -10328,6 +10458,11 @@ function measureLayout() {
     }
   }
   document.body.classList.toggle("barred", barred);
+  //! WHETHER A PANEL IS DRAGGABLE IS A THING THAT CHANGES. A rail that fits
+  //! until the window shortens, a tree that fits until the model grows - the
+  //! answer is re-measured here because this is where every other measurement
+  //! of the layout already happens.
+  markScrollable();
 }
 
 addEventListener("resize", () => { layout(); if (lookingThrough()) { placeThrough(); refreshSafe(); } });

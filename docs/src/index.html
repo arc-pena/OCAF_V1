@@ -215,7 +215,7 @@ button, input, select { font: inherit; color: inherit; }
   left: var(--edge); top: calc(var(--sky) / 2); transform: translateY(-50%);
   width: var(--rail-w);
   padding: 6px; display: flex; flex-direction: column; gap: 2px;
-  z-index: 3; overflow-y: auto; scrollbar-width: thin;
+  z-index: 3; overflow-y: auto; overflow-x: hidden;
   /* Clear of the chip above it and the status bar below it, whichever is
      tighter - the rail is centred, so it has to fit in twice the smaller gap. */
   max-height: calc(var(--sky) - var(--edge) * 2 - 108px);
@@ -238,10 +238,25 @@ body.no-rail #rail, body.no-rail #sketch-rail {
 @media (max-width: 900px) and (pointer: coarse) {
   body.no-rail #rail, body.no-rail #sketch-rail { left: var(--edge); visibility: visible; opacity: 1; }
 }
-#rail::-webkit-scrollbar { width: 5px; }
-#rail::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 #rail [data-group] { display: grid; grid-template-columns: repeat(var(--rail-cols), 34px); gap: 2px; }
-#rail hr { border: 0; border-top: 1px solid var(--line-soft); margin: 4px 4px; }
+/* A CATEGORY HEADING YOU CAN SHUT. The rules that used to divide the rail said
+   where one category ended and said nothing else; you still had to walk the
+   whole thing to reach the operations. Small, quiet and full width, because it
+   is a label first and a control second - the buttons under it are what the
+   rail is for. */
+.rail-head {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%; border: 0; background: none; cursor: pointer;
+  padding: 5px 2px 3px; margin: 2px 0 0;
+  font: inherit; font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-3); text-align: left;
+}
+.rail-head:hover { color: var(--ink-1); }
+.rail-head.shut { color: var(--ink-3); opacity: .8; }
+.rail-twist { width: 8px; display: inline-block; font-size: 10px; line-height: 1; }
+.rail-head + .rail-zone[hidden] { display: none; }
+/* The first heading has nothing above it to be spaced from. */
+#rail > .rail-head:first-child { margin-top: 0; padding-top: 1px; }
 
 /* ------------------------------------------------------------ the sketcher */
 /* The sketch rail stands exactly where the tool rail does, because it is the
@@ -249,7 +264,7 @@ body.no-rail #rail, body.no-rail #sketch-rail {
 #sketch-rail {
   left: var(--edge); top: calc(var(--sky) / 2); transform: translateY(-50%);
   padding: 6px; display: flex; flex-direction: column; gap: 2px;
-  z-index: 4; overflow-y: auto; scrollbar-width: thin;
+  z-index: 4; overflow-y: auto; overflow-x: hidden;
   max-height: calc(var(--sky) - var(--edge) * 2 - 108px);
 }
 #sketch-rail [data-group] { display: grid; grid-template-columns: repeat(2, 34px); gap: 2px; }
@@ -808,12 +823,40 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
 .node.consumed .label { text-decoration: line-through; text-decoration-thickness: 1px; }
 .node.failed .label { color: var(--bad); }
 .node .kind { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+/* ALWAYS THERE, BOTH WAYS ROUND. The eye used to be opacity:0 until the row
+   was hovered, which makes it a control you have to already know about before
+   you can find it - and on a touch screen there is no hover to find it with.
+   It is the same switch a sketch layer has: visible in both states, dim when
+   the thing is shown because that is the quiet case, firm when it is hidden
+   because that is the one you are looking for. */
 .eye {
   border: 0; background: none; padding: 0; cursor: pointer;
-  width: 14px; height: 14px; color: var(--ink-3); opacity: 0;
+  width: 14px; height: 14px; color: var(--ink-3); opacity: .4;
 }
-.node:hover .eye, .eye.off { opacity: .7; }
-.eye:hover { opacity: 1; color: var(--accent); }
+.eye.off { opacity: .95; color: var(--ink-2); }
+.node:hover .eye { opacity: .75; }
+.node:hover .eye.off { opacity: 1; }
+.eye:hover, .eye.off:hover { opacity: 1; color: var(--accent); }
+
+/* NO SCROLLBARS ANYWHERE A PANEL SCROLLS.
+   A scrollbar is a control that exists to tell you a panel is too short, drawn
+   permanently down the side of it in exchange. These panels float over the
+   model and are narrow; a seven-pixel gutter is a real fraction of them, and on
+   a trackpad or a touch screen nobody uses it anyway.
+   So the bars go and the panel itself becomes the thing you drag - press on any
+   blank part of it and pull, the way a map moves. `grab` is the cursor because
+   that is what the gesture is, and `touch-action: pan-y` keeps the browser's
+   own flick working on a phone rather than fighting it. */
+.scrollable { scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-y; }
+.scrollable::-webkit-scrollbar { width: 0; height: 0; }
+.scrollable.can-scroll { cursor: grab; }
+.scrollable.dragging { cursor: grabbing; user-select: none; }
+/* What is under the pointer keeps its own cursor: a button is still a button,
+   and only the space between them is somewhere to grab. */
+.scrollable.can-scroll button, .scrollable.can-scroll input,
+.scrollable.can-scroll select, .scrollable.can-scroll textarea,
+.scrollable.can-scroll .node, .scrollable.can-scroll label { cursor: default; }
+.scrollable.can-scroll button, .scrollable.can-scroll .node { cursor: pointer; }
 
 /* A run of fields under one heading - a set's inputs, gathered so they read as
    one list rather than as a pile of unrelated controls. */
@@ -846,7 +889,7 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
   display: flex; flex-direction: column; z-index: 3;
 }
 #def-panel[hidden] { display: none; }
-#def { overflow: auto; }
+#def { overflow: auto; overflow-x: hidden; }
 .def-head { padding: 11px 12px 10px; border-bottom: 1px solid var(--line-soft); }
 .name-row { display: flex; gap: 8px; align-items: center; }
 input.name {
