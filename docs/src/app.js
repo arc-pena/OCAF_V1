@@ -139,11 +139,13 @@ const STARTER = {
       args: { origin: { ref: "PT1" }, normal: { ref: "VY" }, size: 200 } },
     { id: "PARAMS", type: "GeometricalSet", name: "Parameters", args: {} },
     { id: "RELS",   type: "GeometricalSet", name: "Relations",  args: {} },
-    //! A Body rather than a geometrical set, which is the one place this
-    //! departs from the words asked for. The two containers differ in exactly
-    //! one thing - what belongs in them - and solids belong in a Body. It is
-    //! CATIA's own distinction and the one the two factories here draw.
-    { id: "PART",   type: "Body", name: "Part", args: {} },
+    //! A GEOMETRICAL SET, and it is the current one when the part opens.
+    //! This was a Body on the argument that solids belong in a Body and that
+    //! is CATIA's distinction - which is true and is not what was asked for.
+    //! A set is the more useful default because it takes anything: the first
+    //! thing made in a new part is as likely to be a sketch or a plane as a
+    //! solid, and a folder that refuses half of them is a folder you fight.
+    { id: "PART",   type: "GeometricalSet", name: "Part", args: {} },
   ],
 };
 
@@ -1074,6 +1076,24 @@ function withContents(ids) {
 function showFeature(id, on) {
   const ids = withContents(Array.isArray(id) ? id : [id]);
   for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
+  //! TWO REASONS A THING IS NOT DRAWN, and one switch over both.
+  //!
+  //! `state.hidden` is this view's own list and is all most rows ever need. A
+  //! body an operation SWALLOWED is not on it - the document itself says the
+  //! body is not drawn, because a fillet is the cube now - so taking it off
+  //! the hidden list does nothing and the eye reads as broken. Overruling that
+  //! is an edit to the document, which is a different call.
+  //!
+  //! Sent only for the features it applies to, and only when showing: hiding
+  //! is what the hidden list is for, and a swallowed body that is hidden is
+  //! hidden for the ordinary reason like anything else.
+  const swallowed = on ? ids.filter(one => {
+    const entry = feature(one);
+    return entry && entry.visible === false;
+  }) : [];
+  if (swallowed.length)
+    mdl.runAll(swallowed.map(one => ({ op: "shown", id: one, on: true })))
+       .catch(error => showError(error.message));
   buildTree(); applyVisibility(); draw();
   // The panel says whether the thing it is showing is showing, so it has to
   // hear about this too - the eye is in two places and they must agree.
@@ -5869,7 +5889,10 @@ function treeNode(entry, keep = null, hit = null) {
   const hidden = entry.category === "container"
     ? (list => list.length > 0 && list.every(id => state.hidden.has(id)))
       (withContents([entry.id]).filter(id => id !== entry.id))
-    : state.hidden.has(entry.id);
+    //! `visible === false` is the document saying so - a body something
+    //! swallowed - and it reads the same way to the eye as this view's own
+    //! hidden list, because to the person looking at it, it is the same fact.
+    : state.hidden.has(entry.id) || entry.visible === false;
   treeOrder.push(entry.id);
 
   const li = document.createElement("li");
@@ -5933,7 +5956,14 @@ function treeNode(entry, keep = null, hit = null) {
   //! eyes. What the eye reads on a folder is what is INSIDE it: shut when
   //! everything in there is hidden, open while any of it is showing, which is
   //! what makes one click put a whole set away and one click bring it back.
-  if (!consumed && (entry.built || entry.category === "container")) {
+  //!
+  //! AND SO DOES A BODY SOMETHING SWALLOWED. It was left out on the grounds
+  //! that a consumed body is not drawn - which is true, and is a fact about
+  //! its VISIBILITY, which is the one thing the eye is for. A fillet's cube is
+  //! still in the tree, still editable, still the thing the fillet was made
+  //! from, and wanting to look at it is the ordinary reason anybody opens a
+  //! tree at all. So it gets the same switch as everything else.
+  if (entry.built || entry.category === "container") {
     // The same switch a sketch layer has: always there, pressed or not, one
     // click either way. An eye that only appears on hover is a control you
     // have to know about before you can find it.
@@ -5944,6 +5974,12 @@ function treeNode(entry, keep = null, hit = null) {
     eye.title = entry.category === "container"
       ? (hidden ? "Everything in this set is hidden. Click to show it all."
                 : "Click to hide everything in this set.")
+      : consumed && hidden
+        ? (feature(entry.consumedBy) || {}).name
+          + " was made from this, so it is not drawn. Click to show it anyway."
+      : consumed
+        ? "Shown, although " + ((feature(entry.consumedBy) || {}).name || "another feature")
+          + " was made from it. Click to put it away again."
       : hidden ? "Hidden in the 3D view. Click to show it."
                : "Showing. Click to hide it in the 3D view.";
     eye.setAttribute("aria-pressed", String(!hidden));
@@ -6306,6 +6342,32 @@ function menuTargets(entry) {
     ? state.picked.slice() : [entry.id];
 }
 
+//! ONLY THE TOPS OF A SELECTION, for anything that MOVES things.
+//!
+//! Shift-clicking two sets in the tree picks everything drawn between them,
+//! which includes what is inside the first one - that is what a range
+//! selection in a tree means and it is the right answer for hiding, deleting
+//! and duplicating, all of which are about every feature named.
+//!
+//! Moving is not like those. A child whose parent is also being moved is
+//! already going where its parent goes, and re-parenting it as well files it
+//! directly in the destination - so the set it came out of arrives empty and
+//! its contents arrive loose beside it. Two sets dragged into a third came out
+//! as one set and a pile, which is exactly the shape of that mistake.
+//!
+//! So a move asks for the roots: the members of the selection that do not have
+//! another member above them. Everything else follows, untouched, because
+//! nothing about it changed.
+function topOf(ids) {
+  const chosen = new Set(ids);
+  const insideAnother = id => {
+    for (let up = (feature(id) || {}).parent; up; up = (feature(up) || {}).parent)
+      if (chosen.has(up)) return true;
+    return false;
+  };
+  return ids.filter(id => !insideAnother(id));
+}
+
 function openMenu(event, entry) {
   const menu = document.getElementById("menu");
   menu.textContent = "";
@@ -6322,7 +6384,7 @@ function openMenu(event, entry) {
     const outputs = (entry.outputs || []).map(id => (feature(id) || {}).name || id);
     item("Inputs", inputs.length ? inputs.length + " from outside" : "nothing comes in",
          () => showBoundary(entry));
-    item(state.workingIn === entry.id ? "Stop working in it" : "Work in it",
+    item(state.workingIn === entry.id ? "Stop being the current set" : "Make current",
          state.workingIn === entry.id
            ? "new features go to the top level again"
            : "everything made from now on is filed here",
@@ -6345,7 +6407,11 @@ function openMenu(event, entry) {
   // is not one of these and does not already contain one of them.
   const containers = state.tree.features.filter(f => f.category === "container"
     && !many.includes(f.id) && !many.some(id => within(id, f.id)));
-  const filed = many.filter(id => (feature(id) || {}).parent);
+  //! THE ROOTS FIRST, THEN THE QUESTION. Asked the other way round - filter
+  //! the selection, then take the roots of what is left - a child whose parent
+  //! was filtered out reads as a root and gets moved on its own, straight out
+  //! of the set it was sitting in. See topOf.
+  const filed = topOf(many).filter(id => (feature(id) || {}).parent);
   if (filed.length)
     item("Take out" + (several ? " of their sets" : " of "
            + (feature(entry.parent) || {}).name), "to the top level",
@@ -6405,17 +6471,39 @@ function openMenu(event, entry) {
   placeMenu(event.clientX, event.clientY);
 }
 
+//! THE CURRENT SET, said in the bar along the bottom.
+//!
+//! It has to be somewhere that is always on screen, because it changes what
+//! every single thing you make does next, and a fact like that cannot live
+//! only in a menu you opened once. The tree marks it too - bold and underlined
+//! - but a tree can be scrolled away from and the bar cannot.
+function sayCurrentSet() {
+  const cell = document.getElementById("status-set");
+  if (!cell) return;
+  const entry = state.workingIn ? feature(state.workingIn) : null;
+  const rule = document.getElementById("status-set-sep");
+  cell.hidden = !entry;
+  if (rule) rule.hidden = !entry;
+  if (!entry) return;
+  cell.innerHTML = 'in <b>' + escapeHtml(entry.name) + "</b>";
+  cell.title = "New features are filed in " + entry.name
+    + ". Right-click another set to make that one current.";
+}
+
 //! DEFINE IN WORK OBJECT. Said once, and everything made afterwards goes
 //! there - which is the difference between a tree you tidy as you go and a
-//! tree you tidy on Friday.
+//! tree you tidy on Friday. ONE at a time, which is why this takes an id
+//! rather than adding to a list: "current" is a word that only means anything
+//! if there is one of them.
 function workIn(id) {
   state.workingIn = id && feature(id) ? id : null;
   remember("ocafcad/workingIn", state.workingIn || "");
   buildTree();
+  sayCurrentSet();
   say(state.workingIn
-    ? "working in " + (feature(state.workingIn) || {}).name
-      + " \u00b7 new features are filed there"
-    : "working at the top level again");
+    ? (feature(state.workingIn) || {}).name
+      + " is the current set \u00b7 new features are filed there"
+    : "no current set \u00b7 new features go to the top level");
 }
 
 //! WHAT A FEATURE'S NEIGHBOURS ARE, in tree order. Moving a row up means
@@ -6465,11 +6553,14 @@ function openSetMenu(event, entry, many, containers) {
   menuItem("\u2039 Back", "", () => openMenu(event, entry));
   menuRule();
   const part = (state.tree && state.tree.name) || "Part";
-  const loose = many.filter(id => (feature(id) || {}).parent);
+  //! The roots of the selection, worked out once. Everything below is a
+  //! question about where THESE go; what is inside them goes with them.
+  const roots = topOf(many);
+  const loose = roots.filter(id => (feature(id) || {}).parent);
   menuItem(part, "the whole document \u00b7 the top level",
     loose.length ? () => edit.many(loose.map(id => ({ op: "group", id }))) : null);
   for (const set of containers) {
-    const moving = many.filter(id => (feature(id) || {}).parent !== set.id);
+    const moving = roots.filter(id => (feature(id) || {}).parent !== set.id);
     const holds = (set.contents || []).length;
     menuItem(set.name,
       (set.type === "Body" ? "body" : "set") + " \u00b7 "
@@ -8577,6 +8668,7 @@ function select(id, openDefinition, keep = false) {
   document.getElementById("status-sel").innerHTML = entry
     ? "<b>" + escapeHtml(entry.name) + "</b> · " + entry.entry + " · " + entry.type
     : "click a body · double-click to edit it";
+  sayCurrentSet();
   buildTree(); buildPanel(); refreshToolbar(); paintSelection();
   refreshMeshEdit();
   // The widget belongs to whatever is selected, so it follows the selection -
@@ -8797,6 +8889,14 @@ async function usePageKernel() {
     pageKernel = await createWasmKernel({ initModule: replicadInit, instantiateWasm, onProgress: boot });
   }
   await attachKernel(pageKernel, STARTER);
+  //! A NEW PART OPENS WITH PART CURRENT. The four folders exist so there is
+  //! somewhere for everything to go; leaving none of them current would make
+  //! the first thing anybody draws land loose at the top level beside them,
+  //! which is the arrangement the folders were put there to avoid.
+  //!
+  //! Only when nothing is remembered and only when it is really this starter,
+  //! so opening a document of your own does not have a set chosen for you.
+  if (!state.workingIn && feature("PART")) workIn("PART");
 }
 
 async function useNativeKernel(base) {

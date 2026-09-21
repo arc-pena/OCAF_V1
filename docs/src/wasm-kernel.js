@@ -6219,6 +6219,15 @@ function sprawl(face, edges) {
       return { ok: true, tree: doc.treeJson(), report: null };
     },
 
+    //! Show a body that something else swallowed, or stop showing it. See
+    //! SHOWN_TAG: the rule is a default, and this is how it is overruled.
+    async setShown(id, on) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      doc.setPinnedShown(f, !!on);
+      return { ok: true, tree: doc.treeJson(), report: null };
+    },
+
     //! Where a feature sits in the tree. A view change, like the appearance:
     //! the rebuild order is the dependency graph and this is not it.
     async reorder(ids, target, after) {

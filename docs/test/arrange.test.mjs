@@ -187,5 +187,66 @@ console.log("\n4. a folder brings its contents");
         String((await tree()).filter(f => f.parent === folder).length));
 }
 
+console.log("\n5. moving several sets at once keeps them whole");
+{
+  //! THE BUG: two sets shift-selected in the tree and dropped into a third
+  //! came out as one set and a pile. Shift-clicking two rows picks everything
+  //! DRAWN BETWEEN them, which includes the contents of the first - the right
+  //! answer for hiding, deleting and duplicating, all of which are about every
+  //! feature named, and the wrong one for moving. A child whose parent is also
+  //! being moved is already going where its parent goes; re-parenting it too
+  //! files it straight into the destination, so the set it came out of arrives
+  //! empty and its contents arrive loose beside it.
+  await fresh();
+  const A = await add("GeometricalSet", { name: "Bay A" });
+  const B = await add("GeometricalSet", { name: "Bay B" });
+  const C = await add("GeometricalSet", { name: "Holder" });
+  const a1 = await add("Point", { name: "A one" });
+  const a2 = await add("Point", { name: "A two" });
+  const b1 = await add("Point", { name: "B one" });
+  await mdl.runAll([{ op: "group", id: a1, into: A }, { op: "group", id: a2, into: A },
+                    { op: "group", id: b1, into: B }]);
+  //! What a shift-selection from Bay A to Bay B actually contains.
+  const picked = [A, a1, a2, B];
+  //! topOf, as the interface computes it - the members with no other member
+  //! above them.
+  const here = await tree();
+  const parentOf = id => (here.find(f => f.id === id) || {}).parent || null;
+  const chosen = new Set(picked);
+  const roots = picked.filter(id => {
+    for (let up = parentOf(id); up; up = parentOf(up)) if (chosen.has(up)) return false;
+    return true;
+  });
+  check("the roots of that selection are the two sets",
+        roots.length === 2 && roots.includes(A) && roots.includes(B),
+        JSON.stringify(roots));
+  await mdl.runAll(roots.map(id => ({ op: "group", id, into: C })));
+  const after = await tree();
+  const childrenOf = id => after.filter(f => f.parent === id).map(f => f.id);
+  check("both sets are in the holder",
+        childrenOf(C).includes(A) && childrenOf(C).includes(B),
+        JSON.stringify(childrenOf(C)));
+  check("  and only the two sets, nothing loose beside them",
+        childrenOf(C).length === 2, childrenOf(C).length + " in the holder");
+  check("  Bay A still holds its two points",
+        childrenOf(A).length === 2, JSON.stringify(childrenOf(A)));
+  check("  Bay B still holds its one",
+        childrenOf(B).length === 1, JSON.stringify(childrenOf(B)));
+  //! And moving every picked id, which is what it used to do, is the failure
+  //! written down so it cannot come back quietly.
+  await fresh();
+  const D = await add("GeometricalSet", { name: "Bay" });
+  const E = await add("GeometricalSet", { name: "Holder" });
+  const one = await add("Point");
+  await mdl.run({ op: "group", id: one, into: D });
+  await mdl.runAll([{ op: "group", id: D, into: E }, { op: "group", id: one, into: E }]);
+  const flat = await tree();
+  check("moving a child as well as its parent is what emptied the set",
+        flat.filter(f => f.parent === D).length === 0
+        && flat.filter(f => f.parent === E).length === 2,
+        "Bay holds " + flat.filter(f => f.parent === D).length
+        + ", Holder holds " + flat.filter(f => f.parent === E).length);
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

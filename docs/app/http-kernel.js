@@ -50,6 +50,7 @@ export async function createHttpKernel(base) {
       return this.get("/api/tangent?id=" + encodeURIComponent(id) + "&at=" + at
         + "&angle=" + angle);
     },
+    setShown(id, on) { return this.post("/api/shown", { id, on }); },
     setPicks(id, key, picks, mode, angle) {
       return this.post("/api/picks", { id, key, picks, mode, angle });
     },

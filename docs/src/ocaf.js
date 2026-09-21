@@ -2790,6 +2790,22 @@ export const PARENT_TAG = 54;
 //! Absent means the default, which is `longest` and nothing grafted.
 export const SPREAD_TAG = 55;
 
+//! SOMEBODY SAID TO SHOW THIS ANYWAY.
+//!
+//! A body an operation swallowed leaves the 3D view: a fillet is the cube
+//! now, and drawing both of them puts the old corners through the new ones.
+//! That is the right DEFAULT and it was being enforced as a rule -
+//! updateVisibility ran after every regeneration and set every consumed source
+//! back to invisible, so turning one on again lasted until the next edit and
+//! there was no point offering the switch at all.
+//!
+//! This is the exception, stored on the feature so it survives the rebuild
+//! that would otherwise undo it, and saved with the model so it survives the
+//! file. Set when somebody turns a swallowed body back on - to look at what a
+//! fillet was made from, which is the whole reason the body is still in the
+//! tree.
+export const SHOWN_TAG = 56;
+
 //! WHICH ROW OF ITS LISTS A FEATURE IS BEING BUILT FOR.
 //!
 //! A number that arrived on a wire from a Series is not one number, it is
@@ -2895,6 +2911,15 @@ export const F = {
   id: f => (f && f.attr.TDataStd_AsciiString) || "",
   visible: f => f.attr.TDataStd_Integer !== 0,
   setVisible: (f, v) => { f.attr.TDataStd_Integer = v ? 1 : 0; },
+  //! Whether somebody has overruled the "consumed bodies leave the view" rule
+  //! for this one. See SHOWN_TAG.
+  pinnedShown(f) {
+    const label = f && f.findChild(SHOWN_TAG);
+    return !!(label && label.attr.TDataStd_Integer === 1);
+  },
+  setPinnedShown(f, on) {
+    f.findChild(SHOWN_TAG, true).attr.TDataStd_Integer = on ? 1 : 0;
+  },
   revision: f => {
     const label = f.findChild(REVISION_TAG);
     return label ? label.attr.TDataStd_Integer || 0 : 0;
@@ -3804,6 +3829,17 @@ export class Doc {
     return true;
   }
 
+  //! SHOW A BODY SOMETHING ELSE SWALLOWED, or stop. Sets the flag AND the
+  //! visibility, so the answer is right before the next regeneration rather
+  //! than after it - nothing here rebuilds, and waiting for an unrelated edit
+  //! to make the view agree is how a switch comes to look broken.
+  setPinnedShown(f, on) {
+    F.setPinnedShown(f, on);
+    if (on) F.setVisible(f, true);
+    else if (this.consumedBy(f)) F.setVisible(f, false);
+    return !!on;
+  }
+
   setAppearance(f, appearance) { F.setAppearance(f, appearance); }
 
   //! TOUCHED, unlike the appearance beside it. How a feature pairs up its
@@ -3928,7 +3964,14 @@ export class Doc {
     return report;
   }
 
-  //! A body consumed by an operation stays in the tree and leaves the 3D view.
+  //! A body consumed by an operation stays in the tree and leaves the 3D view
+  //! - unless somebody has said otherwise, which they are now allowed to do.
+  //!
+  //! This runs after every regeneration, so what it writes it writes again on
+  //! every edit. That is what made turning a swallowed body back on
+  //! impossible: the switch worked, and the next slider dragged anywhere in
+  //! the document put it back. The pin is checked here and nowhere else, which
+  //! is why one line is the whole of the fix.
   updateVisibility() {
     const features = this.features();
     for (const f of features) F.setVisible(f, true);
@@ -3936,7 +3979,8 @@ export class Doc {
       for (const arg of F.spec(f).args) {
         if (!arg.consumes) continue;
         const sources = arg.kind === "refs" ? F.references(f, arg.key) : [F.reference(f, arg.key)];
-        for (const source of sources) if (source) F.setVisible(source, false);
+        for (const source of sources)
+          if (source && !F.pinnedShown(source)) F.setVisible(source, false);
       }
   }
   consumedBy(f) {
@@ -4051,6 +4095,9 @@ export class Doc {
         //! because the panel offers the setting wherever an input COULD carry
         //! one - which is every real argument there is.
         entry.spread = F.spread(f);
+        //! Published so the eye can be drawn pressed on a body that is
+        //! showing despite having been swallowed.
+        if (F.pinnedShown(f)) entry.shownAnyway = true;
         if (F.error(f)) entry.error = F.error(f);
         if (F.note(f)) entry.note = F.note(f);
         if (consumer) entry.consumedBy = F.id(consumer);
@@ -4118,6 +4165,7 @@ export class Doc {
         //! Only where somebody chose something. A file full of
         //! "spread":{"match":"longest","graft":[],"flatten":[]} on every
         //! feature is a file nobody can read a diff of.
+        if (F.pinnedShown(f)) entry.shownAnyway = true;
         const spread = F.spread(f);
         const chosen = {};
         if (spread.match !== MATCHES[0]) chosen.match = spread.match;
@@ -4138,6 +4186,7 @@ export class Doc {
         F.setAppearance(f, entry.appearance);
       if (entry.spread && typeof entry.spread === "object")
         F.setSpread(f, entry.spread);
+      if (entry.shownAnyway) F.setPinnedShown(f, true);
     }
     for (const entry of model.features) {
       const f = doc.find(entry.id);

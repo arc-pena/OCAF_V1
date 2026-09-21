@@ -763,8 +763,13 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
    colour: enough to find at a glance in a tree of eighty rows, quiet enough
    not to compete with the selection, which is a different fact about a
    different thing. */
-#tree .node.working > .label { color: var(--accent); font-weight: 600; }
-#tree .node.working { box-shadow: inset 2px 0 0 var(--accent); }
+/* THE CURRENT SET: bold and underlined, which is what CATIA does and what
+   anybody who has used one will look for. Not a colour alone - colour is what
+   this tree already spends on selection and on error, and a third meaning for
+   it would make all three harder to read. */
+#tree .node.working > .label {
+  font-weight: 700; text-decoration: underline; text-underline-offset: 2px;
+}
 #tree .node.blackbox .glyph { opacity: 0.75; }
 #tree .node.blackbox .label { font-weight: 600; }
 #tree .kind.boxed {
@@ -825,8 +830,13 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
 .node .glyph { width: 14px; height: 14px; flex: none; color: var(--ink-2); }
 .node.datum .glyph { color: var(--datum); }
 .node .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.node.consumed .label, .node.consumed .glyph { opacity: .42; }
-.node.consumed .label { text-decoration: line-through; text-decoration-thickness: 1px; }
+/* NOT STRUCK THROUGH. A line through a name says the thing is gone, and a body
+   a fillet was made from is not gone - it is in the tree, it is editable, it is
+   what the fillet is made OF, and the only thing true of it is that it is not
+   being drawn. Which is what the eye beside it says, in the one place this
+   program says that about anything. Dimmed, because it is not what you are
+   looking at; legible, because you may be about to be. */
+.node.consumed .label, .node.consumed .glyph { opacity: .55; }
 .node.failed .label { color: var(--bad); }
 .node .kind { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
 /* ALWAYS THERE, BOTH WAYS ROUND. The eye used to be opacity:0 until the row
@@ -2326,6 +2336,12 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 <div class="float fades" id="status">
   <span id="status-sel">nothing selected</span>
+  <!-- WHICH SET IS CURRENT, in the one place that is always on screen. It
+       changes what every new feature does, and a fact like that cannot live
+       only in a menu somebody opened once. Absent rather than empty when
+       there is none, so the bar does not carry a gap saying nothing. -->
+  <div class="sep" id="status-set-sep" hidden></div>
+  <span id="status-set" hidden></span>
   <div class="sep"></div>
   <button id="btn-log" title="What the last regeneration did"><span id="status-regen">ready</span></button>
   <div class="sep"></div>

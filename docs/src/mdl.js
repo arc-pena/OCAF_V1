@@ -186,6 +186,15 @@ export const MDL_OPS = [
     { op: "appearance", id: "CB1", appearance: { finish: "brass" } },
     (ctx, edit) => ctx.kernel.setAppearance(needText(edit, "id"), edit.appearance || null)),
 
+  viewOp("shown", ["id", "on"],
+    "Show a body that an operation swallowed, or stop showing it. A body a fillet or a "
+    + "boolean consumed leaves the 3D view by default - drawing both puts the old "
+    + "corners through the new ones - and this is how that default is overruled, for "
+    + "looking at what something was made from. It is remembered on the feature and "
+    + "saved with the model, so the next rebuild does not undo it.",
+    { op: "shown", id: "CB1", on: true },
+    (ctx, edit) => ctx.kernel.setShown(needText(edit, "id"), edit.on !== false)),
+
   viewOp("reorder", ["ids", "before?", "after?"],
     "Move features up or down the tree, to sit just before or just after another one. "
     + "What the tree shows is the order the features were written in; this is how that "
