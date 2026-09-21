@@ -5754,6 +5754,22 @@ function treeNode(entry, keep = null, hit = null) {
   // A set carries its contents inside it. Nothing else about the node changes:
   // a set is a folder, not an operation, so what is in one is drawn, wired and
   // rebuilt exactly as it was before it was put away.
+  //! BLACK-BOXED, so the tree shows one row. Not folded - folded is a thing you
+  //! did to see less of, and reopens; this is a thing the COMPONENT is, it
+  //! saves with the model, and what is inside it is not the reader's business
+  //! until they white-box it again. CATIA draws the same distinction and for
+  //! the same reason: a user feature you can unfold by accident is not a user
+  //! feature, it is a folder.
+  if (entry.category === "container" && boxed(entry)) {
+    const badge = document.createElement("span");
+    badge.className = "kind boxed";
+    badge.textContent = (entry.contents || []).length + " inside";
+    badge.title = "Black-boxed. Right-click to white-box it and see the tree again.";
+    li.appendChild(badge);
+    li.classList.add("blackbox");
+    return li;
+  }
+
   if (entry.category === "container") {
     const all = state.tree.features.filter(f => f.parent === entry.id);
     const inside = keep ? all.filter(f => survives(f, keep)) : all;
@@ -6023,6 +6039,11 @@ function openMenu(event, entry) {
     const outputs = (entry.outputs || []).map(id => (feature(id) || {}).name || id);
     item("Inputs", inputs.length ? inputs.length + " from outside" : "nothing comes in",
          () => showBoundary(entry));
+    item(boxed(entry) ? "White box" : "Black box",
+         boxed(entry) ? "show what is inside it again"
+                      : "show it as one node, with its parameters",
+         () => edit({ op: "set", id: entry.id, key: "shell",
+                      value: boxed(entry) ? 0 : 1 }));
     if (outputs.length)
       item("Read by", outputs.length + " outside", () => {
         state.picked = entry.outputs.slice();
@@ -6188,6 +6209,68 @@ function within(setId, id) {
 //! because the node editor draws the same answer as ports on a collapsed node
 //! and two implementations of "how many inputs does this set have" would
 //! sooner or later disagree in a way nobody can debug from a screenshot.
+//! Shut or open. One reading of the argument, so the tree, the panel, the menu
+//! and the node editor cannot disagree about whether a set is a box.
+const boxed = entry => !!entry && entry.category === "container"
+  && entry.values && entry.values.shell === 1;
+
+//! EVERYTHING INSIDE A BOX THAT NOBODY IS DRIVING. A black box's panel is its
+//! parameters, and a parameter is a number or a choice on something inside it
+//! that no wire is already deciding - because one that IS wired is not a
+//! parameter, it is a consequence, and offering it would be offering to break
+//! the wire.
+//!
+//! Deep rather than one level: a component made of components is still one
+//! component to whoever placed it.
+function boxedValues(id) {
+  const rows = [];
+  const walk = parent => {
+    for (const one of state.tree.features) {
+      if (one.parent !== parent) continue;
+      const spec = schemaType(one.type);
+      if (spec) for (const arg of spec.args) {
+        if (arg.kind !== "real" && arg.kind !== "choice") continue;
+        if (!argApplies(one, arg)) continue;
+        if (one.driven && one.driven[arg.key]) continue;
+        rows.push({ holder: one, arg });
+      }
+      walk(one.id);
+    }
+  };
+  walk(id);
+  return rows;
+}
+
+function boxedFields(entry) {
+  const rows = boxedValues(entry.id);
+  const box = document.createElement("div");
+  box.className = "def-section";
+  const head = document.createElement("div");
+  head.className = "field-head";
+  head.innerHTML = "<label>Parameters</label><span class=\"kind\">"
+    + (rows.length ? rows.length + (rows.length === 1 ? " value" : " values")
+                   : "nothing left to set") + "</span>";
+  box.appendChild(head);
+
+  for (const { holder, arg } of rows) {
+    const field = arg.kind === "real" ? realField(holder, arg) : choiceField(holder, arg);
+    //! Named by what holds it, because "Height" three times over says nothing
+    //! and "Column · Height" says which column - and is also how a generator's
+    //! plan spells an override, so the panel doubles as the reference for one.
+    const label = field.querySelector("label");
+    if (label) label.textContent = holder.name + " \u00b7 " + arg.label;
+    //! One id per field, not one per argument key. Three circles inside a box
+    //! all have a "radius", and three elements with the same id means a label
+    //! that focuses the wrong one - which reads as a field that will not take
+    //! a click.
+    const unique = "b-" + holder.id + "-" + arg.key;
+    const input = field.querySelector("input, select");
+    if (input && label) { input.id = unique; label.setAttribute("for", unique); }
+    box.appendChild(field);
+  }
+  return box;
+}
+
 function setInputs(id) {
   const entry = feature(id);
   return setInputGroups(state.tree.features, id, {
@@ -6376,6 +6459,9 @@ function buildPanel() {
   // arguments, which for a plain geometrical set is none of them - so for the
   // usual set this IS the panel, which is the point.
   if (entry.category === "container") host.appendChild(setInputFields(entry));
+  // Shut, its own panel IS the component's: what it takes from outside, then
+  // every value inside it that is still free to set.
+  if (boxed(entry)) host.appendChild(boxedFields(entry));
 
   // What the feature computed, as opposed to what it built. A Panel is nothing
   // but this; a DivideCurve has it as well as geometry.

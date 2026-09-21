@@ -1405,6 +1405,36 @@ export const HEYDAR = `({
   }
 })`;
 
+//! What a new Generator starts as: the power-copy. It reads a list of points
+//! off whatever is wired into it, makes one copy of a named set per point, and
+//! wires each copy's declared input to a point of its own. Change the list and
+//! the number of copies changes with it - that is the whole feature, and it is
+//! twelve lines.
+export const POWER_COPY = `({
+  params: [
+    { key: "rise", label: "Rise per copy", def: 0, min: -2000, max: 2000, step: 10 },
+  ],
+
+  plan(p, doc) {
+    // Everything that can be made, system nodes and user sets alike:
+    //   doc.nodes().map(n => n.name + " (" + n.kind + ")")
+    const set = doc.nodes().find(n => n.kind === "user");
+    if (!set) return [];
+    const where = doc.declared(set.name)[0];        // its first declared input
+
+    const out = [];
+    doc.points().forEach((at, i) => {
+      out.push({ key: "at" + i, type: "Point",
+                 name: "Station " + (i + 1),
+                 set: { x: at[0], y: at[1], z: at[2] + i * p.rise } });
+      out.push({ key: "of" + i, type: set.name,
+                 name: set.name + "." + (i + 1),
+                 inputs: where ? { [where]: "@at" + i } : {} });
+    });
+    return out;
+  }
+})`;
+
 export const SPIRAL_STAIR = `({
   params: [
     { key: "steps",            label: "Steps",             def: 13,  min: 3,   max: 40,   step: 1, unit: "" },
@@ -1571,6 +1601,17 @@ export const ARG = { real, ref, spare, refs, choice, text, code, blob, edits, su
 //!
 //! Empty on a set that was built by hand, because nothing has been cut and the
 //! live answer is the whole answer.
+//! OPEN OR SHUT. A container that is shut shows in the tree as one row with no
+//! contents and offers, in its panel, the inputs it takes and every value
+//! inside it that nothing is driving - which is what a user-defined feature is.
+//! Right-click white-boxes it again and the tree is back.
+//!
+//! It is an ARGUMENT rather than a view setting because it belongs to the
+//! model: somebody who builds a component and black-boxes it is saying what
+//! the component IS, and that has to survive being saved and sent on.
+const blackBox = () =>
+  choice("shell", "Shown as", ["Open", "Black box"], 0);
+
 const declaredInputs = () =>
   text("inputs", "Declared inputs", "",
        "the set's own argument list, as JSON - written when a set is "
@@ -2359,18 +2400,45 @@ export const CATALOGUE = [
     args: [blob("obj", "Geometry", "OBJ"), text("source", "From", "", "the file it came from"),
            choice("smooth", "Shading", ["Faceted", "Smooth"], 0)] },
 
+  //! A FEATURE THAT WRITES FEATURES. Its code returns a list of nodes that
+  //! should exist, not a shape; the reconciler makes the difference between
+  //! that list and what is already filed under it. A container, because what
+  //! it makes belongs to it - deleting it takes them, and black-boxing it
+  //! shows the lot as one node.
+  { type: "Generator", guid: "9a1b2c30-00a2-4c00-9e00-caf0000000a2",
+    category: "container", produces: "text",
+    summary: "A script that writes the model. It returns a list of nodes - system "
+           + "types and sets somebody built, asked for the same way - and the number "
+           + "of them follows whatever list is wired in, so feeding it more points "
+           + "makes more copies and feeding it fewer removes the extras.",
+    //! "reads" and not "inputs": declaredInputs() already owns that key, and
+    //! two arguments with one key is not a clash anybody sees - the model file
+    //! simply carries whichever was written last, and the plan reads an empty
+    //! list and makes nothing. Found that way, too.
+    args: [code("plan", "Plan", POWER_COPY),
+           //! guess: false. Every other list input is worth auto-wiring to
+           //! whatever was selected; this one is not. A generator wired by
+           //! accident to the first datum in the document reads a point where
+           //! a list was meant and makes nothing, silently - which is exactly
+           //! how the first one behaved.
+           { ...refs("reads", "Reads", KINDS.slice()), guess: false },
+           text("made", "What it made", "",
+                "which node answers which key - bookkeeping, not for editing"),
+           choice("live", "Rebuild", ["On every change", "Paused"], 0),
+           blackBox()] },
   { type: "GeometricalSet", guid: "9a1b2c30-00a0-4c00-9e00-caf0000000a0",
     category: "container", produces: "text",
     summary: "A folder for wireframe and surfaces - points, lines, planes, curves, "
-           + "skins. Right-click it for what feeds it from outside. Deleting it keeps "
-           + "everything in it and hands it back to whatever the set was in.",
-    args: [declaredInputs()] },
+           + "skins. Right-click it for what feeds it from outside, or to black-box "
+           + "it so it reads as one node. Deleting it keeps everything in it and "
+           + "hands it back to whatever the set was in.",
+    args: [declaredInputs(), blackBox()] },
   { type: "Body", guid: "9a1b2c30-00a1-4c00-9e00-caf0000000a1",
     category: "container", produces: "text",
     summary: "A folder for solids - the bodies you add to and remove from. Same as a "
            + "geometrical set in every way but what belongs in it, which is the "
            + "distinction the two factories draw.",
-    args: [declaredInputs()] },
+    args: [declaredInputs(), blackBox()] },
 
   /* --------------------------------------------------------- operations */
   { type: "Extrude", guid: "9a1b2c30-0070-4c00-9e00-caf000000070", category: "operation",
@@ -2739,6 +2807,13 @@ export function unregisterTypes(specs) {
 registerTypes(CATALOGUE.slice());
 
 export const typeSpec = type => byType.get(type) || null;
+
+//! EVERY TYPE THERE IS, right now - the catalogue plus whatever a loaded
+//! package added. The static CATALOGUE is not the answer to that question and
+//! anything that asks it by importing CATALOGUE is wrong the moment a package
+//! is on: a generator's plan has to be able to ask for a node a package
+//! brought, the same way it asks for a Circle.
+export const registeredTypes = () => [...byType.values()];
 const argIndex = (spec, key) => spec.args.findIndex(a => a.key === key);
 
 /* ------------------------------------------------------------- TDF labels */

@@ -743,6 +743,13 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
   font-size: calc(11px * var(--tree-text, 1));
 }
 #tree .kind { font-size: calc(9.5px * var(--tree-text, 1)); }
+/* A black-boxed set: one row, no twist, and a count where the branch was. */
+#tree .node.blackbox .glyph { opacity: 0.75; }
+#tree .node.blackbox .label { font-weight: 600; }
+#tree .kind.boxed {
+  padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--ink-3);
+}
 #tree .node .glyph { width: calc(14px * var(--tree-text, 1));
                      height: calc(14px * var(--tree-text, 1)); }
 .tree-zoom { display: flex; align-items: center; gap: 1px; }

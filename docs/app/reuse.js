@@ -276,7 +276,14 @@ export function instantiateEdits(model, setId, { taken = new Set(),
     edits.push({ op: "code", id: setId2, key: "inputs",
                  text: JSON.stringify({ version: 1, inputs: groups }) });
 
-  return { edits, id: setId2, name: setName, inputs: dropped, groups,
+  //! What each member was CALLED before it was copied, by its old id. A plan
+  //! that overrides a value inside a copy names the member the way the panel
+  //! spells it - "Column height · value" - and this is what turns that name
+  //! back into the feature the copy actually made.
+  const namesWas = {};
+  for (const entry of [set, ...members]) namesWas[entry.id] = entry.name || entry.id;
+
+  return { edits, id: setId2, name: setName, inputs: dropped, groups, namesWas,
            renamed: Object.fromEntries(renamed) };
 }
 

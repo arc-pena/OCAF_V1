@@ -22,8 +22,11 @@
 // one bad radius never takes the model, or the page, down with it.
 
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshCreases,
-         meshFaces, meshSharpness, parseNumbers, schemaJson,
+         meshFaces, meshSharpness, parseNumbers, registeredTypes, schemaJson,
          typeSpec } from "./ocaf.js";
+import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
+         saysPlan, writeMade } from "./generate.js";
+import { freshId, freshName, instantiateEdits } from "./reuse.js";
 import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
 import { edgeAnchor, faceAnchor, readPicks, resolvePicks,
@@ -5320,6 +5323,233 @@ function sprawl(face, edges) {
   };
   builders.Body = builders.GeometricalSet;
 
+  /* --------------------------------------------------------- generators
+
+     A feature whose output is other features.
+
+     The driver itself builds nothing: it compiles the plan, reconciles its own
+     parameters, and says what it made last time. The making happens in
+     settle() below, AFTER the whole tree has computed - because a plan reads
+     what its inputs COMPUTED, and until the solver has run there is nothing to
+     read. Running it as part of the solve would mean a plan that reads a point
+     list drawn by a curve it also made, which is the kind of loop that only
+     ever ends one way.                                                       */
+
+  builders.Generator = {
+    precondition: f => {
+      const source = F.code(f, "plan", "");
+      if (!source.trim()) return "there is no plan to run";
+      try {
+        const { params } = compilePlan(source);
+        F.syncParams(f, params);
+      } catch (err) { return err.message; }
+      return null;
+    },
+    build: f => {
+      const inside = doc.within(f);
+      const made = readMade(F.text(f, "made", ""));
+      const keys = Object.keys(made).length;
+      const paused = Feature_choice(f, "live") === 1;
+      return { data: text([
+        saysPlan({ added: 0, removed: 0, kept: keys, total: inside.length }),
+        keys && keys !== inside.length
+          ? keys + " keyed, " + inside.length + " in the tree" : "",
+        paused ? "paused - it will not rebuild until this is set back" : "",
+      ].filter(Boolean)) };
+    },
+  };
+
+  //! ONE PLAN, RUN. Everything a plan needs to read is read off the document
+  //! that has just finished computing, so the numbers it sees are the numbers
+  //! on screen.
+  function runPlan(f) {
+    const { module, params } = compilePlan(F.code(f, "plan", ""));
+    const stored = F.paramValues(f);
+    const values = {};
+    for (const spec of params) values[spec.key] = clampTo(spec, stored[spec.key] ?? spec.def);
+
+    const model = doc.modelJson();
+    const api = planDoc(model, {
+      here: F.id(f),
+      catalogue: registeredTypes(),
+      //! What a feature COMPUTED, by id - which is what a generator is driven
+      //! by and is not in the model file, because the model file is the
+      //! question and this is the answer.
+      data: id => { const other = doc.find(id); return other ? F.data(other) : null; },
+    });
+    const plan = readPlan(module.plan(values, api),
+                          (want, forced) => api.resolve(want, forced));
+
+    const taken = new Set(doc.features().map(F.id));
+    const takenNames = new Set(doc.features().map(F.name));
+    const mint = () => {
+      const id = freshId("GN", taken);
+      taken.add(id);
+      return id;
+    };
+    return reconcile({
+      plan,
+      made: readMade(F.text(f, "made", "")),
+      owner: F.id(f),
+      mint,
+      rename: key => freshName(F.name(f) + "." + key, takenNames),
+      instantiate: (setId, name) => {
+        const got = instantiateEdits(model, setId, { taken, takenNames,
+                                                     spec: typeSpec, name });
+        //! EVERY ID IT MINTED, RESERVED. instantiateEdits works on a COPY of
+        //! the taken set, so it cannot know about a second call - and a plan
+        //! that copies one set three times calls it three times. Without this
+        //! the second copy mints the same ids as the first and the apply stops
+        //! on "duplicate feature id", halfway through.
+        taken.add(got.id);
+        for (const now of Object.values(got.renamed)) taken.add(now);
+        //! And every NAME, for the same reason. instantiateEdits picks fresh
+        //! names out of a copy of the set it was handed, so three copies in one
+        //! plan each name their members ".2" and the tree fills with features
+        //! that cannot be told apart by reading it.
+        takenNames.add(got.name);
+        for (const edit of got.edits) if (edit.op === "add" && edit.name) takenNames.add(edit.name);
+        return got;
+      },
+    });
+  }
+
+  //! A GENERATED NODE AND EVERYTHING UNDER IT.
+  //!
+  //! doc.deleteFeature DISSOLVES a container that has contents - it keeps what
+  //! is in it and hands it up to whatever the set was in, which is what you
+  //! want when a person deletes a folder they made and emphatically not what
+  //! you want when a list shrinks by one. Dissolving a copy tipped fourteen
+  //! members out into the generator, where nothing knew about them and nothing
+  //! ever collected them, so a list going five to one left the tree bigger
+  //! than it started.
+  //!
+  //! Leaves first, and then whatever is left with nothing reading it - because
+  //! members of a copy read each other, and deleteFeature refuses while
+  //! anything still does.
+  //! ALL OF THEM AT ONCE, and that is not an optimisation.
+  //!
+  //! A plan that shrinks from five copies to one deletes four points and four
+  //! sets, and each point is read by the set beside it. Deleted one at a time
+  //! in the order the plan happens to list them, the first delete fails -
+  //! something still reads it - and the whole batch is refused, so the list
+  //! shrinks on screen and the model does not. Taken together they peel: at
+  //! every round, whatever nothing OUTSIDE the doomed set still reads comes
+  //! out, until none is left.
+  function deleteMany(features) {
+    const doomed = [];
+    const walk = one => {
+      if (doomed.includes(one)) return;
+      doomed.push(one);
+      for (const child of doc.contents(one)) walk(child);
+    };
+    for (const f of features) walk(f);
+    const left = new Set(doomed);
+    for (let guard = doomed.length + 1; guard > 0 && left.size; guard--) {
+      let went = false;
+      for (const one of [...left]) {
+        if (doc.dependents(one).some(other => !left.has(other))) continue;
+        if (doc.contents(one).some(child => left.has(child))) continue;
+        try { doc.deleteFeature(one); left.delete(one); went = true; }
+        catch (err) { /* something still reads it; try again next round */ }
+      }
+      if (!went) break;
+    }
+    if (left.size)
+      throw new Error([...left].map(F.name).slice(0, 3).join(", ")
+        + (left.size > 3 ? " and " + (left.size - 3) + " more" : "")
+        + " could not be removed - something outside still reads from them");
+  }
+
+  //! THE EDIT VOCABULARY, APPLIED TO THE DOCUMENT DIRECTLY. The same ops the
+  //! interface sends, because a generator is not a second way of changing a
+  //! model - it is the same way, written by a script instead of by a hand.
+  function applyEdits(edits) {
+    // Deletes first and together: see deleteMany. Then everything else, in the
+    // order the plan wrote it, because an add has to precede the wire onto it.
+    const doomed = edits.filter(one => one.op === "delete")
+                        .map(one => doc.find(one.id)).filter(Boolean);
+    if (doomed.length) deleteMany(doomed);
+
+    for (const edit of edits) {
+      if (edit.op === "delete") continue;
+      const f = edit.id ? doc.find(edit.id) : null;
+      switch (edit.op) {
+        case "add": doc.addFeature(edit.type, edit.id, edit.name); break;
+        case "rename": if (f) f.attr.TDataStd_Name = edit.name; break;
+        case "group": if (f) doc.setParent(f, edit.into ? doc.find(edit.into) : null); break;
+        case "set": if (f) doc.setParameter(f, edit.key, edit.value); break;
+        case "code": if (f) doc.setCode(f, edit.key, edit.text); break;
+        case "sketch": if (f) doc.setSketch(f, "drawing", edit.drawing); break;
+        case "pick": if (f) F.setPicks(f, edit.key, edit.picks); break;
+        case "appearance": if (f) doc.setAppearance(f, edit.appearance); break;
+        case "vertex": if (f) F.moveVertex(f, "edits", edit.index,
+                                           [edit.x, edit.y, edit.z]); break;
+        case "connect": {
+          const to = doc.find(edit.from);
+          if (f && to) doc.setReference(f, edit.key, to);
+          break;
+        }
+        default: break;
+      }
+    }
+  }
+
+  //! REGENERATE, THEN LET THE GENERATORS CATCH UP, THEN REGENERATE AGAIN.
+  //!
+  //! A plan that has not changed emits no edits, so the usual case is one
+  //! extra pass that does nothing and costs a JSON walk. A plan whose input
+  //! list grew emits one add and the second pass builds it. A chain of
+  //! generators takes one pass per link, which is what the ceiling counts.
+  //!
+  //! The ceiling is not a performance guard, it is a loop guard: a plan that
+  //! reads something downstream of itself never settles, and the difference
+  //! between saying so and hanging the page is this loop.
+  function settle(all = false) {
+    let report = doc.recompute(all);
+    for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
+      let worked = false;
+      for (const f of doc.features()) {
+        if (!F.spec(f) || F.spec(f).type !== "Generator") continue;
+        if (F.error(f) || Feature_choice(f, "live") === 1) continue;
+        let got;
+        try { got = runPlan(f); }
+        catch (err) { F.setError(f, kernelMessage(err)); continue; }
+        if (!got.edits.length) continue;
+        //! A HALF-APPLIED PLAN IS WORSE THAN A REFUSED ONE. The edits are
+        //! applied in order and one of them can still fail - a wire to
+        //! something that turned out not to be there, an id that collided -
+        //! and what is left then is a partial copy that the NEXT pass does not
+        //! know about, so it makes another. Three passes of that and the tree
+        //! has three half-columns in it, which is what this loop did before the
+        //! rollback existed. So what this batch created is taken back out.
+        try { applyEdits(got.edits); }
+        catch (err) {
+          for (const edit of got.edits)
+            if (edit.op === "add") {
+              const stray = doc.find(edit.id);
+              if (stray) { try { doc.deleteFeature(stray); } catch (e) { /* gone already */ } }
+            }
+          F.setError(f, "the plan could not be applied: " + kernelMessage(err));
+          continue;
+        }
+        doc.setCode(f, "made", writeMade(got.made));
+        worked = true;
+      }
+      if (!worked) return report;
+      report = doc.recompute(false);
+    }
+    //! Said on the generators rather than thrown, because the model is still
+    //! there and still drawable - it is just one pass behind whatever it is
+    //! chasing.
+    for (const f of doc.features())
+      if (F.spec(f) && F.spec(f).type === "Generator" && !F.error(f))
+        F.setNote(f, "it did not settle in " + RECONCILE_PASSES
+          + " passes - something it makes is feeding something it reads");
+    return report;
+  }
+
+
   /* ---------------------------------------------------------- imported
 
      Two drivers, and neither builds anything. What they hold IS the geometry -
@@ -5689,14 +5919,14 @@ function sprawl(face, edges) {
         if (shape) release(shape);
       }
       doc = replacement;
-      return state(doc.recompute(true));
+      return state(settle(true));
     },
 
     async setParameter(id, key, value) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setParameter(f, key, value);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! Editing a script is an edit of the document, undone and redone and saved
@@ -5712,7 +5942,7 @@ function sprawl(face, edges) {
       const zero = !offset || offset.every(v => Math.abs(v) < 1e-9);
       F.moveVertex(f, arg.key, index, zero ? null : offset);
       doc.log.touch(F.argLabel(f, arg.key, true));
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! THE CAGE A FEATURE PRODUCED, in full - points, n-gon faces and the
@@ -5776,7 +6006,7 @@ function sprawl(face, edges) {
       if (!arg) throw new Error(F.name(f) + " has no picked sub-shapes called '" + key + "'");
       F.setPicks(f, key, Array.isArray(picks) ? picks : []);
       doc.log.touch(F.argLabel(f, key, true));
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! THE EDIT LIST, WRITTEN. One call, one list, one undo step - the editor
@@ -5796,14 +6026,14 @@ function sprawl(face, edges) {
             + '" is not a mesh operation this knows');
       F.setText(f, "ops", JSON.stringify(list));
       doc.log.touch(F.argLabel(f, "ops", true));
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     async setCode(id, key, text) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setCode(f, key, text);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! The drawing on a sketch. One string in, the whole sketch and everything
@@ -5815,7 +6045,7 @@ function sprawl(face, edges) {
       const arg = key || (F.spec(f).args.find(a => a.kind === "sketch") || {}).key;
       if (!arg) throw new Error(F.name(f) + " has nothing to draw on");
       doc.setSketch(f, arg, drawing);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! Wiring. An input that takes one wire is set; an input that takes several
@@ -5825,7 +6055,7 @@ function sprawl(face, edges) {
       if (!f) throw new Error("no feature '" + id + "'");
       if (remove || !target) doc.clearReference(f, key, target ? doc.find(target) : null);
       else doc.setReference(f, key, doc.find(target), only);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     async addFeature(type, refs = {}, id = null) {
@@ -5847,7 +6077,7 @@ function sprawl(face, edges) {
         doc.deleteFeature(f);
         throw err;
       }
-      return { ...state(doc.recompute(false)), id: F.id(f) };
+      return { ...state(settle(false)), id: F.id(f) };
     },
 
     //! File a feature under a set, or at the top level when `into` is null.
@@ -5859,7 +6089,7 @@ function sprawl(face, edges) {
       const holder = into ? doc.find(into) : null;
       if (into && !holder) throw new Error("no set '" + into + "'");
       doc.setParent(f, holder);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     //! Everything feeding a set's contents from outside it. Published rather
@@ -5878,7 +6108,7 @@ function sprawl(face, edges) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       doc.deleteFeature(f);
-      return state(doc.recompute(false));
+      return state(settle(false));
     },
 
     async rename(id, name) {
@@ -6117,7 +6347,7 @@ function sprawl(face, edges) {
         for (const f of made) doc.setParent(f, holder);
       }
 
-      return { ...state(doc.recompute(false)), note,
+      return { ...state(settle(false)), note,
                created: made.map(F.id), set: holder ? F.id(holder) : null };
     },
 
