@@ -92,8 +92,20 @@ export async function defaultRefs(ctx, type) {
     // Guessing one would quietly override what was typed.
     if (arg.guess === false) continue;
     const accepts = arg.accepts;
-    let target = (arg.consumes && selected && acceptsFrom(accepts, selected) && !selected.consumedBy)
-      ? selected : null;
+    //! WHAT IS SELECTED WINS, for any input it fits - not only for the one
+    //! that swallows it.
+    //!
+    //! This used to prefer the selection only on a CONSUMING argument, so a
+    //! fillet took the body you had chosen and a sketch did not take the plane
+    //! you had chosen: it took the first plane in the document, which in a
+    //! part that opens on its origin is always XY. Select a face's plane, add
+    //! a sketch, get one on XY - and then wire it by hand, which is the step
+    //! every other modeller removed twenty years ago.
+    //!
+    //! "The thing I just clicked is what I mean" is the rule every CAD system
+    //! has, and there is no reason for it to stop at one kind of argument.
+    let target = (selected && acceptsFrom(accepts, selected)
+                  && !(arg.consumes && selected.consumedBy)) ? selected : null;
     // Never pick a body another operation has already swallowed.
     if (!target)
       target = features.find(f => acceptsFrom(accepts, f) && !(arg.consumes && f.consumedBy)) || null;
@@ -742,6 +754,9 @@ export class Mdl {
     this.restoring = false;
     // What the document said when a hand went down, held until it comes up.
     this.gesturing = null;
+    // Whether the kernel is currently allowed to answer approximately. See
+    // draft: it is a note about the hand, not about the model.
+    this.drafting = false;
     this.ctx.undo = () => this.step(this.past, this.future);
     this.ctx.redo = () => this.step(this.future, this.past);
     // Told whenever the stacks move, which is not the same as an edit running:
@@ -847,6 +862,27 @@ export class Mdl {
       this.announce(record);
       throw err;
     }
+  }
+
+  //! WHETHER THE KERNEL MAY ANSWER APPROXIMATELY, because a hand is still on
+  //! a slider.
+  //!
+  //! Not an edit, and deliberately not in the language above: nothing about
+  //! the model changes, so there is nothing to record, nothing to undo and
+  //! nothing to write to a file. It is the same kind of note as \p hint - a
+  //! statement about the person, not about the document.
+  //!
+  //! \p resettle says whether turning it off should rebuild what was drafted
+  //! there and then. It should not when an edit is about to follow, because
+  //! that edit rebuilds anyway and doing both builds the model twice.
+  async draft(on, resettle = true) {
+    const kernel = this.ctx.kernel;
+    if (!kernel || !kernel.setDraft) return null;
+    if (this.drafting === !!on) return null;
+    this.drafting = !!on;
+    const payload = await kernel.setDraft(!!on, resettle);
+    if (payload && payload.tree && this.ctx.apply) this.ctx.apply(payload, { keepPanel: true });
+    return payload;
   }
 
   //! A GESTURE: many edits over time that are one thing that happened.

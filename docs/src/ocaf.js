@@ -2540,7 +2540,15 @@ export const CATALOGUE = [
     //! parallel curve read its support as its distance.
     args: [ref("curve", "Curve", ["curve"], true),
            real("distance", "Distance", 100, -4000, 4000, 1),
-           ref("support", "Support", ["solid", "plane"]),
+           //! NEVER GUESSED AT. A support is what a curve lying on a SURFACE
+           //! needs - a rail up a cylinder, a setback on a roof - and a flat
+           //! curve needs nothing at all. Auto-wiring one meant a polyline
+           //! drawn on a sketch arrived with a plane in its Support and took
+           //! the in-surface road, which is the sampled one and which refuses
+           //! outright when the curve is not exactly on the thing it was
+           //! handed. "It only works if no support is set" was the report,
+           //! and it was right: the support was never the person's doing.
+           spare("support", "Support", ["solid", "plane"]),
            //! SHARP BY DEFAULT, and it is a considered change from rounded.
            //! A centreline offset to its setbacks, checked against the same
            //! drawing made in other software: seven offsets at +/-100 to
@@ -2854,6 +2862,29 @@ export const SHOWN_TAG = 56;
 //! touch it.
 let rowPick = null;
 export function spreadRow(row) { const was = rowPick; rowPick = row; return was; }
+
+//! WHETHER A BUILD IS ALLOWED TO BE APPROXIMATE, because a hand is still on
+//! the slider.
+//!
+//! One node in a model can be slower than all the rest put together - the
+//! intersection of a solid by twenty-three extruded offsets is four and a
+//! half seconds of OpenCascade's general numeric intersector - and dragging a
+//! number through it means asking for that once a frame. The answer is not to
+//! make the exact road faster, because the exact road is already doing the
+//! only thing it can. It is to have a second road, taken only while the
+//! number is moving, and to take the first one the moment it stops.
+//!
+//! A driver opts in by declaring `draft`, and reads this to know which road it
+//! is on. Nothing else changes: the feature builds, produces a shape, and the
+//! tree, the viewer and everything downstream are none the wiser. The only
+//! thing that knows is the document, which remembers WHICH features were
+//! built the cheap way so it can build them again for real - see
+//! Doc.recompute. That is what makes the switch safe: a draft can never be
+//! mistaken for the answer, because the answer is always computed before
+//! anybody stops looking.
+let draftPass = false;
+export function setDrafting(on) { draftPass = !!on; }
+export function drafting() { return draftPass; }
 
 const byType = new Map();
 const byGuid = new Map();
@@ -3403,7 +3434,7 @@ export function spreadRows(lists, match = MATCHES[0]) {
 }
 
 export class Driver {
-  constructor(spec, { precondition, build, release, describeError, ownLists, compound }) {
+  constructor(spec, { precondition, build, release, describeError, ownLists, compound, draft }) {
     this.spec = spec;
     this.precondition = precondition || (() => null);
     this.build = build;
@@ -3420,6 +3451,11 @@ export class Driver {
     //! Gathering several shapes into one belongs to the kernel, which is the
     //! only thing here that knows what a shape is.
     this.compound = compound || null;
+    //! THIS DRIVER HAS A CHEAP ROAD AND KNOWS WHEN IT IS ON IT. Declared by
+    //! the handful of drivers that can cost seconds; read by the document, so
+    //! that whatever was built cheaply is built again the moment it is allowed
+    //! to be slow. See setDrafting.
+    this.draft = !!draft;
   }
 
   //! WHICH OF THIS FEATURE'S NUMBERS ARRIVED AS LISTS, and how long each is.
@@ -3622,6 +3658,9 @@ export class Doc {
     this.main.attr.TDataStd_AsciiString = units;
     this.featuresRoot = this.main.findChild(1, true);
     this.log = new Logbook();
+    //! The features whose last build was a draft - approximate, because a hand
+    //! was on a slider at the time. Emptied as they are built again for real.
+    this.drafted = new Set();
     this.title = title;
     this.units = units;
   }
@@ -4017,6 +4056,14 @@ export class Doc {
   recompute(all = false) {
     const report = { functions: 0, executed: [], skipped: [], failed: [] };
     if (all) for (const f of this.features()) this.log.touch(f);
+    //! ANYTHING BUILT THE CHEAP WAY IS BUILT AGAIN. A draft is only ever a
+    //! picture held while a number is moving; when it stops, the feature is
+    //! stale by definition, whatever the logbook thinks - nothing about its
+    //! arguments changed, only what it is now allowed to cost. Without this
+    //! line the approximation would simply stay there, which is the one way a
+    //! preview can do real harm.
+    if (!draftPass && this.drafted.size)
+      for (const f of this.features()) if (this.drafted.has(F.id(f))) this.log.touch(f);
     // A set's summary is about the wiring around it, not about arguments it
     // does not have, so nothing else would ever mark it stale. It costs a
     // string to rebuild; it is rebuilt every pass.
@@ -4029,8 +4076,10 @@ export class Doc {
       const entry = () => ({ id: F.id(f), name: F.name(f), revision: F.revision(f) });
 
       if (!driver.mustExecute(f, this.log)) { report.skipped.push(entry()); continue; }
+      const drafted = draftPass && !!driver.draft;
       if (driver.execute(f, this.log) === 0) report.executed.push(entry());
       else report.failed.push({ ...entry(), message: F.error(f) });
+      if (drafted) this.drafted.add(F.id(f)); else this.drafted.delete(F.id(f));
     }
     this.log.clear();
     this.updateVisibility();
@@ -4154,6 +4203,13 @@ export class Doc {
           // to lock the camera and to turn a click back into two numbers.
           const frame = F.frame(f);
           if (frame) entry.sketch.frame = frame;
+        }
+        //! AND A PLANE'S FRAME, published like a sketch's. The viewport needs
+        //! an origin and two directions to turn a click on a plane into a
+        //! place on it, and a drawn square is not those.
+        if (spec.produces === "plane") {
+          const frame = F.frame(f);
+          if (frame) entry.frame = frame;
         }
         const source = spec.args.find(a => a.kind === "code");
         if (source) {

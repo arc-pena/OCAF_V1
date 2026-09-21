@@ -66,6 +66,9 @@ STAGE_FILE = "build/playcanvas.min.js"
 # The site build copies the same files and lets the browser resolve the imports,
 # so this order is only the order they are stapled together in.
 MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
+           # draft reads factory's vector arithmetic and nothing else; the
+           # kernel reads draft.
+           "draft.js",
            "ocaf.js", "polymesh.js", "subshape.js",
            # handle, gizmo and camera come before the kernel: the kernel's own
            # drivers read from them - a camera's frustum is the same arithmetic

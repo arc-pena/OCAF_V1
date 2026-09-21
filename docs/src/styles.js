@@ -47,6 +47,37 @@ export const FINISHES = [
 
 export const findFinish = key => FINISHES.find(f => f.key === key) || FINISHES[0];
 
+//! HOW A POINT IS DRAWN.
+//!
+//! A point has no triangles and no edges, so it is drawn as a MARK - and a
+//! mark is a choice, the way a line weight is. A construction point wants to
+//! be a small cross that stays out of the way; a point somebody is about to
+//! grab wants to be a filled dot; a point standing for a fixing wants to be a
+//! ring you can see the model through. Every drafting program has had this
+//! list since before there were screens to draw it on, and it is the same
+//! list because it is the right one.
+//!
+//! The key is what is stored on the feature, so it survives the file and does
+//! not depend on the order of this array.
+export const POINT_MARKS = [
+  { key: "dot",    label: "Dot",    summary: "a filled disc - the default, and the easiest to hit" },
+  { key: "square", label: "Square", summary: "a filled square, which reads as \"placed\" rather than \"found\"" },
+  { key: "cross",  label: "Cross",  summary: "an X, for a point that marks a spot without covering it" },
+  { key: "ring",   label: "Ring",   summary: "a circle you can see the model through" },
+  { key: "plus",   label: "Plus",   summary: "a + , which reads as a coordinate rather than a thing" },
+];
+export const findMark = key => POINT_MARKS.find(m => m.key === key) || POINT_MARKS[0];
+
+//! And how heavy. The same idea as a line weight and the same three names,
+//! because a drawing where the points are one weight and the lines are
+//! another is a drawing that reads as two drawings.
+export const POINT_WEIGHTS = [
+  { key: "fine",   label: "Fine",   size: 5,  pen: 1.2 },
+  { key: "medium", label: "Medium", size: 8,  pen: 1.8 },
+  { key: "heavy",  label: "Heavy",  size: 12, pen: 2.6 },
+];
+export const findWeight = key => POINT_WEIGHTS.find(w => w.key === key) || POINT_WEIGHTS[1];
+
 //! What an object is actually made of: the finish it names, with whatever it
 //! says for itself on top. One answer, in one shape, for every renderer -
 //! because "the showroom shows brass and the viewport shows grey" is not two

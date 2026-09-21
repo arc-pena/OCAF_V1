@@ -874,6 +874,11 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
    blank part of it and pull, the way a map moves. `grab` is the cursor because
    that is what the gesture is, and `touch-action: pan-y` keeps the browser's
    own flick working on a phone rather than fighting it. */
+/* Dropping points: a crosshair, because the mode is about where a thing goes
+   rather than about what is already there. */
+body.placing #viewport canvas { cursor: crosshair; }
+#place-bar { left: 50%; transform: translateX(-50%); bottom: calc(var(--edge) + 54px); z-index: 5; }
+#place-bar[hidden] { display: none; }
 .scrollable { scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-y; }
 .scrollable::-webkit-scrollbar { width: 0; height: 0; }
 .scrollable.can-scroll { cursor: grab; }
@@ -2317,6 +2322,14 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 <!-- What the sketcher is doing, along the top: which sketch, what is being
      drawn, and the way out. -->
+<!-- DROPPING POINTS. The same bar as the sketcher's, in the same place, for the
+     same reason: while a mode is running, the thing that says what the mode is
+     and how to leave it has to be where the eye already is. -->
+<div class="float fades" id="place-bar" hidden>
+  <span class="sk-name" id="place-who">Points</span>
+  <span class="sk-hint">click on the plane to drop a point · Esc or Enter when done</span>
+  <button class="sk-exit" id="place-done">Done</button>
+</div>
 <div class="float fades" id="sketch-bar" hidden>
   <span class="sk-name" id="sketch-who">Sketch</span>
   <span class="sk-hint" id="sketch-hint">click to draw</span>

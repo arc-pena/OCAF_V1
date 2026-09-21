@@ -21,9 +21,10 @@
 // A feature that fails keeps its last good shape and records the message, so
 // one bad radius never takes the model, or the page, down with it.
 
-import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, kernelMessage, meshCreases,
-         meshFaces, meshSharpness, parseNumbers, registeredTypes, schemaJson,
-         typeSpec } from "./ocaf.js";
+import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, drafting, kernelMessage,
+         meshCreases, meshFaces, meshSharpness, parseNumbers, registeredTypes,
+         schemaJson, setDrafting, typeSpec } from "./ocaf.js";
+import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
 import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
          saysPlan, writeMade } from "./generate.js";
 import { freshId, freshName, instantiateEdits } from "./reuse.js";
@@ -559,6 +560,20 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       build: f => {
         const axis = planeAxis(f);
         if (!axis) throw new Error("that plane cannot be worked out");
+        //! ITS FRAME, WRITTEN DOWN, the way a sketch writes its own. A plane
+        //! that has only a square of face to show for itself can be drawn and
+        //! cannot be USED by the interface: turning a click into a place on it
+        //! needs an origin and two directions, and reading those back off a
+        //! tessellated square is guesswork. A sketch has needed this since it
+        //! existed; a plane needs it for the same reasons and did not have it.
+        const at = axis.Location(), x = axis.XDirection(), y = axis.YDirection();
+        const n = axis.Direction();
+        F.setFrame(f, {
+          origin: [at.X(), at.Y(), at.Z()].map(round4),
+          x: [x.X(), x.Y(), x.Z()].map(round4),
+          y: [y.X(), y.Y(), y.Z()].map(round4),
+          normal: [n.X(), n.Y(), n.Z()].map(round4),
+        });
         return HSF.planeFace(axis, F.real(f, "size", 160));
       },
     },
@@ -5304,7 +5319,76 @@ function sprawl(face, edges) {
                              Feature_choice(f, "sides") === 1),
   };
 
+  /* ------------------------------------------------- a section, twice over
+
+     WHY A SECTION HAS TWO ROADS. Intersecting a solid by twenty-three
+     extruded offset curves takes four and a half seconds, and it is not the
+     WASM: OpenCascade has an analytic intersector for a plane against a
+     cylinder and none at all for either of them against a surface of
+     extrusion over a B-spline, so all hundred and sixty face pairs go to the
+     general numeric intersector at about thirty milliseconds each. Measured,
+     not guessed - and unchanged by turning the approximation off, by
+     sectioning the parts one at a time, or by a bounding-box prefilter, all
+     of which were tried.
+
+     Nothing is going to make that road fast, so while a hand is on a slider
+     the section is taken on the triangles instead - the ones the viewer was
+     going to be given anyway - and the moment the hand comes off it is taken
+     properly. See setDrafting in ocaf.js for how the document guarantees the
+     second half of that.                                                    */
+
+  //! Triangles are kept between frames, because in a drag it is usually only
+  //! ONE side of the section that is moving. Keyed by revision, so a shape
+  //! that was rebuilt is meshed again and one that was not is not.
+  const draftMeshes = new Map();
+  function draftMesh(source) {
+    const id = F.id(source), revision = F.revision(source);
+    const had = draftMeshes.get(id);
+    if (had && had.revision === revision) return had.mesh;
+    const shape = F.shape(source);
+    const deflection = deflectionFor(shape);
+    const stream = tessellate(shape, deflection);
+    const mesh = { positions: stream.positions || [], index: stream.index || [],
+                   deflection: stream.deflection || deflection };
+    if (draftMeshes.size > 64) draftMeshes.clear();
+    draftMeshes.set(id, { revision, mesh });
+    return mesh;
+  }
+
+  const axisPoint = ax => { const p = ax.Location(); return [p.X(), p.Y(), p.Z()]; };
+  const axisNormal = ax => { const d = ax.Direction(); return [d.X(), d.Y(), d.Z()]; };
+
+  //! The same answer as HSF.intersect, to the accuracy the surfaces are drawn
+  //! at. Loose segments off the triangles, threaded into runs, thinned to the
+  //! deflection they were sampled at - a circle off a cylinder comes back as
+  //! thirty points rather than three hundred - and handed over as polylines.
+  function draftSection(datum, other, a, b) {
+    let segments = [], tolerance = 0;
+    if (datum) {
+      const mesh = draftMesh(other);
+      const ax = planeAxis(datum);
+      segments = meshSlice(mesh, axisPoint(ax), axisNormal(ax));
+      tolerance = mesh.deflection;
+    } else {
+      const ma = draftMesh(a), mb = draftMesh(b);
+      segments = meshCross(ma, mb);
+      tolerance = Math.max(ma.deflection, mb.deflection);
+    }
+    const edges = [];
+    for (const run of chainSegments(segments)) {
+      const thinned = thin(run, tolerance);
+      const shut = V.length(V.sub(thinned[0], thinned[thinned.length - 1])) <= tolerance;
+      const run_ = shut ? thinned.slice(0, -1) : thinned;
+      if (run_.length < 2) continue;
+      try { edges.push(HSF.polyline(run_, shut)); }
+      catch (err) { /* a run of points all in one place is not a curve */ }
+    }
+    return edges.length === 1 ? edges[0] : compoundOf(edges);
+  }
+
   builders.Intersect = {
+    //! This one is allowed to be approximate mid-drag. See draftSection.
+    draft: true,
     precondition: f => {
       for (const key of ["a", "b"]) {
         const source = F.reference(f, key);
@@ -5320,13 +5404,14 @@ function sprawl(face, edges) {
       //! the middle of it - see the factory's intersect. Asked of the feature
       //! rather than of the shape, because only the document knows that this
       //! face stands for a plane and that one is a face somebody made.
-      const boundless = side => {
-        if (!side || F.spec(side).type !== "Plane") return null;
-        const ax = planeAxis(side);
-        return ax ? { ax, on: F.shape(side === a ? b : a) } : null;
-      };
-      const plane = boundless(b) || boundless(a);
-      const shape = HSF.intersect(F.shape(a), F.shape(b), plane);
+      const boundless = side =>
+        side && F.spec(side).type === "Plane" && planeAxis(side) ? side : null;
+      const datum = boundless(b) || boundless(a);
+      const other = datum === b ? a : datum === a ? b : null;
+      const plane = datum ? { ax: planeAxis(datum), on: F.shape(other) } : null;
+      const shape = drafting()
+        ? draftSection(datum, other, a, b)
+        : HSF.intersect(F.shape(a), F.shape(b), plane);
       const marks = verticesOf(shape);
       // A section that came out as points is a point: say so in the data as
       // well as in the shape, so it can drive anything that wants one.
@@ -6317,6 +6402,22 @@ function sprawl(face, edges) {
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setPinnedShown(f, !!on);
       return { ok: true, tree: doc.treeJson(), report: null };
+    },
+
+    //! WHETHER A BUILD IS ALLOWED TO BE APPROXIMATE, because a hand is still
+    //! on a slider. Turning it OFF rebuilds whatever was drafted, which is why
+    //! it answers with a tree: the accurate answer arrives as an ordinary
+    //! redraw, one frame after the hand comes off, and nothing else has to
+    //! remember to ask for it.
+    //!
+    //! Turning it ON answers with nothing at all. There is no reason to redraw
+    //! for it - the very next edit is the one being drafted for.
+    async setDraft(on, resettle = true) {
+      const was = drafting();
+      setDrafting(!!on);
+      if (!!on === was || on || !resettle) return null;
+      if (!doc.drafted.size) return null;
+      return state(settle());
     },
 
     //! Where a feature sits in the tree. A view change, like the appearance:

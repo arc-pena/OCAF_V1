@@ -7,7 +7,8 @@ import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, Showroom } from "./showroom.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
-import { Arctic, FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf,
+import { Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS, VIEW_STYLES, appearanceOf,
+         findFinish, findMark, findStyle, findWeight, hexOf,
          makeSky, materialOf, rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
@@ -520,6 +521,10 @@ function measureScene() {
     //! Only while nothing else owns the pointer. Mid-orbit the answer changes
     //! every frame and means nothing; inside a sketch or the mesh editor
     //! another kind of hover is already running.
+    //! While points are being dropped the pointer belongs to the plane: the
+    //! ghost follows it and nothing else lights up, because everything that
+    //! could light up is behind the plane being drawn on.
+    if (!mode && placingOn()) { hoverPlacing(event); return; }
     if (!mode && !sketching() && !meshing() && !pickingOn() && !handEditing())
       hoverFeature(event);
     if (!mode) return;
@@ -617,6 +622,7 @@ function measureScene() {
     // went nowhere, and holding shift should not stop you choosing things.
     else if (mode === "pan" && moved < 4 && event.shiftKey && !handEditing() && !sketching())
       pick(event);
+    else if (mode === "orbit" && moved < 4 && placingOn()) dropPoint(event);
     else if (mode === "orbit" && moved < 4 && !pickVertex(event)) {
       // While a mesh is being edited by hand, the viewport belongs to its
       // handles: a click that misses one drops the vertex, it does not walk off
@@ -902,7 +908,9 @@ function applyStyle(styleKey = state.style) {
   // The material panel says where a material is shown and that depends on the
   // style, so it is rebuilt rather than left saying something that was true a
   // moment ago.
-  if (state.edited && wearsMaterial(feature(state.edited))) buildPanel();
+  if (state.edited
+      && (wearsMaterial(feature(state.edited)) || marksPoints(feature(state.edited))))
+    buildPanel();
   for (const button of document.querySelectorAll("[data-style]"))
     button.setAttribute("aria-pressed", button.dataset.style === style.key ? "true" : "false");
   paintSelection();
@@ -913,6 +921,220 @@ function setStyle(styleKey) {
   applyStyle(styleKey);
   try { localStorage.setItem("ocafcad/view-style", state.style); } catch (e) {}
   say(findStyle(state.style).label + " — " + findStyle(state.style).summary);
+}
+
+/* ==========================================================================
+   DROPPING POINTS ON A PLANE.
+
+   Making a point used to be: press the button, get one at the origin, find the
+   two fields, type two numbers, press the button again. Five steps to put a
+   mark where you are already looking, repeated for every point.
+
+   So the button starts a MODE instead. A plane is chosen - whatever was
+   selected, or the one the new point was wired to - the pointer casts a ray
+   onto it, a ghost follows the place it lands, and a click drops a point
+   there. It stays in the mode, because points come in groups: a setting-out
+   is nine of them and a profile's control points are six. Esc, Enter or Done
+   leaves.
+
+   The ray meets the plane as a PLANE, not as the square it is drawn as, so a
+   point can be dropped past the edge of the datum - which is the common case
+   the moment a model is bigger than 200 mm.
+   ========================================================================== */
+
+const placing = { on: false, id: null, frame: null, ghost: null, made: 0 };
+
+const placingOn = () => placing.on;
+
+//! The plane to drop on: what is selected if that is a plane, else whatever
+//! the point that was just made is wired to.
+function planeFrameFor(entry) {
+  const mount = entry && entry.refs && entry.refs.plane ? feature(entry.refs.plane) : null;
+  const chosen = state.selected ? feature(state.selected) : null;
+  const from = (chosen && chosen.produces === "plane" && chosen.frame) ? chosen
+             : (mount && mount.frame) ? mount : null;
+  return from ? { id: from.id, frame: from.frame } : null;
+}
+
+function beginPlacing(entry) {
+  const found = planeFrameFor(entry);
+  if (!found) return false;
+  placing.on = true;
+  placing.id = found.id;
+  placing.frame = found.frame;
+  placing.made = 0;
+  document.body.classList.add("placing");
+  const bar = document.getElementById("place-bar");
+  if (bar) {
+    bar.hidden = false;
+    document.getElementById("place-who").textContent =
+      (feature(placing.id) || {}).name || "Plane";
+  }
+  layout();
+  //! A ghost of the mark that is about to be dropped, in the hover colour, so
+  //! the thing you are aiming is the thing you will get.
+  const dot = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute("position",
+      new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+    markMaterial(entry, "hover"));
+  dot.visible = false;
+  placing.ghost = dot;
+  world.add(dot);
+  say("dropping points on " + ((feature(placing.id) || {}).name || "the plane")
+      + " \u00b7 click to place \u00b7 Esc or Enter when done");
+  return true;
+}
+
+function endPlacing() {
+  if (!placing.on) return;
+  placing.on = false;
+  document.body.classList.remove("placing");
+  const bar = document.getElementById("place-bar");
+  if (bar) bar.hidden = true;
+  layout();
+  if (placing.ghost) {
+    world.remove(placing.ghost);
+    placing.ghost.geometry.dispose();
+    placing.ghost.material.dispose();
+    placing.ghost = null;
+  }
+  if (placing.made) say(placing.made + (placing.made === 1 ? " point" : " points") + " placed");
+  draw();
+}
+
+//! WHERE THE POINTER MEETS THE PLANE, in the plane's own two numbers - which
+//! is what a point on a plane is stored as, so nothing is converted twice.
+function onPlaneAt(event) {
+  const frame = placing.frame;
+  if (!frame) return null;
+  const ray = rayFrom(event).ray;
+  const n = new THREE.Vector3(...frame.normal);
+  const at = new THREE.Vector3(...frame.origin);
+  const facing = ray.direction.dot(n);
+  if (Math.abs(facing) < 1e-6) return null;          // looking along the plane
+  const how = at.clone().sub(ray.origin).dot(n) / facing;
+  if (how < 0) return null;                          // the plane is behind us
+  const hit = ray.origin.clone().addScaledVector(ray.direction, how);
+  const from = hit.clone().sub(at);
+  return { at: hit,
+           h: from.dot(new THREE.Vector3(...frame.x)),
+           v: from.dot(new THREE.Vector3(...frame.y)) };
+}
+
+function hoverPlacing(event) {
+  const found = onPlaneAt(event);
+  if (!placing.ghost) return;
+  placing.ghost.visible = !!found;
+  if (found) placing.ghost.position.copy(found.at);
+  draw();
+}
+
+async function dropPoint(event) {
+  const found = onPlaneAt(event);
+  if (!found) return;
+  const round = v => Math.round(v * 1000) / 1000;
+  const born = await mdl.run({ op: "add", type: "Point", refs: { plane: placing.id } })
+    .catch(error => { showError(error.message); return null; });
+  if (!born) return;
+  await mdl.runAll([
+    { op: "set", id: born.id, key: "kind", value: 6 },
+    { op: "set", id: born.id, key: "h", value: round(found.h) },
+    { op: "set", id: born.id, key: "v", value: round(found.v) },
+  ]).catch(error => showError(error.message));
+  placing.made++;
+}
+
+/* ==========================================================================
+   HOW A POINT IS DRAWN.
+
+   A point has no triangles and no edges. Everything else in this viewport
+   shows what it is by its surface or its outline; a point has to be given a
+   MARK, and which mark is a choice in the same way a line weight is - a
+   construction point wants a small cross that stays out of the way, a point
+   you are about to grab wants a filled dot, a fixing wants a ring you can see
+   the model through.
+
+   Drawn into a canvas and used as the sprite on a PointsMaterial, which is
+   what lets one draw call put two hundred identical marks on screen - a
+   DivideCurve sends two hundred and they must not cost two hundred objects.
+
+   THE SELECTED MARK IS THE MARK WITH A RING AROUND IT. Not a different shape:
+   you have to be able to see that this is the same point you were looking at,
+   and swapping a cross for a disc when it is chosen loses that. A ring around
+   whatever was there says "this one" without saying anything else.
+   ========================================================================== */
+
+const MARK_TEXTURES = new Map();
+
+function markTexture(kind, pen, ringed) {
+  const key = kind + ":" + pen + ":" + (ringed ? "r" : "");
+  if (MARK_TEXTURES.has(key)) return MARK_TEXTURES.get(key);
+  const S = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = S;
+  const ink = canvas.getContext("2d");
+  ink.strokeStyle = "#ffffff";
+  ink.fillStyle = "#ffffff";
+  ink.lineCap = "round";
+  //! The pen is in canvas pixels, scaled from the weight so "heavy" is heavy
+  //! at every marker size rather than only at the big ones.
+  ink.lineWidth = pen * 3.2;
+  //! The ring lives in the outer quarter, so the mark inside keeps its own
+  //! size and the selection reads as something ADDED rather than as the mark
+  //! having grown.
+  const r = ringed ? S * 0.28 : S * 0.40;
+  const mid = S / 2;
+  if (kind === "square") ink.fillRect(mid - r, mid - r, r * 2, r * 2);
+  else if (kind === "cross") {
+    ink.beginPath();
+    ink.moveTo(mid - r, mid - r); ink.lineTo(mid + r, mid + r);
+    ink.moveTo(mid + r, mid - r); ink.lineTo(mid - r, mid + r);
+    ink.stroke();
+  } else if (kind === "plus") {
+    ink.beginPath();
+    ink.moveTo(mid - r, mid); ink.lineTo(mid + r, mid);
+    ink.moveTo(mid, mid - r); ink.lineTo(mid, mid + r);
+    ink.stroke();
+  } else if (kind === "ring") {
+    ink.beginPath(); ink.arc(mid, mid, r - ink.lineWidth / 2, 0, Math.PI * 2); ink.stroke();
+  } else {
+    ink.beginPath(); ink.arc(mid, mid, r, 0, Math.PI * 2); ink.fill();
+  }
+  if (ringed) {
+    ink.lineWidth = Math.max(1.6, pen * 2.2);
+    ink.beginPath();
+    ink.arc(mid, mid, S * 0.44 - ink.lineWidth, 0, Math.PI * 2);
+    ink.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  MARK_TEXTURES.set(key, texture);
+  return texture;
+}
+
+//! What a feature says its points should look like, with the defaults filled
+//! in. Stored on the appearance, beside the finish and the colour, because it
+//! is the same kind of fact - how the thing is drawn, not what it is.
+function markOf(entry) {
+  const said = (entry && entry.appearance) || {};
+  return { mark: findMark(said.mark), weight: findWeight(said.markWeight) };
+}
+
+//! \p as is "plain", "hover" or "chosen". Size and colour come from the state;
+//! the shape and the weight come from the feature.
+function markMaterial(entry, as) {
+  const { mark, weight } = markOf(entry);
+  const grow = as === "hover" ? 1.7 : as === "chosen" ? 1.45 : 1;
+  const colour = as === "hover" ? THEME.hover : as === "chosen" ? THEME.accent : THEME.datum;
+  return new THREE.PointsMaterial({
+    color: colour.clone(),
+    //! The ring is added at 1.45 of the base size, so the mark inside it stays
+    //! the size it was and the ring is genuinely around it.
+    size: weight.size * grow * (as === "chosen" ? 1.55 : 1),
+    map: markTexture(mark.key, weight.pen, as === "chosen"),
+    sizeAttenuation: false, transparent: true, alphaTest: 0.35,
+    depthWrite: false, opacity: as === "plain" ? 0.92 : 1,
+  });
 }
 
 function groupFromStream(mesh, entry) {
@@ -970,9 +1192,17 @@ function groupFromStream(mesh, entry) {
     const dots = new THREE.Points(
       new THREE.BufferGeometry().setAttribute("position",
         new THREE.Float32BufferAttribute(marks, 3)),
-      new THREE.PointsMaterial({ color: THEME.datum, size: 6, sizeAttenuation: false,
-                                 transparent: true, opacity: 0.9 }));
+      markMaterial(entry, "plain"));
+    dots.userData.id = mesh.id;
+    dots.userData.mark = true;
     group.add(dots);
+    //! A POINT IS SOMETHING YOU CLICK ON, and it was not: the pick list took
+    //! meshes only, so the one kind of feature with no surface at all was the
+    //! one kind you could not point at. THREE.Points raycasts against a
+    //! threshold rather than against geometry - see rayFrom, where the
+    //! threshold is set from the view so a point is as easy to hit far away as
+    //! up close.
+    pickable.push(dots);
   }
   return group;
 }
@@ -1007,10 +1237,18 @@ function settleSection() {
 //! refresh is a few small meshes and it only happens while a section is open.
 function touchSection() { if (cutter.on) sectionStale = true; }
 
+//! WHAT CAN BE POINTED AT. Rebuilt whenever the scene is, and it has to agree
+//! with what groupFromStream put in the list the first time round - it did
+//! not, and the disagreement was invisible: a point was pickable when it was
+//! first drawn and stopped being so the moment anything else in the document
+//! changed and the list was rebuilt without it. The test for it was
+//! `isMesh`, which a mark is not.
 function rebuildPickList() {
   pickable.length = 0;
   for (const { group } of shapes.values())
-    group.traverse(object => { if (object.isMesh && object.userData.id) pickable.push(object); });
+    group.traverse(object => {
+      if ((object.isMesh || object.isPoints) && object.userData.id) pickable.push(object);
+    });
 }
 
 //! The only reason the revision counter exists: ask for the shapes whose
@@ -1186,11 +1424,18 @@ function paintSelection() {
         object.material.color.copy(selected || lit ? mark : own);
         object.material.opacity = selected || lit ? 1 : object.parent.userData.curve ? 1 : 0.4;
       }
-      //! And the markers a Point or a DivideCurve is drawn as, which carry no
-      //! triangles and no edges and so were the one kind of feature that could
-      //! not show either state at all.
-      if (object.isPoints && object.material)
-        object.material.color.copy(selected || lit ? mark : THEME.curve);
+      //! AND THE MARKERS. A point cannot be tinted or outlined - it has no
+      //! surface and no edges - so the whole mark is replaced: bigger and
+      //! orange under the pointer, ringed and blue when it is chosen. See
+      //! markMaterial.
+      if (object.isPoints && object.userData.mark) {
+        const want = selected ? "chosen" : lit ? "hover" : "plain";
+        if (object.userData.as !== want) {
+          object.userData.as = want;
+          object.material.dispose();
+          object.material = markMaterial(feature(id), want);
+        }
+      }
     });
   }
   draw();
@@ -4880,6 +5125,14 @@ function rayFrom(event) {
   raycaster.setFromCamera(new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
     -((event.clientY - rect.top) / rect.height) * 2 + 1), camera);
+  //! HOW NEAR COUNTS AS ON A POINT. THREE.Points has no geometry to hit, so
+  //! the ray is given a radius, and the radius has to be in WORLD units while
+  //! the thing it stands for - a dozen pixels of screen - is not. So it is
+  //! worked out from how far the camera is and how tall the viewport is,
+  //! which makes a point exactly as easy to hit at arm's length as across a
+  //! building.
+  const tall = Math.max(1, rect.height);
+  raycaster.params.Points.threshold = view.distance * (12 / tall);
   return raycaster;
 }
 
@@ -4975,8 +5228,15 @@ function pickVertex(event) {
 function idUnder(ray) {
   const hits = ray.intersectObjects(
     pickable.filter(m => m.parent && m.parent.visible && m.material.visible !== false), false);
+  //! A MARK BEATS EVERYTHING. A point is a few pixels across and is nearly
+  //! always sitting ON the thing it was made from - a corner of a cube, a
+  //! station along a curve - so nearest-hit-wins would mean it could never be
+  //! chosen by pointing at it. If the ray came within a dozen pixels of one,
+  //! that is what was being aimed at.
+  const mark = hits.find(hit => hit.object.userData.mark);
   const solid = hits.find(hit => !hit.object.userData.datum);
-  return (solid || hits[0] || {}).object ? (solid || hits[0]).object.userData.id : null;
+  const won = mark || solid || hits[0];
+  return won ? won.object.userData.id : null;
 }
 
 //! Lit as the pointer passes, and repainted only when the answer CHANGES -
@@ -5001,11 +5261,9 @@ function clearHover() {
 }
 
 function pick(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  raycaster.setFromCamera(new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1), camera);
-  const id = idUnder(raycaster);
+  //! Through rayFrom, so a click and a hover agree about how near counts as
+  //! on a point. They did not while this set the ray up itself.
+  const id = idUnder(rayFrom(event));
   // AN INPUT IS WAITING. Then this click is the answer to its question rather
   // than a change of selection - which is the whole of what "click the field,
   // then click the thing" means.
@@ -7032,6 +7290,11 @@ function buildPanel() {
   // What it is made of. A property of the object, like its size - held on the
   // feature, written into the model file, and read by both renderers.
   if (wearsMaterial(entry)) host.appendChild(materialField(entry));
+  //! HOW ITS POINTS ARE DRAWN, for anything that draws any. A property of the
+  //! object like its material, in the same place for the same reason - and
+  //! offered on a DivideCurve as readily as on a Point, because two hundred
+  //! marks along a curve are exactly where the choice matters most.
+  if (marksPoints(entry)) host.appendChild(markField(entry));
 
   // AND HOW IT IS CUT. Beside the material because it is the same kind of
   // fact: a property of the object that travels with it. Offered on anything
@@ -7075,6 +7338,58 @@ function buildPanel() {
 const wearsMaterial = entry =>
   !!entry && !entry.consumedBy && entry.category !== "datum" && entry.category !== "data"
   && (entry.produces === "solid" || entry.produces === "mesh");
+
+//! Anything that puts marks on screen: a point node, and anything whose data
+//! is a list of points - a DivideCurve, an Intersect that came out as points.
+const marksPoints = entry =>
+  !!entry && !entry.consumedBy
+  && (entry.produces === "point" || !!(entry.data && entry.data.kind === "point"));
+
+//! WHAT SHAPE THE MARKS ARE, AND HOW HEAVY. Two rows, the same shape as the
+//! material control above it, because it is the same kind of choice: a
+//! property of the object that travels in the file and changes nothing about
+//! the geometry.
+function markField(entry) {
+  const field = document.createElement("div");
+  field.className = "field material";
+  const { mark, weight } = markOf(entry);
+  const head = document.createElement("div");
+  head.className = "params-head";
+  head.innerHTML = "<span>Points</span><span class=\"kind\">"
+    + escapeHtml(mark.label.toLowerCase() + " \u00b7 " + weight.label.toLowerCase())
+    + "</span>";
+  field.appendChild(head);
+
+  const row = (label, list, now, write) => {
+    const line = document.createElement("div");
+    line.className = "field-head";
+    line.innerHTML = "<label>" + label + "</label>";
+    field.appendChild(line);
+    const group = document.createElement("div");
+    group.className = "segmented";
+    group.setAttribute("role", "group");
+    for (const one of list) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = one.label;
+      button.title = one.summary || one.label;
+      button.setAttribute("aria-pressed", one.key === now ? "true" : "false");
+      button.addEventListener("click", () => write(one.key));
+      group.appendChild(button);
+    }
+    field.appendChild(group);
+  };
+  const send = next => edit({ op: "appearance", id: entry.id,
+                              appearance: { ...(entry.appearance || {}), ...next } });
+  row("Shape", POINT_MARKS, mark.key, key => send({ mark: key }));
+  row("Weight", POINT_WEIGHTS, weight.key, key => send({ markWeight: key }));
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "How this feature's points are drawn. Under the pointer a mark "
+    + "goes orange and grows; chosen, it takes a ring.";
+  field.appendChild(hint);
+  return field;
+}
 
 //! The material of one object, the way Rhino puts it on the object rather than
 //! in the scene: pick the nearest thing off the shelf, then move the sliders.
@@ -7376,6 +7691,14 @@ function wearMaterial(id, change, live = false) {
                                               : (change.finish ? null : made.metalness),
     opacity: change.opacity !== undefined ? change.opacity : (change.finish ? null : made.opacity),
   });
+  //! THE MARK SETTINGS RIDE THROUGH. appearanceOf builds a clean appearance
+  //! out of a finish and its overrides, and knows nothing about points - so
+  //! changing a colour would have quietly put the marks back to a dot. They
+  //! are on the appearance because that is where "how this is drawn" lives;
+  //! that makes carrying them across every rewrite of it this function's job.
+  const was = entry.appearance || {};
+  if (was.mark) next.mark = was.mark;
+  if (was.markWeight) next.markWeight = was.markWeight;
   entry.appearance = next;                    // so the next read sees it at once
   repaintMaterial(id);
   if (showroom.ready) showroom.paint(id, next);
@@ -7393,6 +7716,16 @@ function repaintMaterial(id) {
   const entry = feature(id);
   const style = findStyle(state.style);
   for (const object of held.group.children) {
+    //! The marks are rebuilt too, and by the same call, because the shape and
+    //! the weight of a point live on the appearance beside the finish - so
+    //! "the appearance changed" has to mean both or the panel shows a cross
+    //! and the viewport keeps drawing a dot.
+    if (object.isPoints && object.userData.mark) {
+      object.material.dispose();
+      object.userData.as = null;
+      object.material = markMaterial(entry, "plain");
+      continue;
+    }
     if (!object.isMesh || object.userData.datum) continue;
     object.material.dispose();
     object.material = surfaceMaterial(entry, style);
@@ -8231,13 +8564,16 @@ function realField(entry, arg) {
 
   const slider = field.querySelector('input[type="range"]');
   const number = field.querySelector(".value-box input");
-  const send = raw => {
+  const send = (raw, live) => {
     const v = Number(raw);
     if (!Number.isFinite(v)) return;
     slider.value = v; number.value = round(v);
-    pushParameter(entry.id, arg.key, v);
+    pushParameter(entry.id, arg.key, v, false, live);
   };
-  slider.addEventListener("input", () => send(slider.value));
+  //! `input` while the hand is down, `change` when it comes up. Only the
+  //! second means "that is the number" - see drainParameters.
+  slider.addEventListener("input", () => send(slider.value, true));
+  slider.addEventListener("change", () => restParameter());
   number.addEventListener("change", () => typeValue(entry, arg, number, slider));
   number.addEventListener("input", () => sayValue(field, entry, arg, number.value));
   return field;
@@ -8400,13 +8736,14 @@ function scriptField(entry, param) {
 
   const slider = field.querySelector('input[type="range"]');
   const number = field.querySelector(".value-box input");
-  const send = raw => {
+  const send = (raw, live) => {
     const v = Number(raw);
     if (!Number.isFinite(v)) return;
     slider.value = v; number.value = round(v);
-    pushParameter(entry.id, param.key, v);
+    pushParameter(entry.id, param.key, v, false, live);
   };
-  slider.addEventListener("input", () => send(slider.value));
+  slider.addEventListener("input", () => send(slider.value, true));
+  slider.addEventListener("change", () => restParameter());
   // A parameter a script declared takes what a catalogue argument takes: a
   // quantity, some arithmetic, or the name of a number to follow. One rule.
   number.addEventListener("change", () => {
@@ -8646,21 +8983,74 @@ function buildLog() {
   if (!host.hidden) layout();
 }
 
-/* -------------------------------------------------------------- operations */
-let inFlight = false, pendingParam = null;
+/* -------------------------------------------------------------- operations
 
-//! A slider fires far faster than the kernel can rebuild, so the newest value
-//! wins and everything in between is dropped.
-async function pushParameter(id, key, value, rebuildPanel = false) {
+   A NUMBER BEING DRAGGED, AND THE SAME NUMBER LET GO OF.
+
+   A slider fires far faster than the kernel can rebuild, so the newest value
+   wins and everything in between is dropped. That is enough while a rebuild
+   costs forty milliseconds and nothing like enough while one costs five
+   seconds: dropping frames does not help when every frame you keep is five
+   seconds long.
+
+   So a model that is slow is drafted while the hand is down - see setDrafting
+   in ocaf.js, and the two roads through builders.Intersect - and built
+   properly the moment it comes up. "Slow" is measured, not guessed: the last
+   ACCURATE rebuild is timed, and a model that rebuilds in forty milliseconds
+   never takes the cheap road at all, because there is nothing to gain and a
+   slightly coarser curve to lose.                                            */
+
+let inFlight = false, pendingParam = null;
+//! How long the last accurate rebuild took. Only accurate ones are timed: a
+//! draft is fast by construction, and timing those would turn the draft off
+//! again on the next frame.
+let lastExactMs = 0;
+//! A hand is on a slider now; and a draft may be on screen with no hand on
+//! anything, which is the one state that must not be allowed to persist.
+let dragLive = false, needExact = false;
+//! Below this a rebuild is not worth approximating: the pause is shorter than
+//! the eye notices and the exact curve is right there.
+const DRAFT_ABOVE_MS = 120;
+
+async function pushParameter(id, key, value, rebuildPanel = false, live = false) {
   pendingParam = { id, key, value, rebuildPanel };
-  if (inFlight || !ready) return;
+  dragLive = !!live;
+  if (!live) needExact = true;
+  return drainParameters();
+}
+
+//! THE HAND CAME OFF. Sent on a slider's `change`, which is the only event
+//! that means it - `input` fires for every pixel of the drag and cannot tell
+//! the last one from the rest. Nothing is pushed: the value arrived with the
+//! final `input`. What this asks for is the accurate build of it.
+async function restParameter() {
+  dragLive = false;
+  needExact = true;
+  return drainParameters();
+}
+
+async function drainParameters() {
+  if (inFlight || !ready) return;          // the loop below will see what was left
   inFlight = true;
   try {
-    while (pendingParam) {
-      const next = pendingParam;
-      pendingParam = null;
-      await mdl.run({ op: "set", id: next.id, key: next.key, value: next.value },
-                    { keepPanel: !next.rebuildPanel });
+    while (pendingParam || needExact) {
+      if (pendingParam) {
+        const next = pendingParam;
+        pendingParam = null;
+        const cheap = dragLive && lastExactMs > DRAFT_ABOVE_MS;
+        // Flipped without a rebuild of its own: the edit on the next line is
+        // the rebuild, and doing both would build the model twice.
+        await mdl.draft(cheap, false);
+        const started = performance.now();
+        await mdl.run({ op: "set", id: next.id, key: next.key, value: next.value },
+                      { keepPanel: !next.rebuildPanel });
+        if (!cheap) { lastExactMs = performance.now() - started; needExact = false; }
+        continue;
+      }
+      needExact = false;
+      const started = performance.now();
+      const payload = await mdl.draft(false, true);
+      if (payload) lastExactMs = performance.now() - started;
     }
   } catch (err) { showError(err.message); }
   finally { inFlight = false; }
@@ -8691,7 +9081,9 @@ async function addFeature(type) {
   //! Coordinates rather than arriving broken - and {"op":"add","type":"Point"}
   //! from a script or a file still means what it has always meant.
   if (type === "Point" && !payload.refs) {
-    const plane = (state.tree.features || []).find(f => f.produces === "plane" && f.built);
+    const chosen = state.selected ? feature(state.selected) : null;
+    const plane = (chosen && chosen.produces === "plane" && chosen.built) ? chosen
+      : (state.tree.features || []).find(f => f.produces === "plane" && f.built);
     if (plane) {
       await mdl.runAll([{ op: "set", id: payload.id, key: "kind", value: 6 },
                         { op: "connect", id: payload.id, key: "plane", from: plane.id }]);
@@ -8714,6 +9106,19 @@ async function addFeature(type) {
   if (state.workingIn && feature(state.workingIn) && payload.id !== state.workingIn)
     await mdl.run({ op: "group", id: payload.id, into: state.workingIn });
   select(payload.id, true);
+  //! A SKETCH OPENS. Making one and then having to say "now let me draw on
+  //! it" is a step that exists for no reason: nobody makes an empty sketch on
+  //! purpose, and a sketch with nothing on it is the one thing in the document
+  //! that cannot build. It mounts on whatever plane was selected - see
+  //! defaultRefs - and you are inside it, drawing, which is what pressing the
+  //! button meant.
+  if (spec.type === "Sketch") { enterSketch(payload.id); return; }
+  //! AND A POINT KEEPS GOING. The first one is made where the button was
+  //! pressed - at the plane's origin, which is somewhere you can see - and
+  //! then the pointer drops more of them until Esc, Enter or Done. Points
+  //! come in groups: a setting-out is nine and a profile's controls are six,
+  //! and pressing a button five times between each is the step this removes.
+  if (spec.type === "Point") { beginPlacing(feature(payload.id)); return; }
   if (spec.category !== "datum" && spec.category !== "container") fitView();
   offerHeads(payload.id);
 }
@@ -9175,6 +9580,7 @@ document.getElementById("btn-redo").addEventListener("click", () => step(false))
 mdl.watch(() => refreshSteps());
 
 document.getElementById("sketch-done").addEventListener("click", leaveSketch);
+document.getElementById("place-done").addEventListener("click", endPlacing);
 document.getElementById("sketch-unrelate").addEventListener("click", dropRelation);
 const constructButton = document.getElementById("sketch-construct");
 constructButton.innerHTML = svg(ICONS.dashed);
@@ -10899,6 +11305,14 @@ addEventListener("keydown", event => {
   }
   if (event.target.matches("input, textarea, select")) return;
 
+  //! Esc and Enter both leave the placing mode, because both mean "that is
+  //! enough" and nobody should have to remember which.
+  if (placingOn() && (event.key === "Escape" || event.key === "Enter")) {
+    event.preventDefault();
+    endPlacing();
+    return;
+  }
+
   //! COPY, PASTE AND DUPLICATE, on the keys everybody's hands already know.
   //!
   //! There is no clipboard of geometry here and there does not need to be: a
@@ -11281,17 +11695,18 @@ function drawHeads(x, y) {
   headsBar.querySelector(".hd-unit").textContent = lead.unit || "";
   const slider = headsBar.querySelector('input[type="range"]');
   const box = headsBar.querySelector('.hd-box input');
-  const put = (raw, redraw) => {
+  const put = (raw, redraw, live) => {
     const asked = Number(raw);
     if (!Number.isFinite(asked)) return;
     heads.changed = true;
     heads.driving = false;
     headsBar.classList.remove("driving");
-    pushParameter(heads.id, lead.key, asked);
+    pushParameter(heads.id, lead.key, asked, false, live);
     if (redraw) slider.value = String(asked); else box.value = String(round(asked));
   };
   headsBar.querySelector(".hd-done").addEventListener("click", () => closeHeads());
-  slider.addEventListener("input", () => { nudgeHeads(); put(slider.value, false); });
+  slider.addEventListener("input", () => { nudgeHeads(); put(slider.value, false, true); });
+  slider.addEventListener("change", () => restParameter());
   box.addEventListener("change", () => { nudgeHeads(); typeHeads(entry, lead, box, slider); });
   box.addEventListener("input", nudgeHeads);
   nudgeHeads();
