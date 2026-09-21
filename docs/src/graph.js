@@ -16,6 +16,7 @@
 
 import { MDL_OPS, parseEdits } from "./mdl.js";
 import { acceptsFrom, sliderSpan } from "./ocaf.js";
+import { membersOf, reachesOut, setInputGroups } from "./reuse.js";
 
 const GRAPH_CSS = `
 :root {
@@ -93,6 +94,31 @@ const GRAPH_CSS = `
 .g-node.bad { border-color: var(--g-bad); }
 .g-node.datum { width: 190px; }
 .g-node.off { opacity: .62; }
+/* A SET, COLLAPSED. Marked out from the nodes it swallowed: a heavier edge and
+   a tint, so a screen of nodes reads as "these four, and that folder". */
+.g-node.g-set {
+  width: 232px; border-width: 2px;
+  border-color: color-mix(in srgb, var(--g-accent) 45%, var(--g-line));
+  background: linear-gradient(var(--g-node), color-mix(in srgb, var(--g-accent) 5%, var(--g-node)));
+}
+.g-node.g-set > .g-head { font-weight: 600; }
+.g-node.g-set .g-id { opacity: .75; }
+.g-row.g-gives { flex-direction: row-reverse; text-align: right; }
+.g-code.g-open { cursor: pointer; }
+.g-code.g-open:hover { color: var(--g-accent); }
+/* What feeds a set, standing at the left of its own graph. Small, because it
+   is a signpost rather than a thing you edit. */
+.g-node.g-inlet {
+  width: 176px; border-style: dashed;
+  background: color-mix(in srgb, var(--g-accent) 6%, var(--g-node));
+}
+.g-node.g-inlet .g-head { cursor: default; }
+.g-port.out.slack { opacity: .45; }
+.g-crumb {
+  font-size: 10.5px; color: var(--g-ink-2); white-space: nowrap;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+}
+.g-btn.g-up[hidden] { display: none; }
 .g-head {
   position: relative; display: flex; align-items: center; gap: 6px; padding: 7px 9px;
   cursor: move; border-bottom: 1px solid var(--g-line-soft); border-radius: 8px 8px 0 0;
@@ -294,6 +320,14 @@ const GRAPH_CSS = `
 `;
 
 const GRAPH_GLYPH = {
+  //! Four nodes gathered into one box: what Group does.
+  group: '<rect x="1.8" y="2.4" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
+    + '<rect x="1.8" y="9.2" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
+    + '<rect x="8.6" y="4.6" width="5.6" height="6.8" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/>'
+    + '<path d="M6.2 4.6h2.4M6.2 11.4h2.4" stroke="currentColor" stroke-width="1.1"/>',
+  //! An arrow turning back and up: out of the set you are in.
+  up: '<path d="M6.5 3.5L3 7l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M3 7h5.5a3.5 3.5 0 0 1 3.5 3.5v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
   add: '<path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   tidy: '<rect x="1.5" y="2.5" width="4.5" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
       + '<rect x="10" y="6" width="4.5" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
@@ -400,6 +434,13 @@ export class GraphEditor {
     this.consoleShut = false;
     this.dragging = null;
     this.linking = null;
+    //! WHICH GRAPH YOU ARE LOOKING AT. Null is the model itself; the id of a
+    //! set means you are inside that set, looking at what it holds. A set is
+    //! a node with a graph inside it - Grasshopper's cluster, ComfyUI's
+    //! group - and the whole point of one is that the wires that made a
+    //! thicket at the top level are inside, where they belong.
+    this.inside = null;
+    this.inlets = new Map();                   // synthetic id -> { el, out, entry }
     this.holding = null;                       // an input being edited; do not overwrite it
     this.unwatch = null;
     this.pollTimer = 0;
@@ -409,9 +450,17 @@ export class GraphEditor {
 
   /* ------------------------------------------------------------ layout as text */
 
+  //! An id that starts with a control character belongs to a node this editor
+  //! drew for itself - the inlets that stand for what reaches into a set -
+  //! rather than to anything in the document. They keep their places while
+  //! the window is open and go no further: a model file with "\u0001in:GS:0"
+  //! in its layout would be a model file carrying a note about a window.
+  static synthetic(id) { return String(id).charCodeAt(0) === 1; }
+
   layoutJson() {
     const out = {};
-    for (const [id, at] of this.layout) out[id] = [Math.round(at.x), Math.round(at.y)];
+    for (const [id, at] of this.layout)
+      if (!GraphEditor.synthetic(id)) out[id] = [Math.round(at.x), Math.round(at.y)];
     return out;
   }
 
@@ -664,9 +713,14 @@ export class GraphEditor {
       '<div class="g-bar">' +
         (inline ? "" : '<span class="g-title">Node graph</span><div class="g-sep"></div>') +
         '<button class="g-btn" data-do="add">' + gsvg(GRAPH_GLYPH.add) + "<span>Add</span></button>" +
+        '<button class="g-btn" data-do="group">' + gsvg(GRAPH_GLYPH.group) +
+          "<span>Group</span></button>" +
         '<button class="g-btn" data-do="tidy">' + gsvg(GRAPH_GLYPH.tidy) + "<span>Tidy</span></button>" +
         '<button class="g-btn" data-do="fit">' + gsvg(GRAPH_GLYPH.fit) + "<span>Fit</span></button>" +
         '<div class="g-sep"></div>' +
+        '<button class="g-btn g-up" data-do="up" hidden>' + gsvg(GRAPH_GLYPH.up) +
+          "<span>Back</span></button>" +
+        '<span class="g-crumb" data-slot="crumb" hidden></span>' +
         '<span class="g-sub" data-slot="count"></span>' +
         '<span class="g-spacer"></span>' +
         '<span class="g-sub" data-slot="hint">drag a port to wire · shift to add a second · double-click a node to open it</span>' +
@@ -736,7 +790,9 @@ export class GraphEditor {
   }
 
   command(name, event) {
-    if (name === "add") this.addMenu(event);
+    if (name === "up") this.leaveSet();
+    else if (name === "group") this.groupSelection();
+    else if (name === "add") this.addMenu(event);
     else if (name === "tidy") this.tidy();
     else if (name === "fit") this.frame();
     else if (name === "creed") this.creed();
@@ -859,6 +915,14 @@ export class GraphEditor {
   //! modelling page it takes only the keys pressed over it, and takes them from
   //! the page rather than doing both things at once.
   key(event) {
+    // Escape steps out of a set before it does anything else, which is the
+    // gesture every nested editor has.
+    if (event.key === "Escape" && this.inside !== null
+        && !(event.target && /INPUT|TEXTAREA/.test(event.target.tagName))) {
+      event.preventDefault();
+      this.leaveSet();
+      return;
+    }
     const target = event.target;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     if (this.floater && !(target && this.root.contains(target))) return;
@@ -885,29 +949,212 @@ export class GraphEditor {
     this.refreshModelText();
   }
 
+  /* --------------------------------------------- a set is a node with a graph
+
+     SWALLOWED, NOT HIDDEN. A geometrical set holding nine things is drawn as
+     ONE node: the nine are inside it, and what shows on the outside is what
+     the nine need from the rest of the model and what the rest of the model
+     takes from them. That is the whole reason a set exists - it is the answer
+     to a screen full of crossing wires - and a set that drew all nine and all
+     their wires anyway would be a folder that folds nothing.
+
+     Double-click to go in; the Back button, or Escape, to come out.        */
+
+  //! Whether a feature is a folder rather than an operation.
+  isSet(entry) {
+    const spec = this.spec(entry.type);
+    return !!spec && spec.category === "container";
+  }
+
+  //! What is drawn right now: whatever is filed directly in the graph you are
+  //! looking at. A set among them is drawn collapsed, contents and all.
+  onStage(features) {
+    return features.filter(one => (one.parent || null) === this.inside);
+  }
+
+  //! Everything inside a set, at any depth - what it swallowed.
+  within(features, setId) {
+    return membersOf(features, setId);
+  }
+
+  //! WHICH NODE ON STAGE STANDS FOR A FEATURE. Itself when it is on stage; the
+  //! set that swallowed it when it is inside one; the inlet that carries it
+  //! when you are inside a set and it is outside. Null when it is somewhere
+  //! this graph cannot show, which is a wire that is simply not drawn here.
+  standsFor(features, id) {
+    if (this.nodes.has(id)) return this.nodes.get(id);
+    for (const [setId, node] of this.nodes)
+      if (node.swallowed && node.swallowed.has(id)) return node;
+    for (const inlet of this.inlets.values())
+      if (inlet.carries === id) return inlet;
+    return null;
+  }
+
+  //! PUT THESE IN A SET, from the graph. Grasshopper's cluster, ComfyUI's
+  //! group: take what is selected and make it one node. The set is born in
+  //! the graph you are looking at, so grouping inside a set nests.
+  //!
+  //! The moment it exists the graph redraws and the chosen nodes are gone -
+  //! swallowed - which is the whole point and is why this is one button
+  //! rather than a dialogue.
+  async groupSelection() {
+    const { tree, selected, picked } = this.read();
+    if (!tree) return;
+    const stage = new Set(this.onStage(tree.features).map(one => one.id));
+    const want = (picked && picked.length ? picked : [selected])
+      .filter(id => id && stage.has(id) && !this.isSet(tree.features.find(o => o.id === id) || {}));
+    if (!want.length) {
+      this.note("pick the nodes to group first - click one, shift-click more");
+      return;
+    }
+    const names = want.map(id => (tree.features.find(one => one.id === id) || {}).name);
+    const id = "GS" + Math.random().toString(36).slice(2, 7).toUpperCase();
+    const edits = [{ op: "add", type: "GeometricalSet", id,
+                     name: names.length === 1 ? names[0] + " set"
+                                              : names.length + " nodes" }];
+    if (this.inside) edits.push({ op: "group", id, into: this.inside });
+    for (const one of want) edits.push({ op: "group", id: one, into: id });
+    edits.push({ op: "select", id });
+    try { await this.mdl.runAll(edits); }
+    catch (err) { /* the console has it */ }
+  }
+
+  //! A line in the hint slot, for the things that are not errors and are not
+  //! worth a dialogue.
+  note(said) {
+    if (this.el && this.el.hint) this.el.hint.textContent = said;
+  }
+
+  enterSet(id) {
+    const { tree } = this.read();
+    if (!tree || !tree.features.some(one => one.id === id)) return;
+    this.inside = id;
+    this.rebuild();
+    this.frame();
+  }
+
+  leaveSet() {
+    if (this.inside === null) return;
+    const { tree } = this.read();
+    const holder = tree && tree.features.find(one => one.id === this.inside);
+    this.inside = (holder && holder.parent) || null;
+    this.rebuild();
+    this.frame();
+  }
+
+  //! The line along the top that says where you are, and the way back.
+  refreshCrumb(features) {
+    const path = [];
+    for (let id = this.inside; id; ) {
+      const one = features.find(f => f.id === id);
+      if (!one) break;
+      path.unshift(one);
+      id = one.parent || null;
+    }
+    const up = this.root.querySelector('[data-do="up"]');
+    if (up) up.hidden = !path.length;
+    this.el.crumb.hidden = !path.length;
+    this.el.crumb.textContent = path.length
+      ? "the model \u203a " + path.map(one => one.name).join(" \u203a ") : "";
+    this.el.crumb.title = path.length
+      ? "Inside " + path[path.length - 1].name + " \u00b7 Back, or Escape, to come out" : "";
+  }
+
   rebuild() {
     if (!this.showing) return;
     const { tree } = this.read();
     if (!tree) return;
+    // A set that has been deleted while you were inside it leaves you nowhere;
+    // step back out rather than drawing an empty graph with no way home.
+    if (this.inside && !tree.features.some(one => one.id === this.inside)) this.inside = null;
     this.nodes.clear();
+    this.inlets.clear();
     this.el.layer.textContent = "";
-    const fresh = tree.features.filter(f => !this.layout.has(f.id)).map(f => f.id);
-    this.place(tree.features);
-    for (const entry of tree.features) this.el.layer.appendChild(this.node(entry));
+    const stage = this.onStage(tree.features);
+    const fresh = stage.filter(f => !this.layout.has(f.id)).map(f => f.id);
+    this.place(stage);
+    for (const entry of stage) this.el.layer.appendChild(this.node(entry, tree.features));
+    // Inside a set, what reaches in from outside is drawn as a node of its
+    // own on the left - so the sub-graph shows where the outside plugs in
+    // rather than leaving wires running off the edge of the world.
+    if (this.inside) this.buildInlets(tree.features);
     // Node heights are not known until they are on the page, so anything placed
     // by guesswork just now is packed again against what it actually measures.
-    if (fresh.length) this.pack(tree.features, new Set(fresh));
+    if (fresh.length) this.pack(stage, new Set(fresh));
     this.signature = this.shapeOf(tree);
-    this.el.count.textContent = tree.features.length + " nodes · " +
-      tree.features.reduce((n, f) => n + wiresInto(f).length, 0) + " wires";
+    const swallowed = stage.reduce((n, one) =>
+      n + (this.isSet(one) ? this.within(tree.features, one.id).length : 0), 0);
+    this.el.count.textContent = stage.length + " nodes"
+      + (swallowed ? " \u00b7 " + swallowed + " inside them" : "") + " \u00b7 "
+      + stage.reduce((n, f) => n + wiresInto(f).length, 0) + " wires";
+    this.refreshCrumb(tree.features);
     this.update();
     this.applyView();
+  }
+
+  //! One small node per input the set takes, standing at the left of its own
+  //! graph. Its output is the thing OUTSIDE that feeds it, so dragging from
+  //! one wires another member to the same source - which is what an input
+  //! means, said as a gesture.
+  buildInlets(features) {
+    const groups = this.inputsOf(features, this.inside);
+    const doc = this.doc;
+    let y = 30;
+    groups.forEach((group, at) => {
+      const id = "\u0001in:" + this.inside + ":" + at;
+      const el = doc.createElement("div");
+      el.className = "g-node g-inlet";
+      const seat = this.layout.get(id) || { x: -230, y };
+      this.layout.set(id, seat);
+      el.style.left = seat.x + "px";
+      el.style.top = seat.y + "px";
+      el.dataset.id = id;
+      const name = group.name || group.rows[0].arg.label;
+      const kind = group.rows[0].arg.accepts || "";
+      el.innerHTML = '<div class="g-head"><span class="g-nm">' + gesc(name) + "</span>"
+        + '<span class="g-id">in</span></div>'
+        + '<div class="g-body"><div class="g-row"><span class="g-lab">'
+        + gesc(group.rows.map(one => one.child.name).join(", "))
+        + '</span><span class="g-sub" style="font-size:9.5px">'
+        + gesc(group.to ? "from outside" : "not supplied") + "</span></div></div>";
+      const out = doc.createElement("div");
+      out.className = "g-port out" + (group.to ? "" : " slack");
+      out.dataset.kind = (kind.split(",")[0] || "").trim();
+      out.dataset.out = group.to || "";
+      out.title = group.to ? "what feeds this input, from outside the set"
+                           : "nothing is supplying this input yet";
+      el.querySelector(".g-head").appendChild(out);
+      this.el.layer.appendChild(el);
+      const record = { el, out, ports: new Map(), carries: group.to || null,
+                       entry: { id, name, produces: (kind.split(",")[0] || "").trim() },
+                       inlet: true };
+      this.inlets.set(id, record);
+      if (group.to) {
+        out.addEventListener("pointerdown",
+          event => this.startLink(event, group.to, null));
+      }
+      y = seat.y + 84;
+    });
+  }
+
+  //! What a set asks for, worked out where the definition panel works it out,
+  //! so the two windows cannot come to different answers.
+  inputsOf(features, setId) {
+    const holder = features.find(one => one.id === setId);
+    return setInputGroups(features, setId, {
+      spec: type => this.spec(type),
+      applies: (entry, arg) => this.applies(entry, arg),
+      declaredText: (holder && holder.texts && holder.texts.inputs) || "",
+      nameOf: id => (features.find(one => one.id === id) || {}).name || id,
+    });
   }
 
   //! What the graph is drawn from, as a string. When this changes the nodes are
   //! rebuilt; when only the numbers move they are updated where they stand.
   shapeOf(tree) {
-    return tree.features.map(f =>
+    // The scope is part of the shape: stepping into a set redraws everything.
+    return "@" + (this.inside || "") + "|" + tree.features.map(f =>
+      (f.parent || "") + ">" +
       f.id + ":" + f.type + ":" + Object.keys(f.values).join(",") +
       ":" + Object.entries(f.refs).map(([k, v]) => k + ">" + v).join(",") +
       ":" + Object.keys(f.texts || {}).join(",") +
@@ -995,7 +1242,8 @@ export class GraphEditor {
   }
 
   //! One feature, as a node. Every control on it sends one line of JSON.
-  node(entry) {
+  node(entry, features) {
+    if (features && this.isSet(entry)) return this.setNode(entry, features);
     const doc = this.doc;
     const spec = this.spec(entry.type);
     const at = this.layout.get(entry.id) || { x: 30, y: 30 };
@@ -1097,32 +1345,170 @@ export class GraphEditor {
     el.appendChild(error);
     record.error = error;
 
-    // The header drags the node; where it lands is written back as an edit.
-    this.drag(head, (dx, dy, start, done) => {
+    this.nodes.set(entry.id, record);
+    this.wireNode(record, el, entry);
+    head.addEventListener("dblclick", () => this.openDefinition(entry.id));
+    out.addEventListener("pointerdown", event => this.startLink(event, entry.id, null));
+    return el;
+  }
+
+  //! The two things every node does whatever is drawn on it: it drags, and
+  //! pressing it selects. One place, so a set behaves like a node because it
+  //! IS wired up like one rather than because two blocks of code agree.
+  wireNode(record, el, entry) {
+    this.drag(record.head, (dx, dy, start, done) => {
       const z = this.view.z;
       const x = start.x + dx / z, y = start.y + dy / z;
       el.style.left = x + "px"; el.style.top = y + "px";
       this.layout.set(entry.id, { x, y });
       this.drawWires();
-      if (done) this.mdl.run({ op: "move", id: entry.id, x: Math.round(x), y: Math.round(y) }).catch(() => {});
+      if (done) this.mdl.run({ op: "move", id: entry.id,
+                               x: Math.round(x), y: Math.round(y) }).catch(() => {});
     }, () => {
       const now = this.layout.get(entry.id) || { x: 30, y: 30 };
       return { x: now.x, y: now.y };
     });
-
     el.addEventListener("pointerdown", () => {
       const { selected } = this.read();
       if (selected !== entry.id) this.mdl.run({ op: "select", id: entry.id }).catch(() => {});
     });
-    head.addEventListener("dblclick", () => this.openDefinition(entry.id));
-    out.addEventListener("pointerdown", event => this.startLink(event, entry.id, null));
-
-    this.nodes.set(entry.id, record);
-    return el;
   }
 
   //! A number, with the port that may be driving it. Wired, the slider shows
   //! what is arriving and stops taking input.
+  //! A SET, COLLAPSED. The head says what it is and how much it swallowed;
+  //! the body is one row per input it takes and one per result something
+  //! outside reads from it. The rows are ports, so the set is wired like any
+  //! other node - which is the point: from out here it IS any other node.
+  setNode(entry, features) {
+    const doc = this.doc;
+    const at = this.layout.get(entry.id) || { x: 30, y: 30 };
+    const held = this.within(features, entry.id);
+    const el = doc.createElement("div");
+    el.className = "g-node g-set";
+    el.style.left = at.x + "px";
+    el.style.top = at.y + "px";
+    el.dataset.id = entry.id;
+
+    const head = doc.createElement("div");
+    head.className = "g-head";
+    head.innerHTML = gsvg(this.icons[entry.type] || this.icons.part || "")
+      + '<span class="g-nm">' + gesc(entry.name) + "</span>"
+      + '<span class="g-id">' + (held.length ? held.length + " in" : "empty") + "</span>";
+    el.appendChild(head);
+
+    const body = doc.createElement("div");
+    body.className = "g-body";
+    el.appendChild(body);
+
+    const ports = new Map();
+    //! THE INPUTS, GATHERED. Two things inside reading the same thing outside
+    //! are ONE port here, for the same reason they are one row in the panel:
+    //! they are one input asked for twice, and two ports would be two wires
+    //! from one source to one node.
+    const groups = this.inputsOf(features, entry.id);
+    groups.forEach((group, at2) => {
+      const row = doc.createElement("div");
+      row.className = "g-row wired-row";
+      const reads = group.rows.map(one => one.child.name + " \u00b7 " + one.arg.label);
+      row.innerHTML = '<span class="g-lab">'
+        + gesc(group.name || group.rows[0].arg.label) + "</span>"
+        + '<span class="g-sub" style="font-size:9.5px">'
+        + gesc(group.rows.length > 1 ? group.rows.length + " read it"
+                                     : group.rows[0].arg.accepts) + "</span>";
+      const port = doc.createElement("div");
+      const first = group.rows[0];
+      port.className = "g-port in" + (group.to ? " wired" : " slack");
+      port.dataset.in = first.child.id;
+      port.dataset.key = first.arg.key;
+      port.dataset.kind = (first.arg.accepts || "").split(",")[0];
+      //! The other arguments that share this input travel on the port, so a
+      //! wire dropped here sets every one of them. Without this the visible
+      //! one is repointed and the rest are quietly left behind.
+      if (group.rows.length > 1)
+        port.dataset.also = JSON.stringify(group.rows.slice(1)
+          .map(one => ({ id: one.child.id, key: one.arg.key })));
+      port.title = reads.join(", ")
+        + (group.rows.length > 1 ? " \u2014 one input, and this sets all of them" : "");
+      port.addEventListener("pointerdown", event => this.startLink(event, group.to || null, {
+        id: first.child.id, key: first.arg.key, had: group.to || null,
+        many: first.arg.kind === "refs",
+        also: group.rows.slice(1).map(one => ({ id: one.child.id, key: one.arg.key })),
+      }));
+      row.appendChild(port);
+      ports.set("in#" + at2, port);
+      body.appendChild(row);
+    });
+
+    //! AND WHAT COMES OUT. Anything inside that something outside reads is a
+    //! result of the set, and gets a port of its own - because from out here
+    //! "the extrude in that set" is not a thing you can point at any more.
+    const results = reachesOut(features, entry.id, {
+      spec: type => this.spec(type),
+      applies: (one, arg) => this.applies(one, arg),
+    });
+    const outs = new Map();
+    for (const result of results) {
+      const made = features.find(one => one.id === result.id);
+      if (!made) continue;
+      const row = doc.createElement("div");
+      row.className = "g-row wired-row g-gives";
+      row.innerHTML = '<span class="g-lab">' + gesc(made.name) + "</span>"
+        + '<span class="g-sub" style="font-size:9.5px">'
+        + gesc(made.produces || "shape") + "</span>";
+      const port = doc.createElement("div");
+      port.className = "g-port out";
+      port.dataset.kind = made.produces || "solid";
+      port.dataset.out = made.id;
+      port.title = made.name + " \u2014 inside " + entry.name + ", and read outside it";
+      port.addEventListener("pointerdown", event => this.startLink(event, made.id, null));
+      row.appendChild(port);
+      outs.set(made.id, port);
+      body.appendChild(row);
+    }
+
+    if (!groups.length && !results.length) {
+      const row = doc.createElement("div");
+      row.className = "g-row";
+      row.innerHTML = '<span class="g-lab">nothing in or out</span>'
+        + '<span class="g-sub" style="font-size:9.5px">'
+        + (held.length ? "it stands on its own" : "empty") + "</span>";
+      body.appendChild(row);
+    }
+
+    const open = doc.createElement("div");
+    open.className = "g-code g-open";
+    open.innerHTML = "<span>" + (held.length ? "look inside" : "it is empty")
+      + "</span><span>open \u203a</span>";
+    open.title = "Double-click the node, or press this, to work on what is in it";
+    open.addEventListener("click", event => { event.stopPropagation(); this.enterSet(entry.id); });
+    body.appendChild(open);
+
+    //! The set's own output port, kept on the head like every other node's, so
+    //! a set can be wired somewhere as a set - into another set, say.
+    const out = doc.createElement("div");
+    out.className = "g-port out";
+    out.dataset.kind = entry.produces || "text";
+    out.dataset.out = entry.id;
+    out.title = entry.name;
+    head.appendChild(out);
+
+    const error = doc.createElement("div");
+    error.className = "g-err";
+    error.hidden = true;
+    el.appendChild(error);
+
+    const record = { el, head, out, ports, outs, entry, error,
+                     swallowed: new Set(held.map(one => one.id)), set: true };
+    this.nodes.set(entry.id, record);
+    this.wireNode(record, el, entry);
+    el.addEventListener("dblclick", event => {
+      event.stopPropagation();
+      this.enterSet(entry.id);
+    });
+    return el;
+  }
+
   realRow(entry, arg, key, value, ports) {
     const doc = this.doc;
     const from = entry.driven ? entry.driven[key] : null;
@@ -1344,10 +1730,20 @@ export class GraphEditor {
           input.value = input.classList.contains("g-num") ? gnum(values[key]) : values[key];
         }
       }
+      //! A COLLAPSED SET'S PORTS BELONG TO ITS MEMBERS. The port says whose
+      //! argument it is - it has to, or a wire dropped on it would go
+      //! nowhere - so whether it is wired is read off THAT feature, not off
+      //! the set, which has no references of its own and so made every port
+      //! on every set look permanently empty.
       for (const [slot, port] of node.ports) {
-        const key = slot.split("#")[0];
-        const list = entry.lists && Array.isArray(entry.lists[key]) ? entry.lists[key] : null;
-        const target = list ? list[Number(slot.split("#")[1])] : entry.refs[key];
+        const holder = node.set
+          ? tree.features.find(one => one.id === port.dataset.in) : entry;
+        if (!holder) continue;
+        const key = node.set ? port.dataset.key : slot.split("#")[0];
+        const list = holder.lists && Array.isArray(holder.lists[key]) ? holder.lists[key] : null;
+        const target = list && !node.set ? list[Number(slot.split("#")[1])]
+                     : list ? list[0]
+                     : (holder.refs || {})[key] || (holder.driven || {})[key];
         port.classList.toggle("wired", !!target);
         port.classList.toggle("slack", !target);
       }
@@ -1380,18 +1776,34 @@ export class GraphEditor {
     const { x, y, z } = this.view;
     this.el.wires.setAttribute("transform", "translate(" + x + "," + y + ") scale(" + z + ")");
     const parts = [];
-    for (const entry of tree.features) {
-      const node = this.nodes.get(entry.id);
-      if (!node) continue;
+    const drawn = new Set();
+    const link = (source, node, port, kind, bad) => {
+      if (!source || !node || source === node) return;
+      // A set swallows its own plumbing: two of its members wired to one
+      // outside source is ONE wire into the set, not two on top of each other.
+      const once = source.entry.id + ">" + node.entry.id + ":" + port.dataset.key;
+      if (drawn.has(once)) return;
+      drawn.add(once);
+      const a = this.portAt(source, source.out), b = this.portAt(node, port);
+      parts.push('<path class="' + (kind || "") + (bad ? " dashed" : "") +
+        '" d="' + this.curve(a, b) + '"/>');
+    };
+    for (const node of this.nodes.values()) {
+      const entry = node.entry;
       for (const [slot, port] of node.ports) {
-        const key = slot.split("#")[0];
-        const list = entry.lists && Array.isArray(entry.lists[key]) ? entry.lists[key] : null;
-        const from = list ? list[Number(slot.split("#")[1])] : entry.refs[key];
-        const source = from ? this.nodes.get(from) : null;
+        // A collapsed set's ports name the member that holds the wire, not
+        // the set - so the source is read off the port rather than off the
+        // node whose body it happens to sit in.
+        const holder = node.set ? tree.features.find(one => one.id === port.dataset.in) : entry;
+        if (!holder) continue;
+        const key = node.set ? port.dataset.key : slot.split("#")[0];
+        const list = holder.lists && Array.isArray(holder.lists[key]) ? holder.lists[key] : null;
+        const from = list && !node.set ? list[Number(slot.split("#")[1])]
+                   : list ? list[0]
+                   : (holder.refs || {})[key] || (holder.driven || {})[key];
+        const source = from ? this.standsFor(tree.features, from) : null;
         if (!source) continue;
-        const a = this.portAt(source, source.out), b = this.portAt(node, port);
-        parts.push('<path class="' + (source.entry.produces || "") +
-          (entry.error ? " dashed" : "") + '" d="' + this.curve(a, b) + '"/>');
+        link(source, node, port, source.entry.produces, holder.error);
       }
     }
     if (this.linking && this.linking.to) {
@@ -1455,22 +1867,33 @@ export class GraphEditor {
         port.classList.remove("hot", "adding");
       const over = doc.elementFromPoint(e.clientX, e.clientY);
       const landed = over && over.dataset && over.dataset.in
-        ? { id: over.dataset.in, key: over.dataset.key } : null;
+        ? { id: over.dataset.in, key: over.dataset.key,
+            also: over.dataset.also ? JSON.parse(over.dataset.also) : [] } : null;
       this.linking = null;
       this.drawWires();
       try {
         if (input && !landed && input.had) {
           // Dropped in empty space: the wire comes off. An input holding several
-          // loses only the one that was picked up.
-          await this.mdl.run(input.many
-            ? { op: "disconnect", id: input.id, key: input.key, from: input.had }
-            : { op: "disconnect", id: input.id, key: input.key });
+          // loses only the one that was picked up - and an input that several
+          // arguments share comes off all of them, because it is one input.
+          await this.mdl.runAll([{ id: input.id, key: input.key },
+                                 ...(input.also || [])]
+            .map(at => input.many
+              ? { op: "disconnect", id: at.id, key: at.key, from: input.had }
+              : { op: "disconnect", id: at.id, key: at.key }));
         } else if (landed) {
           // Standard node grammar: a wire dropped on an input is the input;
           // shift adds one more. On an input that only ever holds one wire it
           // makes no difference, which is why shift is safe to hold anywhere.
-          await this.mdl.run({ op: "connect", id: landed.id, key: landed.key,
-                               from: sourceId, mode: e.shiftKey ? undefined : "only" });
+          //
+          // AND A PORT MAY STAND FOR SEVERAL ARGUMENTS. A collapsed set shows
+          // one port for an input that two of its members read, so the wire
+          // dropped on it has to reach both - otherwise the one you can see
+          // is repointed and the one you cannot is quietly left behind.
+          const also = landed.also || [];
+          await this.mdl.runAll([{ id: landed.id, key: landed.key }, ...also]
+            .map(at => ({ op: "connect", id: at.id, key: at.key,
+                          from: sourceId, mode: e.shiftKey ? undefined : "only" })));
         }
       } catch (err) { /* the console has it */ }
     };

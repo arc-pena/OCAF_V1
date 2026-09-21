@@ -8,7 +8,8 @@
 //
 // Planned here as a list of edits and then RUN against a real kernel, because
 // a plan that is right and a document that is wrong is not an import.
-import { contentsOf, inputsOf, instantiateEdits, readDeclared, saysReuse, setsIn,
+import { contentsOf, gatherInputs, inputsOf, instantiateEdits, membersOf, reachesIn,
+         reachesOut, readDeclared, saysReuse, setInputGroups, setsIn,
          wiresIn } from "../src/reuse.js";
 import { CATALOGUE } from "../src/ocaf.js";
 import { createWasmKernel } from "../src/wasm-kernel.js";
@@ -317,6 +318,92 @@ console.log("\n6. two things reading one thing are one input, not two");
   check("a set that shares nothing gathers into one group each",
         post.groups.every(one => one.holders.length === 1),
         JSON.stringify(post.groups.map(one => one.holders.length)));
+}
+
+console.log("\n7. a set as a node: what goes in, what comes out");
+// The definition panel lists what a set asks for; the node editor draws the
+// same set as ONE node with those same things as ports. Two implementations
+// of "how many inputs does this set have" would sooner or later disagree in a
+// way nobody can debug from a screenshot, so there is one, and it is this.
+{
+  // A live tree, in the shape the document hands out: parents, refs, lists,
+  // driven numbers.
+  const live = [
+    { id: "PL", type: "Plane", name: "Ground", refs: {}, lists: {}, values: {} },
+    { id: "PT", type: "Point", name: "Somewhere", refs: {}, lists: {}, values: { kind: 0 } },
+    { id: "NU", type: "Number", name: "Height", refs: {}, lists: {}, values: {} },
+    { id: "GS", type: "GeometricalSet", name: "Post", refs: {}, lists: {},
+      values: {}, texts: {} },
+    { id: "C1", type: "Circle", name: "One", parent: "GS", values: { kind: 0 },
+      refs: { plane: "PL", centre: "PT" }, lists: {} },
+    { id: "C2", type: "Circle", name: "Two", parent: "GS", values: { kind: 0 },
+      refs: { plane: "PL", centre: null }, lists: {} },
+    { id: "EX", type: "Extrude", name: "Pad", parent: "GS",
+      values: { limit: 0 }, refs: { profile: "C1", direction: null }, lists: {},
+      driven: { distance: "NU" } },
+    { id: "FI", type: "Fillet", name: "Round it", refs: { body: "EX" }, lists: {}, values: {} },
+  ];
+  const spec = type => CATALOGUE.find(one => one.type === type) || null;
+  const applies = (entry, arg) => {
+    if (!arg.showWhen) return true;
+    const now = (entry.values || {})[arg.showWhen.key];
+    return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+  };
+
+  check("everything filed under the set is found",
+        membersOf(live, "GS").map(one => one.id).sort().join() === "C1,C2,EX");
+
+  const groups = setInputGroups(live, "GS", { spec, applies,
+    nameOf: id => (live.find(one => one.id === id) || {}).name || id });
+  const named = groups.map(one => one.name || one.rows[0].arg.label);
+  check("the plane both circles stand on is ONE input",
+        groups.filter(one => one.rows.length > 1).length === 1,
+        JSON.stringify(groups.map(one => one.rows.map(r => r.child.id + "." + r.arg.key))));
+  check("named for what it points at", named.includes("Ground"), JSON.stringify(named));
+  check("and the two that read it are both on it",
+        groups.find(one => one.rows.length > 1).rows
+          .map(r => r.child.id).sort().join() === "C1,C2");
+  check("the point only one circle stands on is its own input",
+        groups.some(one => one.rows.length === 1 && one.to === "PT"));
+  check("an empty argument is an input too - it is the set asking",
+        groups.some(one => !one.to && one.rows[0].arg.key === "centre"));
+  check("and a number driven from outside is one as well",
+        groups.some(one => one.rows[0].number && one.to === "NU"),
+        JSON.stringify(groups.map(one => one.rows[0].arg.key + ":" + one.to)));
+  check("a wire that stays inside the set is not an input",
+        !groups.some(one => one.rows.some(r => r.arg.key === "profile")),
+        JSON.stringify(groups.map(one => one.rows[0].arg.key)));
+
+  // And out the other side.
+  const out = reachesOut(live, "GS", { spec, applies });
+  check("what the model reads out of the set is its result",
+        out.length === 1 && out[0].id === "EX" && out[0].by === "FI",
+        JSON.stringify(out));
+
+  // Declared beats live, because a declared input survives its wires being cut.
+  const cut = live.map(one => one.id === "C1" || one.id === "C2"
+    ? { ...one, refs: { ...one.refs, plane: null } } : one);
+  const apart = setInputGroups(cut, "GS", { spec, applies });
+  check("with the wires cut the two are two separate inputs",
+        apart.filter(one => one.rows.some(r => r.arg.key === "plane")).length === 2);
+  const withNote = cut.map(one => one.id === "GS"
+    ? { ...one, texts: { inputs: JSON.stringify({ version: 1, inputs: [{ name: "Ground",
+        was: "PL", holders: [{ id: "C1", key: "plane" }, { id: "C2", key: "plane" }] }] }) } }
+    : one);
+  const together = setInputGroups(withNote, "GS", { spec, applies,
+    declaredText: withNote.find(one => one.id === "GS").texts.inputs });
+  const one = together.find(g => g.rows.length > 1);
+  check("but the set's own note puts them back together",
+        !!one && one.rows.map(r => r.child.id).sort().join() === "C1,C2",
+        JSON.stringify(together.map(g => g.rows.map(r => r.child.id + "." + r.arg.key))));
+  check("keeping the name the file gave it", one && one.name === "Ground", one && one.name);
+
+  // The pieces on their own.
+  const rows = reachesIn(live, "GS", { spec, applies });
+  check("reachesIn finds every argument that leaves the set",
+        rows.length === groups.reduce((n, g) => n + g.rows.length, 0));
+  check("and gathering them never loses one",
+        gatherInputs(rows).reduce((n, g) => n + g.rows.length, 0) === rows.length);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

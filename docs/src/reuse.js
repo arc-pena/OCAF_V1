@@ -309,3 +309,135 @@ export function saysReuse(one) {
        + " · " + (inputs ? inputs + (inputs === 1 ? " input" : " inputs")
                               : "nothing to supply");
 }
+
+/* ============================================ a set as a feature, live
+
+   THE SAME QUESTION IN TWO WINDOWS. The definition panel lists what a set
+   asks for; the node editor draws a set as ONE node with those same things
+   as its ports. If the two worked it out separately they would sooner or
+   later disagree about how many inputs a set has, which is the kind of
+   disagreement nobody can debug from a screenshot. So it is worked out once,
+   here, over plain feature records - no document, no DOM.                 */
+
+//! Everything filed under a set in a LIVE tree, at any depth. The tree's
+//! entries carry a parent; that is all this needs.
+export function membersOf(features, setId) {
+  const out = [];
+  const walk = holder => {
+    for (const one of features) {
+      if (one.parent !== holder || out.includes(one)) continue;
+      out.push(one);
+      walk(one.id);
+    }
+  };
+  walk(setId);
+  return out;
+}
+
+//! What reaches INTO a set: every argument of everything inside it that is
+//! wired to something outside, plus every argument that is wired to nothing
+//! at all - an empty input is the set asking for something.
+//!
+//! \p spec looks a type up in the catalogue; \p applies says whether an
+//! argument is shown for the feature's current choices, because an argument
+//! that is not shown is not read either.
+export function reachesIn(features, setId, { spec, applies = () => true } = {}) {
+  const inside = new Set([setId, ...membersOf(features, setId).map(one => one.id)]);
+  const rows = [];
+  for (const child of features) {
+    if (child.id === setId || !inside.has(child.id)) continue;
+    const type = spec ? spec(child.type) : null;
+    if (!type) continue;
+    for (const arg of type.args || []) {
+      if (!applies(child, arg)) continue;
+      //! A NUMBER DRIVEN FROM OUTSIDE IS AN INPUT TOO. A set whose height
+      //! follows a parameter in the document needs that parameter supplied
+      //! when it is reused, exactly as it needs its plane supplied.
+      if (arg.kind === "real") {
+        const from = (child.driven || {})[arg.key];
+        if (from && !inside.has(from))
+          rows.push({ child, arg, outside: [from], number: true });
+        continue;
+      }
+      if (arg.kind !== "ref" && arg.kind !== "refs") continue;
+      const wired = arg.kind === "refs" ? ((child.lists || {})[arg.key] || [])
+                                        : [(child.refs || {})[arg.key]].filter(Boolean);
+      const outside = wired.filter(one => !inside.has(one));
+      //! A wire that stays inside the set is the set's own plumbing, not an
+      //! input to it: a circle standing on a point in the same set is not
+      //! something anybody has to supply.
+      if (outside.length || !wired.length) rows.push({ child, arg, outside });
+    }
+  }
+  return rows;
+}
+
+//! And out the other side: what inside the set is read by something outside
+//! it. Those are the set's results - the ports the rest of the model plugs
+//! into when the set is drawn as one node.
+export function reachesOut(features, setId, { spec, applies = () => true } = {}) {
+  const inside = new Set([setId, ...membersOf(features, setId).map(one => one.id)]);
+  const out = [];
+  for (const other of features) {
+    if (inside.has(other.id)) continue;
+    const type = spec ? spec(other.type) : null;
+    if (!type) continue;
+    for (const arg of type.args || []) {
+      if (!applies(other, arg)) continue;
+      const wired = arg.kind === "refs" ? ((other.lists || {})[arg.key] || [])
+                  : arg.kind === "ref" ? [(other.refs || {})[arg.key]].filter(Boolean)
+                  : arg.kind === "real" ? [(other.driven || {})[arg.key]].filter(Boolean)
+                  : [];
+      for (const id of wired)
+        if (inside.has(id) && !out.some(one => one.id === id))
+          out.push({ id, by: other.id, key: arg.key });
+    }
+  }
+  return out;
+}
+
+//! ONE INPUT, HOWEVER MANY THINGS READ IT. Two arguments inside a set wired
+//! to the same thing outside are one input asked for twice; listing it twice
+//! is noise in the panel and a wire too many in the graph, and repointing one
+//! of them silently leaves the other where it was.
+//!
+//! Gathered two ways because there are two cases. A wire that is still there
+//! groups by what it points AT. A wire that was CUT - which is what
+//! instantiating a set does to every input it had - has nothing to group by,
+//! so the set carries a note of which arguments shared a source and that note
+//! is read back here.
+export function gatherInputs(rows, { declared = [], nameOf = id => id } = {}) {
+  const groups = [];
+  const seat = new Map();
+  const key = row => row.child.id + ":" + row.arg.key;
+
+  for (const said of declared) {
+    const mine = said.holders
+      .map(at => rows.find(row => row.child.id === at.id && row.arg.key === at.key))
+      .filter(Boolean);
+    if (!mine.length) continue;
+    const group = { rows: mine, name: said.name, declared: true, to: null };
+    groups.push(group);
+    for (const row of mine) seat.set(key(row), group);
+  }
+
+  for (const row of rows) {
+    if (seat.has(key(row))) continue;
+    const to = row.outside[0] || null;
+    const had = to && groups.find(one => !one.declared && one.to === to
+                                      && !!one.rows[0].number === !!row.number);
+    if (had) { had.rows.push(row); seat.set(key(row), had); continue; }
+    const group = { rows: [row], to, name: to ? nameOf(to) : "" };
+    groups.push(group);
+    seat.set(key(row), group);
+  }
+  return groups;
+}
+
+//! The whole of it, for a caller that has a tree and a catalogue: a set's
+//! inputs, gathered, in the order the panel and the graph both show them.
+export function setInputGroups(features, setId, { spec, applies, declaredText = "",
+                                                 nameOf } = {}) {
+  const rows = reachesIn(features, setId, { spec, applies });
+  return gatherInputs(rows, { declared: readDeclared(declaredText), nameOf });
+}

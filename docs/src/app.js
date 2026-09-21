@@ -38,7 +38,8 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
 import { readValue, saysFormula } from "./formula.js";
-import { instantiateEdits, readDeclared, saysReuse, setsIn } from "./reuse.js";
+import { instantiateEdits, reachesOut, saysReuse, setInputGroups,
+         setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
@@ -6131,92 +6132,18 @@ function within(setId, id) {
 //! arguments it is, and what it is pointed at from outside. An argument that
 //! is EMPTY is an input too - it is the one the set is waiting for - so it is
 //! listed rather than left out.
+//! WHAT A SET ASKS FOR. Worked out in reuse.js over plain feature records,
+//! because the node editor draws the same answer as ports on a collapsed node
+//! and two implementations of "how many inputs does this set have" would
+//! sooner or later disagree in a way nobody can debug from a screenshot.
 function setInputs(id) {
-  const inside = new Set([id]);
-  for (const f of state.tree.features) if (within(id, f.id)) inside.add(f.id);
-  const rows = [];
-  for (const child of state.tree.features) {
-    if (child.id === id || !inside.has(child.id)) continue;
-    const spec = schemaType(child.type);
-    if (!spec) continue;
-    for (const arg of spec.args || []) {
-      if (!argApplies(child, arg)) continue;
-      // A NUMBER DRIVEN FROM OUTSIDE IS AN INPUT TOO. A set whose height
-      // follows a parameter in the document needs that parameter supplied
-      // when it is reused, exactly as it needs its plane supplied - and a
-      // panel that listed one and not the other would be telling half the
-      // story about what this set is.
-      if (arg.kind === "real") {
-        const from = (child.driven || {})[arg.key];
-        if (from && !inside.has(from)) rows.push({ child, arg, outside: [from], number: true });
-        continue;
-      }
-      if (arg.kind !== "ref" && arg.kind !== "refs") continue;
-      const wired = arg.kind === "refs" ? ((child.lists || {})[arg.key] || [])
-                                        : [(child.refs || {})[arg.key]].filter(Boolean);
-      const outside = wired.filter(one => !inside.has(one));
-      // A wire that stays inside the set is the set's own plumbing, not an
-      // input to it: a circle standing on a point that is in the same set is
-      // not something anybody has to supply.
-      if (outside.length || !wired.length) rows.push({ child, arg, outside });
-    }
-  }
-  return gatherInputs(id, rows);
-}
-
-/* ------------------------------------------ one input, however many read it
-
-   TWO THINGS INSIDE A SET READING THE SAME POINT OUTSIDE IT ARE NOT TWO
-   INPUTS. They are one input asked for twice, and listing it twice is both
-   noise and a trap: repoint one of them and the other is quietly still
-   pointing somewhere else, so the set is now wired to two different things
-   where the original was wired to one.
-
-   So the rows are gathered. Two ways, because there are two cases:
-
-     WIRED rows group by what they point AT, which needs no memory at all -
-     the wire is there to be read.
-
-     EMPTY rows have nothing to group by, because the wire that said so was
-     cut when the set was instantiated. That is why the set writes down what
-     it asks for at the moment it is copied: the note says which arguments
-     shared a source, and the panel reads it back.
-
-   A set built by hand has no note and needs none: nothing was cut, so every
-   wire is still there to be read.                                          */
-
-function gatherInputs(id, rows) {
   const entry = feature(id);
-  const declared = readDeclared((entry && entry.texts && entry.texts.inputs) || "");
-  const groups = [];
-  const seat = new Map();          // "childId:key" -> the group it belongs to
-
-  //! The written-down ones first, so a set that was instantiated keeps the
-  //! names and the order its own file gave them.
-  for (const said of declared) {
-    const mine = said.holders
-      .map(at => rows.find(row => row.child.id === at.id && row.arg.key === at.key))
-      .filter(Boolean);
-    if (!mine.length) continue;
-    const group = { rows: mine, name: said.name, declared: true };
-    groups.push(group);
-    for (const row of mine) seat.set(row.child.id + ":" + row.arg.key, group);
-  }
-
-  //! Then everything else, gathered by what it is wired to. A row with no
-  //! wire and nothing written down about it is its own input, because two
-  //! empty fields have nothing in common but being empty.
-  for (const row of rows) {
-    if (seat.has(row.child.id + ":" + row.arg.key)) continue;
-    const to = row.outside[0] || null;
-    const had = to && groups.find(one => !one.declared && one.to === to
-                                      && !!one.rows[0].number === !!row.number);
-    if (had) { had.rows.push(row); seat.set(row.child.id + ":" + row.arg.key, had); continue; }
-    const group = { rows: [row], to, name: to ? (feature(to) || {}).name || to : "" };
-    groups.push(group);
-    seat.set(row.child.id + ":" + row.arg.key, group);
-  }
-  return groups;
+  return setInputGroups(state.tree.features, id, {
+    spec: schemaType,
+    applies: argApplies,
+    declaredText: (entry && entry.texts && entry.texts.inputs) || "",
+    nameOf: to => (feature(to) || {}).name || to,
+  });
 }
 
 //! Every argument that shares an input with this one, so setting it sets them
@@ -8319,7 +8246,8 @@ addEventListener("pointerdown", event => {
 
 const graph = new GraphEditor({
   mdl,
-  read: () => ({ tree: state.tree, schema: state.schema, selected: state.selected }),
+  read: () => ({ tree: state.tree, schema: state.schema, selected: state.selected,
+                 picked: state.picked }),
   get icons() { return ICONS; },
   openDefinition: id => { select(id, true); toggleTree(true); },
   onOpen: () => document.getElementById("btn-graph").setAttribute("aria-pressed", "true"),
