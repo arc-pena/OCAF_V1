@@ -29,26 +29,21 @@ const at = async id => (await tree()).find(f => f.id === id);
 const add = async (type, more = {}) => (await mdl.run({ op: "add", type, ...more })).id;
 const set = (id, key, value) => mdl.run({ op: "set", id, key, value });
 
-console.log("1. deleting a set keeps what is in it, unless told otherwise");
+console.log("1. deleting a set takes what is in it, however deep");
 {
   const folder = await add("GeometricalSet", { name: "Bay" });
+  const inner = await add("GeometricalSet", { name: "Inner" });
   const one = await add("Point", { name: "Inside" });
-  await mdl.run({ op: "group", id: one, into: folder });
+  await mdl.runAll([{ op: "group", id: inner, into: folder },
+                    { op: "group", id: one, into: inner }]);
   await mdl.run({ op: "delete", id: folder });
-  check("the plain delete dissolves the set and keeps the contents",
-        !(await at(folder)) && !!(await at(one)), "point " + (await at(one) ? "kept" : "gone"));
-
-  await fresh();
-  const f2 = await add("GeometricalSet", { name: "Bay" });
-  const p2 = await add("Point", { name: "Inside" });
-  await mdl.run({ op: "group", id: p2, into: f2 });
-  //! The caller lists the contents itself - the interface's withContents - so
-  //! the op is about features, not about folders, and there is one rule for
-  //! what it does to each.
-  await mdl.runAll([{ op: "delete", id: p2, cutWires: true },
-                    { op: "delete", id: f2, cutWires: true }]);
-  check("with cutWires both go", !(await at(f2)) && !(await at(p2)),
-        (await tree()).map(f => f.id).join(",") || "(empty)");
+  check("the set goes", !(await at(folder)));
+  check("  and the set inside it", !(await at(inner)));
+  check("  and the point inside that", !(await at(one)),
+        (await tree()).map(f => f.name).join(",") || "(empty)");
+  //! Which is ONE op, not a list the caller had to work out. Deleting a set
+  //! used to hand its contents back to whatever the set was in - ungrouping
+  //! it, which is a different thing and is what moving them out is for.
 }
 
 console.log("\n2. and a wire from outside does not stop it");
@@ -59,24 +54,27 @@ console.log("\n2. and a wire from outside does not stop it");
   const up = await add("Vector"); await set(up, "dx", 0); await set(up, "dz", 1);
   await mdl.runAll([{ op: "group", id: pt, into: folder },
                     { op: "group", id: up, into: folder }]);
-  //! A plane OUTSIDE the set, reading a point inside it. That is what makes a
-  //! plain delete refuse, and it is exactly the case the command exists for.
+  //! A plane OUTSIDE the set, reading a point inside it. That used to be
+  //! refused - "Plane.1 still reads from Point.1" - which is true and is not a
+  //! reason to keep the point: the plane has to hear about this sooner or
+  //! later, and an empty input it can complain about is better than making
+  //! somebody work out the order to take a model apart in.
   const plane = await add("Plane", { refs: { origin: pt, normal: up } });
-  let refused = null;
-  try { await mdl.run({ op: "delete", id: pt }); }
-  catch (error) { refused = error.message; }
-  check("the plain delete is refused while the plane reads it",
-        !!refused && /still reads from/.test(refused), refused || "(allowed)");
-  await mdl.runAll([{ op: "delete", id: pt, cutWires: true },
-                    { op: "delete", id: up, cutWires: true },
-                    { op: "delete", id: folder, cutWires: true }]);
-  check("with cutWires the set and its contents go", !(await at(folder)) && !(await at(pt)),
+  await mdl.run({ op: "delete", id: folder });
+  check("the set and its contents go, wire or no wire",
+        !(await at(folder)) && !(await at(pt)) && !(await at(up)),
         (await tree()).map(f => f.name).join(",") || "(empty)");
   const left = await at(plane);
-  check("  and the plane is still there", !!left, left ? left.name : "gone");
-  check("  with its input empty rather than pointing at nothing",
-        !left.refs.origin, JSON.stringify(left.refs));
+  check("  and the plane that read into it is still there", !!left,
+        left ? left.name : "gone");
+  check("  with its inputs empty rather than pointing at nothing",
+        !left.refs.origin && !left.refs.normal, JSON.stringify(left.refs.origin));
   check("  and says so", !!left.error, left.error || "(no complaint)");
+  //! UPSTREAM IS UNTOUCHED, which is the other half of what a node editor's
+  //! delete means: what the plane read from is gone, and what read FROM the
+  //! plane - nothing here - would have been left alone.
+  check("nothing else was taken with it", (await tree()).length === 1,
+        (await tree()).map(f => f.name).join(","));
 }
 
 console.log("\n3. a point on a plane");

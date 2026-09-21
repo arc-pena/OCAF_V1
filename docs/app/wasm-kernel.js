@@ -6287,10 +6287,10 @@ function sprawl(face, edges) {
                contents: doc.within(f).map(x => ({ id: F.id(x), name: F.name(x) })) };
     },
 
-    async deleteFeature(id, cutWires = false) {
+    async deleteFeature(id) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
-      doc.deleteFeature(f, !!cutWires);
+      doc.deleteFeature(f);
       return state(settle(false));
     },
 

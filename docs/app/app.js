@@ -6559,28 +6559,17 @@ function openMenu(event, entry) {
   if (!several) item("Centre on it", "bring it into view, from where you are",
                      () => centreOn(entry.id));
   if (!several) item("Open definition", "", () => select(entry.id, true));
+  //! ONE DELETE. It takes a set's contents with it and it cuts whatever was
+  //! reading what goes - see Doc.deleteFeature. The note says how much is
+  //! about to go, because a folder with eleven things in it looks the same in
+  //! this menu as an empty one.
+  const inside = withContents(many).filter(id => !many.includes(id));
   item(several ? "Delete " + many.length + " features"
        : entry.category === "container" ? "Delete set" : "Delete",
-    several ? "and everything selected with it"
-      : entry.category === "container" ? "keeps what is in it" : "",
+    inside.length ? "and the " + inside.length
+        + (inside.length === 1 ? " feature inside" : " features inside")
+      : several ? "and everything selected with it" : "",
     () => deleteFeature(many));
-  //! AND THE OTHER KIND OF DELETE, which a folder needs and nothing else does.
-  //!
-  //! "Delete set" hands the contents back to whatever the set was in, which is
-  //! right when you are undoing the folder and wrong when you are undoing the
-  //! WORK. A geometrical set holding a sketch, an extrude and three planes is
-  //! usually one idea, and getting rid of the idea means getting rid of all of
-  //! it - one command, not "delete the five things, then delete the folder
-  //! they were in", in dependency order, by hand.
-  //!
-  //! Separate from Delete rather than a setting on it, because they are
-  //! genuinely different amounts of damage and the menu should say which one
-  //! you are about to do.
-  const inside = withContents(many).filter(id => !many.includes(id));
-  if (inside.length)
-    item("Delete " + (several ? "them" : "it") + " and everything inside",
-      inside.length + (inside.length === 1 ? " feature goes too" : " features go too"),
-      () => deleteFeature(withContents(many), true));
 
   placeMenu(event.clientX, event.clientY);
 }
@@ -8734,35 +8723,21 @@ async function addFeature(type) {
 //! In falling order, because the kernel refuses to delete anything that is
 //! still being read from: select a sketch and the pad made out of it and the
 //! pad has to go first, which is not the order anybody clicked them in.
-//! \p andWires says to take the wires with it: a delete that would be refused
-//! because something still reads from what is going is done anyway, and the
-//! readers are left with the input empty. That is the right answer for "delete
-//! this set and everything in it" - you are removing an idea, and what was
-//! reading it has to hear about that now rather than keep a wire to something
-//! that is gone.
-async function deleteFeature(what, andWires = false) {
+//! Nothing is asked and nothing is refused: a delete takes what it is given,
+//! takes a set's contents with it, and cuts the wires that were reading it.
+//! Undo is one keystroke away and is a better answer than a dialog that
+//! appears every time and is read the first two.
+async function deleteFeature(what) {
   const ids = (Array.isArray(what) ? what : [what]).filter(Boolean);
   if (!ids.length) return;
-  //! ASKED FIRST, because it is the one command here that cannot be explained
-  //! by looking at the result. The count is in the question: a menu that does
-  //! not say how much it is about to remove is a menu that removes four more
-  //! than you meant.
-  if (andWires) {
-    const reading = state.tree.features.filter(f => !ids.includes(f.id)
-      && ids.some(id => dependsOn(f.id, id)));
-    const said = ids.length + (ids.length === 1 ? " feature" : " features")
-      + (reading.length ? ", and " + reading.length
-         + (reading.length === 1 ? " other loses an input" : " others lose an input") : "");
-    if (!window.confirm("Delete " + said + "?")) return;
-  }
   const was = { selected: state.selected, edited: state.edited, picked: state.picked.slice() };
   if (ids.includes(state.selected)) { state.selected = null; state.anchor = null; }
   if (ids.includes(state.edited)) state.edited = null;
   state.picked = state.picked.filter(id => !ids.includes(id));
   const order = inFallingOrder(ids);
-  const done = ids.length === 1 && !andWires
+  const done = ids.length === 1
     ? await edit({ op: "delete", id: order[0] })
-    : await edit.many(order.map(id => ({ op: "delete", id, cutWires: andWires })));
+    : await edit.many(order.map(id => ({ op: "delete", id })));
   if (!done) {
     state.selected = was.selected;
     state.edited = was.edited;

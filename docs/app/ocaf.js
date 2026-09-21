@@ -3743,53 +3743,54 @@ export class Doc {
       && this.wiresOf(f).some(source => inside.has(source)));
   }
 
-  //! Removing the container and nothing else. What was in it is handed to
-  //! whatever the container was in, so a set is a way of holding things
-  //! together and never a way of losing them.
-  dissolve(container) {
-    const up = F.parent(container);
-    for (const f of this.contents(container)) this.setParent(f, up);
-    this.deleteFeature(container);
-  }
-
-  //! \p cutWires does two things, and both of them are what "delete this set
-  //! AND everything in it" has to mean.
+  //! DELETE IS DELETE. One behaviour, and it is the node editor's.
   //!
-  //! A CONTAINER IS NOT DISSOLVED. Deleting a folder normally hands its
-  //! contents back to whatever the folder was in, because you are usually
-  //! undoing the folder rather than the work. Told to take the contents too,
-  //! the caller has already listed them for deletion - dissolving would empty
-  //! the set first and leave the list pointing at features that have moved.
+  //! Taking a node out of a graph does not ask permission and does not leave a
+  //! shell behind. What read FROM it loses an input and says so; what it read
+  //! from is untouched, because nothing about those changed. That is all a
+  //! delete is, and it used to be three things pretending to be one:
   //!
-  //! AND A READER IS NOT A REFUSAL. The whole point is to get rid of an idea,
-  //! and something outside still wired to a piece of it has to hear about that
-  //! now rather than keep a wire to something that is gone. The wire is cut
-  //! and the reader is left with an empty input, which is a thing the panel
-  //! can say out loud.
-  deleteFeature(f, cutWires = false) {
-    if (!cutWires && this.isContainer(f) && this.contents(f).length) {
-      this.dissolve(f);
-      return;
-    }
-    const readers = this.dependents(f);
-    if (readers.length) {
-      if (!cutWires)
-        throw new Error(F.name(readers[0]) + " still reads from " + F.name(f));
-      for (const reader of readers)
+  //!   A SET WAS DISSOLVED rather than deleted. Its contents were handed back
+  //!   to whatever the set was in and the folder vanished from under them,
+  //!   which is not what anybody means by deleting a set - it is what they
+  //!   mean by ungrouping one, and that is what moving things out of a set
+  //!   already does, in the menu, by name.
+  //!
+  //!   A FEATURE SOMETHING READ FROM WAS REFUSED. "Fillet.1 still reads from
+  //!   Cube.1" is true and is not a reason to keep the cube: the fillet is
+  //!   going to have to hear about this sooner or later, and telling it now,
+  //!   with an empty input it can complain about, is better than making the
+  //!   person work out the order to take a model apart in.
+  //!
+  //!   AND THERE WAS A SECOND DELETE for the case the first one would not do,
+  //!   which is one command too many for an operation this plain.
+  //!
+  //! What is gone is gone from the model file too, which is the other half of
+  //! "removed": no orphan parent references, no wires pointing at nothing.
+  deleteFeature(f) {
+    //! A folder goes with what is in it, all the way down. Listed before
+    //! anything is removed, because reading the contents of a label that has
+    //! been taken out of the tree gives nothing.
+    const going = [f, ...this.within(f)];
+    const doomed = new Set(going);
+    for (const one of going) {
+      //! Only the wires from OUTSIDE need cutting - a reader that is going
+      //! too has nothing to be left holding.
+      for (const reader of this.dependents(one)) {
+        if (doomed.has(reader)) continue;
         for (const arg of F.spec(reader).args) {
           if (arg.kind !== "ref" && arg.kind !== "refs") continue;
-          this.clearReference(reader, arg.key, f);
+          this.clearReference(reader, arg.key, one);
         }
+      }
     }
-    //! A container going with cutWires set still has to let go of whatever is
-    //! left filed under it, or those become children of a label that is not
-    //! there any more.
-    if (this.isContainer(f))
-      for (const child of this.contents(f)) F.setParent(child, null);
-    const shape = F.shape(f);
-    const driver = this.driverOf(f);
-    if (shape && driver) driver.release(shape);
-    this.featuresRoot.children.delete(f.tag);
+    for (const one of going) {
+      const shape = F.shape(one);
+      const driver = this.driverOf(one);
+      if (shape && driver) driver.release(shape);
+      this.featuresRoot.children.delete(one.tag);
+    }
+    return going.length;
   }
 
   setParameter(f, key, value) {

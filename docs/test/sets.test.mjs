@@ -26,7 +26,7 @@ const at = async id => (await tree()).find(f => f.id === id);
 const names = list => list.map(id => id).sort().join(",");
 
 console.log("1. a part, then a folder put round half of it");
-await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S", units: "mm",
+const BASE = { format: "ocaf-parametric-model", version: 1, name: "S", units: "mm",
   features: [
     { id: "PT", type: "Point", name: "Origin", args: { x: 0, y: 0, z: 0 } },
     { id: "VZ", type: "Vector", name: "Up", args: { dz: 1, dx: 0, dy: 0 } },
@@ -34,7 +34,8 @@ await kernel.loadModel({ format: "ocaf-parametric-model", version: 1, name: "S",
     { id: "CI", type: "Circle", name: "Ring", args: { plane: { ref: "PL" }, radius: 500 } },
     { id: "EX", type: "Extrude", name: "Tower",
       args: { profile: { ref: "CI" }, direction: { ref: "VZ" }, distance: 3000 } },
-  ] });
+  ] };
+await kernel.loadModel(BASE);
 const volume = async id => {
   const gauge = (await kernel.addFeature("Measure", { shape: id })).id;
   await kernel.setParameter(gauge, "quantity", 2);
@@ -131,27 +132,48 @@ console.log("\n4. the file carries it, and brings it back");
     names((await at("GS")).contents) === "CI,PL", JSON.stringify((await at("GS")).contents));
 }
 
-console.log("\n5. deleting a set keeps what is in it");
+console.log("\n5. deleting a set takes what is in it");
 {
+  //! IT USED TO DISSOLVE. The contents were handed back to whatever the set
+  //! was in and the folder vanished from under them, which is what anybody
+  //! means by UNGROUPING a set and not by deleting one. Ungrouping is still
+  //! there and is still called what it is: move the contents out first, which
+  //! the menu offers by name, and then the empty folder goes on its own.
+  //!
+  //! Deleting is now the node editor's delete: what is named goes, what was
+  //! inside it goes, and what read from any of that loses an input and says
+  //! so. Nothing is refused.
+  const kept = await tree();
+  check("the set and its contents are all there to begin with",
+    kept.some(f => f.id === "GS") && kept.some(f => f.id === "CI"),
+    kept.map(f => f.id).join(","));
   await mdl.run({ op: "delete", id: "GS" });
   check("the set is gone", !(await at("GS")));
-  check("but the ring and the plane are not",
-    !!(await at("CI")) && !!(await at("PL")));
-  check("and they were handed to whatever the set was in - not to the top",
-    (await at("CI")).parent === "BD" && (await at("PL")).parent === "BD",
-    (await at("CI")).parent);
-  check("the tower is untouched", Math.abs((await volume("EX")) - before) < 1,
-    (await volume("EX")).toFixed(0));
+  check("and so are the ring and the plane that were in it",
+    !(await at("CI")) && !(await at("PL")));
+  //! The tower was built from the ring, so it is exactly the thing that has
+  //! to hear about this - and it hears about it by losing the wire, not by
+  //! stopping the delete.
+  const tower = await at("EX");
+  check("the tower is still in the tree", !!tower);
+  check("  with the input it read from the set now empty",
+    tower && !tower.refs.profile, JSON.stringify(tower && tower.refs.profile));
+  check("  and it says so rather than going quiet", !!(tower && tower.error),
+    (tower && tower.error) || "(silent)");
 
   await mdl.run({ op: "delete", id: "BD" });
-  check("dissolving the outer one puts everything back at the top level",
-    !(await at("CI")).parent && !(await at("EX")).parent);
-  check("and the whole part still builds",
-    (await tree()).every(f => !f.error), (await tree()).filter(f => f.error).map(f => f.id).join(","));
+  check("deleting the outer set takes the tower with it",
+    !(await at("BD")) && !(await at("EX")),
+    (await tree()).map(f => f.id).join(",") || "(empty)");
+  check("  and leaves the datums that were never in it",
+    !!(await at("PT")), (await tree()).map(f => f.id).join(",") || "(empty)");
 }
 
 console.log("\n6. one undo puts a set back where it was");
 {
+  //! Rebuilt first, because section 5 now deletes the ring along with the set
+  //! it was in - which it did not when deleting a set dissolved it.
+  await mdl.run({ op: "model", model: BASE });
   await mdl.run({ op: "add", type: "GeometricalSet", id: "G2", name: "Second" });
   await mdl.run({ op: "group", id: "CI", into: "G2" });
   check("filed away", (await at("CI")).parent === "G2");

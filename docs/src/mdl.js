@@ -131,15 +131,14 @@ export const MDL_OPS = [
       return { ...(await ctx.kernel.rename(born.id, String(edit.name))), id: born.id };
     }),
 
-  modelOp("delete", ["id", "cutWires?"],
-    "Remove a feature. Refused while anything still reads from it, and refused for a "
-    + "set with things in it - deleting a set normally hands its contents back to "
-    + "whatever the set was in. `cutWires` overrules both: the feature goes whatever "
-    + "is wired to it, the wires are cut, and the readers are left with an empty "
-    + "input. That is what \"delete this set and everything inside\" is made of, and "
-    + "it is the one delete that can leave the document with work to do.",
+  modelOp("delete", ["id"],
+    "Remove a feature, the way a node editor removes a node. Anything that READ from "
+    + "it loses that input and says so; anything it read from is untouched. A set goes "
+    + "with everything inside it, however deep - to keep the contents, move them out "
+    + "first, which is what taking something out of a set is for. Nothing is refused "
+    + "and nothing is left behind in the model file.",
     { op: "delete", id: "SP1" },
-    (ctx, edit) => ctx.kernel.deleteFeature(needText(edit, "id"), !!edit.cutWires)),
+    (ctx, edit) => ctx.kernel.deleteFeature(needText(edit, "id"))),
 
   modelOp("group", ["id", "into?"],
     "File a feature under a set - a GeometricalSet or a Body - or leave `into` out to "

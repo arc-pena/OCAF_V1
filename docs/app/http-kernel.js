@@ -56,7 +56,7 @@ export async function createHttpKernel(base) {
     },
     setMeshOps(id, ops) { return this.post("/api/meshops", { id, ops }); },
     addFeature(type, refs, id) { return this.post("/api/feature", { type, refs, id }); },
-    deleteFeature(id, cutWires) { return this.post("/api/delete", { id, cutWires }); },
+    deleteFeature(id) { return this.post("/api/delete", { id }); },
     setParent(id, into) { return this.post("/api/group", { id, into }); },
     inputsOf(id) { return this.get("/api/inputs?id=" + encodeURIComponent(id)); },
     rename(id, name) { return this.post("/api/rename", { id, name }); },

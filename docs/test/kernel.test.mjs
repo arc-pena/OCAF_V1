@@ -95,18 +95,32 @@ const reloaded = await kernel.loadModel(model);
 check("the reloaded model builds", reloaded.report.failed.length === 0);
 
 console.log("8. deleting");
-let threw = null;
-try { await kernel.deleteFeature("CB1"); } catch (e) { threw = e.message; }
-check("a consumed body cannot be deleted", /still reads from/.test(threw || ""), threw || "no error");
+//! DELETE IS DELETE, the way a node editor means it. Taking the cube out from
+//! under its own fillet used to be refused - "Fillet.1 still reads from
+//! Cube.1" - which is true and is not a reason to keep the cube: the fillet
+//! has to hear about this sooner or later, and an empty input it can complain
+//! about is better than making somebody work out the order to take a model
+//! apart in.
+await kernel.deleteFeature("CB1");
+out = await kernel.tree();
+check("a body something reads from goes anyway", !out.tree.features.some(f => f.id === "CB1"));
+const orphan = out.tree.features.find(f => f.id === "FL1");
+check("  and the fillet that read it is still here", !!orphan);
+check("  with its input empty rather than pointing at nothing",
+  orphan && !orphan.refs.body, JSON.stringify(orphan && orphan.refs.body));
+check("  and says so", !!(orphan && orphan.error), (orphan && orphan.error) || "(silent)");
 await kernel.deleteFeature("FL1");
 out = await kernel.tree();
-check("the cube reappears in 3D once its fillet is gone",
-  out.tree.features.find(f => f.id === "CB1").visible === true);
+check("and the fillet goes too", !out.tree.features.some(f => f.id === "FL1"));
 
 console.log("9. the kernel is still healthy after all of that");
-out = await kernel.setParameter("CB1", "dx", 60);
+//! A FRESH CUBE, because the one the first eight sections used has been
+//! deleted - which it had not been before, when a body something read from
+//! was refused and only the fillet went.
+const born = await kernel.addFeature("Cube", { origin: "PT1", plane: "PL1" });
+out = await kernel.setParameter(born.id, "dx", 60);
 check("it still builds", out.report.failed.length === 0);
-mesh = (await kernel.mesh(["CB1"])).features[0];
+mesh = (await kernel.mesh([born.id])).features[0];
 check("and still meshes", mesh.triangles === 12, String(mesh.triangles));
 
 console.log("10. arraying a feature");

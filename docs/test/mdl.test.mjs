@@ -114,9 +114,12 @@ check("move is recorded in the layout", layout.get("CB1").x === 420);
 
 console.log("4. refusals are recorded, not swallowed");
 const before = mdl.history.length;
+//! DELETING IS NOT ONE OF THE REFUSALS ANY MORE, so this asks something that
+//! still is. A delete takes what it is given the way a node editor does; what
+//! cannot be done is naming a feature that is not there.
 let refused = "";
-try { await mdl.run({ op: "delete", id: "CB1" }); } catch (e) { refused = e.message; }
-check("a body something reads from cannot be deleted", refused.includes("still reads"), refused);
+try { await mdl.run({ op: "delete", id: "NOPE1" }); } catch (e) { refused = e.message; }
+check("deleting something that is not there is refused", /no feature/.test(refused), refused);
 check("the refusal is in the history", mdl.history.length === before + 1);
 check("and it is marked failed", mdl.history[mdl.history.length - 1].ok === false);
 
