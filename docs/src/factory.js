@@ -205,6 +205,14 @@ export function makeFactories(oc, kit) {
     return face.Face();
   };
 
+  //! How much surface a shape has. Used to check a fix rather than to report a
+  //! number, so the answer only has to be comparable with itself.
+  const areaOf = shape => {
+    const props = new oc.GProp_GProps();
+    oc.BRepGProp.SurfaceProperties(shape, props, false, false);
+    return props.Mass();
+  };
+
   //! THE FACE A BOUNDARY BOUNDS WHEN IT IS NOT FLAT. Four corners sampled off a
   //! loft are almost never coplanar, and BRepBuilderAPI_MakeFace wants a plane
   //! before it will do anything - so a panel taken off a curved skin cannot be
@@ -1176,16 +1184,44 @@ export function makeFactories(oc, kit) {
       run: wire => faceOf(wire) },
 
     { name: "fillWithHoles", takes: "outer, holes", gives: "shape",
-      summary: "A planar face with holes in it. A hole runs AGAINST its outline, or "
-             + "OpenCascade reads it as a second outline and the face comes back "
-             + "bigger rather than smaller.",
+      summary: "A planar face with holes in it. The holes may run either way round: "
+             + "which way a wire runs is decided by the order somebody drew it in, "
+             + "and it is sorted out here rather than assumed.",
+      //! OPENCASCADE DECIDES WHAT AN ADDED WIRE MEANS BY ITS ORIENTATION.
+      //! Running the same way as the outline it is a SECOND OUTLINE and the
+      //! face comes back bigger; running against it, it is a hole. So
+      //! reversing every hole - which is what this used to do - is right
+      //! exactly half the time, and wrong silently: the face builds, it is
+      //! just the wrong face.
+      //!
+      //! Measured on the sketch that brought this up. A hexagon with three
+      //! rectangles inside it filled to 134,619,894 mm2 where the outline
+      //! alone is 113,425,286: the three holes had been added, to the square
+      //! millimetre, and the pad built from it was a solid hexagon with three
+      //! solid blocks standing in it.
+      //!
+      //! ShapeFix_Face::FixOrientation needs no telling which wire is which -
+      //! it works out the containment itself and turns each one to suit. The
+      //! area is checked afterwards all the same, because a fix that made the
+      //! face bigger has not fixed anything.
       run: (outer, holes) => {
-        let face = faceOf(outer);
-        for (const hole of holes) {
-          const cut = new oc.BRepBuilderAPI_MakeFace(face, oc.TopoDS.Wire(hole.Reversed()));
-          if (cut.IsDone()) face = cut.Face();
-        }
-        return face;
+        const list = (holes || []).filter(Boolean);
+        const plain = faceOf(outer);
+        if (!list.length) return plain;
+        //! MEASURED BEFORE, AND ON ITS OWN FACE. ShapeFix_Face works on the
+        //! face it was handed - Add puts the wire INTO it - so the outline
+        //! asked afterwards is no longer the outline, and a guard that
+        //! compared the two would be comparing a shape with itself. Its own
+        //! copy goes in, and what the outline was is remembered first.
+        const was = areaOf(plain);
+        try {
+          const fix = new oc.ShapeFix_Face(faceOf(outer));
+          for (const hole of list) fix.Add(oc.TopoDS.Wire(hole));
+          fix.FixOrientation();
+          const made = fix.Face();
+          if (made && !made.IsNull() && areaOf(made) < was + CONFUSION) return made;
+        } catch (err) { /* the outline alone is the honest answer */ }
+        return plain;
       } },
 
     { name: "parallelCurve", takes: "curve, distance, support, normal, join", gives: "shape",

@@ -3340,15 +3340,16 @@ function sprawl(face, edges) {
         try {
           const maker = new oc.BRepBuilderAPI_MakeFace(wire, true);
           if (!maker.IsDone()) { shapes.push(wire); continue; }
-          let face = maker.Face();
-          for (let j = 0; j < loops.length; j++) {
-            if (!wires[j] || !nesting[j].hole || nesting[j].parent !== i) continue;
-            // A hole runs against its outline, or OpenCascade takes it for a
-            // second outline and the face comes back bigger, not smaller.
-            const cut = new oc.BRepBuilderAPI_MakeFace(face, oc.TopoDS.Wire(wires[j].Reversed()));
-            if (cut.IsDone()) face = cut.Face();
-          }
-          shapes.push(face);
+          const holes = [];
+          for (let j = 0; j < loops.length; j++)
+            if (wires[j] && nesting[j].hole && nesting[j].parent === i) holes.push(wires[j]);
+          //! HOLES THE RIGHT WAY ROUND, which is the factory's job and not a
+          //! question the sketcher can answer: which way a loop runs is
+          //! decided by the order somebody drew it in. A hexagon with three
+          //! rectangles inside it used to pad as a solid hexagon with three
+          //! solid blocks standing in it, because every hole had been
+          //! reversed and half of them were then wrong. See fillWithHoles.
+          shapes.push(holes.length ? HSF.fillWithHoles(wire, holes) : maker.Face());
         } catch (e) { shapes.push(wire); }
       }
       for (const chain of open) {

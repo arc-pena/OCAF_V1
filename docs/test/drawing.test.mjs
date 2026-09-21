@@ -293,5 +293,70 @@ console.log("\n6. and a point can be dropped onto a plane on purpose");
         (await at("PD")).data.preview);
 }
 
+console.log("\n7. holes, which are holes whichever way round they were drawn");
+{
+  //! WHICH WAY A LOOP RUNS IS DECIDED BY THE ORDER SOMEBODY DREW IT IN, and
+  //! OpenCascade decides what a wire added to a face MEANS by exactly that:
+  //! running the same way as the outline it is a second outline and the face
+  //! comes back bigger; running against it, it is a hole. Reversing every
+  //! hole is therefore right half the time and silently wrong the rest -
+  //! the face builds, it is just the wrong face.
+  //!
+  //! The file that brought this up: a hexagon with three rectangles inside
+  //! it, padded. It came out as a solid hexagon with three solid blocks
+  //! standing in it. The numbers below are worked out on paper from the
+  //! coordinates, so they say which answer is which.
+  const hex = [[-485.013, 5977.253], [6087.047, 4924.201], [4418.907, -9174.733],
+               [573.732, -6745.401], [-5095.825, -4537.135], [-4187.286, 1068.172]];
+  const holes = [[[-2028.588, -4266.692], [-351.448, -1229.19]],
+                 [[135.458, -3067.021], [2929.248, -1043.265]],
+                 [[-1445.695, -543.641], [1673.661, 2805.237]]];
+  const shoelace = ring => Math.abs(ring.reduce((sum, p, i) => {
+    const q = ring[(i + 1) % ring.length];
+    return sum + p[0] * q[1] - q[0] * p[1];
+  }, 0)) / 2;
+  const outer = shoelace(hex);
+  const cut = holes.reduce((sum, [a, b]) =>
+    sum + Math.abs(b[0] - a[0]) * Math.abs(b[1] - a[1]), 0);
+
+  const elements = hex.map((p, i) => ({ id: "h" + i, type: "line", a: p,
+                                        b: hex[(i + 1) % hex.length] }));
+  holes.forEach(([a, b], i) => elements.push({ id: "v" + i, type: "rect", a, b }));
+  await mdl.run({ op: "add", type: "Sketch", id: "SH", name: "Holed",
+                  refs: { plane: "PL", origin: "P0" } });
+  await mdl.run({ op: "sketch", id: "SH", drawing: { elements, constraints: [] } });
+  const drawn = await at("SH");
+  check("a boundary with three rectangles in it builds", !drawn.error, why(drawn));
+  check("and reads as four loops", /4 loops/.test(drawn.sketch.summary),
+        drawn.sketch.summary);
+
+  await mdl.run({ op: "add", type: "Measure", id: "AH", name: "Holed area",
+                  refs: { shape: "SH" } });
+  await mdl.run({ op: "set", id: "AH", key: "quantity", value: 1 });
+  check("the face is the outline LESS the three holes",
+        near(num(await at("AH")), outer - cut, 1),
+        num(await at("AH")).toFixed(1) + " vs " + (outer - cut).toFixed(1));
+  check("  and not the outline PLUS them, which is what reversing gave",
+        Math.abs(num(await at("AH")) - (outer + cut)) > 1,
+        num(await at("AH")).toFixed(1) + " vs " + (outer + cut).toFixed(1));
+
+  //! And the pad, because a face with holes that pads as four solids is the
+  //! thing anybody actually notices.
+  await mdl.run({ op: "add", type: "Extrude", id: "EH", name: "Pad",
+                  refs: { profile: "SH" } });
+  await mdl.run({ op: "set", id: "EH", key: "distance", value: 615.771 });
+  await mdl.run({ op: "add", type: "Measure", id: "VH", name: "Volume",
+                  refs: { shape: "EH" } });
+  await mdl.run({ op: "set", id: "VH", key: "quantity", value: 2 });
+  check("and the pad is that face times its depth",
+        near(num(await at("VH")), (outer - cut) * 615.771, 1e3),
+        num(await at("VH")).toFixed(0) + " vs " + ((outer - cut) * 615.771).toFixed(0));
+  //! 20 faces: six outer sides, twelve inner sides, two caps. Four separate
+  //! solids would be 26, and that was the shape this used to make.
+  const faces = (await kernel.picks("EH", "face")).items || [];
+  check("  six sides, twelve inside the holes, and two caps",
+        faces.length === 20, String(faces.length));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
