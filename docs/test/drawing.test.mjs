@@ -19,7 +19,7 @@
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
 import { sketchEnds, sketchFillet, sketchHandles, sketchMoveHandle, sketchOutline,
-         SKETCH_CLICKS, SKETCH_TYPES } from "../src/sketch.js";
+         solveSketch, SKETCH_CLICKS, SKETCH_TYPES } from "../src/sketch.js";
 import { readFileSync } from "fs";
 
 const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
@@ -83,11 +83,41 @@ console.log("\n2. a fillet, worked out rather than placed by eye");
         JSON.stringify(l2.a));
   // The coincidence that held the corner is about a corner that has gone.
   const held = out.drawing.constraints;
-  check("the old corner's coincidence is taken off", held.length === 2,
+  const meet = held.filter(c => c.type === "coincident");
+  const tangents = held.filter(c => c.type === "tangent");
+  check("the old corner's coincidence is taken off", meet.length === 2,
         JSON.stringify(held));
   check("and the arc is held on at both ends",
-        held.every(c => c.type === "coincident" && c.of.some(r => r.startsWith("f1."))),
-        JSON.stringify(held));
+        meet.every(c => c.of.some(r => r.startsWith("f1."))), JSON.stringify(meet));
+  //! AND HELD TANGENT AT BOTH, which the drawing used to say nothing about.
+  //! Two coincidences say the three curves meet; they do not say the join is
+  //! smooth, so the first time anything moved, the solver was free to put the
+  //! kink back and nothing in the sketch disagreed.
+  check("and tangent to both arms, which is what makes it a fillet",
+        tangents.length === 2
+        && tangents.every(c => c.of.includes("f1"))
+        && tangents.some(c => c.of.includes("l1"))
+        && tangents.some(c => c.of.includes("l2")),
+        JSON.stringify(tangents));
+  //! Built tangent, and STILL tangent after the solver has had it - the check
+  //! that the relation is one the solver can actually run. It could not before:
+  //! the tangency case looked for a "circle" and a fillet is an "arc", so it
+  //! found no round element and did nothing at all.
+  {
+    const again = solveSketch(out.drawing, 24).drawing;
+    const a = again.elements.find(el => el.id === "f1");
+    const gap = line => {
+      const el = again.elements.find(x => x.id === line);
+      const run = [el.b[0] - el.a[0], el.b[1] - el.a[1]];
+      const reach = Math.hypot(run[0], run[1]);
+      const across = ((a.c[0] - el.a[0]) * run[1] - (a.c[1] - el.a[1]) * run[0]) / reach;
+      return Math.abs(Math.abs(across) - a.r);
+    };
+    check("and the solver leaves it tangent and the size it was asked for",
+          gap("l1") < 1e-6 && gap("l2") < 1e-6 && near(a.r, 20, 1e-6),
+          "l1 off by " + gap("l1").toFixed(9) + ", l2 by " + gap("l2").toFixed(9)
+          + ", r " + a.r);
+  }
 
   // A line and an arc, which is where a fillet stops being arithmetic you can
   // do in your head: the centre is on a line parallel to the one at r AND on a

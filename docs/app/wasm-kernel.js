@@ -2936,7 +2936,22 @@ function sprawl(face, edges) {
   //! double back on itself, then sampled. OpenCascade's B-spline fitter wants a
   //! TColgp array this build does not export, so the smooth curve arrives as a
   //! fine run of segments - which is what it is drawn and lofted as anyway.
-  function catmullRom(cps, closed, perSpan) {
+  function catmullRom(list, closed, perSpan) {
+    //! TWO CONTROL POINTS IN THE SAME PLACE MAKE A CUSP, and a cusp is a place
+    //! no curve built on this can be offset, filleted or swept past. It is
+    //! easier to arrive at than it looks: a Points argument that auto-wired a
+    //! guess and was then handed that same point again holds it twice, and
+    //! nothing between there and here would have said so.
+    //!
+    //! Measured: an interpolated curve through (0,0) (140,60) (300,70)
+    //! (420,20), with (0,0) in the list twice, offset by 20 - the offset came
+    //! back within 0.95 mm of its source at the doubled point, 19.05 off the
+    //! distance asked for, and correctly so. There is no curve 20 mm from a
+    //! cusp. So the repeat goes here rather than the complaint: a span of no
+    //! length carries no shape, and dropping it changes nothing else.
+    const cps = list.filter((p, i) => i === 0
+      || Math.hypot(p[0] - list[i - 1][0], p[1] - list[i - 1][1],
+                    p[2] - list[i - 1][2]) > 1e-9);
     const n = cps.length;
     const at = i => cps[closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i))];
     const spans = closed ? n : n - 1;

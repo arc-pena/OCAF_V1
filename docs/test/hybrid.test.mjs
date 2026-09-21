@@ -187,6 +187,12 @@ console.log("\n3b. offsetting what a sketch drew");
     String(await gaugeOf(sketch, "length")));
 
   const off = await add("ParallelCurve", { curve: sketch });
+  //! ROUNDED, SAID OUT LOUD. The catalogue's default is Sharp - a mitred
+  //! corner, which is what a drawing means by an offset and what the reference
+  //! DXF in the offset suite holds. The identities in this section are the
+  //! rounded ones (a quarter arc outside an L, a full circle round a closed
+  //! loop), so the setting is named here rather than inherited.
+  await set(off, "join", 0);
   await set(off, "distance", 50);
   check("an open spine offsets", !(await err(off)), await err(off));
   // Outside the corner the offset rounds it: the two legs, plus a quarter of a

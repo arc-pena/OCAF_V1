@@ -318,6 +318,21 @@ export function makeFactories(oc, kit) {
     for (const edge of edges) {
       const walk = new oc.BRepAdaptor_Curve(edge);
       const first = walk.FirstParameter(), last = walk.LastParameter();
+      //! THE CONTINUITY GUARD BELOW IS RESET AT EVERY EDGE, and forgetting to
+      //! was a bug with a shape you could see. Inside one edge a tangent
+      //! cannot turn round, so one that reads as having is noise and is turned
+      //! back. ACROSS a joint it can and routinely does: a polyline that
+      //! doubles back - two runs meeting at 145 degrees - turns its tangent by
+      //! more than a right angle, which reads as reversed and used to be
+      //! "corrected" into pointing back down the wire. Every offset point on
+      //! that second run then came out on the far side of it.
+      //!
+      //! Measured on [0,0]-[100,0]-[60,60] offset by 20: the last point came
+      //! back at (43.4, 48.9), which is twenty millimetres on the WRONG side
+      //! of the corner it should have been twenty the other side of. The
+      //! curve crossed itself in the middle and looked, in the word used at
+      //! the time, waky.
+      along = null;
       //! Compared as a STRING. Orientation() comes back as "TopAbs_REVERSED"
       //! through this binding, not as the enum value, so comparing it with
       //! oc.TopAbs_Orientation.TopAbs_REVERSED is a string against an object
@@ -438,31 +453,6 @@ export function makeFactories(oc, kit) {
     } catch (e) { return 0; }
   };
 
-  //! THE SAME CURVE, STEPPED SIDEWAYS AND REFITTED.
-  //!
-  //! BRepOffsetAPI_MakeOffset is exact on a line, an arc, a circle and any
-  //! chain of them, and that is most of what anybody offsets. It is NOT exact
-  //! on a B-spline: the offset of a B-spline is not a B-spline, so it has to
-  //! be approximated, and the approximation it ships is loose - an
-  //! interpolated curve offset by 20 came back 3.9 mm off at its worst, which
-  //! is nineteen per cent of the offset and quite visible.
-  //!
-  //! So when the answer strays, it is done here instead: walk the curve, step
-  //! perpendicular to it in the plane by the distance, fit one B-spline
-  //! through the result. Sampled, so it has its own error - but the error is
-  //! the sampling density, which is ours to choose, rather than the kernel's
-  //! approximation, which is not.
-  const offsetInPlane = (wire, distance, normal, samples = 200) => {
-    const run = [];
-    walkWire(wire, samples, (here, way) => {
-      // Right of travel, the same side rule the analytic road is held to.
-      const side = V.norm(V.cross(way, normal));
-      if (side) run.push(V.add(here, V.scale(side, distance)));
-    });
-    if (run.length < 3) return null;
-    return smoothOf(run, closedWire(wire), 0);
-  };
-
   //! OFFSETTING A CURVE WITHIN A SURFACE, the long way round.
   //!
   //! BRepOffsetAPI_MakeOffset has a constructor that takes a FACE and offsets
@@ -548,12 +538,32 @@ export function makeFactories(oc, kit) {
       : new oc.BRepOffsetAPI_MakeOffset(wire, turn, open);
     if (support) maker.AddWire(wire);
     try {
-      //! THE OFFSET OF A B-SPLINE IS NOT A B-SPLINE, so OpenCascade has to
-      //! approximate it, and by default it approximates loosely: a closed
-      //! spline offset by 20 gained 119.5 of length where the turning says it
-      //! must gain exactly 2*pi*20 = 125.7, which is five per cent out on the
-      //! gain. SetApprox asks for the fitted answer instead.
-      maker.SetApprox(true);
+      //! SetApprox(false), AND IT IS THE WHOLE DIFFERENCE BETWEEN A PARALLEL
+      //! CURVE AND A PILE OF CHIPS.
+      //!
+      //! The offset of a B-spline is not a B-spline, so it cannot be written
+      //! as one exactly. Left alone, OpenCascade hands back edges carrying
+      //! Geom_OffsetCurve - the offset AS ITSELF, exact, and four edges for
+      //! the curve measured below. Asked to approximate, it fits B-splines
+      //! through that and chops the result to hold the tolerance: the same
+      //! curve came back in 231 edges, and a closed one in 313.
+      //!
+      //! Measured on an interpolated spline 381.690 long, offset by 20:
+      //!
+      //!     SetApprox(true)    386.624 long   231 edges   worst 0.0001
+      //!     SetApprox(false)   386.624 long     4 edges   worst 0.0000
+      //!
+      //! Identical length, identical distance, fifty-seven times the topology
+      //! - and every one of those 231 edges arrives in the viewport, in the
+      //! extrude built on it, and in the STEP. That is what "the parallel
+      //! curve comes out waky" was.
+      //!
+      //! The comment this replaces said SetApprox(true) was there because the
+      //! plain answer gained 119.5 of length where the turning says exactly
+      //! 2*pi*20 = 125.66. Re-measured: the plain answer gains 125.68. The
+      //! five per cent was somebody else's bug, fixed since, and the flag
+      //! outlived the reason for it.
+      maker.SetApprox(false);
       maker.Perform(distance, 0);
       return maker.IsDone() ? maker.Shape() : null;
     } catch (e) { return null; }
@@ -1007,7 +1017,15 @@ export function makeFactories(oc, kit) {
              + "by index so it may double back on itself, sampled, and fitted back "
              + "to one B-spline edge. Raising perSpan makes the sampling finer, "
              + "which the fit follows; it does not add segments to the answer.",
-      run: (points, closed, perSpan = 12) => {
+      run: (list, closed, perSpan = 12) => {
+        //! A REPEATED CONTROL POINT IS A CUSP, and it is dropped here for the
+        //! same reason it is dropped in the kernel's Catmull-Rom: a span of no
+        //! length carries no shape, and what it leaves behind is a point where
+        //! the curve has no tangent - which nothing downstream can offset,
+        //! fillet or sweep past.
+        const points = list.filter((p, i) => i === 0
+          || Math.hypot(p[0] - list[i - 1][0], p[1] - list[i - 1][1],
+                        p[2] - list[i - 1][2]) > CONFUSION);
         const n = points.length;
         if (n < 3) throw new Error("a spline needs at least three points");
         const at = i => points[closed ? ((i % n) + n) % n : Math.max(0, Math.min(n - 1, i))];
@@ -1086,7 +1104,7 @@ export function makeFactories(oc, kit) {
         //! A curve that was never told which plane it is in is asked.
         const flatOf = wire => normal || planeOfWire(wire);
         const out = [];
-        let rounded = 0, flipped = 0, strayed = 0, refitted = 0;
+        let rounded = 0, flipped = 0, strayed = 0;
         for (const wire of runs) {
           // The third argument is isOpenResult, and it is the whole difference
           // between a parallel curve and a racetrack. Told an open spine is
@@ -1142,56 +1160,68 @@ export function makeFactories(oc, kit) {
           let answer = wrong ? offsetOnce(wire, -distance, turn, open) : made;
           if (wrong) flipped++;
 
-          //! IT REFUSED. Not every curve MakeOffset will take - a fitted
-          //! B-spline through four points, gently curved, flat, with nothing
-          //! wrong with it at all, came back empty and used to end the feature
-          //! there. There is another road and it works on exactly the curves
-          //! this one refuses, so it is taken rather than reported.
-          const empty = !answer || answer.IsNull() || count(answer, EDGE) === 0;
-          if (empty) {
-            const walked = flat && offsetInPlane(wire, distance, flat);
-            //! AND THE WALKED ANSWER IS CHECKED TOO, because it can come back
-            //! wild. Stepping sideways and fitting a B-spline through the
-            //! result is exact where the curve is well behaved and oscillates
-            //! where the offset folds over itself - one case here came back
-            //! ten metres from a curve four hundred long, and reported
-            //! success. A wild answer is worse than a refusal: somebody builds
-            //! on it. Half the distance is the line, which no honest offset
-            //! ever crosses and no wild one ever stays under.
-            const held = walked && count(walked, EDGE) > 0 && !knotted(wire, walked, distance)
-                       ? strayOf(wire, walked, distance) : Infinity;
-            if (!Number.isFinite(held) || held > Math.abs(distance) * 0.5)
-              throw new Error(runs.length > 1
-                ? "one of those " + runs.length + " runs will not offset by " + distance
-                : !flat
-                  ? "that curve is not flat, so there is no plane to offset it in - "
-                    + "wire the surface it lies on as its support"
-                  : "that curve cannot be offset by " + distance
-                    + " - it turns tighter than that somewhere along it, so there is no "
-                    + "curve that stays that far from it. Try a smaller distance");
-            answer = walked;
-            strayed = Math.max(strayed, held);
-            refitted++;
-          }
+          //! IT REFUSED, AND A REFUSAL IS THE ANSWER.
+          //!
+          //! There used to be a second road here: walk the curve, step
+          //! sideways by the distance, fit a B-spline through the result. It
+          //! is gone, and its going is the fix. A sampled offset is not a
+          //! parallel curve - it is a curve that passes near where a parallel
+          //! curve would be, with an error nobody chose and a shape that
+          //! depends on the sampling. Worse, it took over from a perfectly
+          //! good answer whenever the check below fired, which at a concave
+          //! corner it always does.
+          //!
+          //! What is here instead is OpenCascade's own planar offset, which is
+          //! the 2D one: handed a planar wire, BRepOffsetAPI_MakeOffset drops
+          //! to the wire's plane, offsets there, turns the corners and trims
+          //! the crossings. Measured against the derived identities on every
+          //! planar shape in the test suite - line, arc, ellipse, polyline,
+          //! reflex polyline, line-arc-line, open spline, closed spline, in
+          //! the XY plane and in one tilted 37 degrees and yawed 63 - the
+          //! worst point is 0.0000 mm off the distance asked for. There is
+          //! nothing for a sampled road to improve on.
+          //!
+          //! So when it refuses, it refuses because there IS no offset: the
+          //! curve turns tighter than the distance somewhere along it. Say so.
+          if (!answer || answer.IsNull() || count(answer, EDGE) === 0)
+            throw new Error(runs.length > 1
+              ? "one of those " + runs.length + " runs will not offset by " + distance
+              : !flat
+                ? "that curve is not flat, so there is no plane to offset it in - "
+                  + "wire the surface it lies on as its support"
+                : "that curve cannot be offset by " + distance
+                  + " - it turns tighter than that somewhere along it, so there is no "
+                  + "curve that stays that far from it. Try a smaller distance");
 
-          //! CHECKED, AND REDONE IF IT STRAYED. A hundredth of the distance is
-          //! the line: everything analytic comes back at zero, and a spline
-          //! approximation comes back at a fifth of the offset. See
-          //! offsetInPlane. A corner setting other than rounded is left alone -
-          //! there the answer is MEANT to leave the constant distance at the
-          //! corners, which is what sharp corners ARE.
-          const stray = join === 0 ? strayOf(wire, answer, distance) : 0;
-          if (!empty && stray > Math.abs(distance) * 0.01 && flat) {
-            const refit = offsetInPlane(wire, distance, flat);
-            if (refit && count(refit, EDGE) > 0 && !knotted(wire, refit, distance)) {
-              const after = strayOf(wire, refit, distance);
-              if (after < stray) { answer = refit; refitted++; strayed = Math.max(strayed, after); }
-              else strayed = Math.max(strayed, stray);
-            } else strayed = Math.max(strayed, stray);
-          } else strayed = Math.max(strayed, stray);
+          //! MEASURED AND REPORTED, NOT MEASURED AND SECOND-GUESSED - and only
+          //! where the measure means anything, which is a run with no corners
+          //! in it.
+          //!
+          //! "Every point of the answer is d from the source" is a property of
+          //! a SMOOTH curve's offset. It is not a property of a corner's, and
+          //! it is not meant to be: on the inside of a bend the offset is
+          //! trimmed back to where the two sides cross, so the source points
+          //! whose perpendicular lands in the trimmed-away part have no point
+          //! of the answer d from them at all. The nearest is the mitre, and
+          //! the mitre is further.
+          //!
+          //! Measured on the centreline of the reference drawing - five
+          //! segments, four corners - offset inward: the answer's vertices sit
+          //! on the ones drawn in other software to four decimal places, and
+          //! this measure called it "36.3022 mm off the distance asked for".
+          //! Both numbers are right. Only one of them is about the offset.
+          //!
+          //! So it is asked of a single edge and of nothing else. That is the
+          //! fitted spline, the arc, the interpolated curve - everything whose
+          //! offset really does hold one distance all the way along, and the
+          //! only place a number here is worth printing.
+          if (count(wire, EDGE) === 1)
+            strayed = Math.max(strayed, strayOf(wire, answer, distance));
 
-          //! WHICHEVER ROAD IT CAME BY. A knotted answer from the kernel is
-          //! just as unusable as a knotted one from the walk.
+          //! A KNOT IS NOT AN OFFSET. MakeOffset trims the crossings it
+          //! finds, but a curve that folds over itself hard enough can still
+          //! come back with a loop tied in it, and the length bound catches
+          //! that where nothing else does.
           if (knotted(wire, answer, distance))
             throw new Error("that curve turns tighter than " + Math.abs(distance)
               + " somewhere along it, so its offset crosses itself - what comes back is "
@@ -1212,7 +1242,6 @@ export function makeFactories(oc, kit) {
             //! projects, so the distance can come out slightly short where the
             //! surface curves across it. A number nobody can see is still a
             //! number somebody may need.
-            refitted ? "walked and refitted - the kernel's own offset would not hold" : "",
             //! Reported at one per cent of the distance and not at a ten
             //! thousandth: below that it is the fit's own residue and saying
             //! it on every note teaches nobody anything. Above it, it is worth

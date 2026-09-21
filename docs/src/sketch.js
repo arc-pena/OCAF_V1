@@ -931,17 +931,67 @@ export function sketchFillet(drawing, firstRef, secondRef, radius, id = "f1") {
     throw new Error(one.id + " and " + two.id + " already meet smoothly - "
       + "there is no corner there to round");
 
+  //! WHICH OF THE FOUR IS THE FILLET, and the old answer was "whichever the
+  //! loops reached first".
+  //!
+  //! An arc of radius r tangent to two lines has FOUR centres, one in each of
+  //! the four quadrants the lines cut the plane into, and every one of them is
+  //! exactly r/sin(theta/2) from where the lines cross. The rule here was
+  //! "nearest the corner", which between two straight lines is a four-way tie
+  //! decided by iteration order - so an L whose material lay in +x+y was
+  //! rounded with an arc centred at (-20,-20), and both lines came back LONGER
+  //! than they were drawn, run on past the corner to reach it. Three of the
+  //! four candidates are not fillets of that corner at all; they are fillets
+  //! of the three other corners the same two infinite lines make.
+  //!
+  //! What tells them apart is not distance, it is WHICH SIDE the arc touches
+  //! down on. A fillet trims the corner off: both of its tangency points lie
+  //! on the part of each element that survives, between the corner and the far
+  //! end. A candidate that touches down on the far side of the corner is
+  //! asking for the element to be EXTENDED through the corner to meet it, and
+  //! that is the answer to a different question.
+  //!
+  //! This also settles the concave-against-convex case, which has no tie to
+  //! break but two real candidates: a line running into an arc can be rounded
+  //! on the inside or the outside, and only one of the two leaves both curves
+  //! shorter. The other runs the arc the wrong way round and joins with a
+  //! reversal rather than a tangent.
+  const turnFull = x => ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const keeps = (el, at) => {
+    if (el.type === "circle") return true;          // no ends, nothing to keep
+    if (el.type === "line") {
+      const far2 = len(sub(el.a, corner)) >= len(sub(el.b, corner)) ? el.a : el.b;
+      const along = norm(sub(far2, corner));
+      if (!along) return false;
+      const how = dot(sub(at, corner), along);
+      return how > -1e-7 && how <= len(sub(far2, corner)) + 1e-7;
+    }
+    if (el.type === "arc") {
+      //! Inside the sweep it was drawn with, and no further. The sweep may run
+      //! either way round, so it is measured in the direction it was given.
+      const sweep = el.a1 - el.a0;
+      if (Math.abs(sweep) < 1e-9) return false;
+      const went = turnFull((Math.atan2(at[1] - el.c[1], at[0] - el.c[0]) - el.a0)
+                            * Math.sign(sweep));
+      return went <= Math.abs(sweep) + 1e-7;
+    }
+    return false;
+  };
   let best = null, far = Infinity;
   for (const a of offsetsOf(one, r)) for (const b of offsetsOf(two, r)) {
     for (const at of offsetCross(a, b)) {
       const t1 = touchOn(one, at), t2 = touchOn(two, at);
       if (!t1 || !t2) continue;
+      if (!keeps(one, t1) || !keeps(two, t2)) continue;
+      //! Among what is left - and between two lines there is now exactly one -
+      //! the nearest centre, which is the one that takes the least off.
       const d = len(sub(at, corner));
       if (d < far) { far = d; best = { at, t1, t2 }; }
     }
   }
   if (!best)
-    throw new Error("no arc of " + r + " fits that corner - try a smaller radius");
+    throw new Error("no arc of " + r + " fits that corner - it is wider than what "
+      + one.id + " and " + two.id + " leave room for. Try a smaller radius");
 
   // The arc: from one tangency point to the other, the short way round, which
   // is the only one that is a fillet rather than the rest of the circle.
@@ -979,6 +1029,21 @@ export function sketchFillet(drawing, firstRef, secondRef, radius, id = "f1") {
   const arcEndKey = arcStart === "start" ? "end" : "start";
   work.constraints.push({ type: "coincident", of: [one.id + "." + k1, arc.id + "." + arcStart] });
   work.constraints.push({ type: "coincident", of: [two.id + "." + k2, arc.id + "." + arcEndKey] });
+  //! AND THE TANGENCIES, WHICH ARE THE WHOLE POINT OF A FILLET.
+  //!
+  //! Two coincidences say the three curves MEET. They say nothing about how,
+  //! and a corner that meets is still a corner: move either line afterwards
+  //! and the coincidences drag the arc's ends along while the arc keeps the
+  //! centre and radius it was born with, so the join goes from smooth to a
+  //! kink and the drawing no longer says anything is wrong.
+  //!
+  //! A fillet is tangent by construction and has to stay tangent under the
+  //! solver, which means the drawing has to CARRY the tangency - the same two
+  //! relations a person would add by hand, written down where they can be seen
+  //! in the relations list, removed if they are not wanted, and used by every
+  //! later solve.
+  work.constraints.push({ type: "tangent", of: [one.id, arc.id] });
+  work.constraints.push({ type: "tangent", of: [two.id, arc.id] });
   return { drawing: work, arc: arc.id, radius: r };
 }
 
@@ -1098,7 +1163,40 @@ export function solveSketch(drawing, passes = 24, pinned = []) {
     const found = sketchHandles(el).find(([k]) => k === key);
     return found ? { el, key, p: found[1], ref: reference, held: held.has(reference) } : null;
   };
-  const moveTo = (h, p) => { if (!h.held) sketchMoveHandle(h.el, h.key, p); };
+  //! AN ARC THAT IS SOMEBODY'S FILLET HAS A RADIUS, and dragging the line it
+  //! blends must not change it.
+  //!
+  //! An arc's endpoint is an angle AND a radius, so moving that handle turns
+  //! and resizes the arc - which is right for an arc somebody drew and wrong
+  //! for one that was put there to round a corner at a stated size. Measured:
+  //! an L filleted at 20, one line then dragged and the drawing re-solved, and
+  //! the fillet came back at r141 - a legitimate answer to the relations as
+  //! written, since nothing in them said 20, and not the one anybody wanted.
+  //!
+  //! What says 20 is the tangency. An arc named in a tangent relation is an
+  //! arc that exists to meet something smoothly, so its endpoints TURN to
+  //! where they are wanted rather than stretching to reach, and the tangency
+  //! is then satisfied by moving the centre - which is what a fillet does when
+  //! the corner it sits in opens or closes.
+  const rigid = new Set();
+  for (const relation of relations) {
+    if (relation.type !== "tangent") continue;
+    for (const ref of (relation.of || [])) {
+      const el = index.get(String(ref || "").split(".")[0]);
+      if (el && el.type === "arc") rigid.add(el.id);
+    }
+  }
+  const moveTo = (h, p) => {
+    if (h.held) return;
+    if (h.el.type === "arc" && h.key !== "c" && rigid.has(h.el.id)) {
+      const away = sub(p, h.el.c);
+      const reach = len(away);
+      if (reach < 1e-9) return;
+      sketchMoveHandle(h.el, h.key, add(h.el.c, mul(away, h.el.r / reach)));
+      return;
+    }
+    sketchMoveHandle(h.el, h.key, p);
+  };
 
   let residual = 0, ran = 0;
   for (let pass = 0; pass < Math.max(1, passes); pass++) {
@@ -1196,31 +1294,58 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
       second.b = sketchRound(add(centre, wanted));
       return dot(before, before);
     }
+    //! AN ARC IS ROUND. This read `type === "circle"` and nothing else, so a
+    //! tangency naming an ARC found no round element, returned zero and did
+    //! nothing whatever - which is why a filleted corner came apart the moment
+    //! anything near it moved, and why writing the tangencies a fillet needs
+    //! had to wait for this.
     case "tangent": {
       const a = index.get(of[0]), b = index.get(of[1]);
       if (!a || !b) return 0;
-      const round = a.type === "circle" ? a : b.type === "circle" ? b : null;
+      const isRound = el => el && (el.type === "circle" || el.type === "arc");
+      const round = isRound(a) ? a : isRound(b) ? b : null;
       const other = round === a ? b : a;
-      if (!round) return 0;
+      if (!round || !(round.r > 0)) return 0;
       if (other.type === "line") {
         const along = norm(sub(other.b, other.a));
         if (!along) return 0;
         const away = sub(round.c, other.a);
         const across = dot(away, perp(along));
         const off = Math.abs(across) - round.r;
-        // Slide the circle along the line's normal until it just touches.
+        //! Slid along the line's normal, and along the SIDE IT IS ALREADY ON.
+        //! Sign(across) is what keeps a fillet sitting in the corner it was put
+        //! in rather than flipping through the line to the other one.
         round.c = sketchRound(sub(round.c, mul(perp(along), Math.sign(across) * off)));
         return off * off;
       }
-      if (other.type === "circle") {
+      if (isRound(other)) {
         const between = sub(other.c, round.c);
         const distance = len(between);
-        const want = round.r + other.r;
         if (distance < 1e-9) return 0;
+        //! INSIDE OR OUTSIDE, WHICHEVER IT ALREADY IS, and this is the concave
+        //! against convex case. Two circles are tangent when their centres are
+        //! r1+r2 apart - each outside the other - OR |r1-r2| apart, one held
+        //! within the other. Both are a smooth join; they are different joins.
+        //! This took r1+r2 always, so a fillet blending INTO a curve - the
+        //! small arc riding inside the big one, which is what rounding a
+        //! concave corner is - was pushed out of the corner until it sat
+        //! against the outside of the curve it was meant to blend into, tangent
+        //! in the arithmetic and reversed in the drawing.
+        //!
+        //! So the sense is read off the drawing rather than assumed: whichever
+        //! of the two the centres are nearer to now is the one they are held
+        //! to. A fillet built tangent stays the tangency it was built as.
+        const apart = round.r + other.r, within = Math.abs(round.r - other.r);
+        const want = Math.abs(distance - within) < Math.abs(distance - apart)
+                   ? within : apart;
         const off = distance - want;
-        const shift = mul(norm(between), off / 2);
-        round.c = sketchRound(add(round.c, shift));
-        other.c = sketchRound(sub(other.c, shift));
+        //! An arc that is somebody's fillet takes the whole correction; only
+        //! two free circles meet in the middle. Moving a fillet's neighbour is
+        //! how a drag of one line used to drift the curve at the far end of it.
+        const share = (round.type === "arc") !== (other.type === "arc") ? 1 : 0.5;
+        round.c = sketchRound(add(round.c, mul(norm(between), off * share)));
+        if (share < 1)
+          other.c = sketchRound(sub(other.c, mul(norm(between), off * share)));
         return off * off;
       }
       return 0;

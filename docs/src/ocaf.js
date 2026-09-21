@@ -2496,8 +2496,8 @@ export const CATALOGUE = [
     summary: "A curve offset from another by a distance. A flat curve needs nothing "
            + "else and is offset in its own plane; a curve lying on a surface needs "
            + "that surface as a support, and is offset within it so it stays on it. "
-           + "Corners are rounded with an arc, run on until they meet, or carry the "
-           + "tangent. A closed loop grows on a positive distance; an open run goes "
+           + "Corners run on until they meet, or are rounded with an arc, or carry "
+           + "the tangent. A closed loop grows on a positive distance; an open run goes "
            + "to the left of the way it is drawn. A setback, a kerb line, a second "
            + "rail.",
     //! APPENDED, as every new argument is: the index is the tag on disk, so a
@@ -2506,7 +2506,17 @@ export const CATALOGUE = [
     args: [ref("curve", "Curve", ["curve"], true),
            real("distance", "Distance", 100, -4000, 4000, 1),
            ref("support", "Support", ["solid", "plane"]),
-           choice("join", "Corners", ["Rounded", "Sharp", "Tangent"], 0)] },
+           //! SHARP BY DEFAULT, and it is a considered change from rounded.
+           //! A centreline offset to its setbacks, checked against the same
+           //! drawing made in other software: seven offsets at +/-100 to
+           //! +400, every one of them a six-vertex polyline like the source,
+           //! each corner carried on until the two runs meet. That is what a
+           //! draughtsman means by an offset, it is what AutoCAD, Rhino and
+           //! Illustrator do to a polyline, and it is the only setting whose
+           //! answer can be laid over a drawing vertex for vertex. Rounded
+           //! stays one click away and is the safer answer at a very sharp
+           //! corner, where a mitre runs a long way out.
+           choice("join", "Corners", ["Rounded", "Sharp", "Tangent"], 1)] },
   { type: "ThickSurface", guid: "9a1b2c30-0079-4c00-9e00-caf000000079", category: "operation",
     produces: "solid",
     summary: "Gives a surface a thickness, so a skin becomes a body - a slab from a "

@@ -55,11 +55,16 @@ const drawn = async (name, elements) => {
 };
 //! One offset node per case rather than one reused: a case that fails should
 //! not leave the next one reading its error.
-const offset = async (curve, distance, { join = 0, support = null } = {}) => {
+//! `join` defaults to null and not to 0, because 0 IS a setting - Rounded -
+//! and `if (join)` skipped it. Every case that asked for rounded corners got
+//! whatever the catalogue's default was, which for a long time happened to be
+//! rounded, and the day the default became Sharp five checks went red at once
+//! having been checking nothing.
+const offset = async (curve, distance, { join = null, support = null } = {}) => {
   const id = await add("ParallelCurve",
                        { refs: { curve, ...(support ? { support } : {}) } });
   await set(id, "distance", distance);
-  if (join) await set(id, "join", join);
+  if (join != null) await set(id, "join", join);
   const entry = await at(id);
   return { id, error: entry.error || null, note: entry.note || "",
            length: entry.error ? NaN : await lengthOf(id) };
@@ -255,7 +260,14 @@ console.log("\n7. every kind of curve, and more than one run at a time");
   ];
   for (const [label, make, want] of cases) {
     const src = await make();
-    const got = await offset(src, 20);
+    //! ROUNDED ON PURPOSE, because the check below is that every part of the
+    //! answer is 20 from its source, and only a rounded corner has that
+    //! property. A mitred corner is meant to leave the constant distance -
+    //! the mitre on a right angle stands 20*sqrt(2) - 20 = 8.2843 mm further
+    //! out than the arc would, and measuring that as error is measuring the
+    //! setting rather than the offset. Sharp has its own section, and its own
+    //! identity: two run-ons per corner.
+    const got = await offset(src, 20, { join: 0 });
     //! Either it offsets well or it says why not. What is NOT allowed is the
     //! third thing: a curve that came back nowhere near the distance asked for
     //! with a note saying all was well.
@@ -292,7 +304,7 @@ console.log("\n8. a plane that is not the XY plane");
   const id = await add("Sketch", { refs: { plane: side }, name: "OnEdge" });
   await kernel.setSketch(id, "drawing", { elements: [
     { id: "r1", type: "rect", a: [-100, -60], b: [100, 60] }], constraints: [] });
-  const got = await offset(id, 30);
+  const got = await offset(id, 30, { join: 0 });
   check("a sketch on a side plane offsets in its own plane",
         near(got.length, 640 + TWO_PI * 30, 0.01), got.error || String(got.length));
 }
@@ -344,36 +356,133 @@ console.log("\n9. within a surface, which is what a support is for");
 
 console.log("\n10. a curve that cannot hold the distance says so");
 {
-  //! A curve whose tightest radius of curvature is smaller than the offset
-  //! folds over itself on the inside of the bend - that is geometry, not a
-  //! bug, and there is no answer that is a constant distance away. What there
-  //! IS, is an obligation to say how far off it came out.
-  const ids = [];
-  for (const [x, y] of [[0, 0], [120, 90], [260, 20], [380, 110]]) {
-    const p = await add("Point");
-    await set(p, "x", x); await set(p, "y", y); await set(p, "z", 0);
-    ids.push(p);
-  }
-  const kinked = await add("Interpolate");
-  for (const p of ids) await kernel.setReference(kinked, "points", p);
-  const got = await offset(kinked, 20);
-  //! REFUSED, and that is the right answer. What came back before the length
-  //! bound existed was a curve 1700 mm long where the source is 487 - every
-  //! point of it a plausible 20 mm from the curve, and a knot. Then, with the
-  //! loop refused but nothing checking the other direction, a 10 mm stub. A
-  //! wild answer is worse than a refusal because somebody builds on it.
-  check("it refuses rather than handing back a knot",
-        !!got.error && /turns tighter than 20/.test(got.error),
-        got.error || ("built: " + got.note));
-  check("and the refusal carries both lengths, so it can be checked",
-        /487/.test(got.error || ""), got.error || "");
+  //! WHETHER A CURVE CAN BE OFFSET IS A QUESTION ABOUT ITS CURVATURE, and
+  //! nothing else. An offset at distance d exists wherever the radius of
+  //! curvature is bigger than d; where it dips below, the two sides of the
+  //! bend cross and there is no curve that stays d away.
+  //!
+  //! This section used to assert a refusal for a curve whose minimum radius,
+  //! measured, is 37.831 mm - offset by 20. That is not a curve that cannot
+  //! hold the distance; it is a curve that holds it comfortably. What was
+  //! being refused was the old sampled road's knot, caught by the length
+  //! bound, on a curve the kernel offsets exactly. So the case moved to one
+  //! where the premise is true and the number is on the page.
+  const made = async pts => {
+    const ids = [];
+    for (const [x, y] of pts) {
+      const p = await add("Point");
+      await set(p, "x", x); await set(p, "y", y); await set(p, "z", 0);
+      ids.push(p);
+    }
+    const it = await add("Interpolate");
+    //! CLEARED FIRST. Adding the node auto-wires a guess into Points, and the
+    //! four this case means to interpolate then go in AFTER it - so the curve
+    //! ran through five points, the first of them twice, and a repeated point
+    //! is a CUSP. No offset of any distance exists at a cusp, which is what
+    //! "the worst point is 19.0453 mm off 20" was telling us for a long time
+    //! before anybody read it as the curve's fault rather than the offset's.
+    await kernel.setReference(it, "points", null, true);
+    for (const p of ids) await kernel.setReference(it, "points", p);
+    return it;
+  };
+  //! An S through four points. Minimum radius of curvature 37.831 mm, at 0.33
+  //! along - so an offset of 20 exists everywhere, and because the S turns as
+  //! far one way as the other its total turning is nil and the offset comes
+  //! back the SAME LENGTH as the source. Both are checked, because a length
+  //! that matches for the wrong reason is the kind of thing that hides here.
+  const ess = await made([[0, 0], [120, 90], [260, 20], [380, 110]]);
+  const esLen = await lengthOf(ess);
+  const easy = await offset(ess, 20);
+  check("a curve whose tightest bend is wider than the distance offsets",
+        !easy.error, easy.error || easy.note);
+  check("  and an S, turning as far back as forward, keeps its length",
+        near(easy.length, esLen, 0.05), easy.length + " vs " + esLen);
+  check("  and says nothing about straying, because it does not",
+        !/off the distance asked for/.test(easy.note), easy.note);
+  //! A HAIRPIN: out 100, across 8, back 100. Minimum radius 0.936 mm at the
+  //! turn. Offset INTO the hairpin by 20 and there is nothing to find - the
+  //! two sides are 8 apart and the turn is a millimetre wide - and the kernel
+  //! says so by handing back nothing, which is the refusal this section is
+  //! about.
+  const pin = await made([[0, 0], [100, 0], [100, 8], [0, 8]]);
+  const tight = await offset(pin, -20);
+  check("a curve that cannot hold the distance is refused rather than faked",
+        !!tight.error, tight.error || ("built: " + tight.note));
+  check("  and the refusal says what to do about it",
+        /turns tighter|smaller distance/.test(tight.error || ""), tight.error || "");
   //! And a distance it CAN hold comes back normally.
-  const small = await offset(kinked, 0.05);
+  const small = await offset(pin, 0.5);
   check("a distance inside the tightest bend still offsets",
         !small.error, small.error || small.note);
 }
 
-console.log("\n11. nothing asked for, nothing done");
+console.log("\n11. against a drawing somebody else made");
+{
+  //! THE ONE CHECK IN THIS FILE THAT DID NOT COME FROM THIS PROGRAM.
+  //!
+  //! A centreline and its offsets, drawn in other software and handed over as
+  //! two DXFs: one open six-vertex polyline, and seven offsets of it at
+  //! +/-100, +/-200, +/-300 and +400. Every offset has SIX vertices, the same
+  //! as the source, which says what kind of corner was asked for - a mitred
+  //! one, each pair of offset runs carried on until they meet. That is the
+  //! Sharp setting here.
+  //!
+  //! It is worth more than every identity above it put together, because
+  //! those are all checks of this program against arithmetic this program
+  //! also wrote. This one is a check against a drawing made somewhere else by
+  //! somebody who was not thinking about any of it.
+  const CENTRE = [[-7283.2690, -3179.0102], [-6377.3663, -2755.5244],
+                  [-5154.8934, -3125.4871], [-4594.1617, -2604.6280],
+                  [-4722.9162, -2216.6743], [-5330.4564, -2121.6567]];
+  const REFERENCE = {
+    "400": [[-7113.8746, -3541.3713], [-6346.6794, -3182.7276], [-5050.9352, -3574.8648],
+            [-4133.5254, -2722.6903], [-4420.1116, -1859.1697], [-5268.6488, -1726.4607]],
+    "300": [[-7156.2232, -3450.7811], [-6354.3511, -3075.9268], [-5076.9248, -3462.5204],
+            [-4248.6845, -2693.1747], [-4495.8127, -1948.5458], [-5284.1007, -1825.2597]],
+    "200": [[-7198.5718, -3360.1908], [-6362.0228, -2969.1260], [-5102.9143, -3350.1760],
+            [-4363.8435, -2663.6591], [-4571.5139, -2037.9220], [-5299.5526, -1924.0587]],
+    "100": [[-7240.9204, -3269.6005], [-6369.6945, -2862.3252], [-5128.9039, -3237.8316],
+            [-4479.0026, -2634.1436], [-4647.2150, -2127.2981], [-5315.0045, -2022.8577]],
+    "-100": [[-7325.6175, -3088.4200], [-6385.0380, -2648.7236], [-5180.8830, -3013.1427],
+             [-4709.3208, -2575.1124], [-4798.6174, -2306.0505], [-5345.9083, -2220.4556]],
+    "-200": [[-7367.9661, -2997.8297], [-6392.7097, -2541.9228], [-5206.8725, -2900.7983],
+             [-4824.4799, -2545.5969], [-4874.3185, -2395.4266], [-5361.3602, -2319.2546]],
+    "-300": [[-7410.3147, -2907.2394], [-6400.3814, -2435.1220], [-5232.8621, -2788.4539],
+             [-4939.6389, -2516.0813], [-4950.0197, -2484.8028], [-5376.8121, -2418.0536]],
+  };
+  //! Drawn as five lines end to end, which is what a polyline IS in the
+  //! sketcher and what the DXF holds. The ends are given exactly, so the
+  //! chain welds without a gap.
+  const line = await drawn("Centreline", CENTRE.slice(0, -1).map((a, i) =>
+    ({ id: "c" + i, type: "line", a, b: CENTRE[i + 1] })));
+  let worstAnywhere = 0, built = 0;
+  for (const [said, reference] of Object.entries(REFERENCE)) {
+    const distance = Number(said);
+    //! join 1 is Sharp - see JOINS in the factory.
+    const got = await offset(line, distance, { join: 1 });
+    if (got.error) { check("offset at " + said + " builds", false, got.error); continue; }
+    built++;
+    const drawnRuns = (await polylineOf(got.id)).flat();
+    let worst = 0;
+    for (const want of reference) {
+      let nearest = Infinity;
+      for (const p of drawnRuns)
+        nearest = Math.min(nearest, Math.hypot(p[0] - want[0], p[1] - want[1]));
+      worst = Math.max(worst, nearest);
+    }
+    worstAnywhere = Math.max(worstAnywhere, worst);
+    //! A hundredth of a millimetre on a drawing 3100 mm across, and the
+    //! vertices are only written to four decimal places in the file. What it
+    //! actually measures is zero.
+    check("the offset at " + said + " lands on the drawn one",
+          worst < 0.01, "worst vertex " + worst.toFixed(6) + " mm out");
+  }
+  check("all seven offsets built", built === 7, built + " of 7");
+  check("and the worst vertex across all seven is under a hundredth",
+        worstAnywhere < 0.01, worstAnywhere.toFixed(6) + " mm");
+}
+
+console.log("\n12. nothing asked for, nothing done");
 {
   const c = await add("Circle", { refs: { plane: PL } });
   await set(c, "radius", 100);
