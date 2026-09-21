@@ -269,6 +269,360 @@ export function makeFactories(oc, kit) {
     } catch (e) { return null; }
   };
 
+  //! HOW A CORNER IS TURNED. The three OpenCascade offers, named the way a
+  //! person asks for them rather than the way the header spells them.
+  const JOINS = ["Rounded", "Sharp", "Tangent"];
+  const joinType = said => said === 1 ? oc.GeomAbs_JoinType.GeomAbs_Intersection
+                        : said === 2 ? oc.GeomAbs_JoinType.GeomAbs_Tangent
+                                     : oc.GeomAbs_JoinType.GeomAbs_Arc;
+
+  //! How far across a shape is, for tolerances that have to scale with it.
+  const extentsOf = shape => {
+    try {
+      const box = new oc.Bnd_Box();
+      oc.BRepBndLib.Add(shape, box, false);
+      if (box.IsVoid()) return 0;
+      const lo = box.CornerMin(), hi = box.CornerMax();
+      return Math.hypot(hi.X() - lo.X(), hi.Y() - lo.Y(), hi.Z() - lo.Z());
+    } catch (e) { return 0; }
+  };
+
+  //! How long a wire is. The same call the Measure node makes, so the number
+  //! here and the number on screen are the same number.
+  const lengthOf = shape => {
+    try {
+      const props = new oc.GProp_GProps();
+      oc.BRepGProp.LinearProperties(shape, props, false, false);
+      return props.Mass();
+    } catch (e) { return NaN; }
+  };
+
+  //! EVERY POINT AND TANGENT ALONG A WIRE, EDGE BY EDGE.
+  //!
+  //! BRepAdaptor_CompCurve walks a whole wire as one curve and is the obvious
+  //! tool, and its POSITIONS are right. Its DERIVATIVES are not to be relied
+  //! on here: sampled through it, a perfectly smooth interpolated curve gave
+  //! tangents that swung about, the sideways step swung with them, and the
+  //! curve fitted through those steps came back ten metres from a curve four
+  //! hundred long. Walked edge by edge - each with its own adaptor, its own
+  //! parameter range and its own orientation - the same curve offsets exactly.
+  //!
+  //! An edge REVERSED in the wire runs backwards through its own parameters,
+  //! and a tangent read without noticing that points the other way, which puts
+  //! half the offset on the wrong side of the curve.
+  const walkWire = (wire, samples, visit, { ends = true } = {}) => {
+    const edges = each(wire, EDGE, oc.TopoDS.Edge);
+    if (!edges.length) return 0;
+    const per = Math.max(2, Math.ceil(samples / edges.length));
+    let seen = 0, along = null;
+    for (const edge of edges) {
+      const walk = new oc.BRepAdaptor_Curve(edge);
+      const first = walk.FirstParameter(), last = walk.LastParameter();
+      //! Compared as a STRING. Orientation() comes back as "TopAbs_REVERSED"
+      //! through this binding, not as the enum value, so comparing it with
+      //! oc.TopAbs_Orientation.TopAbs_REVERSED is a string against an object
+      //! and is false for every edge there has ever been.
+      const back = String(edge.Orientation()) === "TopAbs_REVERSED";
+      //! `ends: false` leaves out the two ends of every edge. A CORNER is
+      //! where a curve stops being a constant distance from its offset: the
+      //! nearest point from a source corner to an offset that has been trimmed
+      //! or turned there is not the offset distance, and measuring it as if it
+      //! were made a perfectly good inward offset report itself "16.5685 mm
+      //! off" - which is 40*sqrt(2) - 40, the corner, and nothing wrong at all.
+      for (let i = ends ? 0 : 1; i <= (ends ? per : per - 1); i++) {
+        const u = first + (last - first) * (i / per);
+        const at = walk.Value(u);
+        const d = walk.DN(u, 1);
+        let way = V.norm([d.X(), d.Y(), d.Z()]);
+        if (!way) continue;
+        if (back) way = V.scale(way, -1);
+        //! A TANGENT CANNOT TURN ROUND INSIDE ONE EDGE, so one that reads as
+        //! having turned round has not: it is numerical noise, and near the
+        //! first knot of a fitted B-spline there is plenty of it. Sampled at
+        //! two hundred points, an interpolated curve read its first three
+        //! tangents as forward, backward, backward - which put those offset
+        //! points twenty millimetres on the WRONG side of the curve, and the
+        //! spline fitted through the result swung two thousand millimetres
+        //! away trying to pass through both sides of it.
+        //!
+        //! Turned back rather than dropped, because dropping them leaves a gap
+        //! exactly where the curve is hardest to fit.
+        if (along && V.dot(way, along) < 0) way = V.scale(way, -1);
+        along = way;
+        visit([at.X(), at.Y(), at.Z()], way);
+        seen++;
+      }
+    }
+    return seen;
+  };
+
+  //! THE PLANE A CURVE LIES IN, WORKED OUT FROM THE CURVE.
+  //!
+  //! A sketch writes down the plane it was drawn on and a support declares
+  //! one, but most curves have neither: a Polyline through four points, an
+  //! interpolated curve, a blend. They are almost always flat all the same,
+  //! and without a normal an offset has no side to go to, no way to check
+  //! which side it went to, and no way to redo it when the kernel strays. An
+  //! interpolated curve offset by 20 came back with its worst point 362 mm out
+  //! and nothing noticed, because every check needed a normal and there was
+  //! none.
+  //!
+  //! So it is measured: sample the curve, take the widest triangle in the
+  //! samples, and check every other sample lies in the plane it spans. Return
+  //! nothing when they do not, because then the curve really is three
+  //! dimensional and an offset of it needs a support to say what "sideways"
+  //! means.
+  const planeOfWire = (wire, samples = 32) => {
+    try {
+      const pts = [];
+      walkWire(wire, samples, at => pts.push(at));
+      if (pts.length < 3) return null;
+      const origin = pts[0];
+      let normal = null, widest = 0;
+      for (let i = 1; i < pts.length; i++)
+        for (let j = i + 1; j < pts.length; j++) {
+          const cross = V.cross(V.sub(pts[i], origin), V.sub(pts[j], origin));
+          const area = V.length(cross);
+          if (area > widest) { widest = area; normal = V.norm(cross); }
+        }
+      if (!normal) return null;
+      const reach = extentsOf(wire) || 1;
+      for (const p of pts)
+        if (Math.abs(V.dot(V.sub(p, origin), normal)) > Math.max(1e-6, reach * 1e-5))
+          return null;                                   // genuinely not flat
+      return normal;
+    } catch (e) { return null; }
+  };
+
+  //! IS THAT ANSWER A CURVE OR A KNOT?
+  //!
+  //! An offset has a length bound and it is exact: a simple curve offset by d
+  //! gains at most 2*pi*d, because that is its total turning. A curve whose
+  //! radius of curvature dips below d has no simple offset at all - the two
+  //! sides of the tight bend cross, and what comes back is the right shape
+  //! with a loop tied in it. A real CAD offset trims those loops; this one
+  //! cannot, so the least it can do is not hand one over pretending.
+  //!
+  //! Measured: an interpolated curve 487 long, offset by 20, came back 1700
+  //! long - three and a half times its source, every point of it a plausible
+  //! 20 from the curve, and completely unusable. A quarter of the source's
+  //! length on top of the turning bound is slack no honest offset needs.
+  const knotted = (wire, made, distance) => {
+    const was = lengthOf(wire), now = lengthOf(made);
+    if (!Number.isFinite(was) || !Number.isFinite(now)) return false;
+    //! BOTH WAYS. Too long is a loop; too short is a stub. The same walk that
+    //! returned 1700 mm for a 487 mm curve returned 10 mm for it once the loop
+    //! was refused - a fragment of the answer, handed over with a note saying
+    //! all was well. The turning bound holds in both directions: an offset
+    //! gains at most 2*pi*d and loses at most 2*pi*d, and the slack is a
+    //! quarter of the source on top of that.
+    const slack = 2 * Math.PI * Math.abs(distance) + Math.max(was, Math.abs(distance)) * 0.25;
+    return now > was + slack || now < was - slack;
+  };
+
+  //! HOW FAR THE ANSWER REALLY IS FROM THE CURVE IT CAME FROM, at its worst.
+  //! The one property an offset has to have, and the only honest way to know
+  //! whether the kernel delivered it.
+  const strayOf = (wire, made, distance, samples = 48) => {
+    try {
+      let worst = 0;
+      walkWire(wire, samples, at => {
+        const gap = new oc.BRepExtrema_DistShapeShape();
+        gap.LoadS1(new oc.BRepBuilderAPI_MakeVertex(pnt(at)).Vertex());
+        gap.LoadS2(made);
+        gap.Perform();
+        if (!gap.IsDone() || !gap.NbSolution()) return;
+        worst = Math.max(worst, Math.abs(gap.Value() - Math.abs(distance)));
+      }, { ends: false });
+      return worst;
+    } catch (e) { return 0; }
+  };
+
+  //! THE SAME CURVE, STEPPED SIDEWAYS AND REFITTED.
+  //!
+  //! BRepOffsetAPI_MakeOffset is exact on a line, an arc, a circle and any
+  //! chain of them, and that is most of what anybody offsets. It is NOT exact
+  //! on a B-spline: the offset of a B-spline is not a B-spline, so it has to
+  //! be approximated, and the approximation it ships is loose - an
+  //! interpolated curve offset by 20 came back 3.9 mm off at its worst, which
+  //! is nineteen per cent of the offset and quite visible.
+  //!
+  //! So when the answer strays, it is done here instead: walk the curve, step
+  //! perpendicular to it in the plane by the distance, fit one B-spline
+  //! through the result. Sampled, so it has its own error - but the error is
+  //! the sampling density, which is ours to choose, rather than the kernel's
+  //! approximation, which is not.
+  const offsetInPlane = (wire, distance, normal, samples = 200) => {
+    const run = [];
+    walkWire(wire, samples, (here, way) => {
+      // Right of travel, the same side rule the analytic road is held to.
+      const side = V.norm(V.cross(way, normal));
+      if (side) run.push(V.add(here, V.scale(side, distance)));
+    });
+    if (run.length < 3) return null;
+    return smoothOf(run, closedWire(wire), 0);
+  };
+
+  //! OFFSETTING A CURVE WITHIN A SURFACE, the long way round.
+  //!
+  //! BRepOffsetAPI_MakeOffset has a constructor that takes a FACE and offsets
+  //! within it, and it is the right tool. It is also not in this build: handed
+  //! a face it traps - "null function or function signature mismatch" - and it
+  //! does so for every form of it, with the face's own wire, with a wire added,
+  //! with no wire at all. Probed rather than assumed, because the support
+  //! argument had been in the catalogue for months and the one thing it was
+  //! for had never once worked.
+  //!
+  //! So it is done here, by the same road builders.Project takes: walk the
+  //! curve, step sideways in the surface's own tangent plane, pull each step
+  //! back onto the surface, and fit one B-spline through what comes out. The
+  //! sideways step is perpendicular to the curve and lies IN the surface, so
+  //! the result stays on the surface, which is the whole point of a support.
+  //!
+  //! What this is not: a geodesic offset. The step is measured as a straight
+  //! line and then projected, so on a surface that curves hard across the
+  //! offset the distance comes out slightly short. It is measured rather than
+  //! hoped for - the caller is told the worst error - and on anything gently
+  //! curved it is far below the tolerance anybody is working to.
+  const offsetInSurface = (wire, distance, face, samples = 160) => {
+    const surface = oc.BRep_Tool.Surface(face);
+    const probe = new oc.BRepAdaptor_Surface(face, true);
+    const onto = at => {
+      const got = new oc.GeomAPI_ProjectPointOnSurf(pnt(at), surface);
+      if (!got.NbPoints()) return null;
+      const p = got.NearestPoint();
+      const uv = got.LowerDistanceParameters(0, 0);
+      return { at: [p.X(), p.Y(), p.Z()], u: uv.U, v: uv.V };
+    };
+    //! The surface's normal where the curve actually is, not at the middle of
+    //! its parameter range: on a cylinder those differ by ninety degrees.
+    const normalAt = (u, v) => {
+      const du = Math.max(1e-6, Math.abs(probe.LastUParameter() - probe.FirstUParameter()) * 1e-4);
+      const dv = Math.max(1e-6, Math.abs(probe.LastVParameter() - probe.FirstVParameter()) * 1e-4);
+      const put = (a, b) => { const q = probe.Value(a, b); return [q.X(), q.Y(), q.Z()]; };
+      const here = put(u, v);
+      return V.norm(V.cross(V.sub(put(u + du, v), here), V.sub(put(u, v + dv), here)));
+    };
+
+    const run = [];
+    let worst = 0, adrift = 0;
+    const reach = (() => {
+      const box = extentsOf(wire);
+      return box ? Math.max(box, 1) : 1;
+    })();
+    walkWire(wire, samples, (from, way) => {
+      const seat = onto(from);
+      if (!seat) return;
+      adrift = Math.max(adrift, V.length(V.sub(seat.at, from)));
+      const up = normalAt(seat.u, seat.v);
+      if (!up) return;
+      // Right of travel, in the surface - the same side rule the flat road uses.
+      const side = V.norm(V.cross(way, up));
+      if (!side) return;
+      const landed = onto(V.add(seat.at, V.scale(side, distance)));
+      if (!landed) return;
+      run.push(landed.at);
+      worst = Math.max(worst, Math.abs(V.length(V.sub(landed.at, seat.at)) - Math.abs(distance)));
+    });
+    if (run.length < 3)
+      throw new Error("that curve does not lie on its support, so there is no "
+        + "surface to offset it within - check the support, or unwire it to "
+        + "offset in the curve's own plane");
+    //! ON the support, not merely near it. Projecting a curve that is nowhere
+    //! near its support onto it does not fail - it hands back the shadow, which
+    //! is a curve in the wrong place with a note saying everything went well.
+    //! A thousandth of the curve's own size is generous for a curve that was
+    //! drawn on the surface and hopeless for one that was not.
+    if (adrift > Math.max(1e-3, reach * 1e-3))
+      throw new Error("that curve is not on its support - the furthest part of it is "
+        + Math.round(adrift * 100) / 100 + " mm away, so there is no surface there to "
+        + "offset it within. Unwire the support to offset it in its own plane");
+    return { shape: smoothOf(run, closedWire(wire), 0), worst };
+  };
+
+  //! One offset, asked for exactly once. Split out because the side check
+  //! below has to be able to ask for the other one.
+  const offsetOnce = (wire, distance, turn, open, support) => {
+    const maker = support
+      ? new oc.BRepOffsetAPI_MakeOffset(support, turn, open)
+      : new oc.BRepOffsetAPI_MakeOffset(wire, turn, open);
+    if (support) maker.AddWire(wire);
+    try {
+      //! THE OFFSET OF A B-SPLINE IS NOT A B-SPLINE, so OpenCascade has to
+      //! approximate it, and by default it approximates loosely: a closed
+      //! spline offset by 20 gained 119.5 of length where the turning says it
+      //! must gain exactly 2*pi*20 = 125.7, which is five per cent out on the
+      //! gain. SetApprox asks for the fitted answer instead.
+      maker.SetApprox(true);
+      maker.Perform(distance, 0);
+      return maker.IsDone() ? maker.Shape() : null;
+    } catch (e) { return null; }
+  };
+
+  //! DID IT GO WHERE IT WAS TOLD? Measured off the two shapes rather than
+  //! reasoned about from the wire's orientation, because orientation is
+  //! exactly the thing that is not reliable here.
+  //!
+  //! Closed: a positive distance has to make the loop bigger, so the bounding
+  //! reach decides it. Open: a positive distance has to land on the left of
+  //! the way the curve is drawn, so the vector from a point half way along the
+  //! source to the nearest place on the result is compared with normal x
+  //! tangent. Neither needs to know which way OpenCascade thought it was going.
+  const wentWrongWay = (wire, made, distance, shut, normal) => {
+    if (!made || made.IsNull()) return false;
+    try {
+      if (shut) {
+        //! A simple closed curve offset OUTWARD by d gains exactly 2*pi*d of
+        //! length, whatever shape it is, because its total turning is one
+        //! revolution - the arcs added at the convex corners and the runs
+        //! trimmed at the concave ones come to that and nothing else. So the
+        //! sign of the change in length says which way it went, and it says it
+        //! for a kidney shape as surely as for a circle.
+        const grew = lengthOf(made) - lengthOf(wire);
+        if (!Number.isFinite(grew) || Math.abs(grew) < CONFUSION) return false;
+        return (distance > 0) !== (grew > 0);
+      }
+      if (!normal) return false;            // no plane to have a side of
+      const mid = midOf(wire);
+      if (!mid) return false;
+      //! RIGHT of the way it is drawn, and not left, because that is the side
+      //! that agrees with what a CLOSED curve does. A circle drawn the usual
+      //! way round grows outward on a positive distance, and outward is to the
+      //! right of travel; an arc of that same circle has to move the same way
+      //! or the two disagree - which is exactly the surprise this started
+      //! from, an arc of r100 offset by +25 coming back at r75 while the whole
+      //! circle came back at r125.
+      const side = V.norm(V.cross(mid.way, normal));
+      if (!side) return false;
+      const gap = new oc.BRepExtrema_DistShapeShape();
+      gap.LoadS1(new oc.BRepBuilderAPI_MakeVertex(pnt(mid.at)).Vertex());
+      gap.LoadS2(made);
+      gap.Perform();
+      if (!gap.IsDone() || gap.NbSolution() < 1) return false;
+      const p = gap.PointOnShape2(1);
+      const went = V.sub([p.X(), p.Y(), p.Z()], mid.at);
+      const on = V.dot(went, side);
+      if (Math.abs(on) < CONFUSION) return false;
+      return (distance > 0) !== (on > 0);
+    } catch (e) { return false; }
+  };
+
+  //! Where a wire is, and which way it is going, half way along it. Used to
+  //! work out which SIDE an offset came out on - see parallelCurve.
+  const midOf = wire => {
+    const edges = each(wire, EDGE, oc.TopoDS.Edge);
+    if (!edges.length) return null;
+    const edge = edges[Math.floor(edges.length / 2)];
+    try {
+      const walk = new oc.BRepAdaptor_Curve(edge);
+      const u = (walk.FirstParameter() + walk.LastParameter()) / 2;
+      const at = walk.Value(u);
+      const d = walk.DN(u, 1);
+      const way = V.norm([d.X(), d.Y(), d.Z()]);
+      return way ? { at: [at.X(), at.Y(), at.Z()], way } : null;
+    } catch (e) { return null; }
+  };
+
   //! A shape somewhere else, under a location rather than rebuilt.
   const shapeMoved = (shape, by) => {
     const move = new oc.gp_Trsf();
@@ -280,9 +634,23 @@ export function makeFactories(oc, kit) {
   //! rather than of TopoDS_Shape::Closed(), which is a flag somebody has to
   //! have set and which an assembled wire usually has not.
   const closedWire = wire => {
+    //! GEOMETRY, WITH A TOLERANCE THAT SCALES. Are the two ends in the same
+    //! place - and "the same place" has to mean something relative to the
+    //! curve, because a fitted B-spline six hundred millimetres round closes
+    //! to about a thousandth and a fixed 1e-4 called that open. Read as open,
+    //! a closed loop asked to grow by 20 took the open road and came back 120
+    //! shorter.
+    //!
+    //! The topological test - a closed wire has as many vertices as edges -
+    //! was tried here and is wrong in this build: a single fitted B-spline
+    //! edge reports one vertex whether it closes or not, so every spline came
+    //! back "closed", the fit looped its far end round to its start, and the
+    //! offset of an open curve came back a curve away from where it belonged.
     try {
       const [from, to] = endsOf(wire);
-      return V.length(V.sub(to, from)) < 1e-4;
+      const span = V.length(V.sub(to, from));
+      const reach = extentsOf(wire) || 1;
+      return span < Math.max(1e-4, reach * 1e-5);
     } catch (e) { return false; }
   };
 
@@ -697,30 +1065,36 @@ export function makeFactories(oc, kit) {
         return face;
       } },
 
-    { name: "parallelCurve", takes: "curve, distance, support, normal", gives: "shape",
+    { name: "parallelCurve", takes: "curve, distance, support, normal, join", gives: "shape",
       summary: "A curve offset from another. A flat curve needs nothing else and is "
              + "offset in its own plane; a curve lying on a surface is offset in that "
              + "surface, so it stays on it - which is exactly when CATIA asks for a "
-             + "support and when it does not. The normal is for the one shape that "
-             + "cannot say: a single straight run lies in EVERY plane through it, so "
-             + "which side is fifty away is a question it has no answer to.",
-      run: (curve, distance, support, normal) => {
+             + "support and when it does not. `join` turns the corners: 0 rounds them "
+             + "with an arc of the offset distance, 1 runs the two sides on until they "
+             + "meet, 2 carries the tangent. `normal` is for the one shape that cannot "
+             + "say which way is sideways: a single straight run lies in EVERY plane "
+             + "through it.",
+      run: (curve, distance, support, normal, join = 0) => {
         if (Math.abs(distance) < CONFUSION) return curve;
-        const join = oc.GeomAbs_JoinType.GeomAbs_Arc;
+        const turn = joinType(join);
         // A sketch hands over everything drawn on it, which may be several
         // separate runs. Poured into one wire they make a broken one, and
         // OpenCascade answers a broken wire with "command not done" - so each
         // run is offset as itself and the results go back together.
         const wires = each(curve, WIRE, oc.TopoDS.Wire);
         const runs = wires.length ? wires : [wireOf(curve)];
+        //! A curve that was never told which plane it is in is asked.
+        const flatOf = wire => normal || planeOfWire(wire);
         const out = [];
+        let rounded = 0, flipped = 0, strayed = 0, refitted = 0;
         for (const wire of runs) {
           // The third argument is isOpenResult, and it is the whole difference
           // between a parallel curve and a racetrack. Told an open spine is
           // closed, OpenCascade walks out along one side, round the end and
           // back along the other - which builds, and measures the same for
           // +50 as for -50, so nothing downstream would ever notice.
-          const open = !closedWire(wire);
+          const shut = closedWire(wire);
+          const open = !shut;
           // The one run that cannot be offset by asking OpenCascade: a single
           // straight edge lies in every plane through it, so there is no side
           // to go to. Told which plane, the answer is a translation - which is
@@ -729,26 +1103,129 @@ export function makeFactories(oc, kit) {
           if (sideways) {
             if (!normal) throw new Error(
               "a single straight segment lies in every plane through it, so there is "
-              + "no one side to offset it to - draw another segment, or wire a support");
+              + "no one side to offset it to - draw another segment, or wire a plane "
+              + "or a surface as its support");
             const across = V.norm(V.cross(normal, sideways));
             if (!across) throw new Error("that segment runs along its own support");
             out.push(shapeMoved(wire, V.scale(across, distance)));
             continue;
           }
-          const maker = support
-            ? new oc.BRepOffsetAPI_MakeOffset(support, join, open)
-            : new oc.BRepOffsetAPI_MakeOffset(wire, join, open);
-          if (support) maker.AddWire(wire);
-          maker.Perform(distance, 0);
-          const made = maker.IsDone() && maker.Shape();
-          if (!made || made.IsNull() || count(made, EDGE) === 0)
-            throw new Error(runs.length > 1
-              ? "one of those " + runs.length + " runs will not offset by " + distance
-              : "that curve cannot be offset by " + distance);
-          out.push(made);
+
+          //! ASKED, THEN CHECKED, THEN ASKED AGAIN THE OTHER WAY.
+          //!
+          //! OpenCascade does not use one convention for which side a positive
+          //! distance goes to. On a CLOSED wire it grows the loop, whichever
+          //! way round the wire runs. On an OPEN one it goes to a side decided
+          //! by the direction of travel - so a quarter arc of radius 100
+          //! offset by +25 came back at radius 75, while a full circle of the
+          //! same radius offset by the same +25 came back at 125. Both are
+          //! defensible; together they are not a convention, and a setback
+          //! that grows one curve and shrinks the next is not usable.
+          //!
+          //! So the rule is declared here and enforced by measurement: a
+          //! closed loop GROWS on a positive distance, and an open run goes to
+          //! the LEFT of the way it is drawn, seen from the support's normal.
+          //! Build it, look at where it went, and if it went the other way
+          //! build it again with the sign turned over. One extra solve on half
+          //! the cases, and the number in the field means one thing.
+          //! A SUPPORT MEANS A DIFFERENT ROAD ENTIRELY, not a different
+          //! argument to the same call - see offsetInSurface for why.
+          if (support) {
+            const got = offsetInSurface(wire, distance, support);
+            strayed = Math.max(strayed, got.worst);
+            out.push(got.shape);
+            continue;
+          }
+          const flat = flatOf(wire);
+          const made = offsetOnce(wire, distance, turn, open);
+          const wrong = wentWrongWay(wire, made, distance, shut, flat);
+          let answer = wrong ? offsetOnce(wire, -distance, turn, open) : made;
+          if (wrong) flipped++;
+
+          //! IT REFUSED. Not every curve MakeOffset will take - a fitted
+          //! B-spline through four points, gently curved, flat, with nothing
+          //! wrong with it at all, came back empty and used to end the feature
+          //! there. There is another road and it works on exactly the curves
+          //! this one refuses, so it is taken rather than reported.
+          const empty = !answer || answer.IsNull() || count(answer, EDGE) === 0;
+          if (empty) {
+            const walked = flat && offsetInPlane(wire, distance, flat);
+            //! AND THE WALKED ANSWER IS CHECKED TOO, because it can come back
+            //! wild. Stepping sideways and fitting a B-spline through the
+            //! result is exact where the curve is well behaved and oscillates
+            //! where the offset folds over itself - one case here came back
+            //! ten metres from a curve four hundred long, and reported
+            //! success. A wild answer is worse than a refusal: somebody builds
+            //! on it. Half the distance is the line, which no honest offset
+            //! ever crosses and no wild one ever stays under.
+            const held = walked && count(walked, EDGE) > 0 && !knotted(wire, walked, distance)
+                       ? strayOf(wire, walked, distance) : Infinity;
+            if (!Number.isFinite(held) || held > Math.abs(distance) * 0.5)
+              throw new Error(runs.length > 1
+                ? "one of those " + runs.length + " runs will not offset by " + distance
+                : !flat
+                  ? "that curve is not flat, so there is no plane to offset it in - "
+                    + "wire the surface it lies on as its support"
+                  : "that curve cannot be offset by " + distance
+                    + " - it turns tighter than that somewhere along it, so there is no "
+                    + "curve that stays that far from it. Try a smaller distance");
+            answer = walked;
+            strayed = Math.max(strayed, held);
+            refitted++;
+          }
+
+          //! CHECKED, AND REDONE IF IT STRAYED. A hundredth of the distance is
+          //! the line: everything analytic comes back at zero, and a spline
+          //! approximation comes back at a fifth of the offset. See
+          //! offsetInPlane. A corner setting other than rounded is left alone -
+          //! there the answer is MEANT to leave the constant distance at the
+          //! corners, which is what sharp corners ARE.
+          const stray = join === 0 ? strayOf(wire, answer, distance) : 0;
+          if (!empty && stray > Math.abs(distance) * 0.01 && flat) {
+            const refit = offsetInPlane(wire, distance, flat);
+            if (refit && count(refit, EDGE) > 0 && !knotted(wire, refit, distance)) {
+              const after = strayOf(wire, refit, distance);
+              if (after < stray) { answer = refit; refitted++; strayed = Math.max(strayed, after); }
+              else strayed = Math.max(strayed, stray);
+            } else strayed = Math.max(strayed, stray);
+          } else strayed = Math.max(strayed, stray);
+
+          //! WHICHEVER ROAD IT CAME BY. A knotted answer from the kernel is
+          //! just as unusable as a knotted one from the walk.
+          if (knotted(wire, answer, distance))
+            throw new Error("that curve turns tighter than " + Math.abs(distance)
+              + " somewhere along it, so its offset crosses itself - what comes back is "
+              + Math.round(lengthOf(answer)) + " mm long where the curve is "
+              + Math.round(lengthOf(wire)) + ". Try a smaller distance");
+          if (shut) rounded++;
+          out.push(answer);
         }
-        return out.length === 1 ? out[0] : compoundOf(out);
+        const trim = v => Math.round(v * 1e4) / 1e4;
+        return {
+          shape: out.length === 1 ? out[0] : compoundOf(out),
+          note: [
+            runs.length + (runs.length === 1 ? " run" : " runs"),
+            rounded ? (rounded === runs.length ? "closed" : rounded + " of them closed")
+                    : "open",
+            support ? "offset within its support" : JOINS[join].toLowerCase() + " corners",
+            //! SAID BECAUSE IT IS APPROXIMATE. The in-surface road samples and
+            //! projects, so the distance can come out slightly short where the
+            //! surface curves across it. A number nobody can see is still a
+            //! number somebody may need.
+            refitted ? "walked and refitted - the kernel's own offset would not hold" : "",
+            //! Reported at one per cent of the distance and not at a ten
+            //! thousandth: below that it is the fit's own residue and saying
+            //! it on every note teaches nobody anything. Above it, it is worth
+            //! knowing - a 40 mm setback that runs to 46 somewhere along a
+            //! trimmed corner is a real 46, and the person laying it out would
+            //! rather be told.
+            strayed > Math.max(1e-3, Math.abs(distance) * 0.01)
+              ? "the worst point is " + trim(strayed) + " mm off the distance asked for"
+              : "",
+          ].filter(Boolean).join(" \u00b7 "),
+        };
       } },
+
 
     { name: "offsetSurface", takes: "surface, distance", gives: "shape",
       summary: "A surface moved a distance along its own normal - still a skin, not a "

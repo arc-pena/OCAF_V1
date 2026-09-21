@@ -2496,10 +2496,17 @@ export const CATALOGUE = [
     summary: "A curve offset from another by a distance. A flat curve needs nothing "
            + "else and is offset in its own plane; a curve lying on a surface needs "
            + "that surface as a support, and is offset within it so it stays on it. "
-           + "A setback, a kerb line, a second rail.",
+           + "Corners are rounded with an arc, run on until they meet, or carry the "
+           + "tangent. A closed loop grows on a positive distance; an open run goes "
+           + "to the left of the way it is drawn. A setback, a kerb line, a second "
+           + "rail.",
+    //! APPENDED, as every new argument is: the index is the tag on disk, so a
+    //! corner setting inserted anywhere but the end would make every saved
+    //! parallel curve read its support as its distance.
     args: [ref("curve", "Curve", ["curve"], true),
            real("distance", "Distance", 100, -4000, 4000, 1),
-           ref("support", "Support", ["solid", "plane"])] },
+           ref("support", "Support", ["solid", "plane"]),
+           choice("join", "Corners", ["Rounded", "Sharp", "Tangent"], 0)] },
   { type: "ThickSurface", guid: "9a1b2c30-0079-4c00-9e00-caf000000079", category: "operation",
     produces: "solid",
     summary: "Gives a surface a thickness, so a skin becomes a body - a slab from a "

@@ -5102,6 +5102,40 @@ function sprawl(face, edges) {
     },
   };
 
+  //! WHICH WAY A FACE LOOKS, at the middle of its parameter range. Enough for
+  //! "which side is sideways" on a planar support, and a reasonable answer on
+  //! a gently curved one - the offset itself stays on the surface either way,
+  //! because that is MakeOffset's job; this only decides the sign.
+  function normalOfFace(face) {
+    if (!face) return null;
+    //! Three samples and a cross product, and not BRepLProp_SLProps, which
+    //! this build does not carry - written against it first and probed second,
+    //! which is the wrong way round and is why the check exists at all.
+    try {
+      const probe = new oc.BRepAdaptor_Surface(face, true);
+      const u0 = probe.FirstUParameter(), u1 = probe.LastUParameter();
+      const v0 = probe.FirstVParameter(), v1 = probe.LastVParameter();
+      const u = (u0 + u1) / 2, v = (v0 + v1) / 2;
+      const step = axis => Math.max(1e-6, Math.abs(axis) * 1e-3);
+      const du = step(u1 - u0), dv = step(v1 - v0);
+      const at = (a, b) => { const p = probe.Value(a, b); return [p.X(), p.Y(), p.Z()]; };
+      const here = at(u, v);
+      return V.norm(V.cross(V.sub(at(u + du, v), here), V.sub(at(u, v + dv), here)));
+    } catch (error) { return null; }
+  }
+
+  //! And a datum plane, which is not a face at all - it is an axis system, and
+  //! the normal is the third direction of it.
+  function planeNormalOf(support) {
+    if (!support) return null;
+    try {
+      const frame = F.frame(support);
+      if (frame && frame.normal) return frame.normal;
+      const ax = planeAxis(support);
+      return ax && ax.z ? V.norm(ax.z) : null;
+    } catch (error) { return null; }
+  }
+
   builders.ParallelCurve = {
     precondition: f => {
       const curve = F.reference(f, "curve");
@@ -5119,11 +5153,18 @@ function sprawl(face, edges) {
       const support = F.reference(f, "support");
       const face = support ? firstFace(F.shape(support), "support") : null;
       // A sketch writes down the plane it was drawn on, so a spine drawn as one
-      // straight segment still knows which way is sideways. Without that it is
-      // a question with no answer, and the factory says so rather than picking.
-      const frame = !face && F.frame(source);
-      return HSF.parallelCurve(F.shape(source), F.real(f, "distance", 100), face,
-                               frame ? frame.normal : null);
+      // straight segment still knows which way is sideways.
+      const frame = F.frame(source);
+      //! AND A SUPPORT SAYS IT TOO. A straight Line with a plane wired into it
+      //! used to be refused - "no one side to offset it to" - because the only
+      //! road to a normal was a sketch's own frame, and a Line has none. Which
+      //! made the support argument useless for the one input that most needs
+      //! it: wiring the plane changed nothing at all.
+      const way = (frame && frame.normal) || normalOfFace(face)
+               || planeNormalOf(support);
+      const got = HSF.parallelCurve(F.shape(source), F.real(f, "distance", 100), face,
+                                    way, Feature_choice(f, "join"));
+      return got && got.shape ? got : { shape: got };
     },
   };
 
