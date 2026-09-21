@@ -69,6 +69,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # draft reads factory's vector arithmetic and nothing else; the
            # kernel reads draft.
            "draft.js",
+           # sections is arithmetic over numbers - no kernel, no IFC - and both
+           # the catalogue's Section node and the IFC reader stand on it.
+           "sections.js",
            "ocaf.js", "polymesh.js", "subshape.js",
            # handle, gizmo and camera come before the kernel: the kernel's own
            # drivers read from them - a camera's frustum is the same arithmetic
@@ -80,6 +83,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "wasm-kernel.js", "http-kernel.js", "mdl.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
+           # ifc reads sections and the model language and nothing else; its
+           # package is the one hook that teaches the page an extension.
+           "ifc.js", "ifc-plugin.js",
            "section.js", "story.js", "pie.js", "meshedit.js", "app.js"]
 
 # The one module the page loads; everything else is reached through its imports.
@@ -112,6 +118,11 @@ SAMPLES = [
     ("fillsurface-extrude", "fillsurface_extrude.json"),
     ("fillsurface-draft", "fillsurface_draft.json"),
     ("wideflange", "wideflange.json"),
+    ("polyline", "polyline.json"),
+    ("parallelcurveseries", "parallelcurveseries.json"),
+    ("sample-slab", "sample_slab_for_flow.json"),
+    ("sample-cap", "Sample_Cap.json"),
+    ("samplecap-one", "samplecap_onecaponly.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

@@ -1513,6 +1513,31 @@ export function makeFactories(oc, kit) {
           new oc.gp_Vec(along[0], along[1], along[2])).Shape();
       } },
 
+    //! A SURFACE OF REVOLUTION, which is the one classical sweep this had no
+    //! road to at all. Everything turned about an axis - a dome, a dish, a
+    //! baluster, a tank end, and in a building model every IfcRevolvedAreaSolid
+    //! - was out of reach, and the only way to it was a loft through sections
+    //! somebody placed by hand.
+    //!
+    //! A closed profile gives a solid and an open one gives a skin, exactly as
+    //! a pad does, because that is what OpenCascade's MakeRevol does with each
+    //! and it is the right answer for both.
+    { name: "revolve", takes: "profile, at, along, angle", gives: "shape",
+      summary: "A profile turned about an axis. The angle is in degrees; 360 closes "
+             + "it into a full body of revolution. The axis is a point and a "
+             + "direction, and the profile must not cross it - a section that "
+             + "straddles its own axis has no revolution.",
+      run: (profile, at, along, angle) => {
+        const way = V.norm(along);
+        if (!way) throw new Error("the axis has no direction");
+        const turn = Math.abs(angle) < CONFUSION ? 360 : angle;
+        const axis = new oc.gp_Ax1(pnt(at), dir(way));
+        const maker = new oc.BRepPrimAPI_MakeRevol(profile, axis,
+                                                   turn * Math.PI / 180, false);
+        if (!maker.IsDone()) throw new Error("that profile cannot be turned about that axis");
+        return maker.Shape();
+      } },
+
     { name: "sweep1", takes: "profile, spine, into", gives: "shape",
       summary: "A profile swept along one rail, as a skin. The section turns to stay "
              + "square to the rail the whole way, so a rail that bends carries the "

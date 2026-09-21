@@ -25,6 +25,7 @@ import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, drafting, kernelMessage,
          meshCreases, meshFaces, meshSharpness, parseNumbers, registeredTypes,
          schemaJson, setDrafting, typeSpec } from "./ocaf.js";
 import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
+import { SECTION_KINDS, sectionOutline } from "./sections.js";
 import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
          saysPlan, writeMade } from "./generate.js";
 import { freshId, freshName, instantiateEdits } from "./reuse.js";
@@ -176,7 +177,11 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         const normal = way && way.along;
         if (!origin) return no("origin point is missing");
         if (!normal || length(normal) < CONFUSION) return no("normal vector is missing or null");
-        return frame(origin, normal);
+        //! And which way is sideways, when somebody has said. Squared against
+        //! the normal by the factory, so a direction that is not quite
+        //! perpendicular still makes a frame rather than an error.
+        const sideways = axisOf(F.reference(f, "xdir"));
+        return frame(origin, normal, sideways && sideways.along);
       }
     }
   }
@@ -201,6 +206,42 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     if (length(along) < CONFUSION) return no("a vector needs a non-zero direction");
     return { along, at: [0, 0, 0], why: null };
   }
+
+  //! WHERE THE AXIS OF A REVOLUTION IS AND WHICH WAY IT POINTS. A vector says
+  //! the direction and a point says where it stands; without a point it stands
+  //! where the vector was drawn, which for a plain Vector is the world origin
+  //! and is what anybody means by "about Z".
+  function revolveAxis(f) {
+    const found = axisOf(F.reference(f, "axis"));
+    if (!found || !found.along) return null;
+    const through = readPoint(F.reference(f, "through"));
+    return { at: through || found.at || [0, 0, 0], along: found.along };
+  }
+
+  //! A section stands on its plane the way a sketch does, and is centred where
+  //! it is told rather than always on the plane's own origin.
+  function sectionFrame(f) {
+    const axis = planeAxis(F.reference(f, "plane"))
+      || new oc.gp_Ax2(pnt([0, 0, 0]), dir([0, 0, 1]));
+    const X = axis.XDirection(), Y = axis.YDirection(), N = axis.Direction();
+    const here = axis.Location();
+    const x = [X.X(), X.Y(), X.Z()], y = [Y.X(), Y.Y(), Y.Z()], n = [N.X(), N.Y(), N.Z()];
+    const seat = [here.X(), here.Y(), here.Z()];
+    const asked = readPoint(F.reference(f, "centre"));
+    const origin = asked ? V.sub(asked, V.scale(n, V.dot(V.sub(asked, seat), n))) : seat;
+    return { normal: n, x, y, origin,
+             at: uv => V.add(origin, V.add(V.scale(x, uv[0]), V.scale(y, uv[1]))) };
+  }
+
+  const sectionElements = f => sectionOutline(
+    SECTION_KINDS[Feature_choice(f, "kind")] || SECTION_KINDS[0], {
+      depth: F.real(f, "depth", 400), width: F.real(f, "width", 180),
+      web: F.real(f, "web", 9), flange: F.real(f, "flange", 14),
+      root: F.real(f, "root", 10), toe: F.real(f, "toe", 0),
+      lip: F.real(f, "lip", 20), top: F.real(f, "top", 120),
+      offset: F.real(f, "offset", 30), wall: F.real(f, "web", 9),
+      outerRadius: F.real(f, "root", 10), innerRadius: F.real(f, "toe", 0),
+    });
 
   //! The frame, or null - what every driver that stands something on a plane
   //! has always asked for.
@@ -3610,6 +3651,13 @@ function sprawl(face, edges) {
 
   const meshCounts = mesh => mesh.points.length + " vertices, " + mesh.faces.length + " faces";
 
+  //! Does this feature hand on triangles rather than a B-Rep? Asked by the few
+  //! operations that take either.
+  const isMesh = source => {
+    const data = source && F.data(source);
+    return !!(data && data.kind === "mesh");
+  };
+
   //! A guard every mesh driver runs before it hands anything on. A mesh with a
   //! face pointing at a vertex that is not there will take the renderer down
   //! two features later, where nothing explains it.
@@ -4984,8 +5032,9 @@ function sprawl(face, edges) {
 
   builders.AxisToAxis = {
     precondition: f => {
-      const trouble = movedTrouble(f);
-      if (trouble) return trouble;
+      const source = F.reference(f, "shape");
+      if (!source) return "no shape to move";
+      if (!F.shape(source) && !isMesh(source)) return F.name(source) + " has not been built";
       if (!readAxisSystem(F.reference(f, "from"))) return "no axis system to come from";
       if (!readAxisSystem(F.reference(f, "to"))) return "no axis system to go to";
       return null;
@@ -4994,12 +5043,32 @@ function sprawl(face, edges) {
     //! it is the one an assembly is built out of: the part is drawn about its
     //! own frame once, and every instance of it is that frame sent somewhere.
     build: f => {
-      const shape = F.shape(F.reference(f, "shape"));
+      const source = F.reference(f, "shape");
       const from = readAxisSystem(F.reference(f, "from"));
       const to = readAxisSystem(F.reference(f, "to"));
       const trsf = new oc.gp_Trsf();
       trsf.SetTransformation(axisPlacement(to), axisPlacement(from));
-      return transformed(shape, trsf, {});
+      //! A MESH GOES THE SAME WAY A SOLID DOES.
+      //!
+      //! This is the node an instance is made with - one master, many
+      //! placements - and an imported building is full of things that arrived
+      //! as triangles: a joist exported as an IfcPolygonalFaceSet and put down
+      //! two hundred times. Refused a mesh, the only way to place those was to
+      //! write the triangles out again at each one, which on a Revit model was
+      //! 38,963 nodes where 8,859 do.
+      //!
+      //! Mesh transform could not stand in for it: that turns about the mesh's
+      //! own middle by three Euler angles, which is a different question from
+      //! "put this frame there".
+      if (!F.shape(source) && isMesh(source)) {
+        const mesh = meshFrom(source, "shape");
+        const points = mesh.points.map(p => {
+          const moved = pnt(p).Transformed(trsf);
+          return [moved.X(), moved.Y(), moved.Z()];
+        });
+        return { data: packMesh(checkMesh({ points, faces: mesh.faces }, "mesh")) };
+      }
+      return transformed(F.shape(source), trsf, {});
     },
   };
 
@@ -5104,6 +5173,101 @@ function sprawl(face, edges) {
       const wires = outlines(f, source);
       if (!wires.length) throw new Error("the profile has nothing to extrude");
       return cut(HSF.extrude(HSF.join(wires), along));
+    },
+  };
+
+  //! THE FOURTH CLASSICAL SWEEP. Extrude, Loft and Sweep were three of them
+  //! and there was no road to this one at all: everything turned about an axis
+  //! - a dome, a dish, a baluster, a tank end, and every IfcRevolvedAreaSolid
+  //! in a building model - had to be faked as a loft through sections placed
+  //! by hand.
+  builders.Revolve = {
+    precondition: f => {
+      const profile = F.reference(f, "profile");
+      if (!profile) return "no profile to turn";
+      if (!F.shape(profile)) return F.name(profile) + " has not been built";
+      if (!F.reference(f, "axis")) return "no axis to turn about";
+      if (!revolveAxis(f)) return "that axis has no direction";
+      return null;
+    },
+    build: f => {
+      const source = F.shape(F.reference(f, "profile"));
+      const axis = revolveAxis(f);
+      const angle = F.real(f, "angle", 360);
+      const turn = shape => HSF.revolve(shape, axis.at, axis.along, angle);
+      if (Feature_choice(f, "cap") === 0) {
+        const faces = capped(f, source);
+        if (!faces.length) throw new Error("the profile has nothing to turn");
+        const made = faces.map(turn);
+        return { shape: made.length === 1 ? made[0] : compoundOf(made),
+                 note: Math.abs(angle) >= 360 ? undefined : Math.round(angle) + "\u00b0" };
+      }
+      const wires = outlines(f, source);
+      if (!wires.length) throw new Error("the profile has nothing to turn");
+      const made = wires.map(turn);
+      return made.length === 1 ? made[0] : compoundOf(made);
+    },
+  };
+
+  //! CUT IT OFF AT A PLANE. The trim Extrude's "up to plane" does, as a node
+  //! of its own, so anything at all can be cut and not only the thing being
+  //! padded. A roof slab is a prism with its ends taken off at the pitch, and
+  //! there is no other honest way to say that.
+  builders.Trim = {
+    precondition: f => {
+      const body = F.reference(f, "body");
+      if (!body) return "nothing to trim";
+      if (!F.shape(body)) return F.name(body) + " has not been built";
+      if (!F.reference(f, "by")) return "no plane to trim at";
+      return planeTrouble(F.reference(f, "by"));
+    },
+    build: f => {
+      const shape = F.shape(F.reference(f, "body"));
+      const plane = planeAxis(F.reference(f, "by"));
+      const at = plane.Location(), way = plane.Direction();
+      const seat = [at.X(), at.Y(), at.Z()];
+      const normal = [way.X(), way.Y(), way.Z()];
+      //! WHICH SIDE TO KEEP, said as a point on it. The reach of the body is
+      //! the only length here that is certainly big enough to be on one side
+      //! of the plane and not on the other.
+      const reach = (HSF.extentsOf(shape) || 1000) * 2 + 1;
+      const keep = Feature_choice(f, "side") === 1 ? reach : -reach;
+      return HSF.trimAtPlane(shape, plane, V.add(seat, V.scale(normal, keep)));
+    },
+  };
+
+  //! A NAME AND SIX NUMBERS, not twelve lines and four fillets. The outline
+  //! arithmetic is in sections.js, shared with the IFC reader, so a beam that
+  //! came in from a file and a beam somebody typed are the same beam.
+  builders.Section = {
+    precondition: f => {
+      if (!planeAxis(F.reference(f, "plane")))
+        return planeTrouble(F.reference(f, "plane"))
+            || "a plane is needed to put the section on";
+      const made = sectionElements(f);
+      if (!made.outer.length) return "that section has no size";
+      return null;
+    },
+    build: f => {
+      const frame = sectionFrame(f);
+      const made = sectionElements(f);
+      const ring = elements => {
+        const drawing = { elements, constraints: [] };
+        const { loops } = sketchLoops(drawing, 0.05);
+        return loops.map(loop => sketchWireOrNothing(drawing, loop, frame, true))
+                    .filter(Boolean);
+      };
+      const outer = ring(made.outer);
+      if (!outer.length) throw new Error("that section does not close");
+      const holes = made.inner.flatMap(ring);
+      //! A FACE, NOT A WIRE. A section is always a closed profile, so there is
+      //! no case where the loop is the answer - and a face is what measures an
+      //! area, what pads into a body, and what carries its own holes with it
+      //! rather than as a second loop somebody downstream has to notice.
+      const shape = HSF.fillWithHoles(outer[0], holes.length ? holes : outer.slice(1));
+      const kind = SECTION_KINDS[Feature_choice(f, "kind")] || SECTION_KINDS[0];
+      return { shape, note: kind + " \u00b7 " + Math.round(F.real(f, "depth", 400))
+                          + " \u00d7 " + Math.round(F.real(f, "width", 180)) };
     },
   };
 

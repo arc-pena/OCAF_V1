@@ -404,6 +404,21 @@ round. It looked plausible in the viewport. An arc's own numbers say which arc
 it is and the welded ends say which way along it, so nothing needs reversing at
 all; only a spline, whose interior points have an order.
 
+### The saved ones
+
+Everything else on the Samples list is a model somebody **built in the program
+and saved**, which is the point of it being there: it is a file, not a fixture,
+and opening one is the same thing as opening your own.
+
+| | |
+|---|---|
+| **polyline** | eight points, a polyline through them, and one offset held a distance from it the whole way. The smallest thing that shows what a parallel curve is — drag the distance and watch the corners run on until they meet, round, or carry the tangent. |
+| **parallelcurveseries** | the same polyline with a `Series` wired into the offset distance, so the one node builds once per number and hands them all on together. A setback drawing, or the contours of a bund. |
+| **sample_slab_for_flow** | an origin, three planes, a sketch and a pad. What the shape of a document looks like with nothing else in the way. |
+| **Sample_Cap** | two caps driven by top-level named numbers, with a fillet on every arris. Change the radius and both follow — including the fillets, which is the part that used to give up at large radii. |
+| **samplecap_onecaponly** | one of those caps with a `Generator` in it: the same part written as a plan that emits its own nodes, beside the hand-built one. |
+| **3dspline, fillsurface, Columns on a curve, wideflange** | the curve and surface work, and the two that show a set being instanced. |
+
 ## Four primitives, so a graph can compose
 
 Before these, a definition of any size fell back to a written feature — and a
@@ -872,10 +887,51 @@ the document as a file is in it.
 | **DXF** | ✓ | ✓ | 2D drawings — in as a *sketch*, out one layer per sketch |
 | **Model file** | ✓ | ✓ | the parametric model itself — opening one replaces the document |
 
-IGES, 3DM, IFC and SAT are named too, and refused with the reason: the IGES
-reader is not in this OCCT build, Rhino's reader is a library the page may not
-fetch, and the rest are formats OpenCascade does not read at all. A file that is
-picked on purpose gets an answer, not silence.
+| **IFC** | ✓ | | a *building model* — with the IFC package loaded. It opens as the document |
+
+IGES, 3DM and SAT are named too, and refused with the reason: the IGES reader
+is not in this OCCT build, Rhino's reader is a library the page may not fetch,
+and ACIS is a format OpenCascade does not read at all. A file that is picked on
+purpose gets an answer, not silence. IFC is on that list too until its package
+is switched on, and then it is not.
+
+### IFC, which is a model and not a shape
+
+An IFC file opened in a viewer is triangles: you can look at the wall, you
+cannot change its thickness. But a wall in an IFC file is almost never
+triangles — it is an `IfcExtrudedAreaSolid` over a profile, which is to say a
+closed outline and a depth, which is to say the **Extrude** node that is already
+on the rail. The geometry vocabulary of a building is small and nearly all of it
+is in the catalogue already.
+
+So the import does not tessellate. It reads the entities and writes the model
+language, and what arrives is a parametric tree with the building's own
+structure in it — project, site, building, storey, element, each a geometrical
+set with the file's own names on it, and inside each element the ordinary nodes:
+
+| in the file | in the tree |
+|---|---|
+| `IfcExtrudedAreaSolid` | a `Rectangle`, `Circle`, `Section` or `Sketch`, and an `Extrude` |
+| `IfcRevolvedAreaSolid` | the same profile, and a `Revolve` |
+| `IfcSweptDiskSolid`, `IfcSurfaceCurveSweptAreaSolid` | a `Circle` or profile, and a `Sweep` |
+| `IfcBooleanResult`, `IfcBooleanClippingResult` | a `Boolean` — or a `Trim`, when it clips at a plane |
+| `IfcHalfSpaceSolid`, `IfcPolygonalBoundedHalfSpace` | a `Trim`; a plane is infinite, which is the point of it |
+| `IfcRelVoidsElement` | a `Boolean` difference — a wall less its windows |
+| `IfcMappedItem` | the family built **once**, and an `AxisToAxis` per instance |
+| `IfcIShapeProfileDef` and the five beside it | a `Section`, which still knows it is a UC 305×305×97 |
+| `IfcFacetedBrep` and the face sets | `MeshImported` — the one road that is not parametric, taken only when there is nothing parametric to take |
+
+**On IfcOpenShell.** What is ported is its *mapping* — `IfcGeom`'s
+correspondence between a representation item and a modelling operation. Its code
+is not: it has no browser distribution, its WASM road is a Python runtime an
+order of magnitude larger than this whole page, and what it would be carried in
+**for** is its own OpenCascade, which is already here. ISO 10303-21 is text, and
+reading it is two hundred lines with no kernel anywhere near them.
+
+**What it says afterwards.** How many elements came in, what they were built
+from, how many facets arrived as meshes because the file had tessellated them,
+and — by name and count — what was **not** read. An import that quietly dropped
+four hundred bodies looks exactly like one that did not, so it says.
 
 ### Or just drop it on the page
 

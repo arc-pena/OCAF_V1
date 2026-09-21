@@ -12,6 +12,7 @@
 
 import { EMPTY_SKETCH, readSketch, sketchSummary } from "./sketch.js";
 import { PICK_MODES, PICK_ANGLE } from "./subshape.js";
+import { SECTION_KINDS } from "./sections.js";
 
 /* --------------------------------------------------------------- samples
 
@@ -1075,6 +1076,35 @@ export const SAMPLES = [
            + "built from one of them: named numbers for where it stands, an "
            + "expression for its top, planes off those and an extrude between "
            + "them. The set it is in is what Instantiate copies. 34 nodes." },
+
+  { key: "polyline", name: "polyline", file: "samples/polyline.json",
+    summary: "The smallest thing that shows what a parallel curve is: eight points, "
+           + "a polyline through them, and one offset held a distance from it the "
+           + "whole way. Drag the distance and watch the corners - they run on "
+           + "until they meet, they round, or they carry the tangent, and the node "
+           + "says which. 12 nodes." },
+  { key: "parallelcurveseries", name: "parallelcurveseries",
+    file: "samples/parallelcurveseries.json",
+    summary: "The same polyline, with a SERIES wired into the offset distance - so "
+           + "the one node builds once for every number in the series and hands "
+           + "them all on together. A setback drawing, or the contours of a bund. "
+           + "Change the count and the whole family follows. 14 nodes." },
+  { key: "sample-slab", name: "sample_slab_for_flow",
+    file: "samples/sample_slab_for_flow.json",
+    summary: "A slab, as simply as one can be said: an origin, three planes, a "
+           + "sketch on one of them and a pad off it. The thing to open when you "
+           + "want to see the shape of a document rather than a piece of "
+           + "geometry. 14 nodes." },
+  { key: "sample-cap", name: "Sample_Cap", file: "samples/Sample_Cap.json",
+    summary: "Two caps driven by top-level named numbers: a radius and a height "
+           + "each, arithmetic for the rest, and a fillet on every arris. Change "
+           + "the radius and both caps follow - including the fillets, which is "
+           + "the part that used to give up at large radii. 59 nodes." },
+  { key: "samplecap-one", name: "samplecap_onecaponly",
+    file: "samples/samplecap_onecaponly.json",
+    summary: "One of those caps, with a GENERATOR in it: the same part written as "
+           + "a plan that emits its own nodes, beside the hand-built one. What a "
+           + "script node and a built tree look like side by side. 35 nodes." },
 ];
 
 /* ------------------------------------------------------------- catalogue */
@@ -1748,7 +1778,20 @@ export const CATALOGUE = [
            when(ref("turn", "Plane", ["plane"]), "kind", 4),
            when(ref("axis", "Axis", ["vector", "curve"]), "kind", 4),
            when(real("angle", "Angle", 45, -360, 360, 1, "°"), "kind", 4),
-           real("size", "Display size", 160, 10, 2000, 5)] },
+           real("size", "Display size", 160, 10, 2000, 5),
+           //! WHICH WAY IS SIDEWAYS ON IT, for the plane asked for from an
+           //! origin and a normal. A normal alone fixes the plane but not the
+           //! paper on it: OpenCascade picks an X direction and it is whichever
+           //! one its arithmetic reaches, so a rectangle sketched on that plane
+           //! sits at an angle nobody chose. Everywhere a drawing comes from
+           //! something that STATED its axes - an imported IFC element, a
+           //! placement out of a STEP assembly, a datum meant to agree with
+           //! another - this is the argument that says so.
+           //!
+           //! Appended, because an argument's place in this list is its tag in
+           //! the document. Left empty it changes nothing, which is what every
+           //! file written before it says.
+           when(spare("xdir", "X direction", ["vector", "curve"]), "kind", 0)] },
   //! An axis system is a placement: an origin and three directions, the thing
   //! CATIA puts under every part and every transform. Wire one into a Move or a
   //! Rotate and the shape follows it; wire two into Axis to axis and the shape
@@ -2526,6 +2569,69 @@ export const CATALOGUE = [
            //! child tag, so a new question goes at the end whatever that does
            //! to the order it is asked in.
            spare("into", "Becoming", ["curve"])] },
+  //! A REVOLUTION, which this had no road to at all.
+  //!
+  //! Everything turned about an axis - a dome, a dish, a baluster, a tank end,
+  //! a bollard, and in a building model every IfcRevolvedAreaSolid - was out
+  //! of reach, and the only way to one was a loft through sections somebody
+  //! placed by hand. Extrude, Loft and Sweep were three of the four classical
+  //! sweeps and this is the fourth.
+  { type: "Revolve", guid: "9a1b2c30-0110-4c00-9e00-caf000000110", category: "operation",
+    produces: "solid",
+    summary: "A profile turned about an axis. 360 closes it into a full body of "
+           + "revolution; less makes a wedge of one, which is how a dome is cut open "
+           + "or a segment of a tank end is made. A closed profile gives a body and an "
+           + "open one gives a skin, exactly as a pad does. The profile must not cross "
+           + "its own axis - a section that straddles it has no revolution.",
+    args: [ref("profile", "Profile", ["curve", "plane"], true),
+           ref("axis", "Axis", ["vector", "curve", "axis"]),
+           spare("through", "Axis through", ["point"]),
+           real("angle", "Angle", 360, -360, 360, 1, "\u00b0"),
+           choice("cap", "Result", ["Solid", "Surface"], 0)] },
+
+  //! CUT IT OFF AT A PLANE, which is what IFC means by a half-space and what
+  //! every clipped element in a building model is made with: a roof slab is a
+  //! prism with its ends taken off at the pitch, and there is no other honest
+  //! way to say that.
+  //!
+  //! It is the trim that Extrude's "up to plane" does, as a node of its own -
+  //! so anything at all can be cut, not only the thing being padded.
+  { type: "Trim", guid: "9a1b2c30-0111-4c00-9e00-caf000000111", category: "operation",
+    produces: "solid",
+    summary: "Everything on one side of a plane, cut flush with it. The plane is "
+           + "infinite, whatever square is drawn for it, so a body is cut wherever it "
+           + "reaches - and a plane at an angle cuts at that angle, which is the whole "
+           + "point of it.",
+    args: [ref("body", "Body", ["solid", "curve", "plane"], true),
+           ref("by", "Plane", ["plane"]),
+           choice("side", "Keep", ["Behind the plane", "In front of it"], 0)] },
+
+  //! A STRUCTURAL SECTION IS A NAME AND SIX NUMBERS, not twelve lines and four
+  //! fillets. Drawn by hand it stops being an I-beam the moment the web
+  //! thickness changes; declared here it stays one - and a beam that came in
+  //! from IFC and a beam somebody typed are the same beam, because they are
+  //! the same arithmetic. See sections.js.
+  { type: "Section", guid: "9a1b2c30-0112-4c00-9e00-caf000000112", category: "curve",
+    produces: "curve",
+    summary: "A structural section on a plane: I, angle, channel, tee, purlin, hollow "
+           + "or trapezium, by its own dimensions. The root and toe radii are real "
+           + "arcs, not a polygon fine enough to look like them - a rolled section's "
+           + "root radius is a dimension a fabricator reads and a weld sits in. "
+           + "Centred on the middle of its bounding box, which is where a column wants "
+           + "it and where IFC puts it.",
+    args: [ref("plane", "Plane", ["plane"]),
+           choice("kind", "Section", SECTION_KINDS, 0),
+           real("depth", "Depth", 400, 1, 100000, 1),
+           real("width", "Width", 180, 1, 100000, 1),
+           real("web", "Web or wall", 9, 0, 10000, 0.5),
+           real("flange", "Flange", 14, 0, 10000, 0.5),
+           real("root", "Root radius", 10, 0, 10000, 0.5),
+           real("toe", "Toe radius", 0, 0, 10000, 0.5),
+           real("lip", "Lip", 20, 0, 10000, 0.5),
+           real("top", "Top width", 120, 0, 100000, 1),
+           real("offset", "Top offset", 30, -100000, 100000, 1),
+           spare("centre", "Centred on", ["point"])] },
+
   { type: "ParallelCurve", guid: "9a1b2c30-0078-4c00-9e00-caf000000078", category: "curve",
     produces: "curve",
     summary: "A curve offset from another by a distance. A flat curve needs nothing "
@@ -2733,7 +2839,11 @@ export const CATALOGUE = [
     summary: "Takes a shape from one axis system to another - the assembly move. What "
            + "was drawn about the first frame ends up placed about the second, so "
            + "moving the target frame moves the part with it.",
-    args: [ref("shape", "Shape", ["solid", "curve", "plane", "point"], true),
+    //! A MESH TOO, because this is the node an instance is made with - one
+    //! master, many placements - and half of an imported building arrives as
+    //! triangles. Adding a kind to what an input ACCEPTS is safe where adding
+    //! an argument would not be: the list is not a tag on disk.
+    args: [ref("shape", "Shape", ["solid", "curve", "plane", "point", "mesh"], true),
            ref("from", "From axis system", ["axis"], true),
            ref("to", "To axis system", ["axis"], true)] },
   { type: "Array", guid: "9a1b2c30-0021-4c00-9e00-caf000000021", category: "operation",
@@ -2946,6 +3056,34 @@ const argIndex = (spec, key) => spec.args.findIndex(a => a.key === key);
 
 /* ------------------------------------------------------------- TDF labels */
 
+//! HOW MANY TIMES THE DOCUMENT HAS CHANGED SHAPE.
+//!
+//! Three counters, because three different things are cached and they go
+//! stale at different rates. \p treeStamp moves when a feature is removed or
+//! the tree is reordered, and guards the list of features and the index of
+//! them by id. \p parentStamp moves when something is filed in a set, and
+//! guards the index of what is in each set. \p wireStamp moves when a
+//! reference is made or broken, and guards the index of who reads from whom.
+//!
+//! Split three ways because reading a file does all three kinds of change
+//! thousands of times, and one counter would mean every index rebuilt on every
+//! edit - which is the walk they exist to remove. An ADD is folded into the
+//! indexes instead of invalidating them, because an add is the one change that
+//! can be.
+//!
+//! Deliberately NOT bumped by every label that gets made. Setting a parameter
+//! creates a label the first time, and a counter that moved for that would be
+//! invalidated by every edit in a file - which is exactly the case the indexes
+//! exist for.
+//!
+//! Module state, and honest as module state because the counters only ever go
+//! up: a stale cache is impossible, and a cache missed because some other
+//! document moved costs one walk.
+let treeStamp = 0, wireStamp = 0, parentStamp = 0;
+export const treeChanged = () => ++treeStamp;
+export const wiringChanged = () => ++wireStamp;
+export const nestingChanged = () => ++parentStamp;
+
 export class Label {
   constructor(tag, parent) {
     this.tag = tag;
@@ -2959,6 +3097,7 @@ export class Label {
     if (!child && create) { child = new Label(tag, this); this.children.set(tag, child); }
     return child || null;
   }
+  dropChild(tag) { this.children.delete(tag); }
   newChild() { return this.findChild(++this.nextTag, true); }
   childList() { return [...this.children.values()].sort((a, b) => a.tag - b.tag); }
   get entry() {
@@ -3263,7 +3402,7 @@ export const F = {
   syncParams(f, specs) {
     const wanted = new Set(specs.map(spec => spec.key));
     for (const label of F.paramLabels(f))
-      if (!wanted.has(label.attr.TDataStd_Name)) f.children.delete(label.tag);
+      if (!wanted.has(label.attr.TDataStd_Name)) f.dropChild(label.tag);
     for (const spec of specs) {
       const existing = F.paramLabel(f, spec.key);
       const value = existing && typeof existing.attr.TDataStd_Real === "number"
@@ -3284,7 +3423,10 @@ export const F = {
     const label = F.argLabel(f, key);
     return label ? label.attr.TDF_Reference || null : null;
   },
-  setReference(f, key, target) { F.argLabel(f, key, true).attr.TDF_Reference = target; },
+  setReference(f, key, target) {
+    F.argLabel(f, key, true).attr.TDF_Reference = target;
+    wiringChanged();
+  },
 
   //! An input that takes several wires in order. Each one lives on a child of
   //! the argument's own label, so the order is the tag order and a gap left by
@@ -3665,15 +3807,58 @@ export class Doc {
     this.units = units;
   }
 
-  features() { return this.featuresRoot.childList().filter(l => l.attr.TFunction_Function); }
+  //! THE FEATURES, WALKED ONCE PER CHANGE RATHER THAN ONCE PER QUESTION.
+  //!
+  //! This was a sort of the tag map every time anybody asked, and find() was a
+  //! linear scan over the answer. That is invisible on a part with forty
+  //! features in it and it is the whole cost of opening a building: reading a
+  //! Revit model of 8,859 features took 168 seconds, and almost all of it was
+  //! forty thousand edits each scanning nine thousand features to look up the
+  //! one they were about. Indexed, the same file takes seconds.
+  //!
+  //! Kept honest by treeStamp rather than by remembering to invalidate:
+  //! nothing can add or remove a label without the counter moving, so the
+  //! cache cannot be stale - only missed.
+  features() {
+    if (this.listAt !== treeStamp || !this.list) {
+      this.list = this.featuresRoot.childList().filter(l => l.attr.TFunction_Function);
+      this.byId = null;
+      this.listAt = treeStamp;
+    }
+    return this.list;
+  }
   find(reference) {
-    return this.features().find(f => F.id(f) === reference || F.name(f) === reference) || null;
+    const list = this.features();
+    const index = () => {
+      const map = new Map();
+      for (const f of list) map.set(F.id(f), f);
+      return map;
+    };
+    if (!this.byId) this.byId = index();
+    const hit = this.byId.get(reference);
+    //! CHECKED, NOT TRUSTED. A feature's id is written onto the label AFTER
+    //! the label exists, so an index taken in between has it under the empty
+    //! string - and the tree's shape did not change when the id was written,
+    //! so nothing else would notice. A miss rebuilds once and tries again,
+    //! which costs a walk on a genuine miss and nothing at all otherwise.
+    if (hit && F.id(hit) === reference) return hit;
+    this.byId = index();
+    //! An id first, because that is what an edit carries. A NAME is the
+    //! fallback and stays a scan: names change without the tree changing
+    //! shape, so an index of them could go stale in a way this one cannot.
+    return this.byId.get(reference) || list.find(f => F.name(f) === reference) || null;
   }
   driverOf(f) { return this.drivers.get(f.attr.TFunction_Function) || null; }
 
+  //! A NAME NOTHING ELSE HAS. Walked from a counter rather than from one,
+  //! because a file of nine thousand features adds them one at a time and
+  //! starting the count at one every time is a walk per feature - which is the
+  //! same quadratic that made reading a building take minutes.
   uniqueName(type) {
     const used = new Set(this.features().map(F.name));
-    for (let i = 1; ; i++) if (!used.has(type + "." + i)) return type + "." + i;
+    const from = (this.nameFrom || (this.nameFrom = new Map())).get(type) || 1;
+    for (let i = from; ; i++)
+      if (!used.has(type + "." + i)) { this.nameFrom.set(type, i + 1); return type + "." + i; }
   }
   uniqueId(type) {
     const used = new Set(this.features().map(F.id));
@@ -3690,6 +3875,17 @@ export class Doc {
     f.attr.TFunction_Function = spec.guid;
     f.attr.TDataStd_AsciiString = id || this.uniqueId(type);
     f.attr.TDataStd_Name = name || this.uniqueName(type);
+    //! FOLDED INTO THE INDEXES rather than invalidating them. Reading a
+    //! building is nine thousand adds, and a rebuilt index on each one is the
+    //! walk per add that the index was there to remove - measured at about
+    //! fifty seconds on a Revit model. An add is the one change that folds in
+    //! exactly: the feature goes on the end of the list, under its own id, and
+    //! in nobody's set until something files it.
+    if (this.list && this.listAt === treeStamp) {
+      this.list.push(f);
+      if (this.byId) this.byId.set(F.id(f), f);
+    }
+    nestingChanged();
     F.setVisible(f, true);
     for (const arg of spec.args) {
       const label = F.argLabel(f, arg.key, true);
@@ -3730,10 +3926,41 @@ export class Doc {
 
   isContainer(f) { return !!f && F.spec(f).category === "container"; }
 
-  //! What is filed directly in a container, in document order.
-  contents(container) {
-    return this.features().filter(f => F.parent(f) === container);
+  //! WHAT IS IN WHICH SET, indexed. Asking it by filtering the whole document
+  //! is one walk per set, and a set's summary is rebuilt on every regeneration
+  //! - so on a building of 1,665 sets that was 48 seconds of walking, per
+  //! rebuild, to write "12 items" sixteen hundred times.
+  childIndex() {
+    if (this.kidsAt !== treeStamp + parentStamp || !this.kids) {
+      this.kids = new Map();
+      for (const f of this.features()) {
+        const parent = F.parent(f);
+        const list = this.kids.get(parent);
+        if (list) list.push(f); else this.kids.set(parent, [f]);
+      }
+      this.kidsAt = treeStamp + parentStamp;
+    }
+    return this.kids;
   }
+
+  //! And the other direction: who reads from this one. Same reason - a set's
+  //! summary says what reads out of it, which asked the long way is a walk of
+  //! every wire in the document per set.
+  readerIndex() {
+    if (this.readersAt !== wireStamp + treeStamp || !this.readers) {
+      this.readers = new Map();
+      for (const f of this.features())
+        for (const source of this.wiresOf(f)) {
+          const list = this.readers.get(source);
+          if (list) { if (!list.includes(f)) list.push(f); } else this.readers.set(source, [f]);
+        }
+      this.readersAt = wireStamp + treeStamp;
+    }
+    return this.readers;
+  }
+
+  //! What is filed directly in a container, in document order.
+  contents(container) { return this.childIndex().get(container) || []; }
 
   //! Everything in it, however deep - a set inside a set is still inside.
   within(container) {
@@ -3757,6 +3984,7 @@ export class Doc {
         if (up === f) throw new Error(F.name(container) + " is already inside " + F.name(f));
     }
     F.setParent(f, container || null);
+    nestingChanged();                    // what is in which set has moved
     this.log.touch(f);
     if (container) this.log.touch(container);
   }
@@ -3778,8 +4006,12 @@ export class Doc {
   //! what is in it.
   outputsOf(container) {
     const inside = new Set([container, ...this.within(container)]);
-    return this.features().filter(f => !inside.has(f)
-      && this.wiresOf(f).some(source => inside.has(source)));
+    const index = this.readerIndex();
+    const out = [];
+    for (const one of inside)
+      for (const reader of index.get(one) || [])
+        if (!inside.has(reader) && !out.includes(reader)) out.push(reader);
+    return out;
   }
 
   //! DELETE IS DELETE. One behaviour, and it is the node editor's.
@@ -3827,7 +4059,8 @@ export class Doc {
       const shape = F.shape(one);
       const driver = this.driverOf(one);
       if (shape && driver) driver.release(shape);
-      this.featuresRoot.children.delete(one.tag);
+      this.featuresRoot.dropChild(one.tag);
+      treeChanged();
     }
     return going.length;
   }
@@ -3931,6 +4164,7 @@ export class Doc {
     const root = this.featuresRoot;
     const others = root.childList().filter(l => !l.attr.TFunction_Function);
     root.children = new Map();
+    treeChanged();
     order.forEach((f, index) => { f.tag = index + 1; root.children.set(f.tag, f); });
     let next = order.length;
     for (const spare of others) { spare.tag = ++next; root.children.set(spare.tag, spare); }

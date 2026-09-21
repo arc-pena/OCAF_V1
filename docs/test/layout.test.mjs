@@ -202,8 +202,16 @@ console.log("\n5. the tree reads, folds and searches");
   check("a name is never cut off into an ellipsis",
         !/\.node \.label\s*\{[^}]*text-overflow/.test(bare),
         (bare.match(/\.node \.label\s*\{[^}]*\}/) || [""])[0]);
+  //! BREAK-WORD, NOT ANYWHERE. Both wrap; the difference is what they say the
+  //! narrowest the box could be is. `anywhere` says one character, and a panel
+  //! sized by its contents believes it - a name out of an IFC file came down
+  //! the tree one letter per line for thirty rows. `break-word` asks for the
+  //! longest word and breaks inside one only when it is short of room.
   check("and it wraps rather than running off the side",
-        /\.node \.label\s*\{[^}]*overflow-wrap:\s*anywhere/.test(bare));
+        /\.node \.label\s*\{[^}]*overflow-wrap:\s*break-word/.test(bare),
+        (bare.match(/\.node \.label\s*\{[^}]*\}/) || [""])[0]);
+  check("  without telling the panel one character is a width",
+        !/\.node \.label\s*\{[^}]*overflow-wrap:\s*anywhere/.test(bare));
   check("the tree scrolls down and never across",
         /#tree\s*\{[^}]*overflow-x:\s*hidden/.test(bare)
         && /#tree\s*\{[^}]*overflow-y:\s*auto/.test(bare),

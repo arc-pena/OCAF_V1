@@ -840,7 +840,17 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
 .node.alongside { background: var(--accent-soft); border-left-color: var(--line); }
 .node .glyph { width: 14px; height: 14px; flex: none; color: var(--ink-2); }
 .node.datum .glyph { color: var(--datum); }
-.node .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* A NAME BREAKS BETWEEN WORDS FIRST, and only inside a word when it has to.
+   Still never an ellipsis - see the panel's own sizing.
+
+   This was `overflow-wrap: anywhere`, which says a line may break between any
+   two letters - and which therefore tells the layout that the narrowest this
+   box can be is ONE CHARACTER. The panel is sized by its contents, so it
+   believed it: "Basic Wall:Generic 200 [0000AA]" out of an IFC file came down
+   the tree one letter per line, thirty rows deep. `break-word` breaks the same
+   words in the same places when it is short of room, and keeps the longest
+   word as the width to ask for. */
+.node .label { flex: 1; min-width: 0; overflow-wrap: break-word; word-break: break-word; }
 /* NOT STRUCK THROUGH. A line through a name says the thing is gone, and a body
    a fillet was made from is not gone - it is in the tree, it is editable, it is
    what the fillet is made OF, and the only thing true of it is that it is not

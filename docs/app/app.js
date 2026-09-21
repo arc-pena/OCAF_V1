@@ -42,6 +42,7 @@ import { readValue, saysFormula } from "./formula.js";
 import { duplicateEdits, instantiateEdits, reachesOut, saysReuse, setInputGroups,
          setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
+import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
@@ -5672,6 +5673,16 @@ const ICONS = {
   Body: '<path d="M1.6 12.6V4.4h4.2l1.4 1.6h7.2v6.6z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>'
       + '<path d="M8 6.6l3.4 1.8v3.2L8 13.4l-3.4-1.8V8.4z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>',
   // A section carried along a rail: the rail, and the profile riding it.
+  // A section turned about an axis: the axis dashed, the profile beside it,
+  // and the ring it sweeps out.
+  Revolve: '<path d="M8 1.4v13.2" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.6"/>'
+         + '<ellipse cx="8" cy="8" rx="6" ry="2.4" fill="none" stroke="currentColor" stroke-width="1.2"/>'
+         + '<rect x="10.4" y="6.4" width="2.6" height="3.2" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+  // A body with its top corner taken off flush at a plane.
+  Trim: '<path d="M2.6 13.4V4.2l5-2.8h6.2v9.2l-5 2.8z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round" opacity=".45"/>'
+      + '<path d="M2.6 13.4V8.6l5-2.8h6.2M7.6 5.8v7.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+  // An I, which is what the node is for nine times out of ten.
+  Section: '<path d="M3.4 2.6h9.2v2.1H9.1v6.6h3.5v2.1H3.4v-2.1h3.5V4.7H3.4z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>',
   Sweep: '<path d="M1.8 11.6C4.4 11.6 5 4.6 8.2 4.6s3.8 4.4 6 4.4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2.2 1.6"/>'
        + '<ellipse cx="5.4" cy="8.6" rx="1.5" ry="2.5" fill="none" stroke="currentColor" stroke-width="1.2"/>'
        + '<ellipse cx="11.6" cy="6.6" rx="1.5" ry="2.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>',
@@ -10019,6 +10030,25 @@ const packageKit = {
     draw();
   },
 
+  //! A PACKAGE THAT CAN READ A KIND OF FILE NOBODY ELSE CAN.
+  //!
+  //! The one hook a format needs, because everything else about opening a file
+  //! - the picker, the drop veil, the size limit, sniffing what a nameless
+  //! file is - belongs to the page and stays with it. A reader says which
+  //! extensions are its own and how to turn the text into a model file; the
+  //! page does the rest, so an imported building lands on the undo stack like
+  //! anything else.
+  //!
+  //! Hands back the way to take it off again, which is what a package's
+  //! dispose is for: putting the package away has to leave the page exactly as
+  //! it found it, including not claiming .ifc any more.
+  addReader(reader) {
+    if (!reader || !reader.key) return () => {};
+    readers.set(reader.key, reader);
+    refreshAccept();
+    return () => { readers.delete(reader.key); refreshAccept(); };
+  },
+
   toolkit: () => kernel.toolkit(),
   installDrivers: (specs, builders) => kernel.installDrivers(specs, builders),
   removeDrivers: specs => kernel.removeDrivers(specs),
@@ -10467,12 +10497,27 @@ async function exportAs(key) {
 
 /* ------------------------------------------------------------------ import */
 
+//! Formats a package brought with it. Empty until one is loaded, and empty
+//! again the moment it is put away - see addReader.
+const readers = new Map();
+const readerFor = name => {
+  const dot = String(name || "").toLowerCase().lastIndexOf(".");
+  const ext = dot < 0 ? "" : String(name).toLowerCase().slice(dot);
+  for (const reader of readers.values())
+    if (reader.extensions.includes(ext)) return reader;
+  return null;
+};
+
 const fileInput = document.getElementById("file-input");
 // Everything that can be read, and everything a CAD user will reasonably try:
 // a file this build cannot read is better picked and explained than greyed out
 // with no reason given.
-fileInput.accept = [...FORMATS.filter(f => f.read).flatMap(f => f.extensions),
-                    ".iges", ".igs", ".3dm", ".ifc", ".dxf", ".sat"].join(",");
+function refreshAccept() {
+  fileInput.accept = [...FORMATS.filter(f => f.read).flatMap(f => f.extensions),
+                      ...[...readers.values()].flatMap(r => r.extensions),
+                      ".iges", ".igs", ".3dm", ".ifc", ".dxf", ".sat"].join(",");
+}
+refreshAccept();
 fileInput.addEventListener("change", () => {
   const file = fileInput.files && fileInput.files[0];
   fileInput.value = "";                        // so the same file can be picked twice
@@ -10496,7 +10541,12 @@ function partsNamed(key, text) {
 //! one has stopped to ask a question: "asked" means a dialog is up and the
 //! rest must wait, "no" means nothing was taken.
 async function takeFile(file) {
-  const excuse = whyNot(file.name);
+  //! A PACKAGE'S READER IS ASKED FIRST, and before the list of things this
+  //! build cannot do - because the list is what it cannot do WITHOUT the
+  //! package, and IFC is on it. With the IFC package loaded, an .ifc is a
+  //! model file; with it off, it is still the sentence explaining why not.
+  const brought = readerFor(file.name);
+  const excuse = brought ? null : whyNot(file.name);
   if (excuse) { say(file.name + " is " + excuse.name + ", and " + excuse.reason); return "no"; }
   // Asked before the file is read rather than after, because reading it is the
   // expensive part and the limit is about what the document can hold.
@@ -10514,6 +10564,20 @@ async function takeFile(file) {
   // called .step is read as STEP whatever is inside it; a file dragged off a
   // mail client as "attachment" has no name to go on, and every format here
   // says what it is in its first few lines.
+  //! What the package hands back is a MODEL FILE, so it opens the way every
+  //! model file opens: one edit, one undo step, one redraw. Nothing about a
+  //! building being a building reaches this far.
+  if (brought) {
+    try {
+      const got = brought.open(new TextDecoder().decode(bytes), file.name);
+      await mdl.run({ op: "model", model: got.model });
+      fitView();
+      for (const line of (got.say || [])) say(line);
+      if (!got.say || !got.say.length) say(file.name + " opened");
+    } catch (err) { say("could not read " + file.name + " — " + err.message); return "no"; }
+    return "done";
+  }
+
   let format = formatFor(file.name);
   if (!format || !format.read) {
     const sniffed = sniffFormat(bytes);
