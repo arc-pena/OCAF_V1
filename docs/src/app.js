@@ -7983,9 +7983,45 @@ function openDocMenu() {
   menuItem("A branch as its own file…", "pick a set and take it out",
            () => openBranchMenu());
   menuItem("Packages…", "what is on the shelf", () => togglePackages(true));
+  //! A WAY BACK OUT, and the reason it exists is worth writing down.
+  //!
+  //! A body an operation was built FROM can be shown anyway - that is a real
+  //! gesture and a real edit. A bug once applied it to everything inside a set
+  //! rather than to the row that was clicked, so one click could put the flag
+  //! on hundreds of features and save all of it. The flag was fixed at the
+  //! source; a FILE already carrying them was not recoverable from in here,
+  //! because undoing it meant finding and re-clicking every one.
+  //!
+  //! Offered only when there is something to clear, and it says how many, so
+  //! it is a repair somebody reaches for knowingly rather than a button that
+  //! silently changes a document.
+  const overruled = (state.tree ? state.tree.features : [])
+    .filter(f => f.shownAnyway).map(f => f.id);
+  if (overruled.length)
+    menuItem("Put " + overruled.length + " overruled "
+             + (overruled.length === 1 ? "body" : "bodies") + " back",
+             "bodies drawn although something was built from them",
+             () => clearOverrides(overruled));
   placeMenu(8, 44);
   const button = document.getElementById("btn-menu");
   button.setAttribute("aria-expanded", "true");
+}
+
+//! Every "show it anyway" in the document, undone in one edit. One trip
+//! through the undo stack rather than one per feature, so it is a single
+//! ctrl-Z away if it was not what somebody wanted.
+async function clearOverrides(ids) {
+  if (!ids.length) return;
+  try {
+    //! ONE EDIT, not one per body. Sent as a list because each of these
+    //! rebuilds the document's tree, and a building of seven and a half
+    //! thousand features took twelve minutes to clear 715 of them one at a
+    //! time - which is the same fault, in the other direction, as the bug that
+    //! made 715 of them in the first place.
+    await mdl.run({ op: "shown", ids, on: false });
+    say(ids.length + (ids.length === 1 ? " body is" : " bodies are")
+        + " back to being replaced by what was made from them");
+  } catch (err) { showError(err.message); }
 }
 
 /* ---------------------------------------------- a branch out into a file

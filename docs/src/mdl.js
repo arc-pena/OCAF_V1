@@ -202,14 +202,20 @@ export const MDL_OPS = [
     { op: "appearance", id: "CB1", appearance: { finish: "brass" } },
     (ctx, edit) => ctx.kernel.setAppearance(needText(edit, "id"), edit.appearance || null)),
 
-  viewOp("shown", ["id", "on"],
+  viewOp("shown", ["id?", "ids?", "on"],
     "Show a body that an operation swallowed, or stop showing it. A body a fillet or a "
     + "boolean consumed leaves the 3D view by default - drawing both puts the old "
     + "corners through the new ones - and this is how that default is overruled, for "
     + "looking at what something was made from. It is remembered on the feature and "
-    + "saved with the model, so the next rebuild does not undo it.",
+    + "saved with the model, so the next rebuild does not undo it. Takes one id, or "
+    + "a list of them as ids, which is one edit and one rebuild rather than one each.",
     { op: "shown", id: "CB1", on: true },
-    (ctx, edit) => ctx.kernel.setShown(needText(edit, "id"), edit.on !== false)),
+    //! One row or a list of them. A list is ONE call rather than one each:
+    //! every one of these rebuilds the tree, and a document of seven thousand
+    //! features cannot afford that per feature - see setShownMany.
+    (ctx, edit) => (Array.isArray(edit.ids)
+      ? ctx.kernel.setShownMany(edit.ids, edit.on !== false)
+      : ctx.kernel.setShown(needText(edit, "id"), edit.on !== false))),
 
   viewOp("reorder", ["ids", "before?", "after?"],
     "Move features up or down the tree, to sit just before or just after another one. "

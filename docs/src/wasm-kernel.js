@@ -6775,6 +6775,23 @@ function sprawl(face, edges) {
 
     //! Show a body that something else swallowed, or stop showing it. See
     //! SHOWN_TAG: the rule is a default, and this is how it is overruled.
+    //! MANY AT ONCE, in one call and one tree. Written because the one-at-a-time
+    //! form is a round trip and a full treeJson PER FEATURE - on a building of
+    //! seven and a half thousand features that is a tenth of a second each, and
+    //! putting 715 overruled bodies back took twelve minutes of them. The same
+    //! mistake, in the other direction, as the bug that made 715 of them.
+    async setShownMany(ids, on) {
+      const list = Array.isArray(ids) ? ids : [ids];
+      let touched = 0;
+      for (const id of list) {
+        const f = doc.find(id);
+        if (!f) continue;                       // a row that has since gone is not an error
+        doc.setPinnedShown(f, !!on);
+        touched++;
+      }
+      return { ok: true, tree: doc.treeJson(), report: null, touched };
+    },
+
     async setShown(id, on) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
