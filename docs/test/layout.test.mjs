@@ -263,6 +263,45 @@ console.log("\n8. a tree with seven thousand rows in it");
         /\.node \.label\s*\{[^}]*min-width:\s*\d+ch/.test(bare));
 }
 
+console.log("\n8b. an eye is not an edit");
+{
+  //! WHAT A VISIBILITY TOGGLE MAY WRITE INTO THE DOCUMENT, which is almost
+  //! nothing. Hiding is this window's own list; the one exception is a body
+  //! another feature was BUILT FROM, which the document itself says is not
+  //! drawn - clicking its eye overrules that, and overruling it is a real
+  //! edit that is saved.
+  //!
+  //! That exception was applied to the CONTENTS the toggle pulled in as well
+  //! as to the row somebody clicked, and on a building imported from IFC one
+  //! click on one set wrote `shownAnyway` onto 715 features: every profile,
+  //! every extrusion, every boolean that something else was built from, all
+  //! of it into the file.
+  //!
+  //! It did not read as a visibility bug. A wall is an Extrude with its
+  //! openings cut out by a Boolean, so force-showing the Extrude draws the
+  //! wall as it was BEFORE its openings, over the top of the one with them:
+  //! the walls overshoot their reveals and the model looks edited. Measured
+  //! on the file it was reported with, against the same file saved before the
+  //! clicking: not one argument of not one feature differed - only 715
+  //! shownAnyway flags, and every one of the 715 was a feature another
+  //! feature reads from.
+  //!
+  //! Checked in the source because it is a one-word mistake to make again -
+  //! `ids` and `named` are both in scope on the line, and one of them is a
+  //! whole storey.
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const body = (app.match(/function showFeature\([\s\S]*?\n\}/) || [""])[0];
+  check("showFeature keeps what was clicked apart from what it contains",
+        /const named = Array\.isArray\(id\)/.test(body)
+        && /const ids = withContents\(named\)/.test(body));
+  check("the hidden list takes the contents, because hiding a set hides it all",
+        /for \(const one of ids\) \{ if \(on\) state\.hidden\.delete/.test(body));
+  check("but the document edit is only for the rows somebody named",
+        /const swallowed = on \? named\.filter\(/.test(body));
+  check("and it is never sent when hiding, which needs no edit at all",
+        /const swallowed = on \? [^:]+: \[\];/.test(body));
+}
+
 console.log("\n9. and a viewport with seven hundred thousand triangles in it");
 {
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");

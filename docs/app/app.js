@@ -2274,7 +2274,12 @@ function withContents(ids) {
 }
 
 function showFeature(id, on) {
-  const ids = withContents(Array.isArray(id) ? id : [id]);
+  //! WHAT WAS NAMED, kept apart from what it contains. The hidden list applies
+  //! to the whole subtree - hiding a storey hides what is in it - but the
+  //! document edit below must NOT, and conflating the two quietly rewrote the
+  //! model every time somebody clicked the eye on a set.
+  const named = Array.isArray(id) ? id : [id];
+  const ids = withContents(named);
   for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
   //! TWO REASONS A THING IS NOT DRAWN, and one switch over both.
   //!
@@ -2287,7 +2292,26 @@ function showFeature(id, on) {
   //! Sent only for the features it applies to, and only when showing: hiding
   //! is what the hidden list is for, and a swallowed body that is hidden is
   //! hidden for the ordinary reason like anything else.
-  const swallowed = on ? ids.filter(one => {
+  //!
+  //! AND ONLY FOR THE ROWS SOMEBODY ACTUALLY CLICKED, never for the contents
+  //! this pulled in. Over `ids` it meant that showing a storey un-consumed
+  //! every intermediate inside it: on a building imported from IFC, one click
+  //! on one set wrote `shownAnyway` onto 715 features - every profile, every
+  //! extrusion, every boolean that another feature was built from - and all of
+  //! it saved into the file.
+  //!
+  //! What that LOOKS like is not a visibility bug, which is why it was
+  //! reported as geometry changing. A wall is an Extrude with its openings cut
+  //! out of it by a Boolean; force-showing the Extrude draws the wall as it
+  //! was BEFORE the openings, on top of the one with them. The wall overshoots
+  //! its own reveals and the model appears to have been edited. Nothing had
+  //! been: the arguments were untouched, the same shapes were built, and one
+  //! of them was being drawn that should not have been.
+  //!
+  //! It is also why the tree flickered. 715 document edits mean 715 trips
+  //! through applyState, each one rebuilding the tree - and 715 entries on the
+  //! undo stack for a click that was meant to change nothing.
+  const swallowed = on ? named.filter(one => {
     const entry = feature(one);
     return entry && entry.visible === false;
   }) : [];
