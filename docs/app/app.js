@@ -283,8 +283,8 @@ let grid = null, axes = null;
 
 function readTheme() {
   const style = getComputedStyle(document.documentElement);
-  for (const name of ["shape", "shape-edge", "curve", "accent", "hover", "datum", "grid",
-                      "grid-axis", "bad", "cut-fill", "cut-line"])
+  for (const name of ["shape", "shape-edge", "brep-edge", "curve", "accent", "hover",
+                      "datum", "grid", "grid-axis", "bad", "cut-fill", "cut-line"])
     THEME[name] = new THREE.Color(style.getPropertyValue("--" + name).trim() || "#888888");
   paintBackdrop();
 }
@@ -1335,14 +1335,36 @@ function wornColour(entry) {
   return Array.isArray(worn) && worn.length === 3 ? new THREE.Color(...worn) : null;
 }
 
+//! A SOLID'S EDGES ARE BLACK, AND THEY ARE OPAQUE, and the second is what
+//! makes the first true.
+//!
+//! They were a dark slate at four-tenths alpha, which is not a colour: it is
+//! four-tenths of a colour over six-tenths of whatever is behind it. On the
+//! neutral grey everything used to be, that reads as a darker grey and looks
+//! like a line. On a model with colours in it - which is every IFC import, and
+//! is the whole point of Shaded obeying colour - it reads as a darker ORANGE
+//! on a beam and a darker GREEN on a column, because that is arithmetically
+//! what it is. Over the IFC beam orange it composites to rgb(162,105,55).
+//!
+//! An edge is not a shade of the face it bounds. It is ink on top of it, so it
+//! is opaque, and it carries its own colour rather than borrowing one.
+//!
+//! Its own theme entry rather than shape-edge, which the sketcher also draws
+//! held lines with and which has no business turning black because a solid's
+//! edges did. In the dark theme it is near-white: "black" means the ink the
+//! sheet is not, and black ink on a black sheet is no line at all.
 function edgeMaterial(entry, style = findStyle(state.style)) {
   const datum = drawsFaint(entry);
   const curve = !!entry && entry.produces === "curve";
   const shown = curve || datum ? true : style.edges;
+  //! Only a datum or a curve wears the colour it was given: those lines ARE
+  //! the feature. A solid's edges are not the solid, and taking its colour is
+  //! exactly the thing being fixed here.
   const worn = datum || curve ? wornColour(entry) : null;
+  const solid = !datum && !curve;
   const line = new THREE.LineBasicMaterial({
-    color: worn || (datum ? THEME.datum : curve ? THEME.curve : THEME["shape-edge"]),
-    transparent: true, opacity: datum ? 0.42 : curve ? 1 : 0.4,
+    color: worn || (datum ? THEME.datum : curve ? THEME.curve : THEME["brep-edge"]),
+    transparent: !solid, opacity: datum ? 0.42 : 1,
     visible: shown && (datum ? style.datums : true),
   });
   line.userData.base = line.color.clone();
@@ -2356,9 +2378,13 @@ function paintSelection() {
         // A curve keeps its own colour: the line is the feature, not the
         // silhouette of one, and dimming it to a tangent edge loses it.
         const own = object.material.userData.base
-                 || (object.parent.userData.curve ? THEME.curve : THEME["shape-edge"]);
+                 || (object.parent.userData.curve ? THEME.curve : THEME["brep-edge"]);
         object.material.color.copy(selected || lit ? mark : own);
-        object.material.opacity = selected || lit ? 1 : object.parent.userData.curve ? 1 : 0.4;
+        //! Opaque either way now. It used to drop back to four-tenths for a
+        //! solid, which put the body's colour back through the line the moment
+        //! the pointer left it - so an edge was black while you hovered it and
+        //! orange again a frame later.
+        object.material.opacity = 1;
       }
       //! AND THE MARKERS. A point cannot be tinted or outlined - it has no
       //! surface and no edges - so the whole mark is replaced: bigger and

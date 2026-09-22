@@ -41,6 +41,11 @@
   --view-clay:   #e6eaee;
   --shape:       #93a2ad;
   --shape-edge:  #3d4c58;
+  /* A SOLID'S OWN EDGES, and they are black. Its own entry rather than
+     shape-edge, which the sketcher also draws held lines with: an edge
+     turning black is a decision about solids, not about every line in
+     the program. */
+  --brep-edge:   #000000;
   --curve:       #12775b;
   --grid:        #c3ccd4;
   --grid-axis:   #a2aeb9;
@@ -76,6 +81,9 @@
     --view-clay:   #141b21;
     --shape:       #7d8d99;
     --shape-edge:  #cfdbe4;
+    /* Black ink on a black sheet is no line at all, so on a dark ground
+       "black" is the ink the ground is not. */
+    --brep-edge:   #eef4f9;
     --curve:       #59d0a2;
     --grid:        #263440;
     --grid-axis:   #3a4c58;
@@ -108,6 +116,7 @@
   --view-clay:   #141b21;
   --shape:       #7d8d99;
   --shape-edge:  #cfdbe4;
+  --brep-edge:   #eef4f9;
   --curve:       #59d0a2;
   --grid:        #1d2831;
   --grid-axis:   #2c3b46;
