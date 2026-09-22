@@ -2403,10 +2403,13 @@ export const CROWD = offerPlugin({
 
   resources: [],
 
+  //! Built wherever the modelling is - see the same note on the Climate
+  //! package.
+  drivers: crowdDrivers,
+
   async start(kit) {
     const view = kit.THREE ? new FlowView(kit) : null;
     return {
-      drivers: crowdDrivers(kit),
       view,
       dispose: () => { if (view) view.dispose(); },
     };

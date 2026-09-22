@@ -86,10 +86,21 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",
-           "section.js", "story.js", "pie.js", "meshedit.js", "app.js"]
+           "section.js", "story.js", "pie.js", "meshedit.js",
+           # The page's side of the worker: it has to be in the page, because
+           # the page is what starts the worker and hands it the WebAssembly.
+           "worker-kernel.js",
+           "app.js"]
 
 # The one module the page loads; everything else is reached through its imports.
 ENTRY = "app.js"
+
+# The worker's entry. NOT in MODULES and not in the page: it installs an
+# onmessage handler the moment it is evaluated, and in a page `self` is the
+# window - so concatenating it into the page script would quietly take over
+# window.onmessage. It is copied into the site as a module of its own, and
+# packed separately for the single file.
+WORKER_ENTRY = "kernel-worker.js"
 
 # The emscripten glue, copied beside the modules under this name. It is already
 # a module - it ends in `export default Module` - so the site build needs to do
@@ -152,6 +163,30 @@ FROM = re.compile('from' + r'\s+["\']' + r'(\.[^"\']+)' + r'["\']')
 def strip_modules(text):
     """Turn an ES module into plain statements for a shared scope."""
     return EXPORT.sub("", IMPORT.sub("", text))
+
+
+def worker_modules():
+    """The half of the program that can run without a window: everything the
+    worker's entry reaches, in the order the single file staples things
+    together. A subset of MODULES by construction - anything reached from here
+    that the page does not carry would be a mistake on both sides - so the
+    order is MODULES' order, filtered."""
+    seen, stack = set(), [WORKER_ENTRY]
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        source = SRC / name
+        if not source.exists():
+            continue
+        for said in FROM.findall(source.read_text()):
+            stack.append(pathlib.PurePosixPath(said).name)
+    missing = seen - set(MODULES) - {WORKER_ENTRY} - GENERATED
+    if missing:
+        sys.exit("%s reaches %s, which the page does not carry - add it to MODULES"
+                 % (WORKER_ENTRY, ", ".join(sorted(missing))))
+    return [name for name in MODULES if name in seen]
 
 
 def check_imports():
@@ -220,7 +255,7 @@ def build_site(shell, glue_path, wasm_path, stage_path):
     (SITE / SITE_MODULES).mkdir(parents=True)
     (SITE / SITE_BINARIES).mkdir()
 
-    for name in MODULES:
+    for name in MODULES + [WORKER_ENTRY]:
         shutil.copyfile(SRC / name, SITE / SITE_MODULES / name)
     shutil.copyfile(glue_path, SITE / SITE_MODULES / GLUE_MODULE)
     shutil.copyfile(wasm_path, SITE / SITE_BINARIES / wasm_path.name)
@@ -328,6 +363,17 @@ def main():
 
     check_imports()
 
+    # The worker's own script, for the single file: the same glue and the same
+    # modules, minus everything that needs a window, with the worker's entry on
+    # the end. Packed like every other big piece, unpacked at run time and
+    # handed to the worker as a blob - because inside one file there is nothing
+    # beside the page for a worker to be loaded from.
+    worker_bodies = [glue] + [
+        "/* ---- src/%s ---- */\n%s" % (name, strip_modules((SRC / name).read_text()))
+        for name in worker_modules() + [WORKER_ENTRY]]
+    worker_packed = base64.b64encode(
+        gzip.compress("\n".join(worker_bodies).encode("utf-8"), 9)).decode("ascii")
+
     bodies, seen = [], {}
     for name in MODULES:
         text = strip_modules((SRC / name).read_text())
@@ -344,7 +390,9 @@ def main():
     parts = ["<script type=\"application/octet-stream\" id=\"kernel-payload\">"
              + packed + "</script>",
              "<script type=\"application/octet-stream\" id=\"showroom-payload\">"
-             + stage_packed + "</script>"]
+             + stage_packed + "</script>",
+             "<script type=\"application/octet-stream\" id=\"worker-payload\">"
+             + worker_packed + "</script>"]
     for element_id, name in PAYLOADS:
         source = DATA / name
         if not source.exists():
@@ -368,6 +416,7 @@ def main():
 
     OUT.write_text(shell.rstrip() + "\n\n" + payload + "\n\n" + script + "\n")
     size = OUT.stat().st_size
+    print("  worker %d modules -> %.0f kB packed" % (len(worker_bodies), len(worker_packed) / 1024))
     print("wrote %s  %.1f MB  (kernel %.1f -> %.1f MB, showroom %.1f -> %.1f MB)" % (
         OUT.relative_to(ROOT.parent), size / 1048576,
         wasm_path.stat().st_size / 1048576, len(packed) / 1048576,

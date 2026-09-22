@@ -16,6 +16,7 @@ import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMP
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost, unpackResource } from "./plugin.js";
+import { createWorkerKernel } from "./worker-kernel.js";
 import { makePie, pieMenu } from "./pie.js";
 import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
@@ -7211,9 +7212,17 @@ function survives(entry, keep) {
 //! Is every last thing in this set put away? Stops at the first that is not.
 function allHidden(id) {
   let any = false;
+  //! BY ID, ALL THE WAY DOWN. This was handed a feature where it wanted an
+  //! id - `walk(child)` rather than `walk(child.id)` - so the index it asks
+  //! answered "no children" for every set inside a set, the walk stopped one
+  //! level in, and a folder whose contents are folders never found anything to
+  //! be hidden or showing. On a part that is nothing: the sets hold bodies. On
+  //! a building, where every storey is sets of sets, it meant the eye on a
+  //! storey stayed open however much of it you put away - the model went, the
+  //! tree said it had not.
   const walk = set => {
     for (const child of kidsOf(set)) {
-      if (child.category === "container") { if (walk(child)) return true; continue; }
+      if (child.category === "container") { if (walk(child.id)) return true; continue; }
       any = true;
       if (!(state.hidden.has(child.id) || child.visible === false)) return true;
     }
@@ -10534,9 +10543,42 @@ const boot = message => {
 const kernelResponse = () =>
   resource("kernel-payload", KERNEL_URL, "the modeller", "application/wasm");
 
+/* ------------------------------------------------- where the modelling runs
+
+   OFF THIS THREAD IF IT CAN BE, because the one thing an interface must not do
+   is stop.
+
+   A boolean between two buildings is ten seconds of solid C++ compiled to
+   WebAssembly, and on the page's own thread that is ten seconds in which
+   nothing else happens: no scroll, no hover, not even the spinner that was
+   there to say the program had not died. Everything else in this file is about
+   not asking for that work until it is needed; this is about the work itself
+   being somewhere else while it happens.
+
+   It is a try, not a requirement. A browser with no workers, a page opened off
+   the filesystem, a worker that refuses to start - any of those and the
+   modelling happens here as it always did, which is slower to live with and
+   is not broken.                                                            */
+
+const WORKER_URL = "app/kernel-worker.js";
+
 let pageKernel = null;
-async function usePageKernel() {
-  if (!pageKernel) {
+
+//! The worker first. The WebAssembly is unpacked here - the page is what can
+//! reach the payload element - and handed over rather than fetched twice.
+async function useWorkerKernel() {
+  boot("unpacking the modeller");
+  const bytes = await (await kernelResponse()).arrayBuffer();
+  const worker = await createWorkerKernel({
+    url: WORKER_URL, elementId: "worker-payload", wasmBinary: bytes, onProgress: boot });
+  //! Proved before it is trusted: a worker that starts and then cannot answer
+  //! is worse than one that never started, because the fallback has gone.
+  await worker.schema();
+  return worker;
+}
+
+async function makePageKernel() {
+  {
     boot("unpacking the modeller");
     const instantiateWasm = (imports, onReady) => {
       kernelResponse()
@@ -10552,7 +10594,22 @@ async function usePageKernel() {
             .catch(err => boot(err.message)));
       return {};   // emscripten reads this as "the instance is coming later"
     };
-    pageKernel = await createWasmKernel({ initModule: replicadInit, instantiateWasm, onProgress: boot });
+    return createWasmKernel({ initModule: replicadInit, instantiateWasm, onProgress: boot });
+  }
+}
+
+async function usePageKernel() {
+  if (!pageKernel) {
+    try {
+      pageKernel = await useWorkerKernel();
+    } catch (err) {
+      //! Said out loud rather than swallowed: "it is slower than it should be"
+      //! is a thing somebody should be able to find out.
+      pageKernel = await makePageKernel();
+      setTimeout(() => say("the modelling is running on this page's own thread - "
+        + "this browser would not start a worker (" + err.message + "), so a long "
+        + "build will hold the window while it runs"), 1500);
+    }
   }
   await attachKernel(pageKernel, STARTER);
   //! A NEW PART OPENS WITH PART CURRENT. The four folders exist so there is
@@ -11120,6 +11177,8 @@ globalThis.__cad = {
   get camera() { return camera; },
   look: () => lookAtDetail(),
   fit: () => fitView(),
+  run: command => mdl.run(command),
+  packages: () => packages,
   turn: (yaw, pitch) => { view.yaw += yaw; if (pitch) view.pitch += pitch;
                           placeCamera(); draw(); },
   zoom: by => { view.distance *= by; placeCamera(); draw(); },
@@ -11204,6 +11263,21 @@ const packageKit = {
   toolkit: () => kernel.toolkit(),
   installDrivers: (specs, builders) => kernel.installDrivers(specs, builders),
   removeDrivers: specs => kernel.removeDrivers(specs),
+  //! SWITCHED ON WHERE THE MODELLING IS. A driver is a closure over the
+  //! kernel and a closure cannot cross a message port, so when the modelling
+  //! is in a worker the package is switched on THERE, from the same
+  //! declaration this side is reading. Answers false when the modelling is
+  //! here, and the host installs the drivers itself as it always did.
+  usePackage: async id => {
+    if (!kernel || !kernel.inWorker) return false;
+    await kernel.usePackage(id);
+    return true;
+  },
+  dropPackage: async id => {
+    if (!kernel || !kernel.inWorker) return false;
+    await kernel.dropPackage(id);
+    return true;
+  },
   typesInUse: types => kernel.typesInUse(types),
 };
 

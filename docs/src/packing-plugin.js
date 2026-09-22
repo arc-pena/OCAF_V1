@@ -716,10 +716,13 @@ export const PACKING = offerPlugin({
 
   resources: [],
 
+  //! Built wherever the modelling is - see the same note on the Climate
+  //! package.
+  drivers: packingDrivers,
+
   async start(kit) {
     const view = kit.THREE ? PackingView(kit) : null;
     return {
-      drivers: packingDrivers(kit),
       view,
       dispose: () => { if (view) view.dispose(); },
     };

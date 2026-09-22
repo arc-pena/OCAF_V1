@@ -314,11 +314,57 @@ console.log("\n10. and a building that arrives before it has been tessellated");
   //! is where it is not.
   check("how long a frame costs is measured at the yield after it",
         /paintCost = paintCost \/ 2/.test(app) && !/lastFrameMs/.test(app));
+  //! Handed a feature where it wanted an id, so it stopped one level in - and
+  //! on a building, where every storey is sets of sets, the eye on a storey
+  //! stayed open however much of it you put away.
+  check("a set's eye asks what is inside it, all the way down",
+        /if \(walk\(child\.id\)\) return true/.test(app));
   check("and the fit asks the document, not a flag written later",
         /const entry = feature\(id\);\n  if \(entry\) return entry\.visible !== false/.test(app));
   check("the feature lookup is a map, not a walk of six thousand",
         /namedFeatures = new Map\(\)/.test(app)
         && !/features\.find\(f => f\.id === id\)/.test(app));
+}
+
+console.log("\n10b. and the modelling off the thread the window is drawn on");
+{
+  const worker = readFileSync(new URL("../src/kernel-worker.js", import.meta.url), "utf8");
+  const proxy = readFileSync(new URL("../src/worker-kernel.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const host = readFileSync(new URL("../src/plugin.js", import.meta.url), "utf8");
+  const build = readFileSync(new URL("../build.py", import.meta.url), "utf8");
+
+  check("every call goes down the port by name", /kernel\[call\]/.test(worker)
+        && /post\(\{ id, ok: true, value: await method\.apply/.test(worker));
+  //! A call that throws and says nothing leaves a promise on the page that
+  //! never settles, which is the thing this whole arrangement exists to stop.
+  check("  and a call that throws answers too", /post\(\{ id, ok: false, error:/.test(worker));
+  check("  and a worker that dies tells every call waiting on it",
+        /for \(const \[, answer\] of waiting\) answer\.reject\(why\)/.test(proxy));
+  check("the page's side is built from the kernel's own methods, not a list",
+        /for \(const name of started\.calls\)/.test(proxy));
+  check("the WebAssembly is handed over rather than copied",
+        /wasmBinary \? \[wasmBinary\] : \[\]/.test(proxy));
+  //! import.meta.url in a blob worker is a blob: URL, which cannot be a base -
+  //! so the glue must not be left to work the path out for itself.
+  check("and the glue is told where the file is rather than guessing",
+        /locateFile: name => name/.test(worker) && /options\.locateFile = locateFile/.test(
+          readFileSync(new URL("../src/wasm-kernel.js", import.meta.url), "utf8")));
+  check("a browser with no worker still models, in the page",
+        /pageKernel = await makePageKernel\(\)/.test(app)
+        && /this browser would not start a worker/.test(app));
+  //! A driver closes over the kernel, and a closure does not cross a port.
+  check("a package with nodes is switched on where the modelling is",
+        /usePackage\(id\)/.test(worker) && /await this\.kit\.usePackage\(id\)/.test(host));
+  check("  keyed by the package's own id, not by a name written twice",
+        /SHELF\[plugin\.id\] = plugin/.test(worker));
+  check("  and the drivers are not even built on the page's side",
+        /typeof plugin\.drivers === "function" \? plugin\.drivers\(this\.kit\)/.test(host));
+  check("the single file carries the worker's own bundle",
+        /worker-payload/.test(build) && /def worker_modules\(\)/.test(build));
+  check("  which cannot be the page's script - it would take over onmessage",
+        /WORKER_ENTRY = "kernel-worker\.js"/.test(build)
+        && !/"kernel-worker\.js",/.test(build.split("MODULES = ")[1].split("]")[0]));
 }
 
 console.log("\n11. and a document too big to put in one turn");

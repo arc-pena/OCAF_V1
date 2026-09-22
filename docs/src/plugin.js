@@ -112,7 +112,20 @@ export class PluginHost {
     // point of declaring it.
     if (plugin.nodes.length) {
       registerTypes(plugin.nodes, "the " + plugin.name + " package");
-      if (this.kit.installDrivers) this.kit.installDrivers(plugin.nodes, live.drivers || {});
+      //! WHERE THE DRIVERS GO DEPENDS ON WHERE THE MODELLING IS. A driver is a
+      //! closure over the kernel, so when the kernel is on another thread the
+      //! only thing that can cross is the package's name, and the far side
+      //! builds them from the same declaration this one is reading.
+      const elsewhere = this.kit.usePackage ? await this.kit.usePackage(id) : false;
+      //! NOT ASKED FOR AT ALL when the modelling is elsewhere. A driver
+      //! builder's first line is `kit.toolkit()`, and a toolkit is the
+      //! WebAssembly itself - so merely BUILDING the drivers on this side
+      //! means asking a worker to send a compiled module down a message port,
+      //! which is not a thing that can be sent.
+      if (!elsewhere && this.kit.installDrivers)
+        this.kit.installDrivers(plugin.nodes,
+          typeof plugin.drivers === "function" ? plugin.drivers(this.kit)
+                                               : (live.drivers || {}));
     }
     this.running.set(id, { plugin, live });
     this.onChange(this);
@@ -141,7 +154,8 @@ export class PluginHost {
 
     if (typeof live.dispose === "function") await live.dispose();
     if (plugin.nodes.length) {
-      if (this.kit.removeDrivers) this.kit.removeDrivers(plugin.nodes);
+      const elsewhere = this.kit.dropPackage ? await this.kit.dropPackage(id) : false;
+      if (!elsewhere && this.kit.removeDrivers) this.kit.removeDrivers(plugin.nodes);
       unregisterTypes(plugin.nodes);
     }
     this.running.delete(id);

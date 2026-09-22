@@ -1267,6 +1267,13 @@ export const CLIMATE = offerPlugin({
              + "screen beside the name. No weather is claimed." },
   ],
 
+  //! THE DRIVERS, ON THEIR OWN. Named separately from `start` because the
+  //! modelling may not be happening on this thread: a driver closes over the
+  //! kernel and a closure cannot cross a message port, so when the kernel is
+  //! in a worker it is the worker that calls this, with its own toolkit, and
+  //! `start` runs here for the view and the table.
+  drivers: climateDrivers,
+
   //! Loading. The table is unpacked here and not before, so a session that
   //! never opens the Analyse mode never pays for it.
   async start(kit) {
@@ -1274,7 +1281,6 @@ export const CLIMATE = offerPlugin({
                                        "data/cities.json");
     const view = kit.THREE ? new AnalyseView(kit, table.sites) : null;
     return {
-      drivers: climateDrivers(kit),
       view,
       sites: table.sites,
       dispose: () => { if (view) view.dispose(); },

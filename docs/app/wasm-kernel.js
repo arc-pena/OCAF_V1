@@ -49,9 +49,19 @@ import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
          utf8, writeObj, writeStl } from "./exchange.js";
 import { DXF_LIMIT, describeDrawing, dxfDrawing, ignoredName, writeDxf } from "./dxf.js";
 
-export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm, onProgress }) {
+export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm,
+                                        locateFile, onProgress }) {
   if (onProgress) onProgress("starting the modeller");
-  const oc = await initModule(instantiateWasm ? { instantiateWasm } : { wasmBinary });
+  //! `locateFile` is where the WebAssembly WOULD be if it had to be fetched,
+  //! and it never does here - it is either handed over as bytes or compiled
+  //! from a response. It is worth naming anyway: unnamed, the glue works the
+  //! path out itself with `new URL(name, import.meta.url)`, and inside a
+  //! worker made from a blob `import.meta.url` is a blob: URL, which cannot be
+  //! the base of anything. That throws "Invalid URL" before the first line of
+  //! the kernel runs.
+  const options = instantiateWasm ? { instantiateWasm } : { wasmBinary };
+  if (locateFile) options.locateFile = locateFile;
+  const oc = await initModule(options);
   if (onProgress) onProgress("ready");
 
   const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE;
