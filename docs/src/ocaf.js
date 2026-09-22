@@ -4287,37 +4287,53 @@ export class Doc {
     return sorted;
   }
 
-  recompute(all = false) {
-    const report = { functions: 0, executed: [], skipped: [], failed: [] };
+  /* ------------------------------------------- regeneration, in slices
+
+     THE SAME WALK, HANDED BACK ONE FEATURE AT A TIME.
+
+     The kernel runs in the page. A regeneration of six thousand features is
+     fifteen seconds, and fifteen seconds of a synchronous loop is fifteen
+     seconds of a tab that does not scroll, does not repaint and does not say
+     why - which is the worst thing an interface can do and the one thing it
+     must never do.
+
+     So the loop is a generator. Driven straight through it IS the old
+     recompute, to the line; driven a slice at a time it lets the page breathe
+     between slices, draw what has been built so far, and say how far along it
+     is. Nothing about the order or the result changes - only who is holding
+     the loop.                                                              */
+  * regenerate(all = false) {
+    const report = { functions: 0, executed: [], skipped: [], failed: [], done: 0, total: 0 };
     if (all) for (const f of this.features()) this.log.touch(f);
-    //! ANYTHING BUILT THE CHEAP WAY IS BUILT AGAIN. A draft is only ever a
-    //! picture held while a number is moving; when it stops, the feature is
-    //! stale by definition, whatever the logbook thinks - nothing about its
-    //! arguments changed, only what it is now allowed to cost. Without this
-    //! line the approximation would simply stay there, which is the one way a
-    //! preview can do real harm.
     if (!draftPass && this.drafted.size)
       for (const f of this.features()) if (this.drafted.has(F.id(f))) this.log.touch(f);
-    // A set's summary is about the wiring around it, not about arguments it
-    // does not have, so nothing else would ever mark it stale. It costs a
-    // string to rebuild; it is rebuilt every pass.
     for (const f of this.features()) if (this.isContainer(f)) this.log.touch(f);
 
-    for (const f of this.order()) {
+    const order = this.order();
+    report.total = order.length;
+    for (const f of order) {
       const driver = this.driverOf(f);
-      if (!driver) continue;
+      report.done++;
+      if (!driver) { yield report; continue; }
       report.functions++;
       const entry = () => ({ id: F.id(f), name: F.name(f), revision: F.revision(f) });
-
-      if (!driver.mustExecute(f, this.log)) { report.skipped.push(entry()); continue; }
+      if (!driver.mustExecute(f, this.log)) { report.skipped.push(entry()); yield report; continue; }
       const drafted = draftPass && !!driver.draft;
       if (driver.execute(f, this.log) === 0) report.executed.push(entry());
       else report.failed.push({ ...entry(), message: F.error(f) });
       if (drafted) this.drafted.add(F.id(f)); else this.drafted.delete(F.id(f));
+      yield report;
     }
     this.log.clear();
     this.updateVisibility();
     return report;
+  }
+
+  recompute(all = false) {
+    const run = this.regenerate(all);
+    let step = run.next();
+    while (!step.done) step = run.next();
+    return step.value;
   }
 
   //! A body consumed by an operation stays in the tree and leaves the 3D view
@@ -4339,15 +4355,29 @@ export class Doc {
           if (source && !F.pinnedShown(source)) F.setVisible(source, false);
       }
   }
-  consumedBy(f) {
-    for (const other of this.features())
-      for (const arg of F.spec(other).args) {
-        if (!arg.consumes) continue;
-        const sources = arg.kind === "refs" ? F.references(other, arg.key) : [F.reference(other, arg.key)];
-        if (sources.includes(f)) return other;
-      }
-    return null;
+  //! WHAT SWALLOWED THIS ONE - a fillet's cube, a boolean's two bodies.
+  //!
+  //! Asked of every feature in treeJson, and answered by walking every OTHER
+  //! feature and every argument of it. That is n squared with an argument loop
+  //! inside, and on a building of six thousand features it was SEVEN AND A
+  //! HALF SECONDS to write the tree - once per edit, before anything is
+  //! drawn. Indexed on the same stamps as the reader index beside it.
+  eaterIndex() {
+    if (this.eatersAt !== wireStamp + treeStamp || !this.eaters) {
+      this.eaters = new Map();
+      for (const other of this.features())
+        for (const arg of F.spec(other).args) {
+          if (!arg.consumes) continue;
+          const sources = arg.kind === "refs" ? F.references(other, arg.key)
+                                              : [F.reference(other, arg.key)];
+          for (const source of sources)
+            if (source && !this.eaters.has(source)) this.eaters.set(source, other);
+        }
+      this.eatersAt = wireStamp + treeStamp;
+    }
+    return this.eaters;
   }
+  consumedBy(f) { return this.eaterIndex().get(f) || null; }
 
   /* --------------------------------------------------- the wire formats */
 

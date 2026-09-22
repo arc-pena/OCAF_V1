@@ -5929,47 +5929,123 @@ function sprawl(face, edges) {
   //! The ceiling is not a performance guard, it is a loop guard: a plan that
   //! reads something downstream of itself never settles, and the difference
   //! between saying so and hanging the page is this loop.
-  function settle(all = false) {
-    let report = doc.recompute(all);
-    for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
-      let worked = false;
-      for (const f of doc.features()) {
-        if (!F.spec(f) || F.spec(f).type !== "Generator") continue;
-        if (F.error(f) || Feature_choice(f, "live") === 1) continue;
-        let got;
-        try { got = runPlan(f); }
-        catch (err) { F.setError(f, kernelMessage(err)); continue; }
-        if (!got.edits.length) continue;
-        //! A HALF-APPLIED PLAN IS WORSE THAN A REFUSED ONE. The edits are
-        //! applied in order and one of them can still fail - a wire to
-        //! something that turned out not to be there, an id that collided -
-        //! and what is left then is a partial copy that the NEXT pass does not
-        //! know about, so it makes another. Three passes of that and the tree
-        //! has three half-columns in it, which is what this loop did before the
-        //! rollback existed. So what this batch created is taken back out.
-        try { applyEdits(got.edits); }
-        catch (err) {
-          for (const edit of got.edits)
-            if (edit.op === "add") {
-              const stray = doc.find(edit.id);
-              if (stray) { try { doc.deleteFeature(stray); } catch (e) { /* gone already */ } }
-            }
-          F.setError(f, "the plan could not be applied: " + kernelMessage(err));
-          continue;
-        }
-        doc.setCode(f, "made", writeMade(got.made));
-        worked = true;
-      }
-      if (!worked) return report;
-      report = doc.recompute(false);
+/* ================================================ never hold the page
+
+   THE KERNEL RUNS IN THE PAGE. A regeneration of six thousand features is
+   fifteen seconds of a synchronous loop, and fifteen seconds of a synchronous
+   loop is a tab that does not scroll, does not repaint and does not say why.
+
+   So a long regeneration is driven a SLICE at a time. Between slices the loop
+   hands the thread back - long enough for the page to repaint, to run the
+   animation that says it is working, and to say how far along it is - and
+   picks up exactly where it left off, because the walk is a generator and
+   nothing about its order or its result changed.
+
+   The slice is measured in MILLISECONDS rather than in features: a boolean is
+   seventeen milliseconds and a point is four microseconds, and a slice
+   counted in features would be either a stutter or a freeze depending on
+   which it got.                                                            */
+
+  const SLICE_MS = 24;
+
+  //! A slice at a time, with the thread handed back in between. \p tell is
+  //! called with how far along it is, so whatever is watching can say so.
+  async function settleSlowly(all, tell) {
+    const run = doc.regenerate(all);
+    let step, mark = Date.now();
+    for (;;) {
+      step = run.next();
+      if (step.done) break;
+      if (Date.now() - mark < SLICE_MS) continue;
+      mark = Date.now();
+      if (tell) tell({ done: step.value.done, total: step.value.total,
+                       failed: step.value.failed.length });
+      await breathe();
     }
-    //! Said on the generators rather than thrown, because the model is still
-    //! there and still drawable - it is just one pass behind whatever it is
-    //! chasing.
+    return step.value;
+  }
+
+/* --------------------------------------------- settling, without the freeze
+
+   Every edit in the kernel ends in settle(), and settle() ends in a
+   regeneration. On a part that is milliseconds. On a building it is seconds,
+   and seconds of a synchronous loop in the page is a tab that has stopped.
+
+   So there are two: the straight one, which is what a small model wants and
+   what everything that is not an edit still uses, and the sliced one, which
+   hands the thread back every twenty-four milliseconds and says how far along
+   it is. They walk the same generator and produce the same report.        */
+
+  //! Above this many features, an edit settles in slices. Below it the
+  //! slicing is pure overhead - a promise per twenty-four milliseconds of
+  //! work that finishes in four.
+  const BIG_ENOUGH_TO_SLICE = 250;
+
+  async function settleAsync(all, tell) {
+    if (doc.features().length < BIG_ENOUGH_TO_SLICE) return settle(all);
+    let report = await settleSlowly(all, tell);
+    //! The generators, exactly as the straight one runs them - and then one
+    //! more sliced pass if any of them made anything.
+    for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
+      if (!runGenerators()) return report;
+      report = await settleSlowly(false, tell);
+    }
+    sayUnsettled();
+    return report;
+  }
+
+  //! ONE PASS OF THE GENERATORS: every plan run, its edits applied, and
+  //! whether any of them made anything. Lifted out of settle so the sliced
+  //! settle can run exactly the same pass rather than a second copy of it.
+  function runGenerators() {
+    let worked = false;
+    for (const f of doc.features()) {
+      if (!F.spec(f) || F.spec(f).type !== "Generator") continue;
+      if (F.error(f) || Feature_choice(f, "live") === 1) continue;
+      let got;
+      try { got = runPlan(f); }
+      catch (err) { F.setError(f, kernelMessage(err)); continue; }
+      if (!got.edits.length) continue;
+      //! A HALF-APPLIED PLAN IS WORSE THAN A REFUSED ONE. The edits are
+      //! applied in order and one of them can still fail - a wire to
+      //! something that turned out not to be there, an id that collided -
+      //! and what is left then is a partial copy that the NEXT pass does not
+      //! know about, so it makes another. Three passes of that and the tree
+      //! has three half-columns in it, which is what this loop did before the
+      //! rollback existed. So what this batch created is taken back out.
+      try { applyEdits(got.edits); }
+      catch (err) {
+        for (const edit of got.edits)
+          if (edit.op === "add") {
+            const stray = doc.find(edit.id);
+            if (stray) { try { doc.deleteFeature(stray); } catch (e) { /* gone already */ } }
+          }
+        F.setError(f, "the plan could not be applied: " + kernelMessage(err));
+        continue;
+      }
+      doc.setCode(f, "made", writeMade(got.made));
+      worked = true;
+    }
+    return worked;
+  }
+
+  //! Said on the generators rather than thrown, because the model is still
+  //! there and still drawable - it is just one pass behind whatever it is
+  //! chasing.
+  function sayUnsettled() {
     for (const f of doc.features())
       if (F.spec(f) && F.spec(f).type === "Generator" && !F.error(f))
         F.setNote(f, "it did not settle in " + RECONCILE_PASSES
           + " passes - something it makes is feeding something it reads");
+  }
+
+  function settle(all = false) {
+    let report = doc.recompute(all);
+    for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
+      if (!runGenerators()) return report;
+      report = doc.recompute(false);
+    }
+    sayUnsettled();
     return report;
   }
 
@@ -6084,6 +6160,17 @@ function sprawl(face, edges) {
     out.edges = edges;
     return out;
   }
+
+  //! A TRUE MACROTASK, with no clamping. setTimeout(0) is held to four
+  //! milliseconds after a handful of nested calls, which on a walk of six
+  //! thousand features would be a minute of waiting for the clock rather than
+  //! for the geometry. A MessageChannel has no such rule, and node has one
+  //! too, so the tests take the same road the page does.
+  const breathe = () => new Promise(resolve => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => { channel.port1.close(); resolve(); };
+    channel.port2.postMessage(0);
+  });
 
   //! B-Rep in, vertex stream out - the whole contract with the viewer.
   //! The enum arrives as "TopAbs_SOLID" and the native kernel reports "solid",
@@ -6339,22 +6426,39 @@ function sprawl(face, edges) {
     async tree() { return { ok: true, tree: doc.treeJson() }; },
     async model() { return doc.modelJson(); },
 
+    //! WHOEVER IS WATCHING A LONG BUILD. Called with { stage, done, total }
+    //! every slice or so; set by the page, left null by everything else. Not
+    //! to be confused with the onProgress this factory TAKES, which is about
+    //! starting OpenCascade up once. A kernel across a wire cannot call back,
+    //! which is why this is a property and not an argument: the ones that can
+    //! do, and the ones that cannot are not asked to.
+    onBuild: null,
+
     async loadModel(model) {
       const parsed = typeof model === "string" ? JSON.parse(model) : model;
+      //! READING THE FILE IS ITSELF WORK. Six thousand features is a second
+      //! of parsing and wiring before a single shape is built, so the page is
+      //! told what is happening before it starts rather than after.
+      if (this.onBuild) this.onBuild({ stage: "reading", done: 0, total: 0 });
       const replacement = Doc.fromModel(drivers, parsed);
       for (const f of doc.features()) {                 // free the old B-Rep
         const shape = F.shape(f);
         if (shape) release(shape);
       }
       doc = replacement;
-      return state(settle(true));
+      const tell = this.onBuild
+        ? step => this.onBuild({ stage: "building", ...step }) : null;
+      if (tell) await breathe();                        // let the message land
+      return state(await settleAsync(true, tell));
     },
 
     async setParameter(id, key, value) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setParameter(f, key, value);
-      return state(settle(false));
+      const tell = this.onBuild
+        ? step => this.onBuild({ stage: "rebuilding", ...step }) : null;
+      return state(await settleAsync(false, tell));
     },
 
     //! Editing a script is an edit of the document, undone and redone and saved
@@ -6877,6 +6981,57 @@ function sprawl(face, edges) {
                      ? ", " + polygons + " faces of more than three sides kept as they are"
                      : "")
                  : parts.length + " objects, fanned into triangles - which is all STL has" };
+    },
+
+    /* ------------------------------------------- where a shape is, and no more
+
+       THE CHEAP ANSWER, so the viewport can put a building on screen before
+       it has tessellated any of it.
+
+       Tessellating six thousand features takes four seconds and sixty
+       megabytes of triangles, and at the moment the file opens the camera can
+       see perhaps three hundred of them. What it needs for the rest is where
+       they are and how big - eight numbers each, off the bounding box, which
+       OpenCascade already has from the B-Rep and does not have to mesh to
+       give. The viewport draws those as boxes and asks for the triangles of
+       whatever it is actually looking at, as it looks at it.
+
+       The face count travels with them because the budget has to guess a
+       weight for something it has not meshed, and faces are the only honest
+       proxy the cheap answer has.                                         */
+    async boxes(ids) {
+      const wanted = ids && ids.length ? ids : doc.features().map(F.id);
+      const features = [];
+      for (const id of wanted) {
+        const f = doc.find(id);
+        if (!f) continue;
+        const spec = F.spec(f);
+        const shape = F.shape(f);
+        const data = F.data(f);
+        let low = null, high = null, faces = 0;
+        try {
+          if (data && data.kind === "mesh") {
+            for (const p of F.triples(data)) {
+              if (!low) { low = p.slice(); high = p.slice(); continue; }
+              for (let i = 0; i < 3; i++) {
+                if (p[i] < low[i]) low[i] = p[i];
+                if (p[i] > high[i]) high[i] = p[i];
+              }
+            }
+            faces = meshFaces(data).length;
+          } else if (shape && !shape.IsNull()) {
+            const room = extents(shape);
+            if (room) { low = room.low; high = room.high; }
+            faces = countSubShapes(shape, FACE);
+          }
+        } catch (err) { low = null; high = null; }
+        features.push({
+          id, type: spec.type, name: F.name(f), revision: F.revision(f),
+          built: !!shape || !!(data && data.kind === "mesh"), visible: F.visible(f),
+          low, high, faces,
+        });
+      }
+      return { ok: true, features };
     },
 
     //! Only the shapes the caller names, which is only ever the shapes whose

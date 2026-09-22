@@ -289,5 +289,51 @@ console.log("\n9. and a viewport with seven hundred thousand triangles in it");
         && !/pickable\.filter\(m => m\.parent/.test(app));
 }
 
+console.log("\n10. and a building that arrives before it has been tessellated");
+{
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const kernel = readFileSync(new URL("../src/wasm-kernel.js", import.meta.url), "utf8");
+  check("the kernel can be asked where a shape is without meshing it",
+        /async boxes\(ids\)/.test(kernel));
+  check("  and it answers with the extents, not with triangles",
+        /low, high, faces,/.test(kernel));
+  check("a big model goes in as stand-ins first", /function standIn\(/.test(app)
+        && /stale\.length >= LAZY_FROM/.test(app));
+  check("  which cost no triangles, truthfully",
+        /group\.userData\.triangles = 0;/.test(app));
+  check("the frame that sees a gap is what asks for it",
+        /hungry\.push\(\{ id, across \}\)/.test(app)
+        && /if \(hungry\.length\) feedTheView\(hungry\)/.test(app));
+  check("  biggest on screen first", /hungry\.sort\(\(a, b\) => b\.across - a\.across\)/.test(app));
+  //! The loop that would never end: a shape the kernel has nothing to say
+  //! about is still waiting on the next frame, and asked for again.
+  check("  and asked-for counts as answered", /if \(!unmeshed\.has\(id\)\) continue;/.test(app));
+  check("a cut and a showroom get the whole model", /async function makeResident\(/.test(app)
+        && /makeResident\("Cutting the model/.test(app));
+  //! Measured where it is paid rather than inside the animation frame, which
+  //! is where it is not.
+  check("how long a frame costs is measured at the yield after it",
+        /paintCost = paintCost \/ 2/.test(app) && !/lastFrameMs/.test(app));
+  check("and the fit asks the document, not a flag written later",
+        /const entry = feature\(id\);\n  if \(entry\) return entry\.visible !== false/.test(app));
+  check("the feature lookup is a map, not a walk of six thousand",
+        /namedFeatures = new Map\(\)/.test(app)
+        && !/features\.find\(f => f\.id === id\)/.test(app));
+}
+
+console.log("\n11. and a document too big to put in one turn");
+{
+  const agent = readFileSync(new URL("../src/agent.js", import.meta.url), "utf8");
+  check("the briefing has a budget", /const DOC_BUDGET = /.test(agent)
+        && /\$\{documentBrief\(model\)\}/.test(agent));
+  check("  under it the document still goes whole",
+        /if \(whole\.length <= DOC_BUDGET\) return whole;/.test(agent));
+  check("  over it, its shape goes instead", /export function documentDigest\(/.test(agent));
+  check("look can read one part of it by id", /export function featureBrief\(/.test(agent)
+        && /if \(id\) return \{ \.\.\.featureBrief\(model, id\), errors \}/.test(agent));
+  check("and an edit does not report six thousand features back",
+        /const listed = all\.slice\(-300\);/.test(agent));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

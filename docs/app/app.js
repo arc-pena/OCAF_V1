@@ -212,7 +212,34 @@ edit.many = async (commands, options = {}) => {
 };
 
 const schemaType = type => (state.schema ? state.schema.types.find(t => t.type === type) : null) || null;
-const feature = id => state.tree ? state.tree.features.find(f => f.id === id) || null : null;
+
+/* ---------------------------------------------------- one feature, by name
+
+   THE MOST CALLED FUNCTION IN THE PROGRAM, and it was a linear scan.
+
+   A hundred places ask for a feature by id - the tree as it paints a row,
+   the viewport as every shape lands, visibility, selection, the property
+   panel. On a part of forty that is forty comparisons and nobody notices. On
+   a building of six thousand, drawing the model asks it five thousand times
+   and each one walks the list: fifteen million string comparisons to put a
+   model on screen, for an answer a map gives in one step.
+
+   The map is keyed on the tree OBJECT rather than rebuilt on a counter,
+   because the tree arrives whole from the kernel and is replaced, never
+   edited in place - so "is this the same array I indexed?" is the whole of
+   the invalidation, and it cannot go stale.                                */
+
+let namedFeatures = null, namedFrom = null;
+const feature = id => {
+  const tree = state.tree;
+  if (!tree) return null;
+  if (namedFrom !== tree.features) {
+    namedFeatures = new Map();
+    for (const f of tree.features) namedFeatures.set(f.id, f);
+    namedFrom = tree.features;
+  }
+  return namedFeatures.get(id) || null;
+};
 const argSpec = (spec, key) => spec.args.find(a => a.key === key) || null;
 
 /* ==========================================================================
@@ -354,19 +381,53 @@ function placeCamera() {
 //! BECAUSE of the fit that has not happened yet - and on a building set out
 //! on survey coordinates it framed the three origin planes and left the
 //! building four hundred kilometres off screen. Ask what the document says.
-const showsInModel = (id, group) =>
-  group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
+//! AND ASKED OF THE DOCUMENT ITSELF, not of the flag the viewport caches for
+//! it. The flag is written by applyVisibility, which runs at the END of a
+//! sync - so between a model landing and that moment it says "undefined" and
+//! this fell back to group.visible, which is true for everything that has just
+//! arrived. On this building that meant the fit counted the Families and the
+//! Placements, whose stand-ins are four hundred metres across, and framed a
+//! sphere twenty-three times too big: the building came up the size of a
+//! postage stamp in the middle of an empty screen.
+//! WHERE A SHAPE IS, whether or not its triangles are here. A stand-in is an
+//! empty group, so asking the OBJECT gets an empty box and every question
+//! built on it - where to put the gizmo, what to centre on - answers "nowhere".
+//! The recorded box is the same answer and is there either way.
+function boxOfShape(id) {
+  const held = shapes.get(id);
+  if (!held || !held.group) return null;
+  const ball = held.group.userData.ball;
+  if (ball) return new THREE.Box3(ball.lo.clone(), ball.hi.clone());
+  const box = new THREE.Box3().setFromObject(held.group);
+  return box.isEmpty() ? null : box;
+}
+
+const showsInModel = (id, group) => {
+  const entry = feature(id);
+  if (entry) return entry.visible !== false && !state.hidden.has(id);
+  return group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
+};
 
 function sceneBounds() {
   const box = new THREE.Box3();
   let any = false;
+  //! OFF THE RECORDED BOX rather than by walking the triangles: it is the same
+  //! answer, it is already worked out, and it is the ONLY answer for a shape
+  //! that is standing in as a box and has no triangles to walk. A model that
+  //! has only just opened is all of those, and a fit that asked the objects
+  //! would have found nothing to frame.
+  const reach = group => {
+    const ball = group.userData.ball;
+    if (ball) box.expandByPoint(ball.lo).expandByPoint(ball.hi);
+    else box.expandByObject(group);
+  };
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
     if (!showsInModel(id, group) || !entry || entry.category === "datum") continue;
-    box.expandByObject(group); any = true;
+    reach(group); any = true;
   }
   if (!any) for (const [id, { group }] of shapes)
-    if (showsInModel(id, group)) { box.expandByObject(group); any = true; }
+    if (showsInModel(id, group)) { reach(group); any = true; }
   return any && !box.isEmpty() ? box : null;
 }
 
@@ -770,6 +831,16 @@ function lookAtDetail() {
   //! Pixels across, from one sphere: the radius over the distance, through
   //! the lens. Exact at short range and near enough at long.
   const lens = (tall / 2) / Math.tan((camera.fov * Math.PI / 180) / 2);
+  //! THE CAMERA AS IT IS NOW, not as the last frame left it. The renderer is
+  //! what refreshes matrixWorldInverse, and it has not run yet this frame - so
+  //! this culled against where the camera WAS. On a drag that is one frame of
+  //! lag and invisible; on a jump - a fit, a preset view, a centre-on from the
+  //! tree - the camera moves further than the model is wide, everything fails
+  //! the frustum test at once, and because a frame is only drawn when
+  //! something asks for one there is no next frame to put it right. The
+  //! building simply disappeared, and stayed disappeared until you touched it.
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
   detailMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   detailFrustum.setFromProjectionMatrix(detailMatrix);
   const eye = camera.position;
@@ -778,6 +849,11 @@ function lookAtDetail() {
   //! decided yet - the budget decides, and it cannot until it knows the whole
   //! bill.
   const onScreen = [];
+  //! What is on screen, big enough to matter, and has no triangles yet. This
+  //! is the whole of the "load the tiles you are looking at" question: the
+  //! frustum and the pixel test have already been paid for here, and the list
+  //! they leave behind is the request.
+  const hungry = [];
   let bill = 0;
   detail.gone = 0;
   for (const [id, held] of shapes) {
@@ -795,6 +871,15 @@ function lookAtDetail() {
     const away = Math.max(eye.distanceTo(ball.at) - ball.r, 1e-3);
     const across = (ball.r / away) * lens * 2;
     if (across < detail.vanish) { group.userData.want = "off"; detail.gone++; continue; }
+    //! A STAND-IN IS ALWAYS A BOX, whatever the budget would have said - it
+    //! has nothing else to be until the kernel answers. Being on screen and
+    //! this big is exactly what makes it worth asking for.
+    if (group.userData.waiting) {
+      group.userData.want = "box";
+      group.userData.across = across;
+      hungry.push({ id, across });
+      continue;
+    }
     group.userData.want = "full";
     group.userData.across = across;
     //! WHATEVER YOU ARE POINTING AT IS ALWAYS ITSELF, whatever the budget says
@@ -843,6 +928,7 @@ function lookAtDetail() {
     }
   }
   detail.drawn = onScreen.length - detail.boxed;
+  detail.waiting = hungry.length;
 
   let boxesChanged = false;
   for (const [, held] of shapes) {
@@ -857,6 +943,9 @@ function lookAtDetail() {
     }
   }
   if (boxesChanged) rebuildBoxes();
+  //! AND THEN ASK FOR WHAT IS MISSING. Not awaited: this is the middle of a
+  //! frame, and the answer belongs to whichever frame it arrives in.
+  if (hungry.length) feedTheView(hungry);
 }
 
 /* ----------------------------------------------------- the boxes, as one thing
@@ -971,8 +1060,132 @@ const detail = {
   //! Below this many features the whole thing stays off: a part of forty
   //! bodies has nothing to gain and a box where a fillet was is a lie.
   from: 400,
-  held: 0, drawn: 0, boxed: 0, gone: 0, evicted: 0,
+  held: 0, drawn: 0, boxed: 0, gone: 0, evicted: 0, waiting: 0,
 };
+
+/* =========================================== the model that is not here yet
+
+   WHAT GOOGLE MAPS DOES, and for the same reason.
+
+   Opening a building meant tessellating all six thousand features before the
+   first frame: four seconds of meshing, sixty megabytes of triangles, and a
+   camera that could see perhaps three hundred of them. The other five
+   thousand were paid for in full and drawn at two pixels or not at all.
+
+   So the kernel is asked the cheap question first - where is each shape and
+   how big - and every one of them goes into the scene as a box. That takes a
+   fraction of a second and the building is THERE, in outline, complete, and
+   you can already turn it round. Then the same three questions the budget
+   already asks per frame - is it on screen, how big is it there, is it worth
+   drawing - decide what to ask the kernel for, biggest first, and the boxes
+   turn into geometry under the camera as you look at them. Turn away and
+   nothing more is fetched; the tiles you are not looking at are not loaded.
+
+   The B-Rep never left the kernel, so nothing here is lost - a stand-in is a
+   cache miss, not a degraded model, and anything that needs the real
+   triangles of everything (a section cut, the showroom, a measurement) says
+   so by calling makeResident and waits the once.                          */
+
+//! Feature ids drawn as a box because their triangles have not been asked for.
+const unmeshed = new Set();
+//! One request in flight at a time: the camera moves while the kernel answers,
+//! and a second question asked from the next frame would be about a view that
+//! has already gone.
+let feeding = false;
+//! HOW MANY SHAPES ONE ROUND FETCHES. Enough that a turn of the model fills in
+//! in a couple of rounds, few enough that a round is a fifth of a second and
+//! the pointer never sticks.
+const HUNGER = 180;
+//! Below this many shapes at once, everything is meshed up front. A part of
+//! two hundred bodies has nothing to gain from this and a box where a fillet
+//! was is a lie you would notice.
+const LAZY_FROM = 900;
+
+//! The same record ballOf makes, from the kernel's eight numbers instead of
+//! from triangles there are none of.
+function ballFromBox(low, high) {
+  const lo = new THREE.Vector3(low[0], low[1], low[2]);
+  const hi = new THREE.Vector3(high[0], high[1], high[2]);
+  const at = lo.clone().add(hi).multiplyScalar(0.5);
+  return { at, r: Math.max(lo.distanceTo(hi) / 2, 1e-6), lo, hi };
+}
+
+//! A shape in the scene that is only its extents. It holds no geometry, so it
+//! costs eight numbers and an empty group; the box that is drawn for it comes
+//! out of the one merged box mesh, like every other box.
+function standIn(box) {
+  const existing = shapes.get(box.id);
+  if (existing) disposeGroup(existing.group);
+  streams.delete(box.id);
+  const group = new THREE.Group();
+  group.userData.id = box.id;
+  group.userData.waiting = true;
+  //! NO TRIANGLES, truthfully: it is drawn as a box and costs the frame a
+  //! box, so it must not be charged for geometry it does not have.
+  group.userData.triangles = 0;
+  group.userData.ball = box.low && box.high ? ballFromBox(box.low, box.high) : null;
+  world.add(group);
+  shapes.set(box.id, { revision: box.revision, group, waiting: true });
+  unmeshed.add(box.id);
+}
+
+//! The triangles of the shapes named, and the stand-ins replaced by them.
+async function fetchShapes(ids) {
+  const payload = await kernel.mesh(ids);
+  let triangles = 0;
+  for (const mesh of payload.features) { setShape(mesh); triangles += mesh.triangles || 0; }
+  return triangles;
+}
+
+//! ONE ROUND OF FILLING IN, asked by the frame that noticed the gap. The list
+//! arrives biggest-on-screen first, because that is the order you would notice
+//! them in.
+async function feedTheView(hungry) {
+  if (feeding || !kernel || !hungry.length) return;
+  feeding = true;
+  try {
+    hungry.sort((a, b) => b.across - a.across);
+    const want = hungry.slice(0, HUNGER).map(h => h.id);
+    await fetchShapes(want);
+    //! ASKED FOR IS ASKED FOR, answered or not. A shape the kernel had nothing
+    //! to say about would otherwise still be waiting on the next frame, and be
+    //! asked for again, and again, for as long as you looked at it.
+    for (const id of want) {
+      if (!unmeshed.has(id)) continue;
+      unmeshed.delete(id);
+      const held = shapes.get(id);
+      if (held) { held.waiting = false; held.group.userData.waiting = false; }
+    }
+    rebuildPickList();
+    rebuildBoxes();
+    draw();
+  } catch (err) {
+    //! A round that failed must not stop the next one - the camera will ask
+    //! again on the next frame, and asking again is the whole recovery.
+  } finally { feeding = false; }
+}
+
+//! EVERYTHING, REALLY EVERYTHING - for the few things that cannot work from a
+//! box: a section cut, the showroom, an export of what is on screen.
+async function makeResident(why = "Loading the model\u2026") {
+  if (!unmeshed.size || !kernel) return;
+  const all = [...unmeshed];
+  let done = 0;
+  showWorking(why, all.length.toLocaleString() + " shapes", 0);
+  try {
+    for (let at = 0; at < all.length; at += MESH_BATCH) {
+      await fetchShapes(all.slice(at, at + MESH_BATCH));
+      done += MESH_BATCH;
+      showWorking(why, Math.min(done, all.length).toLocaleString() + " of "
+                  + all.length.toLocaleString() + " shapes", done / all.length);
+      await breathe();
+    }
+    rebuildPickList();
+    weighModel();
+    rebuildBoxes();
+    draw();
+  } finally { doneWorking(); }
+}
 
 //! The sphere a group sits in, in world coordinates. Taken once, off the
 //! bounding box, because a group's own boundingSphere is per geometry.
@@ -1458,6 +1671,7 @@ const streams = new Map();   // feature id -> the triangles the kernel last sent
 
 function setShape(mesh) {
   streams.set(mesh.id, mesh);
+  unmeshed.delete(mesh.id);
   const existing = shapes.get(mesh.id);
   if (existing) disposeGroup(existing.group);
   const group = groupFromStream(mesh, feature(mesh.id));
@@ -1531,6 +1745,58 @@ function rebuildPickList() {
     });
 }
 
+//! A true macrotask, with no clamping - the same one the kernel uses between
+//! slices, and for the same reason. setTimeout(0) is held to four
+//! milliseconds after a few nested calls.
+const breathe = () => new Promise(resolve => {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => { channel.port1.close(); resolve(); };
+  channel.port2.postMessage(0);
+});
+
+/* ------------------------------------------------ triangles, a batch at a time
+
+   MESHING SIX THOUSAND SHAPES IS FOUR SECONDS AND SIXTEEN MEGABYTES, asked
+   for in one call and handed back in one answer - four seconds in which
+   nothing is drawn and nothing moves, and then a building appears all at
+   once.
+
+   Asked for in batches instead, the same four seconds are spent with the
+   model appearing as it goes: the first bodies are on screen in a fraction of
+   a second, the page repaints between batches, and the count says how far
+   along it is. Not one microsecond faster. Completely different to wait for.
+
+   WHAT IS ALREADY ON SCREEN GOES FIRST. On an edit that is the critical path
+   by definition: those are the shapes somebody is looking at, and the ones
+   that are not can arrive a heartbeat later without anybody minding.       */
+
+const MESH_BATCH = 400;
+//! How often the half-built model is put on screen while it arrives. Four
+//! times a second reads as "it is filling in"; every batch reads as a page
+//! that has stopped, because the render costs more than the meshing did.
+const SHOW_EVERY_MS = 250;
+
+/* ------------------------------------------- what one frame actually costs
+
+   WHAT IT COSTS TO PUT THE HALF-BUILT MODEL ON SCREEN, in milliseconds, and
+   the only reason a building opens in twenty seconds rather than thirty.
+
+   Timing the render from inside the animation frame says half a millisecond,
+   and that is true and useless: three.js walks the scene, hands the card a
+   pile of draw calls and returns. The card has not drawn anything yet. The
+   bill arrives at the next yield, where the browser will not run another task
+   until it has rasterised the frame - and on the machine this was measured
+   on, with five thousand objects arriving, that was 1,085 ms a frame against
+   39 ms for a yield with no frame behind it.
+
+   So it is measured where it is paid, and it is measured rather than guessed
+   because the same loop runs on a laptop with a real card, where a frame is
+   eight milliseconds and showing every batch is free. Six frames' worth of
+   meshing between frames: the model still visibly fills in, and the machine
+   decides how often rather than a constant written here.                   */
+
+let paintCost = 16;
+
 //! The only reason the revision counter exists: ask for the shapes whose
 //! parameters actually moved, and nothing else.
 async function syncShapes() {
@@ -1540,17 +1806,72 @@ async function syncShapes() {
     if (entry.built && (!have || have.revision !== entry.revision)) stale.push(entry.id);
   }
   for (const id of [...shapes.keys()]) {
-    if (!feature(id)) { disposeGroup(shapes.get(id).group); shapes.delete(id); streams.delete(id); }
+    if (!feature(id)) {
+      disposeGroup(shapes.get(id).group);
+      shapes.delete(id); streams.delete(id); unmeshed.delete(id);
+    }
   }
+  //! Whatever is already drawn is redrawn first.
+  stale.sort((a, b) => (shapes.has(b) ? 1 : 0) - (shapes.has(a) ? 1 : 0));
 
   if (stale.length && kernel) {
     const started = performance.now();
-    const payload = await kernel.mesh(stale);
     let triangles = 0;
-    for (const mesh of payload.features) { setShape(mesh); triangles += mesh.triangles || 0; }
-    state.stream = { shapes: stale.length, triangles, ms: Math.round(performance.now() - started) };
+
+    //! THE CHEAP PASS FIRST, on anything big enough to be worth it. Whatever
+    //! is already drawn is meshed outright - it is on screen now and blanking
+    //! it to a box for one frame would be a flicker nobody asked for - and
+    //! everything else goes in as its extents, to be fetched by the camera.
+    const lazy = stale.length >= LAZY_FROM && "boxes" in kernel;
+    const resident = lazy ? stale.filter(id => shapes.has(id) && !shapes.get(id).waiting)
+                          : stale;
+    const later = lazy ? stale.filter(id => !shapes.has(id) || shapes.get(id).waiting) : [];
+
+    if (later.length) {
+      showWorking("Placing\u2026", later.length.toLocaleString() + " shapes", 0);
+      const payload = await kernel.boxes(later);
+      for (const box of payload.features) standIn(box);
+      //! BEFORE THE FIRST FRAME, because a stand-in is only drawn by the part
+      //! of the viewport that the budget switches on: asked with it off, the
+      //! building would be five thousand empty groups and a blank screen.
+      weighModel();
+      await breathe();
+    }
+
+    let done = 0, painted = 0;
+    for (let at = 0; at < resident.length; at += MESH_BATCH) {
+      const batch = resident.slice(at, at + MESH_BATCH);
+      triangles += await fetchShapes(batch);
+      done += batch.length;
+      //! SHOWN AS IT ARRIVES, BUT NOT REDRAWN PER BATCH, and the pick list and
+      //! the triangle budget asked once at the end rather than thirteen times
+      //! on the way. Rebuilding them per batch turned four seconds of meshing
+      //! into forty-four.
+      if (resident.length > MESH_BATCH) {
+        showWorking("Drawing\u2026",
+                    done.toLocaleString() + " of " + resident.length.toLocaleString()
+                    + " shapes \u00b7 " + triangles.toLocaleString() + " triangles",
+                    done / resident.length);
+        const now = performance.now();
+        const drew = now - painted > Math.max(SHOW_EVERY_MS, paintCost * 6);
+        if (drew) { painted = now; draw(); }
+        //! AND HERE IS WHERE THE FRAME IS PAID FOR. Not in the rAF callback -
+        //! that returns in half a millisecond, having only handed the card a
+        //! list - but in the next yield, where the browser stops to rasterise
+        //! it before it will run anything else. Measured rather than assumed,
+        //! because it is the one number that separates a machine that can
+        //! afford to show every batch from one that cannot.
+        await breathe();
+        if (drew) paintCost = paintCost / 2 + (performance.now() - now) / 2;
+      }
+    }
     rebuildPickList();
     weighModel();
+    //! WHAT IS HELD, not what this pass happened to fetch: with the stand-ins
+    //! in, a pass can land no triangles at all and the model still has the
+    //! ones it had, plus five thousand boxes waiting to become more.
+    state.stream = { shapes: stale.length, triangles: lazy ? detail.held : triangles,
+                     ms: Math.round(performance.now() - started) };
   }
 
   touchSection();
@@ -3568,11 +3889,8 @@ const gizmoSpan = () => view.distance * 0.2;
 //! at the world origin while the thing you are moving is ninety metres away is
 //! a widget about nothing.
 function gizmoSeat(id) {
-  const found = shapes.get(id);
-  if (found && found.group) {
-    const box = new THREE.Box3().setFromObject(found.group);
-    if (!box.isEmpty()) return box.getCenter(new THREE.Vector3());
-  }
+  const seat = boxOfShape(id);
+  if (seat && !seat.isEmpty()) return seat.getCenter(new THREE.Vector3());
   const entry = feature(id);
   const data = entry && entry.data;
   if (data && data.preview) {
@@ -5174,7 +5492,11 @@ function toggleSection(force) {
   cutter.on = want;
   ensureCuts();
   if (want && !activePlanes(cutter.cuts).length) cutter.cuts.z.on = true;
-  refreshSection();
+  //! A CUT IS THROUGH THE WHOLE MODEL, including the parts of it the camera
+  //! has not asked for yet - a cap that stops where the stand-ins begin is a
+  //! drawing of the wrong building. So this is the one place that waits.
+  if (want && unmeshed.size) makeResident("Cutting the model\u2026").then(refreshSection);
+  else refreshSection();
   layout();
 }
 
@@ -5688,9 +6010,8 @@ function fitView() {
 //! keeps the angle you were already looking from, because turning the model
 //! round as well would be two answers to one question.
 function centreOn(id) {
-  const held = shapes.get(id);
   const entry = feature(id);
-  let box = held && held.group ? new THREE.Box3().setFromObject(held.group) : null;
+  let box = boxOfShape(id);
   if ((!box || box.isEmpty()) && entry) {
     const at = shapeCentre(id);
     if (at) box = new THREE.Box3().setFromCenterAndSize(
@@ -7028,6 +7349,80 @@ function treeNode(entry, keep = null, hit = null) {
 //! until the next selection changes, which is the next thing the reader does.
 function say(text) {
   document.getElementById("status-sel").textContent = text;
+}
+
+/* ================================================== never go quiet
+
+   THE ONE THING AN INTERFACE MUST NEVER DO is stop moving and not say why.
+
+   A building of six thousand features takes fifteen seconds to build however
+   clever anybody is about it - the booleans alone are ten of them - and a
+   fifteen-second silence is indistinguishable from a crash. So the page says
+   what it is doing and keeps saying it, and the kernel hands the thread back
+   every twenty-four milliseconds so that saying it is possible at all.
+
+   Two rules, and the second matters as much as the first:
+
+     never go quiet for long          the panel appears
+     never flash for something short  it does not appear for a quarter of a
+                                      second's work, because a spinner that
+                                      blinks on every edit is worse than none  */
+
+const WORKING_AFTER_MS = 260;
+const working = { since: 0, timer: null, showing: false, what: "", much: "" };
+
+function showWorking(what, much = "", part = -1) {
+  working.what = what; working.much = much;
+  const panel = document.getElementById("working");
+  if (!panel) return;
+  if (!working.showing) {
+    if (!working.timer) {
+      working.since = performance.now();
+      //! HELD BACK A QUARTER OF A SECOND. Most edits finish inside it and
+      //! never show anything at all, which is the point: the panel means
+      //! "this is going to take a moment", and it has to be true.
+      working.timer = setTimeout(() => {
+        working.timer = null;
+        if (!working.what) return;
+        working.showing = true;
+        panel.hidden = false;
+        paintWorking();
+      }, WORKING_AFTER_MS);
+    }
+    return;
+  }
+  paintWorking(part);
+}
+
+function paintWorking(part = -1) {
+  document.getElementById("working-what").textContent = working.what;
+  document.getElementById("working-much").textContent = working.much;
+  const fill = document.getElementById("working-fill");
+  if (fill) fill.style.width = part >= 0 ? Math.round(part * 100) + "%" : "0%";
+}
+
+function doneWorking() {
+  working.what = ""; working.much = "";
+  if (working.timer) { clearTimeout(working.timer); working.timer = null; }
+  const panel = document.getElementById("working");
+  if (panel) panel.hidden = true;
+  working.showing = false;
+}
+
+//! WHAT THE KERNEL IS DOING, said in the words a person would use. The
+//! numbers come from the regeneration itself - see settleSlowly - so "4,310
+//! of 6,010" is the walk's own count and not a guess about how long it might
+//! take.
+function watchBuilding(step) {
+  const total = step.total || 0;
+  const done = step.done || 0;
+  const wording = { reading: "Reading the model", building: "Building the model",
+                    rebuilding: "Rebuilding" }[step.stage] || "Working";
+  showWorking(wording + "\u2026",
+              total ? done.toLocaleString() + " of " + total.toLocaleString()
+                      + " features" + (step.failed ? " \u00b7 " + step.failed + " in error" : "")
+                    : "",
+              total ? done / total : -1);
 }
 
 /* ---------------------------------------------------------- context menu
@@ -9548,7 +9943,9 @@ function buildLog() {
   if (detail.on)
     line("holding " + detail.held.toLocaleString() + " triangles · drawing " + detail.drawn
          + " shapes whole · " + detail.boxed + " as boxes · " + detail.gone
-         + " off screen or under " + detail.vanish + " px", "stream");
+         + " off screen or under " + detail.vanish + " px"
+         + (unmeshed.size ? " · " + unmeshed.size.toLocaleString() + " not fetched yet" : ""),
+         "stream");
   // It just got taller or shorter, and the tree above it stands on it.
   if (!host.hidden) layout();
 }
@@ -9812,7 +10209,12 @@ function applyState(payload, options = {}) {
   else buildPanel();
   refreshToolbar();
   graph.sync();
-  syncShapes().then(buildLog).catch(err => showError(err.message));
+  //! AND THE PANEL COMES DOWN WHEN THE TRIANGLES ARE HERE, not when the
+  //! kernel finished. Building and drawing are one wait to the person doing
+  //! it, and saying "done" with a third of the model on screen is saying the
+  //! wrong thing.
+  syncShapes().then(buildLog).catch(err => showError(err.message))
+              .finally(doneWorking);
   keepModel();
 }
 
@@ -9933,6 +10335,10 @@ function setLink(active) {
 async function attachKernel(next, model) {
   kernel = next;
   ready = false;
+  //! The page is what says a build is happening, so the page is what hears
+  //! about it. A kernel that cannot call back leaves this alone and the panel
+  //! simply never appears.
+  if ("onBuild" in kernel) kernel.onBuild = watchBuilding;
   state.schema = await kernel.schema();
   buildToolbar();
   buildDock();
@@ -10493,6 +10899,10 @@ async function enterShowroom() {
   button.textContent = "opening…";
   try {
     const firstTime = !showroom.ready;
+    //! THE SHOWROOM IS A PHOTOGRAPH, so it gets the whole model: a box where
+    //! a balustrade was is fine at two pixels in the modeller and is the
+    //! subject of the picture here.
+    await makeResident("Preparing the showroom\u2026");
     await showroom.start();
     if (firstTime) {
       buildStageControls();
@@ -10549,10 +10959,18 @@ let openMode = null;
 
 //! A HANDLE FOR DRIVING THE PAGE FROM OUTSIDE IT, which is how the browser
 //! tests look at what the viewport decided. Nothing in the program reads it.
+//! WHAT THE VIEWPORT IS HOLDING, for a harness driving the real page and for
+//! anybody who wants to know why a frame cost what it did. Read-only in
+//! spirit: nothing in the program reads this back.
 globalThis.__cad = {
-  detail, shapes, view,
+  detail, shapes, unmeshed, view, setShape,
+  get kernel() { return kernel; },
   get camera() { return camera; },
   look: () => lookAtDetail(),
+  fit: () => fitView(),
+  turn: (yaw, pitch) => { view.yaw += yaw; if (pitch) view.pitch += pitch;
+                          placeCamera(); draw(); },
+  zoom: by => { view.distance *= by; placeCamera(); draw(); },
   sample: n => [...shapes.entries()].slice(0, n).map(([id, held]) => ({
     id, visible: held.group.visible, want: held.group.userData.want,
     across: held.group.userData.across, tris: held.group.userData.triangles,

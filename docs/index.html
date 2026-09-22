@@ -730,6 +730,57 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
    twitching narrower every time a set is collapsed and a ceiling that keeps it
    from eating the model. Anything past the ceiling wraps onto a second line,
    which shows the whole name and still never scrolls sideways. */
+/* ------------------------------------------------------------ working
+
+   A small panel, bottom centre, over the model. It carries three things and
+   no more: what is being done, how far along it is, and something moving so
+   the page is plainly alive. The cube is three rhombi of one colour at three
+   brightnesses - an isometric box - turning a sixth of a turn at a time,
+   which reads as a cube tumbling and costs one transform. */
+#working {
+  position: fixed; left: 50%; bottom: calc(var(--edge) + 52px);
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 12px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 8px 30px rgba(0,0,0,.14);
+  z-index: 60; min-width: 250px; font-size: 12px;
+}
+#working[hidden] { display: none; }
+#working .working-words { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+#working #working-what { font-weight: 600; color: var(--ink); }
+#working #working-much { color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
+#working .working-bar {
+  position: absolute; left: 12px; right: 12px; bottom: 6px; height: 2px;
+  background: var(--line); border-radius: 2px; overflow: hidden;
+}
+#working .working-bar i {
+  display: block; height: 100%; width: 0%; background: var(--accent);
+  transition: width .18s linear;
+}
+/* The cube: a top face and two sides, in one colour at three brightnesses,
+   turning a step at a time. Six steps, one second, and it never stops - a
+   progress bar says how far, this says it is still going. */
+#working .cube { position: relative; width: 26px; height: 26px; flex: none;
+                 animation: cube-turn 1.8s steps(6, end) infinite; }
+#working .cube .face { position: absolute; inset: 0; }
+#working .cube .f1 {
+  background: var(--accent);
+  clip-path: polygon(50% 4%, 94% 28%, 50% 52%, 6% 28%);
+}
+#working .cube .f2 {
+  background: color-mix(in srgb, var(--accent) 72%, black);
+  clip-path: polygon(6% 28%, 50% 52%, 50% 96%, 6% 72%);
+}
+#working .cube .f3 {
+  background: color-mix(in srgb, var(--accent) 50%, black);
+  clip-path: polygon(94% 28%, 94% 72%, 50% 96%, 50% 52%);
+}
+@keyframes cube-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  #working .cube { animation: none; }
+}
+
 #tree-panel {
   left: calc(var(--edge) + var(--rail-dock)); top: calc(var(--edge) + 46px);
   width: max-content; min-width: 232px;
@@ -2281,6 +2332,25 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   <div id="boot-message">loading</div>
   <p class="note">OpenCascade is compiled into this page. The first load unpacks the
      kernel; after that it is instant.</p>
+</div>
+
+<!-- WORKING. The one thing an interface must never do is go quiet and stop
+     moving, and a build of six thousand features takes fifteen seconds
+     whatever anybody does to it. So it says so, and keeps saying so: what it
+     is doing, how far along, and a cube turning through its faces to show the
+     page is alive rather than wedged.
+
+     Never shown for work that finishes quickly - see `working()` in app.js.
+     A spinner that flashes on every edit is worse than none. -->
+<div id="working" hidden aria-live="polite">
+  <div class="cube" aria-hidden="true">
+    <div class="face f1"></div><div class="face f2"></div><div class="face f3"></div>
+  </div>
+  <div class="working-words">
+    <b id="working-what">Working</b>
+    <span id="working-much"></span>
+  </div>
+  <div class="working-bar"><i id="working-fill"></i></div>
 </div>
 
 <div class="float fades" id="chip">

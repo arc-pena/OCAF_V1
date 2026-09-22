@@ -105,6 +105,118 @@ everything else comes in as one object.
 ${formats.map(line).join("\n")}`;
 }
 
+/* ====================================== the document, when it will not fit
+
+   A TURN HAS A SIZE, and a building is bigger than it.
+
+   The briefing carried `JSON.stringify(model)` - the whole document, every
+   feature, every argument - and for anything anybody models by hand that is
+   right: it is a few hundred lines, it is exact, and an assistant that can see
+   all of it never has to guess. An IFC building is 6,010 features and 2.3 MB,
+   which is thirty-five times what the turn is allowed to carry, and the answer
+   that came back was not a bad answer but "the turns exceed the 64 KiB limit".
+
+   So over a budget it is sent as its SHAPE instead: what it is made of, the
+   folders it is filed into, the features that are not in one, and the last few
+   that were added - which is what somebody asked to change a building actually
+   works from. The exact reading of any part of it is one `look` away, by id,
+   and the briefing says so.
+
+   Nothing changes for a part. Under the budget the document goes whole, as it
+   always did, because a digest of forty features would be worse than the
+   forty features.                                                          */
+
+//! HOW MUCH OF THE DOCUMENT ONE TURN MAY CARRY, in characters. The limit that
+//! bit is 64 KiB for the whole turn, and the briefing around this is a good
+//! twenty thousand characters of catalogue, so the document gets forty.
+const DOC_BUDGET = 40000;
+
+//! How many of a long list are worth printing. Past a couple of hundred lines
+//! of "one more wall" nothing is learnt and the budget is gone.
+const LIST_CAP = 150;
+
+const featureLine = f => {
+  const args = f.args ? Object.entries(f.args)
+    .map(([k, v]) => k + "=" + (typeof v === "string" && v.length > 40
+                                ? JSON.stringify(v.slice(0, 40) + "…") : JSON.stringify(v)))
+    .join(" ") : "";
+  return "  " + f.id + " " + f.type + ' "' + (f.name || "") + '"'
+       + (f.parent ? " in " + f.parent : "") + (args ? "   " + args : "");
+};
+
+//! What is in it, by kind, commonest first.
+function census(features) {
+  const tally = new Map();
+  for (const f of features) tally.set(f.type, (tally.get(f.type) || 0) + 1);
+  return [...tally].sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => "  " + n + " × " + type).join("\n");
+}
+
+//! The document as a shape rather than as a reading of it.
+export function documentDigest(model) {
+  const features = model.features || [];
+  const kids = new Map();
+  for (const f of features) if (f.parent) kids.set(f.parent, (kids.get(f.parent) || 0) + 1);
+  const sets = features.filter(f => kids.has(f.id));
+  const loose = features.filter(f => !f.parent && !kids.has(f.id));
+  const by = new Map(features.map(one => [one.id, one]));
+  const depth = f => {
+    let n = 0, at = f;
+    while (at && at.parent && n < 12) { at = by.get(at.parent); n++; }
+    return n;
+  };
+  const shallow = sets.slice().sort((a, b) => (kids.get(b.id) || 0) - (kids.get(a.id) || 0));
+
+  return `The document is ${features.length.toLocaleString()} features and too large to send
+whole, so what follows is its shape rather than a reading of it. Use the look
+tool with the id of a feature or a folder to read that part exactly - that is
+how to find out what anything actually is before changing it.
+
+  name  ${model.name || "(unnamed)"}
+  units ${model.units || "mm"}
+
+WHAT IT IS MADE OF
+${census(features)}
+
+THE FOLDERS, biggest first${sets.length > LIST_CAP ? " (" + LIST_CAP + " of " + sets.length + ")" : ""}
+${shallow.slice(0, LIST_CAP).map(f => featureLine(f)
+    + "   [" + kids.get(f.id) + " items, depth " + depth(f) + "]").join("\n")}
+
+FEATURES IN NO FOLDER${loose.length > LIST_CAP ? " (" + LIST_CAP + " of " + loose.length + ")" : ""}
+${loose.slice(0, LIST_CAP).map(featureLine).join("\n") || "  (none)"}
+
+THE LAST ${Math.min(60, features.length)} FEATURES ADDED, which is usually where the work is
+${features.slice(-60).map(featureLine).join("\n")}`;
+}
+
+//! Whole under the budget, its shape over it.
+export function documentBrief(model) {
+  const whole = JSON.stringify(model);
+  if (whole.length <= DOC_BUDGET) return whole;
+  const digest = documentDigest(model);
+  return digest.length <= DOC_BUDGET ? digest
+       : digest.slice(0, DOC_BUDGET) + "\n… (cut here; ask for the rest with look)";
+}
+
+//! One feature and everything touching it: what it is, what is inside it, what
+//! it is wired to and what is wired to it. The answer to "what is GS4".
+export function featureBrief(model, id) {
+  const features = model.features || [];
+  const one = features.find(f => f.id === id);
+  if (!one) return { found: false, note: 'no feature with id "' + id + '"' };
+  const inside = features.filter(f => f.parent === id);
+  const mentions = f => JSON.stringify(f.args || {}).includes('"' + id + '"');
+  const readers = features.filter(f => f.id !== id && mentions(f));
+  return {
+    found: true,
+    feature: one,
+    inside: inside.slice(0, 400).map(f => featureLine(f).trim()),
+    insideCount: inside.length,
+    usedBy: readers.slice(0, 60).map(f => featureLine(f).trim()),
+    usedByCount: readers.length,
+  };
+}
+
 export function briefing(schema, model, packages) {
   const ops = mdlSchema().ops.map(op =>
     "  " + op.op + "(" + op.fields.join(", ") + ")"
@@ -173,7 +285,7 @@ FILES
 ${exchangeBrief(schema.exchange)}
 
 THE DOCUMENT AS IT STANDS
-${JSON.stringify(model)}`;
+${documentBrief(model)}`;
 }
 
 /* ==========================================================================
@@ -502,22 +614,53 @@ export class Agent {
             if (pace) await new Promise(go => setTimeout(go, pace));
           }, context.signal);
           const { model } = await this.read();
+          const all = model.features || [];
+          //! WHAT EXISTS NOW - but a building has six thousand of them and the
+          //! list alone is three hundred kilobytes, which is five turns' worth
+          //! of room spent saying what was already in the briefing. The tail is
+          //! where anything it just made is, and the count says what it is the
+          //! tail of.
+          const listed = all.slice(-300);
           return {
             applied,
             stopped: context.signal.aborted,
             failed: failed.slice(0, 12),
-            features: (model.features || []).map(f => f.id + " " + f.type + ' "' + f.name + '"'),
+            featureCount: all.length,
+            features: listed.map(f => f.id + " " + f.type + ' "' + f.name + '"'),
+            ...(listed.length < all.length
+                ? { note: "the last " + listed.length + " of " + all.length
+                          + " features; use look with an id for any other" }
+                : {}),
           };
         },
       },
       {
         name: "look",
-        description: "Read the model file as it stands now - every feature, its "
-          + "arguments and its wires - and any errors on it. Use it to check what a "
-          + "stage of edits actually produced before building on it.",
-        execute: async () => {
+        description: "Read the model as it stands now, and any errors on it. With no "
+          + "id it is the whole document - or, when the document is too large for one "
+          + "turn, its shape: what it is made of, its folders, and the newest features. "
+          + "With an id it is that one feature exactly, what is inside it and what is "
+          + "wired to it, which is how to read a large document a part at a time.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "The id of one feature or folder to read. "
+                    + "Leave it out for the whole document." },
+          },
+        },
+        execute: async (input) => {
           const { model, errors } = await this.read();
-          return { model, errors };
+          const id = input && typeof input.id === "string" ? input.id.trim() : "";
+          if (id) return { ...featureBrief(model, id), errors };
+          //! THE SAME BUDGET THE BRIEFING KEEPS. A tool result is a turn like
+          //! any other, and "read the whole document" on a building is the one
+          //! call most likely to be made and least likely to fit.
+          const whole = JSON.stringify(model);
+          if (whole.length <= DOC_BUDGET) return { model, errors };
+          return { shape: documentDigest(model), errors,
+                   note: "the document is " + whole.length.toLocaleString()
+                         + " characters, too large for one turn; read any part of it "
+                         + "with look and an id" };
         },
       },
     ];
