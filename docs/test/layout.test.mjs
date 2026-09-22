@@ -367,6 +367,36 @@ console.log("\n10b. and the modelling off the thread the window is drawn on");
         && !/"kernel-worker\.js",/.test(build.split("MODULES = ")[1].split("]")[0]));
 }
 
+console.log("\n10c. and somebody opening it for the first time with nobody beside them");
+{
+  const tour = readFileSync(new URL("../src/tour.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../src/index.html", import.meta.url), "utf8");
+
+  check("there is a button that explains the program", /id="btn-help"/.test(shell)
+        && /ICONS\.help/.test(app));
+  check("  and it comes up by itself the first time, once",
+        /if \(!tour\.offered\(\)\) setTimeout/.test(app));
+  //! A picture of the interface teaches nothing. Every step points at an
+  //! element that is really there, and leaves it working.
+  check("each step points at a real element", /document\.querySelector\(step\.at\)/.test(tour));
+  check("  which stays clickable under the dimming",
+        /#tour \{[^}]*pointer-events: none/.test(shell)
+        && /#tour-hole \{[^}]*box-shadow: 0 0 0 9999px/.test(shell));
+  //! You cannot be shown how to turn a model by reading that you can.
+  check("the steps that teach a gesture wait for it", /step\.wait\.of\(began\)/.test(tour)
+        && /wait: \{ of: \(\) => kit\.turned\(\)/.test(tour));
+  check("  and Next does it for you rather than trapping you",
+        /if \(step && step\.wait && step\.wait\.give\)/.test(tour));
+  check("  and Escape leaves at any point", /event\.key === "Escape"\) \{ event\.preventDefault\(\); stop\(\); \}/.test(tour));
+  //! Which button turns the model is a preference, so the tour asks rather
+  //! than telling somebody the wrong thing in its second sentence.
+  check("what it says about the mouse is asked, not written down",
+        /body: kit\.navigation\(\)/.test(tour) && /navigation: \(\) => \(altToOrbit/.test(app));
+  check("leaving keeps your place and finishing does not",
+        /kit\.remember\(GOT_TO, finished \? "" :/.test(tour));
+}
+
 console.log("\n11. and a document too big to put in one turn");
 {
   const agent = readFileSync(new URL("../src/agent.js", import.meta.url), "utf8");

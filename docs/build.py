@@ -87,6 +87,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",
            "section.js", "story.js", "pie.js", "meshedit.js",
+           # The tour points at the interface and knows nothing else, so it
+           # can go anywhere before the page that starts it.
+           "tour.js",
            # The page's side of the worker: it has to be in the page, because
            # the page is what starts the worker and hands it the WebAssembly.
            "worker-kernel.js",

@@ -1651,6 +1651,67 @@ body.barred #status { visibility: hidden; pointer-events: none; }
 #view-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 #view-tools .tool-sep { width: 1px; background: var(--line); margin: 3px 4px; }
 
+/* ------------------------------------------------------- being shown round
+
+   ONE ELEMENT LIT, EVERYTHING ELSE DIMMED, and the lit one still working.
+   The dimming is a single enormous box-shadow on a box the size of whatever is
+   being pointed at: there is no second overlay to keep in step with it and no
+   hole to cut, and because the element itself is not covered by anything, it
+   can still be clicked - which is what lets a step say "click the cube" and
+   wait until you have. */
+#tour { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+#tour-hole {
+  position: fixed; border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(12, 16, 22, .48), 0 0 0 2px var(--accent) inset;
+  transition: left .18s cubic-bezier(.4,0,.2,1), top .18s cubic-bezier(.4,0,.2,1),
+              width .18s cubic-bezier(.4,0,.2,1), height .18s cubic-bezier(.4,0,.2,1);
+  pointer-events: none;
+}
+#tour-card {
+  /* Through --span, not 100vw: the interface is scaled with `zoom` on a big
+     monitor, and a viewport unit inside a scaled box resolves to the WINDOW
+     and is then scaled again - so a card told it may be as wide as the window
+     comes out wider than one. */
+  position: fixed; width: 336px; max-width: calc(var(--span) - 28px);
+  padding: 15px 16px 12px; pointer-events: auto;
+  background: var(--panel-solid); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--lift);
+}
+#tour-card h2 { margin: 0 0 7px; font-size: 14px; letter-spacing: -.01em; color: var(--ink); }
+#tour-body { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+#tour-body b { color: var(--ink); font-weight: 600; }
+#tour-body kbd {
+  font-family: var(--mono); font-size: 10.5px; padding: 1px 5px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2);
+}
+#tour-hint {
+  margin: 10px 0 0; font-size: 11.5px; color: var(--accent);
+  font-family: var(--mono); letter-spacing: -.01em;
+}
+#tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 13px; flex-wrap: nowrap; }
+/* Seventeen of them in the room left over by three buttons, so they are small
+   and the row is allowed to shrink before anything else does. */
+/* Clipped rather than allowed to overflow: `min-width: 0` lets a flex item
+   shrink below its contents, and what shrinks without clipping is a row of
+   dots painted over the words beside it. */
+#tour-dots { display: flex; gap: 2px; margin-right: auto; min-width: 0;
+             flex-shrink: 1; overflow: hidden; }
+.tour-dot {
+  width: 4px; height: 4px; border-radius: 50%; background: var(--line);
+  cursor: pointer; transition: background .15s; flex: 0 0 auto;
+}
+.tour-dot.past { background: var(--ink-3); }
+.tour-dot.here { background: var(--accent); transform: scale(1.5); }
+#tour-count { font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+              margin-right: 4px; white-space: nowrap; flex: 0 0 auto; }
+#tour-foot .btn { flex: 0 0 auto; white-space: nowrap; }
+#tour-foot .btn { padding: 4px 10px; font-size: 11.5px; }
+#tour-quit { color: var(--ink-3); }
+@media (max-width: 720px) {
+  #tour-card { width: calc(var(--span) - 28px); }
+  #tour-dots { display: none; }
+}
+
 /* The arctic sliders, stacked over the style buttons they belong to. Narrow
    on purpose: four numbers about how a white model looks are not a dialog. */
 #arctic-look {
@@ -2431,6 +2492,29 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   <div class="sep"></div>
   <button class="step" id="btn-packages" title="Packages" aria-label="Packages"
           aria-pressed="false"></button>
+  <div class="sep"></div>
+  <!-- Shown round by the program itself. Last in the row because it is the one
+       button whose job is to explain the others. -->
+  <button class="step" id="btn-help" title="Show me round (?)" aria-label="Show me round"></button>
+</div>
+
+<!-- BEING SHOWN ROUND. The interface, dimmed except for the one thing being
+     talked about - which stays live, because the steps that teach a gesture
+     wait for you to make it. Escape leaves at any point. -->
+<div id="tour" hidden>
+  <div id="tour-hole"></div>
+  <section id="tour-card" role="dialog" aria-labelledby="tour-title">
+    <h2 id="tour-title"></h2>
+    <div id="tour-body"></div>
+    <p id="tour-hint" hidden></p>
+    <div id="tour-foot">
+      <span id="tour-dots"></span>
+      <span id="tour-count"></span>
+      <button class="btn" id="tour-quit">Leave</button>
+      <button class="btn" id="tour-back">Back</button>
+      <button class="btn primary" id="tour-next">Next</button>
+    </div>
+  </section>
 </div>
 
 <!-- What is on the shelf. A package is off until it is asked for: its nodes are

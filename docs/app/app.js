@@ -17,6 +17,7 @@ import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost, unpackResource } from "./plugin.js";
 import { createWorkerKernel } from "./worker-kernel.js";
+import { makeTour } from "./tour.js";
 import { makePie, pieMenu } from "./pie.js";
 import { LEVELS, LEVEL_OPS, MESH_MENUS, PICKS, makeMeshEditor } from "./meshedit.js";
 import { MESH_OPS } from "./polymesh.js";
@@ -6340,6 +6341,9 @@ const ICONS = {
         + '<path d="M6.3 10.6c1-3.6 2.2-5 3.4-5s1.5 1.1 0 1.1" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
         + '<path d="M6.3 8.6c1.1-2.6 2-3.6 3-3.6" fill="none" stroke="currentColor" stroke-width=".9" stroke-linecap="round" opacity=".6"/>',
   menu: '<path d="M2.6 4.4h10.8M2.6 8h10.8M2.6 11.6h10.8" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>',
+  help: '<circle cx="8" cy="8" r="6.1" fill="none" stroke="currentColor" stroke-width="1.25"/>'
+      + '<path d="M6.1 6.2a1.95 1.95 0 113.2 1.5c-.7.55-1.3.9-1.3 1.9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
+      + '<circle cx="8" cy="11.9" r=".78" fill="currentColor"/>',
   packages: '<path d="M2.4 5.2L8 2.4l5.6 2.8v5.6L8 13.6l-5.6-2.8z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>'
           + '<path d="M2.4 5.2L8 8l5.6-2.8M8 8v5.6" fill="none" stroke="currentColor" stroke-width="1.05"/>',
   undo: '<path d="M3.4 7.6h6.2a3.6 3.6 0 010 7.2H6.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M6.2 4.2L2.8 7.6l3.4 3.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -6701,6 +6705,7 @@ function buildToolbar() {
   document.getElementById("btn-undo").innerHTML = svg(ICONS.undo);
   document.getElementById("btn-redo").innerHTML = svg(ICONS.redo);
   document.getElementById("btn-packages").innerHTML = svg(ICONS.packages);
+  document.getElementById("btn-help").innerHTML = svg(ICONS.help);
   document.getElementById("btn-menu").innerHTML = svg(ICONS.menu);
   document.getElementById("btn-rail").innerHTML = svg(ICONS.railPane);
   document.getElementById("btn-panel").innerHTML = svg(ICONS.defPane);
@@ -11573,6 +11578,66 @@ function togglePackages(force) {
   layout();
 }
 document.getElementById("btn-packages").addEventListener("click", () => togglePackages());
+
+/* ======================================================= being shown round
+
+   THE ONE THING A PROGRAM CANNOT ASK ITS USER TO DO IS EXPLAIN IT to the next
+   person. So it explains itself: it points at its own parts, one at a time,
+   and where a step teaches a GESTURE it stops and waits until you have made
+   it. What the tour needs from the interface is small and is all here - a way
+   to open a panel, a way to select something, a way to say "has anything
+   happened since I asked".                                                  */
+
+//! Two numbers that change when the thing the tour is waiting for happens. A
+//! string rather than a flag, because "did the camera move" and "did the model
+//! change" are both questions about a difference, not about an event - and a
+//! difference cannot be missed the way an event can.
+const viewKey = () => [view.yaw, view.pitch, view.distance, view.target.x,
+                       view.target.y, view.target.z].map(n => Math.round(n * 100)).join(",");
+const modelKey = () => !state.tree ? "" : state.tree.features.length + "/"
+  + state.tree.features.slice(0, 300).map(f => f.revision).join(".");
+
+let tourMark = { view: "", model: "" };
+
+const tour = makeTour({
+  //! Wrapped rather than passed: the two of them are declared further down
+  //! this file, and a name read at the moment this object is built is a name
+  //! that does not exist yet. Read when they are called, they do.
+  remember: (key, value) => remember(key, value),
+  recall: key => recall(key),
+  run: command => mdl.run(command),
+  mark: () => { tourMark = { view: viewKey(), model: modelKey() }; return tourMark; },
+  turned: () => viewKey() !== tourMark.view,
+  edited: () => modelKey() !== tourMark.model,
+  has: type => !!state.tree && state.tree.features.some(f => f.type === type),
+  //! The gestures as they really are on this machine, in this session.
+  navigation: () => (altToOrbit
+    ? "<b>Alt</b> and drag turns it. <b>Middle-drag</b> slides it about, "
+      + "<b>right-drag</b> pushes it away, the <b>wheel</b> zooms. A plain drag "
+      + "selects instead - the document menu has a setting that swaps those two "
+      + "round if you would rather."
+    : "<b>Drag</b> turns it. <b>Middle-drag</b> slides it about, "
+      + "<b>right-drag</b> pushes it away, the <b>wheel</b> zooms.")
+    + " <kbd>F</kbd> frames whatever is there.",
+  //! Selects the newest feature of a kind, so the panel the next step points
+  //! at has something in it. Answers true whether or not it found one: the
+  //! step is worth showing either way, and a tour that stops because a cube
+  //! was deleted is a tour that has misunderstood its job.
+  pick: type => {
+    const found = state.tree && [...state.tree.features].reverse().find(f => f.type === type);
+    if (found) select(found.id, true);
+    return true;
+  },
+  show: (what, on) => {
+    if (what === "tree") toggleTree(on);
+    else if (what === "rail") { if (on) stowRail(true); }
+    else if (what === "panel" && on) stowPanel(true);
+  },
+});
+
+document.getElementById("btn-help").addEventListener("click", () => {
+  if (tour.running()) tour.stop(); else tour.resume();
+});
 document.getElementById("btn-menu").addEventListener("click", () => {
   if (document.getElementById("menu").hidden) openDocMenu(); else closeMenu();
 });
@@ -12696,6 +12761,14 @@ addEventListener("keydown", event => {
     }
     if (event.key === "p" || event.key === "P") { event.preventDefault(); toggleLens(); return; }
     if (event.key === "x" || event.key === "X") { event.preventDefault(); toggleSection(); return; }
+    //! The key it is written on. A question mark is shift-slash on most
+    //! layouts and its own key on some, so the character is what is asked
+    //! about rather than the key under it.
+    if (event.key === "?") {
+      event.preventDefault();
+      if (tour.running()) tour.stop(); else tour.resume();
+      return;
+    }
   }
   if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
   if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
@@ -13468,4 +13541,9 @@ addEventListener("keyup", event => {
   }
   document.getElementById("boot").hidden = true;
   offerSpare();
+  //! ONCE, TO SOMEBODY WHO HAS NEVER BEEN HERE. This is the whole point of it:
+  //! the person who opens this without anybody sitting beside them should not
+  //! have to find the help button to be told there is one. Afterwards it never
+  //! appears by itself again, and the ? button is where it lives.
+  if (!tour.offered()) setTimeout(() => tour.start(0), 900);
 })();
