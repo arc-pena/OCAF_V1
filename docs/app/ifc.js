@@ -489,8 +489,28 @@ export function ifcWorldFrame(model, value, scale = 1, depth = 0) {
    That structure is the whole reason to import this way. It is what the tree
    is for.                                                                   */
 
+//! WHAT IS A PLACE RATHER THAN A THING.
+//!
+//! A spatial element is read as a folder: it holds what is in it and builds
+//! nothing itself. IFC4.3 brought a facility for every kind of infrastructure
+//! - a bridge, a road, a railway, a marine facility - and a Part of each, and
+//! they are places in exactly the same sense a storey is. Left off this list
+//! they were read as PRODUCTS with no geometry, which is not wrong so much as
+//! upside down: it made a road an empty object rather than the place its
+//! carriageways are in.
+//!
+//! An assembly is on it for the same reason. IfcElementAssembly is a truss or
+//! a stair or a curtain wall: it aggregates the parts that ARE the geometry
+//! and has none of its own. In the certification scenes it is 122 of them,
+//! every one counted as a product that failed to build.
 const IFC_SPATIAL = new Set(["IFCPROJECT", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY",
-                         "IFCSPACE", "IFCSPATIALZONE", "IFCEXTERNALSPATIALELEMENT"]);
+                         "IFCSPACE", "IFCSPATIALZONE", "IFCEXTERNALSPATIALELEMENT",
+                         // IFC4.3: the facilities, and the parts of each
+                         "IFCFACILITY", "IFCFACILITYPART", "IFCBRIDGE", "IFCBRIDGEPART",
+                         "IFCROAD", "IFCROADPART", "IFCRAILWAY", "IFCRAILWAYPART",
+                         "IFCMARINEFACILITY", "IFCMARINEPART",
+                         // aggregates: the parts are the building, not this
+                         "IFCELEMENTASSEMBLY"]);
 
 export function ifcStructure(model) {
   const seen = new Set();
@@ -1775,12 +1795,35 @@ export function objOf(model, entities, frame, scale) {
       }) : [];
       const base = vertices;
       for (const p of coords) say(p);
+      //! PnIndex, WHEN THERE IS ONE. A tessellated face set may address its
+      //! points through a second list - which is how an exporter shares one
+      //! point list between several sets, or writes the same corner once and
+      //! refers to it from four faces. Absent, an index means what it says.
+      const through = asList(e.type === "IFCTRIANGULATEDFACESET" ? e.args[4] : e.args[3])
+        .map(n => Math.round(asNumber(n)));
+      const at = n => {
+        const one = Math.round(asNumber(n));
+        return base + (through.length ? (through[one - 1] || one) : one);
+      };
       if (e.type === "IFCTRIANGULATEDFACESET") {
-        for (const row of asList(e.args[2]))
-          ring(asList(row).map(n => base + Math.round(asNumber(n))));
+        //! THE TRIANGLES ARE ATTRIBUTE THREE, not two.
+        //!
+        //! IfcTriangulatedFaceSet is Coordinates, Normals, Closed, CoordIndex,
+        //! PnIndex - and this read the third, which is `Closed`, a boolean. So
+        //! every triangulated face set in every file came out with no
+        //! triangles in it, and a product whose whole body was one came out
+        //! empty. That is IFC4's default way of writing a mesh: across the
+        //! buildingSMART certification scenes it was 833 face sets, every
+        //! IFC4 and IFC4.3 file in the set, and nothing else was missing.
+        for (const row of asList(e.args[3])) ring(asList(row).map(at));
       } else {
+        //! IfcPolygonalFaceSet is Coordinates, Closed, Faces, PnIndex, so the
+        //! faces really are attribute two. Each is an IfcIndexedPolygonalFace
+        //! whose first attribute is the loop; a face with voids in it states
+        //! them separately and OBJ has no word for one, so they are left to
+        //! the boolean the exporter could have written.
         for (const face of followAll(model, e.args[2]))
-          ring(asList(face.args[0]).map(n => base + Math.round(asNumber(n))));
+          ring(asList(face.args[0]).map(at));
       }
       return;
     }
