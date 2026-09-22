@@ -7441,7 +7441,7 @@ function revealInTree(id, { open = true } = {}) {
   }
   const row = document.querySelector('#tree li.node[data-id="' + cssEscape(id) + '"]');
   if (!row) return false;
-  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  settleOnRow(row);
   //! A flash, because a row that was scrolled to and is the same colour as the
   //! forty around it has not been found for you, it has been put in front of
   //! you.
@@ -7450,6 +7450,66 @@ function revealInTree(id, { open = true } = {}) {
   row.classList.add("found");
   setTimeout(() => row.classList.remove("found"), 1600);
   return true;
+}
+
+//! SCROLLED TO, THEN SCROLLED AGAIN UNTIL IT STOPS MOVING.
+//!
+//! One scrollIntoView lands NEAR the row on a big tree and not on it, and the
+//! reason is two rules that are each right on their own. The rows off screen
+//! are not laid out - `content-visibility: auto` is what keeps a seven
+//! thousand feature tree from costing a second a redraw - so the browser
+//! scrolls using `contain-intrinsic-size`, which is an ESTIMATE of 23px a row.
+//! And the rows are not 23px: a name out of an IFC file wraps onto three and
+//! four lines, and the estimate is wrong by a factor of three for hundreds of
+//! them. Over that many rows the error is a screenful.
+//!
+//! What the scroll does is make the rows around the target real, which moves
+//! the target. So it is scrolled again, and again, until the answer stops
+//! changing - two or three frames in practice, and it converges because each
+//! pass resolves the rows it just scrolled past.
+//!
+//! Reported as "it zooms close enough but not quite, yet when i double click
+//! the object afterwards then it does what i need" - the second gesture worked
+//! because by then the layout had settled, which is the whole diagnosis.
+//!
+//! Instantly rather than smoothly: a smooth scroll animates towards a position
+//! computed from the estimates, and correcting it mid-flight fights the
+//! animation. It arrives in one frame instead, which on a tree nobody is
+//! watching scroll is what was wanted anyway.
+//! HOW LONG TO KEEP CORRECTING. Eight frames was not enough: measured on the
+//! reported building, two rows landed dead centre and a third finished 340px
+//! out of a 425px panel, because the rows above it were still being laid out
+//! after the loop had given up. Rendering a screenful of wrapped names is not
+//! done in eight frames on a tree of seven thousand.
+const SETTLE_MS = 800;
+
+function settleOnRow(row) {
+  const panel = document.getElementById("tree");
+  if (!panel) return;
+  const until = performance.now() + SETTLE_MS;
+  let watching = true;
+  //! AND IT LETS GO THE MOMENT A HAND TOUCHES IT. Correcting for the best part
+  //! of a second is right when nobody is doing anything else and is a fight if
+  //! they have started to scroll - being dragged back to a row you were
+  //! scrolling away from is worse than the row being off centre.
+  const stop = () => { watching = false; };
+  for (const name of ["wheel", "pointerdown", "keydown"])
+    panel.addEventListener(name, stop, { once: true, passive: true });
+
+  const step = () => {
+    if (!watching || !row.isConnected) { done(); return; }
+    const r = row.getBoundingClientRect(), p = panel.getBoundingClientRect();
+    //! Only when it is actually out of place, so a row that has settled is
+    //! left alone and the loop costs one rectangle a frame.
+    if (Math.abs((r.top + r.height / 2) - (p.top + p.height / 2)) > 2)
+      row.scrollIntoView({ block: "center", behavior: "auto" });
+    if (performance.now() < until) requestAnimationFrame(step); else done();
+  };
+  const done = () => {
+    for (const name of ["wheel", "pointerdown", "keydown"])
+      panel.removeEventListener(name, stop);
+  };
+  requestAnimationFrame(step);
 }
 
 //! An id is ours and short, but it goes into a selector, so it is escaped.
@@ -11759,6 +11819,10 @@ let openMode = null;
 globalThis.__cad = {
   detail, shapes, unmeshed, view, setShape,
   entry: id => feature(id),
+  //! So the tree's reveal can be driven and MEASURED from outside. Where a row
+  //! lands after being scrolled to is not something that can be checked by
+  //! reading the code: it depends on layout the browser has not done yet.
+  reveal: id => revealInTree(id),
   get kernel() { return kernel; },
   get camera() { return camera; },
   look: () => lookAtDetail(),
