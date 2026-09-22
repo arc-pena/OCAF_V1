@@ -392,10 +392,166 @@ export function fromBase64(text) {
   return new Uint8Array(Buffer.from(text, "base64"));
 }
 
-//! How big a file this program will take. Not a kernel limit - the model file
-//! carries what comes in, and everything that holds a model file in memory
-//! holds this too, sixty deep in the undo stack.
-export const IMPORT_LIMIT = 32 * 1024 * 1024;
+/* ------------------------------------------- geometry, packed for the file
+
+   WHAT COSTS MEMORY IS NOT THE KERNEL. Measured on this build: 320 MB written
+   into the kernel's own filesystem while its heap sat at 100 MB, so OpenCascade
+   will happily read a file far larger than anything this program used to
+   accept. What could not take it was the PAGE - the whole file read into one
+   JavaScript string, base64'd a third bigger again, written into the document,
+   and then copied into every step of the undo stack behind it.
+
+   So the geometry is packed. BREP is ASCII and repetitive and gzips 7.8 times
+   on measurement, which turns a 184.6 MB import into about 24 MB stored - and
+   the document goes on standing on its own, which is the whole reason it is
+   kept in there rather than beside it.                                      */
+
+//! The mark a packed blob carries. Self-describing rather than a flag beside
+//! it: a blob that says what it is cannot be read as the wrong thing, and a
+//! file written before any of this existed has no mark and is plain BREP,
+//! which is exactly what the reader should do with it.
+export const PACKED_MARK = "GZ1:";
+
+export const isPacked = text => typeof text === "string" && text.startsWith(PACKED_MARK);
+
+//! Text in, packed base64 out. Left ALONE when packing would not pay: below a
+//! few kilobytes the base64 of a gzip is bigger than the text was, and a small
+//! import staying readable in the model file is worth more than the bytes.
+export const PACK_FROM = 64 * 1024;
+
+export async function packGeometry(text) {
+  if (typeof text !== "string" || text.length < PACK_FROM) return text;
+  if (typeof CompressionStream !== "function") return text;
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  const packed = new Uint8Array(await new Response(stream).arrayBuffer());
+  const out = PACKED_MARK + toBase64(packed);
+  //! And only if it actually helped. A blob that has already been compressed
+  //! by whatever wrote it comes out bigger, and keeping the bigger one would
+  //! be paying for the idea rather than for the result.
+  return out.length < text.length ? out : text;
+}
+
+export async function unpackGeometry(text) {
+  if (!isPacked(text)) return text;
+  if (typeof DecompressionStream !== "function")
+    throw new Error("this geometry is packed and this browser cannot unpack it "
+      + "(no DecompressionStream)");
+  const bytes = fromBase64(text.slice(PACKED_MARK.length));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+
+//! What a file is read in, going into the kernel. Big enough that a 200 MB
+//! import is twenty-five messages rather than twenty-five thousand, small
+//! enough that no single copy of it is a problem on a phone.
+//!
+//! THERE IS NO CEILING ABOVE THIS, and that is deliberate. A file does not
+//! arrive in the page as one string any more; it is read a slice at a time,
+//! written into the kernel's filesystem a slice at a time, read out of there
+//! by the reader that wants it, and stored packed. Nothing along that road
+//! scales with the size of the file except the file itself, so there is no
+//! honest number to refuse at.
+export const IMPORT_CHUNK = 8 * 1024 * 1024;
+
+//! How much of a file is enough to say what it is. The magic words of every
+//! format here are in the first few lines of it.
+export const SNIFF_BYTES = 64 * 1024;
+
+/* ================================================== counting through a file
+
+   The import dialog asks one question - is this one thing, or several? - and
+   answering it used to mean having the whole file as a string, which is the
+   very thing streaming exists to avoid. So it is counted through a window
+   instead: a few megabytes at a time, out of wherever the file already is,
+   with nothing bigger than a window ever held.
+
+   `read(at, length)` is whatever can hand back that many CHARACTERS from that
+   byte offset. One byte must be one character - latin1, not UTF-8 - or a
+   multi-byte character split across a window boundary comes back as two
+   broken ones. Everything counted here is ASCII, so latin1 reads it exactly
+   and reads it boundary-proof.                                             */
+
+export const SCAN_SLICE = 4 * 1024 * 1024;
+
+//! A file as lines, a window at a time. The part after the last newline is
+//! carried into the next window rather than counted, because it is half a
+//! line - that carry is the whole of what makes this equal to splitting the
+//! whole text at once.
+export function scanLines(read, size, onLine, slice = SCAN_SLICE) {
+  let tail = "";
+  for (let at = 0; at < size; at += slice) {
+    const chunk = read(at, Math.min(slice, size - at));
+    if (!chunk) break;
+    const lines = (tail + chunk).split(/\r?\n/);
+    tail = lines.pop();
+    for (const line of lines) onLine(line);
+  }
+  if (tail) onLine(tail);
+}
+
+//! How many parts an OBJ has, counted the way parseObj counts them: a group
+//! is a part only once something is drawn in it, and faces before the first
+//! group are a part of their own. A file that names forty layers and fills
+//! three of them has three parts, and saying forty would offer to break it
+//! into thirty-seven empty ones.
+export function countObjParts(read, size, slice = SCAN_SLICE) {
+  let parts = 0;
+  let named = false;          // a group has been opened and has nothing in it yet
+  let loose = false;          // faces arrived before any group did
+  scanLines(read, size, raw => {
+    const line = raw.trim();
+    if (!line || line[0] === "#") return;
+    const space = line.indexOf(" ");
+    if (space < 0) return;
+    const word = line.slice(0, space);
+    if (word === "o" || word === "g") { named = true; return; }
+    if (word !== "f") return;
+    if (line.slice(space + 1).trim().split(/\s+/).filter(Boolean).length < 3) return;
+    if (named) { parts++; named = false; }
+    else if (!loose && parts === 0) { parts++; loose = true; }
+  }, slice);
+  return parts;
+}
+
+//! What a STEP file says about itself: how many products, and whether it calls
+//! itself an assembly. Both are what productNames and isAssembly find in the
+//! whole text - found here through the window instead.
+//!
+//! A STEP entity wraps over lines, so the newlines go before the match is
+//! tried, exactly as productNames does it. The window is read with a tail
+//! after it so an entity straddling the join is still whole; only matches that
+//! START inside the window proper are counted, which is what keeps the ones in
+//! the tail from being counted twice when the next window reaches them.
+export const SCAN_OVERLAP = 8 * 1024;
+
+export function scanStep(read, size, slice = SCAN_SLICE, overlap = SCAN_OVERLAP) {
+  const flatten = text => String(text).replace(/[\r\n]+/g, "");
+  let products = 0;
+  let assembly = false;
+  for (let at = 0; at < size; at += slice) {
+    const head = flatten(read(at, Math.min(slice, size - at)));
+    const over = at + slice < size
+      ? flatten(read(at + slice, Math.min(overlap, size - at - slice))) : "";
+    const window = head + over;
+    for (const found of window.matchAll(/PRODUCT\s*\(\s*'(?:[^']|'')*'/g))
+      if (found.index < head.length) products++;
+    if (!assembly) {
+      const where = window.indexOf("NEXT_ASSEMBLY_USAGE_OCCURRENCE");
+      if (where >= 0 && where < head.length) assembly = true;
+    }
+  }
+  return { products, assembly };
+}
+
+//! Bytes as characters, one for one. Not text - a decoding - but the only
+//! reading of a byte range that is the same whether or not it lands on a
+//! character boundary, which is what a window needs.
+export function latin1(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 8192)
+    out += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+  return out;
+}
 
 export const readable = bytes =>
   bytes < 1024 ? bytes + " B"

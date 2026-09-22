@@ -45,9 +45,11 @@ import { QUALIFIERS, bisector, cCircle, cLine, cPoint, circle2PointsRadius,
          saysCircle, saysLine } from "./gcc.js";
 import { CONFUSION, FIT_SEAM_SAMPLES, V, factorySchema, makeFactories,
          turnAbout } from "./factory.js";
-import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
-         utf8, writeObj, writeStl } from "./exchange.js";
-import { DXF_LIMIT, describeDrawing, dxfDrawing, ignoredName, writeDxf } from "./dxf.js";
+import { FORMATS, countObjParts, fromBase64, isAssembly, isPacked, latin1, packGeometry,
+         parseObj, parseStl, realNames, scanStep, unpackGeometry, utf8, writeObj,
+         writeStl } from "./exchange.js";
+import { DXF_LIMIT, describeDrawing, dxfDrawing, dxfSurvey, ignoredName,
+         writeDxf } from "./dxf.js";
 
 export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm,
                                         locateFile, onProgress }) {
@@ -3671,6 +3673,8 @@ function sprawl(face, edges) {
   //! A guard every mesh driver runs before it hands anything on. A mesh with a
   //! face pointing at a vertex that is not there will take the renderer down
   //! two features later, where nothing explains it.
+  const MESH_VERTICES = 800000;
+
   function checkMesh(mesh, what) {
     if (!mesh.points.length) throw new Error("the " + what + " has no vertices");
     for (const face of mesh.faces)
@@ -3678,8 +3682,21 @@ function sprawl(face, edges) {
         if (!Number.isInteger(index) || index < 0 || index >= mesh.points.length)
           throw new Error("the " + what + " has a face pointing at vertex " + index
             + ", and there are only " + mesh.points.length);
-    if (mesh.points.length > 400000)
-      throw new Error(mesh.points.length + " vertices is more than this build will carry");
+    //! THE ONE CEILING LEFT, and it is not about the file - a file of any size
+    //! streams in and is read. It is about what ONE editable mesh feature can
+    //! be in a browser, and it was measured rather than guessed: 780,000
+    //! vertices imports in 3.7 seconds and the page turns at 60 frames a
+    //! second afterwards; 1,500,000 in the same page had not finished ten
+    //! minutes later. The cliff is between those two, so the number sits just
+    //! above the measurement that held.
+    //!
+    //! And it says the way round it, because there is one: an OBJ broken into
+    //! its named groups is several meshes rather than one, and each of them is
+    //! its own feature with its own ceiling.
+    if (mesh.points.length > MESH_VERTICES)
+      throw new Error(mesh.points.length + " vertices is more than one mesh feature will "
+        + "carry here (" + MESH_VERTICES + ") - import the file as sub-components and "
+        + "each named group becomes a mesh of its own");
     return mesh;
   }
 
@@ -6006,6 +6023,43 @@ function sprawl(face, edges) {
      way rather than as the file it arrived in so that one reader rebuilds
      every import, whichever reader first read it. */
 
+  /* ------------------------------------------- packed geometry, unpacked
+
+     A DRIVER CANNOT WAIT. Every builder here is synchronous, and unpacking is
+     a DecompressionStream, which is not - so a packed blob is opened on the
+     way IN, before anything is built, and the plain text waits here for the
+     driver that needs it.
+
+     It waits only that long. The moment the settle is over the shape is built
+     and OCAF is holding it, and keeping a hundred and eighty megabytes of text
+     beside a shape that no longer needs it would be paying the price this
+     whole change exists to avoid. See openPacked, which fills this, and
+     loadModel, which empties it again.                                     */
+
+  const unpacked = new Map();
+
+  //! Every packed import in the document, opened. Awaited by the callers that
+  //! are allowed to await - loading a model, and importing a file - which are
+  //! the only two ways a packed blob ever arrives.
+  //! Which node keeps its geometry where. One table, so a node added later
+  //! that holds a file is packed and opened by saying so here and nowhere
+  //! else.
+  const PACKED_ARGS = { Imported: "brep", MeshImported: "obj" };
+
+  const openPacked = async () => {
+    for (const f of doc.features()) {
+      const spec = F.spec(f);
+      const key = spec && PACKED_ARGS[spec.type];
+      if (!key) continue;
+      const id = F.id(f);
+      if (unpacked.has(id)) continue;
+      const held = F.code(f, key, "");
+      if (!isPacked(held)) continue;
+      try { unpacked.set(id, await unpackGeometry(held)); }
+      catch (err) { /* left packed: the driver says so by name */ }
+    }
+  };
+
   builders.Imported = {
     precondition: f => F.code(f, "brep", "") ? null
       : "this import holds no geometry - it was read from a file that had none",
@@ -6015,7 +6069,20 @@ function sprawl(face, edges) {
     //! the difference between a body you can fillet and a pile of surfaces that
     //! will refuse - and it says which before you wire anything to it.
     build: f => {
-      const shape = oc.BRepToolsWrapper.Read(F.code(f, "brep", ""));
+      const held = F.code(f, "brep", "");
+      const plain = unpacked.get(F.id(f));
+      //! AN IMPORT CANNOT CHANGE. Nothing feeds it and none of its arguments
+      //! move, so a rebuild that arrives with the text already put away can
+      //! answer with the shape it built before - which is the same shape, by
+      //! construction. Only an import that has never been built needs the
+      //! text, and that only happens where something could await it.
+      if (!plain && isPacked(held)) {
+        const already = F.shape(f);
+        if (already && !already.IsNull()) return { shape: already };
+        throw new Error("this import is stored packed and has not been opened yet - "
+          + "reopen the model file and it will come back");
+      }
+      const shape = oc.BRepToolsWrapper.Read(plain || held);
       if (!shape || shape.IsNull())
         throw new Error("the stored geometry will not read back - the model file may be truncated");
       const from = F.code(f, "source", "");
@@ -6027,7 +6094,19 @@ function sprawl(face, edges) {
     precondition: f => F.code(f, "obj", "") ? null
       : "this import holds no geometry - it was read from a file that had none",
     build: f => {
-      const parts = parseObj(F.code(f, "obj", ""));
+      const held = F.code(f, "obj", "");
+      const plain = unpacked.get(F.id(f));
+      //! The same rule as Imported: a mesh that came from a file cannot
+      //! change, so a rebuild that arrives after the text was put away answers
+      //! with the cage it built before. See builders.Imported, where the whole
+      //! of the reasoning is.
+      if (!plain && isPacked(held)) {
+        const already = F.data(f);
+        if (already && already.kind === "mesh") return { data: already };
+        throw new Error("this import is stored packed and has not been opened yet - "
+          + "reopen the model file and it will come back");
+      }
+      const parts = parseObj(plain || held);
       if (!parts.length) throw new Error("the stored geometry has no faces in it");
       // A part is written per feature, so there is normally one. Several are
       // merged rather than refused: an OBJ typed in by hand may have any number.
@@ -6316,6 +6395,71 @@ function sprawl(face, edges) {
      arithmetic - OBJ and STL, both ways - is in exchange.js and knows nothing
      about OpenCascade; what is here is the part that does.                  */
 
+  /* ---------------------------------------- a file, arriving in pieces
+
+     THE KERNEL'S OWN FILESYSTEM IS NOT THE LIMIT. Measured on this build:
+     320 MB written into it while the heap was 100 MB. What could not take a
+     large file was the page - the whole thing in one JavaScript string,
+     handed across the port, base64'd, and kept in the document.
+
+     So a file arrives in slices and is written straight to a path the readers
+     already use. Nothing above this ever holds more than one slice, and the
+     readers do not change: STEP was always read from a path, and BREP is read
+     from one now.                                                          */
+
+  const uploads = new Map();
+
+  //! One slice. \p at says where it goes, so a slice that arrives out of order
+  //! is written where it belongs rather than appended in the wrong place -
+  //! which on a file read through a port is the difference between a model and
+  //! a reader error nobody can explain.
+  const takeChunk = (path, bytes, at) => {
+    let held = uploads.get(path);
+    if (!held || at === 0) {
+      try { oc.FS.unlink(path); } catch (err) { /* nothing there yet */ }
+      held = { stream: oc.FS.open(path, "w"), wrote: 0 };
+      uploads.set(path, held);
+    }
+    const slice = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    oc.FS.write(held.stream, slice, 0, slice.length, at);
+    held.wrote = Math.max(held.wrote, at + slice.length);
+    return held.wrote;
+  };
+
+  const closeUpload = path => {
+    const held = uploads.get(path);
+    if (!held) return 0;
+    try { oc.FS.close(held.stream); } catch (err) { /* already closed */ }
+    uploads.delete(path);
+    return held.wrote;
+  };
+
+  const dropUpload = path => {
+    closeUpload(path);
+    try { oc.FS.unlink(path); } catch (err) { /* it may never have landed */ }
+  };
+
+  const uploadSize = path => {
+    try { return oc.FS.stat(path).size; } catch (err) { return 0; }
+  };
+
+  //! A window onto a file that is far too big to hold: `length` characters
+  //! from `at`, one character per byte, read straight off the filesystem. The
+  //! stream is opened and closed per window on purpose - a survey is a few
+  //! dozen of these, and a handle left open across a read that throws is a
+  //! file that cannot be unlinked afterwards.
+  const windowOf = (path, at, length) => {
+    if (length <= 0) return "";
+    const stream = oc.FS.open(path, "r");
+    try {
+      const buffer = new Uint8Array(length);
+      const got = oc.FS.read(stream, buffer, 0, length, at);
+      return latin1(got < length ? buffer.subarray(0, got) : buffer);
+    } finally {
+      try { oc.FS.close(stream); } catch (err) { /* already gone */ }
+    }
+  };
+
   //! OpenCascade's own shape format, read back. It is what every import is
   //! stored as, so this is the road every rebuild of an import takes.
   const readBrep = text => {
@@ -6331,6 +6475,25 @@ function sprawl(face, edges) {
   //! the nesting below that - the compound of a sub-assembly arrives whole -
   //! so a part is a solid, and the import says so rather than implying a tree
   //! it cannot see.
+  //! THE SAME READER, HANDED A PATH INSTEAD OF A STRING. The file is already
+  //! in the kernel's filesystem - it was streamed there - so nothing needs to
+  //! hold it as text on the way past. This is the whole of what removes the
+  //! size ceiling for BREP: BRepToolsWrapper.Read takes a string in these
+  //! bindings, so the text exists for as long as the read takes and no longer,
+  //! and it never exists in the page at all.
+  const readBrepFrom = path => {
+    const text = oc.FS.readFile(path, { encoding: "utf8" });
+    return readBrep(text);
+  };
+
+  const readStepFrom = path => {
+    if (oc.Interface_Static)
+      oc.Interface_Static.SetCVal("xstep.cascade.unit", doc.units === "m" ? "M" : "MM");
+    const reader = new oc.STEPControl_Reader();
+    const status = String(reader.ReadFile(path));
+    return finishStep(reader, status);
+  };
+
   const readStep = text => {
     const path = "/import.step";
     if (oc.Interface_Static)
@@ -6343,6 +6506,10 @@ function sprawl(face, edges) {
     } finally {
       try { oc.FS.unlink(path); } catch (err) { /* the scratch file is not important */ }
     }
+    return finishStep(reader, status);
+  };
+
+  const finishStep = (reader, status) => {
     if (status !== "IFSelect_RetDone")
       throw new Error("that STEP file was refused (" + status + ")");
     if (!reader.NbRootsForTransfer())
@@ -6540,10 +6707,20 @@ function sprawl(face, edges) {
         if (shape) release(shape);
       }
       doc = replacement;
+      //! BEFORE ANYTHING BUILDS. A packed import cannot be opened by its own
+      //! driver - drivers are synchronous and unpacking is a stream - so it is
+      //! opened here, where waiting is allowed.
+      unpacked.clear();
+      await openPacked();
       const tell = this.onBuild
         ? step => this.onBuild({ stage: "building", ...step }) : null;
       if (tell) await breathe();                        // let the message land
-      return state(await settleAsync(true, tell));
+      const settled = state(await settleAsync(true, tell));
+      //! AND PUT AWAY AGAIN. The shapes are built and OCAF is holding them;
+      //! the text was only ever needed to get there, and on a large import it
+      //! is the biggest thing in memory by a wide margin.
+      unpacked.clear();
+      return settled;
     },
 
     async setParameter(id, key, value) {
@@ -6924,10 +7101,50 @@ function sprawl(face, edges) {
       return plane;
     },
 
+    //! ONE SLICE OF A FILE, into the kernel's own filesystem. Answered here
+    //! rather than by a driver because nothing about it is geometry: it is the
+    //! file arriving, and what makes it worth having is that no caller ever
+    //! holds more than one slice.
+    async takeUpload({ path, bytes, at = 0 }) {
+      return { wrote: takeChunk(String(path), bytes, Number(at) || 0) };
+    },
+    async finishUpload({ path }) { return { wrote: closeUpload(String(path)) }; },
+    async dropUpload({ path }) { dropUpload(String(path)); return { ok: true }; },
+
+    //! WHAT A STREAMED FILE SAYS ABOUT ITSELF, so the page can ask its one
+    //! question - one thing, or several? - without ever having read the file.
+    //! Counted through a window here rather than from a string, which is what
+    //! makes the answer cost the same for two hundred megabytes as for two.
+    //!
+    //! A DXF is the exception and is read whole. Its survey is a list of
+    //! layers and of what is drawn on them, not a count, and the import that
+    //! follows reads the whole of it anyway - so reading it once more to
+    //! answer the dialog would buy nothing.
+    async surveyUpload({ path, format }) {
+      const file = String(path);
+      closeUpload(file);
+      const size = uploadSize(file);
+      const read = (at, length) => windowOf(file, at, length);
+      if (format === "step") {
+        const { products, assembly } = scanStep(read, size);
+        return { size, parts: Math.max(products, assembly ? 2 : 1), assembly };
+      }
+      if (format === "obj") return { size, parts: countObjParts(read, size), assembly: false };
+      if (format === "dxf")
+        return { size, parts: 1, assembly: false,
+                 survey: dxfSurvey(oc.FS.readFile(file, { encoding: "utf8" })) };
+      return { size, parts: 1, assembly: false };
+    },
+
     async importFile({ format, name = "", data = "", encoding = "text", as = "single",
-                       units = "mm", layers = null }) {
+                       units = "mm", layers = null, from = "" }) {
       const spec = FORMATS.find(f => f.key === format);
       if (!spec || !spec.read) throw new Error('this kernel cannot read "' + format + '"');
+      //! A STREAMED IMPORT HAS NO `data`: the file is already on the kernel's
+      //! filesystem under `from`, put there a slice at a time. Everything
+      //! below reads it from there and the page never held it.
+      const streamed = typeof from === "string" && from.length > 0;
+      if (streamed) closeUpload(from);
       const bytes = encoding === "base64" ? fromBase64(data) : null;
       const stem = String(name).replace(/\.[^.]*$/, "") || "Imported";
 
@@ -6942,8 +7159,15 @@ function sprawl(face, edges) {
 
       let note = "", folder = "Body";
       if (format === "step" || format === "brep") {
-        const text = bytes ? utf8(bytes) : String(data);
-        const parts = format === "brep" ? [readBrep(text)] : readStep(text);
+        //! Read from the file when it was streamed, from the string when it
+        //! was not. The text is only fetched for the things that still need it
+        //! - the names in a STEP assembly - and a streamed import does not
+        //! fetch it at all unless it is a STEP, which is the case where it is
+        //! worth the read.
+        const text = streamed ? "" : (bytes ? utf8(bytes) : String(data));
+        const parts = streamed
+          ? (format === "brep" ? [readBrepFrom(from)] : readStepFrom(from))
+          : (format === "brep" ? [readBrep(text)] : readStep(text));
         if (!parts.length) throw new Error("nothing in that file transferred into a shape");
 
         // One object, or one per part. Exploding is only offered for a format
@@ -6956,36 +7180,90 @@ function sprawl(face, edges) {
         const pieces = as === "parts" ? explode(parts)
           : parts.length === 1 ? [{ shape: unwrap(parts[0].shape) }]
           : [{ shape: compoundOf(parts.map(p => p.shape)) }];
-        const names = format === "step" ? realNames(text) : [];
+        //! THE NAMES ARE READ FROM THE FILE, and a streamed one is read off
+        //! the kernel's filesystem rather than from a string the page sent.
+        //! Only for a STEP, and only when there is more than one piece to
+        //! name: reading two hundred megabytes back to label a single body
+        //! would undo the point of streaming it.
+        const namesFrom = () => {
+          if (format !== "step" || pieces.length < 2) return [];
+          try {
+            return realNames(streamed ? oc.FS.readFile(from, { encoding: "utf8" }) : text);
+          } catch (err) { return []; }
+        };
+        const names = namesFrom();
         const named = names.length === pieces.length ? names : null;
-        pieces.forEach((piece, i) => {
+        //! PACKED ON THE WAY INTO THE DOCUMENT. BREP is ASCII and repetitive
+        //! and gzips about eight times, which is what lets a 184 MB import
+        //! live in a model file that still stands on its own - and in an undo
+        //! stack that is still worth having. See packGeometry, which leaves a
+        //! small import alone because a small one reads better plain.
+        let stored = 0;
+        for (let i = 0; i < pieces.length; i++) {
+          const piece = pieces[i];
           const label = pieces.length === 1 ? stem
             : (piece.name || (named ? named[i] : "") || stem + " " + (i + 1));
-          hold("Imported", "brep", oc.BRepToolsWrapper.Write(piece.shape), label, name);
-        });
+          const written = oc.BRepToolsWrapper.Write(piece.shape);
+          const packed = await packGeometry(written);
+          stored += packed.length;
+          const made = hold("Imported", "brep", packed, label, name);
+          //! The plain text is in hand already, so the driver that is about to
+          //! run gets it rather than unpacking what was just packed.
+          if (packed !== written) unpacked.set(F.id(made), written);
+        }
         note = pieces.length === 1
           ? "one object, " + describeShape(pieces[0].shape)
           : pieces.length + " parts"
             + (named ? ", named from the file" : ", numbered - the file gave no usable names");
-        if (format === "step" && as !== "parts" && isAssembly(text))
+        //! WHAT THE DOCUMENT NOW HOLDS, said out loud. An import that packed a
+        //! hundred and eighty megabytes into twenty-four is worth knowing
+        //! about: it is the difference between a model file somebody can send
+        //! and one nobody can open, and it is not visible anywhere else.
+        if (stored >= 1024 * 1024)
+          note += " · " + (stored / 1024 / 1024).toFixed(1) + " MB stored";
+        //! Only asked of a file the page actually handed over. A streamed one
+        //! is on the kernel's filesystem and reading it back to answer a note
+        //! would be reading the whole import a second time.
+        if (format === "step" && as !== "parts" && !streamed && isAssembly(text))
           note += " (this file is an assembly - import it again as sub-components to break it up)";
         // Freed in the order they were made: a piece is a sub-shape of a part,
         // and a part is only its own if nothing exploded it.
         for (const piece of pieces)
           if (!parts.some(part => part.shape === piece.shape)) release(piece.shape);
         for (const part of parts) release(part.shape);
+        //! THE FILE GOES as soon as the shapes are out of it. It is the
+        //! largest thing in the kernel's filesystem by a wide margin, and
+        //! leaving a hundred and eighty megabytes of it behind after an import
+        //! would mean a second import could not be read.
+        if (streamed) dropUpload(from);
       } else if (format === "obj" || format === "stl") {
         folder = "GeometricalSet";
+        //! STREAMED OR HANDED OVER, and the difference is only where the bytes
+        //! come from. A streamed OBJ is read off the kernel's filesystem as
+        //! text; a streamed STL is read as bytes, because a binary STL is not
+        //! text and reading it as any encoding would corrupt it.
+        const asText = () => streamed ? oc.FS.readFile(from, { encoding: "utf8" })
+                                      : (bytes ? utf8(bytes) : String(data));
+        const asBytes = () => streamed ? oc.FS.readFile(from) : (bytes || String(data));
         const parts = format === "obj"
-          ? parseObj(bytes ? utf8(bytes) : String(data))
-          : [{ name: stem, ...weldTriangles(parseStl(bytes || String(data))) }];
+          ? parseObj(asText())
+          : [{ name: stem, ...weldTriangles(parseStl(asBytes())) }];
         if (!parts.length) throw new Error("no faces in that file");
         const kept = parts.reduce((n, part) => n + part.faces.length, 0);
         const quads = parts.reduce((n, part) => n + part.faces.filter(f => f.length > 3).length, 0);
 
         const pieces = as === "parts" ? parts : [mergeParts(parts, stem)];
-        for (const piece of pieces)
-          hold("MeshImported", "obj", writeObj([piece], "from " + name), piece.name || stem, name);
+        //! Packed like any other import. An OBJ is text and repetitive and
+        //! gzips as well as a BREP does, so a mesh that arrives as two hundred
+        //! megabytes is not two hundred megabytes of document.
+        let storedMesh = 0;
+        for (const piece of pieces) {
+          const written = writeObj([piece], "from " + name);
+          const packed = await packGeometry(written);
+          storedMesh += packed.length;
+          const made = hold("MeshImported", "obj", packed, piece.name || stem, name);
+          if (packed !== written) unpacked.set(F.id(made), written);
+        }
         note = pieces.length + (pieces.length === 1 ? " mesh, " : " meshes, ") + kept + " faces"
           + (quads ? " - " + quads + " of them with more than three sides, kept as they are"
                    : " - all triangles");
@@ -6994,7 +7272,8 @@ function sprawl(face, edges) {
         // make one. It makes a SKETCH - on a plane, with its corners written
         // down as coincidences - because everything a person wants to do with
         // an imported outline afterwards is a thing you do to a sketch.
-        const text = bytes ? utf8(bytes) : String(data);
+        const text = streamed ? oc.FS.readFile(from, { encoding: "utf8" })
+                              : (bytes ? utf8(bytes) : String(data));
         const { drawing, report } = dxfDrawing(text, {
           units: units || "mm",
           layers: Array.isArray(layers) && layers.length ? layers : null,
@@ -7041,8 +7320,13 @@ function sprawl(face, edges) {
              + " entities and that is as many as a sketch holds - turn layers off and export again"
              : "");
       } else {
+        if (streamed) dropUpload(from);
         throw new Error('"' + format + '" is not read here - a model file is opened, not imported');
       }
+      //! Whatever branch ran, the file is done with. Said once here as well as
+      //! in the branches that free it early, because a path that forgets leaves
+      //! the largest thing in the kernel's filesystem behind it.
+      if (streamed) dropUpload(from);
 
       // Several parts are a set, the way anything several is a set here: they
       // are filed under one, so the tree shows the file as one thing that can
@@ -7053,7 +7337,12 @@ function sprawl(face, edges) {
         for (const f of made) doc.setParent(f, holder);
       }
 
-      return { ...state(settle(false)), note,
+      const settled = state(settle(false));
+      //! The plain text was only needed for the build that has just happened.
+      //! On a large import it is the biggest thing in memory, and the shapes
+      //! do not need it now.
+      unpacked.clear();
+      return { ...settled, note,
                created: made.map(F.id), set: holder ? F.id(holder) : null };
     },
 

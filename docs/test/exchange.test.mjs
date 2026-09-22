@@ -7,8 +7,9 @@
 // import that cannot be reopened is worse than no import at all.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
-import { FORMATS, formatFor, isBinaryStl, parseObj, parseStl, productNames,
-         sniffFormat, toBase64, whyNot, writeObj, writeStl } from "../src/exchange.js";
+import { FORMATS, PACK_FROM, countObjParts, formatFor, isBinaryStl, isPacked, latin1,
+         packGeometry, parseObj, parseStl, productNames, scanLines, scanStep, sniffFormat,
+         toBase64, unpackGeometry, whyNot, writeObj, writeStl } from "../src/exchange.js";
 import { isElided, lightenModel } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 
@@ -21,6 +22,7 @@ const check = (name, ok, detail = "") => {
   console.log((ok ? "  ok   " : "  FAIL ") + name + (detail ? "  — " + detail : ""));
 };
 const near = (a, b, tol) => Number.isFinite(a) && Math.abs(a - b) <= tol;
+const inKb = n => (n / 1024).toFixed(1) + " kB";
 
 console.log("1. the formats, declared");
 {
@@ -484,6 +486,299 @@ console.log("14. a file dropped on the page, read from its own first lines");
   check("the name is what is asked first", formatFor("bracket.step").key === "step");
   check("and the sniff only has anything to say when it said nothing",
         formatFor("attachment.dat") === null);
+}
+
+console.log("15. counting through a file nobody can hold");
+{
+  // The window is what makes a 184 MB import askable-about at all: the page
+  // never has the text, so the one question the dialog asks has to be answered
+  // by reading a few megabytes at a time out of wherever the file already is.
+  //
+  // THE FAILURE THAT WOULD LOOK LIKE SUCCESS is a boundary. Every count here
+  // is right on a file read in one go; the only way to be wrong is for a token
+  // that straddles a window join to be counted twice or not at all, and on a
+  // real file that is a number two or three too high in a dialog nobody
+  // double-checks. So every count is taken twice - once whole, once through
+  // windows small enough that the joins land inside the tokens - and the two
+  // have to agree.
+  const windowed = text => (at, length) => text.slice(at, at + length);
+
+  const step = ["ISO-10303-21;", "HEADER;", "FILE_NAME('a.step');", "ENDSEC;", "DATA;"]
+    .concat([1, 2, 3, 4, 5].map(n =>
+      "#" + n + " = PRODUCT('Part " + n + "','Part " + n + "','',(#9));"))
+    .concat(["#20 = NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','','',#1,#2,$);", "ENDSEC;", "END-ISO-10303-21;"])
+    .join("\n");
+
+  const whole = scanStep(windowed(step), step.length, step.length + 10, 16);
+  check("five products, read in one go", whole.products === 5, String(whole.products));
+  check("and it says it is an assembly", whole.assembly === true);
+  // 13 characters is smaller than a PRODUCT entity, so joins land inside them.
+  for (const slice of [7, 13, 29, 64]) {
+    const got = scanStep(windowed(step), step.length, slice, 512);
+    check("still five through " + slice + "-character windows",
+          got.products === 5 && got.assembly === true,
+          got.products + " products, assembly " + got.assembly);
+  }
+  // The same count the whole-text reader gets, which is the only definition of
+  // right that matters - the two must not be able to disagree.
+  check("and it agrees with productNames on the whole text",
+        whole.products === productNames(step).length,
+        whole.products + " vs " + productNames(step).length);
+
+  // A PRODUCT entity wrapped over lines, the way most writers emit them. The
+  // newlines go before the match is tried, on both roads.
+  const wrapped = "#1 = PRODUCT(\n  'Wrapped',\n  'Wrapped',\n  '',\n  (#9)\n);\n";
+  check("a product wrapped over five lines is one product",
+        scanStep(windowed(wrapped), wrapped.length, 11, 256).products === 1);
+
+  // OBJ: a part is a part when something is drawn in it. A file that names
+  // forty layers and fills three has three parts, and saying forty would offer
+  // to break it into thirty-seven empty ones.
+  const obj = ["# two groups and an empty one", "v 0 0 0", "v 1 0 0", "v 0 1 0", "v 1 1 0",
+               "o Alpha", "f 1 2 3",
+               "g Nothing",
+               "o Beta", "f 2 3 4", "f 1 3 4"].join("\n");
+  check("two parts, not three", countObjParts(windowed(obj), obj.length) === 2,
+        String(countObjParts(windowed(obj), obj.length)));
+  check("which is what parseObj makes of it too",
+        countObjParts(windowed(obj), obj.length) === parseObj(obj).length);
+  for (const slice of [3, 9, 17, 40]) {
+    const got = countObjParts(windowed(obj), obj.length, slice);
+    check("and two through " + slice + "-character windows", got === 2, String(got));
+  }
+
+  // Faces before any group are a part of their own, and the ones after a group
+  // belong to it rather than starting another.
+  const loose = ["v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3", "f 1 2 3",
+                 "g Later", "f 1 2 3", "f 1 2 3"].join("\n");
+  check("loose faces are one part and the group is another",
+        countObjParts(windowed(loose), loose.length) === 2 &&
+        parseObj(loose).length === 2);
+
+  // The line reader itself: a line split across a join is one line, not two.
+  const lines = "alpha\nbeta\ngamma\ndelta";
+  const seen = [];
+  scanLines(windowed(lines), lines.length, line => seen.push(line), 4);
+  check("four lines through four-character windows",
+        seen.join("|") === "alpha|beta|gamma|delta", seen.join("|"));
+
+  // One byte, one character. A window that decoded as UTF-8 would turn a
+  // multi-byte character split across a join into two broken ones, and every
+  // offset after it would be wrong.
+  const bytes = new Uint8Array([0x41, 0xC3, 0xA9, 0x42]);
+  check("latin1 is one character per byte", latin1(bytes).length === 4, latin1(bytes));
+  check("and the ASCII in it is untouched",
+        latin1(bytes)[0] === "A" && latin1(bytes)[3] === "B");
+}
+
+console.log("16. geometry packed into the document");
+{
+  // What lets a 184 MB import live in a model file at all. BREP is ASCII and
+  // repetitive; the measurement on a real one was 7.8 times.
+  const brep = "DBRep_DrawableShape\n\nCASCADE Topology V1, (c) Matra-Datavision\n"
+    + "0 0 0 1 0 0 0 1 0 0 0 1\n".repeat(20000);
+  const packed = await packGeometry(brep);
+  check("it is marked as packed rather than flagged beside", isPacked(packed));
+  check("and it is a great deal smaller", packed.length < brep.length / 4,
+        (brep.length / packed.length).toFixed(1) + "x");
+  check("and it comes back exactly", await unpackGeometry(packed) === brep);
+
+  // A small import stays readable in the model file, which is worth more than
+  // the bytes - and unpacking is a no-op on text that was never packed.
+  const small = "a little BREP".repeat(10);
+  check("something small is left alone", await packGeometry(small) === small);
+  check("and reads straight back", await unpackGeometry(small) === small);
+  check("the threshold is declared, not buried", PACK_FROM > 0 && PACK_FROM < 1024 * 1024);
+
+  // Already-compressed input comes out bigger. Keeping the bigger one would be
+  // paying for the idea rather than for the result.
+  const noise = Array.from({ length: PACK_FROM + 1000 },
+    (_, i) => String.fromCharCode(33 + ((i * 7919) % 94))).join("");
+  const tried = await packGeometry(noise);
+  check("and what will not pack is kept plain", tried === noise || tried.length < noise.length);
+}
+
+console.log("17. a file streamed into the kernel, never held whole");
+{
+  // The road the page takes for every format now: read a slice, hand it over,
+  // drop it, read the next. What is tested here is that the file put together
+  // on the other side is the same file, that the reader reads it from there,
+  // and that what lands in the document is the geometry rather than the file.
+  await blank();
+  const origin = await mdl.run({ op: "add", type: "Point" });
+  const box = await mdl.run({ op: "add", type: "Cube", refs: { origin: origin.id } });
+  for (const [key, value] of [["dx", 12], ["dy", 8], ["dz", 5]])
+    await mdl.run({ op: "set", id: box.id, key, value });
+  const solid = 12 * 8 * 5;
+  const step = await kernel.exportShapes("step");
+
+  // Slices deliberately smaller than the file, so the join is exercised: a
+  // chunk written at the wrong offset gives a file that is the right length
+  // and the wrong contents, which reads as a corrupt STEP rather than as an
+  // error anybody could trace.
+  const stream = async (path, text, slice) => {
+    const bytes = new TextEncoder().encode(text);
+    for (let at = 0; at < bytes.length; at += slice)
+      await kernel.takeUpload({ path, bytes: bytes.subarray(at, Math.min(at + slice, bytes.length)),
+                                at });
+    return await kernel.finishUpload({ path });
+  };
+
+  const path = "/streamed.step";
+  const wrote = await stream(path, step.text, 997);
+  check("every slice landed", wrote.wrote === new TextEncoder().encode(step.text).length,
+        wrote.wrote + " of " + step.text.length);
+
+  // And the survey answers the dialog's one question without the page ever
+  // having had the text.
+  const survey = await kernel.surveyUpload({ path, format: "step" });
+  check("the survey sees the whole file", survey.size === wrote.wrote,
+        survey.size + " vs " + wrote.wrote);
+  check("and counts what productNames counts",
+        survey.parts === Math.max(productNames(step.text).length, 1),
+        survey.parts + " vs " + productNames(step.text).length);
+
+  await blank();
+  const came = await mdl.run({ op: "import", format: "step", name: "streamed.step",
+                               from: path, as: "single" });
+  check("it imports from the path, with no data at all", came.created.length === 1, came.note);
+  check("and the solid is the one that went out",
+        near(await volumeOf(came.created[0]), solid, 1),
+        String(await volumeOf(came.created[0])));
+
+  // The file is the largest thing in the kernel's filesystem, and an import
+  // that leaves it there is an import that stops the next one.
+  let still = true;
+  try { await kernel.surveyUpload({ path, format: "step" }); } catch (err) { still = false; }
+  const after = still ? (await kernel.surveyUpload({ path, format: "step" })).size : 0;
+  check("and the file is gone once the shapes are out of it", after === 0, String(after));
+
+  // A BREP, packed on the way into the document. This is what makes a large
+  // import a model file somebody can still send.
+  const brep = await kernel.exportShapes("brep");
+  await blank();
+  const big = "/streamed.brep";
+  await stream(big, brep.text, 1024);
+  const solidBack = await mdl.run({ op: "import", format: "brep", name: "tower.brep",
+                                    from: big, as: "single" });
+  check("a BREP streams in the same way", solidBack.created.length === 1, solidBack.note);
+  check("with the same solid in it", near(await volumeOf(solidBack.created[0]), solid, 1),
+        String(await volumeOf(solidBack.created[0])));
+
+  // AND IT REOPENS. An import that cannot be reopened is worse than no import
+  // at all, and packed geometry that only the session that made it can read
+  // would be exactly that.
+  const saved = await kernel.model();
+  const model = saved.model || saved;
+  await mdl.run({ op: "model", model });
+  const rows = (await tree()).features.filter(f => f.type === "Imported");
+  check("the model file carries it", rows.length === 1 && rows[0].built && !rows[0].error,
+        rows.length + " " + (rows[0] ? rows[0].error || "built" : ""));
+  check("and the geometry came back", near(await volumeOf(rows[0].id), solid, 1),
+        String(await volumeOf(rows[0].id)));
+
+  // AND ONE THAT IS ACTUALLY BIG ENOUGH TO BE PACKED. The cube above is a few
+  // kilobytes and packGeometry leaves it alone on purpose, so nothing above
+  // this line exercises a packed blob at all - which is precisely the thing
+  // that would look like success and be a document nobody can reopen.
+  const mesh = ["o Big"];
+  for (let i = 0; i < 4000; i++)
+    mesh.push("v " + i + " 0 0", "v " + i + " 1 0", "v " + i + " 0 1");
+  for (let i = 0; i < 4000; i++)
+    mesh.push("f " + (i * 3 + 1) + " " + (i * 3 + 2) + " " + (i * 3 + 3));
+  const objText = mesh.join("\n");
+  check("the mesh is well past the packing threshold", objText.length > PACK_FROM * 2,
+        inKb(objText.length));
+
+  await blank();
+  const heavy = "/streamed.obj";
+  await stream(heavy, objText, 8192);
+  const meshIn = await mdl.run({ op: "import", format: "obj", name: "big.obj",
+                                 from: heavy, as: "single" });
+  check("it streams in as one mesh", /4000 faces/.test(meshIn.note), meshIn.note);
+
+  const heldModel = (await kernel.model()).model || (await kernel.model());
+  const held = (heldModel.features || []).find(f => f.type === "MeshImported");
+  check("and the document holds it PACKED, not as the file",
+        !!held && isPacked(held.args.obj), held ? held.args.obj.slice(0, 8) : "no feature");
+  // Half, not the 7.8x a real BREP gets: this mesh is four thousand distinct
+  // numbers with nothing repeated in them, which is close to the worst case
+  // there is. The ratio is said out loud rather than asserted at, because what
+  // matters is that packing pays on the files people actually import.
+  check("which is a good deal smaller than the text that came in",
+        held.args.obj.length < objText.length / 2,
+        (objText.length / held.args.obj.length).toFixed(1) + "x");
+
+  await mdl.run({ op: "model", model: heldModel });
+  const meshRows = (await tree()).features.filter(f => f.type === "MeshImported");
+  check("it reopens from the packed form",
+        meshRows.length === 1 && meshRows[0].built && !meshRows[0].error,
+        meshRows.length + " " + (meshRows[0] ? meshRows[0].error || "built" : ""));
+  const backMesh = await at(meshRows[0].id);
+  check("with every face still on it",
+        !!backMesh.data && backMesh.data.faces === 4000,
+        backMesh.data ? String(backMesh.data.faces) : "no data");
+
+  // A BINARY STL, which is the one format that is not text at all. Read off
+  // the filesystem as BYTES rather than as text: reading it as any encoding
+  // would corrupt every float in it, and the file would still be the right
+  // length and still import - into a mesh of noise.
+  await blank();
+  const count = 2000;
+  const stl = new Uint8Array(84 + count * 50);
+  const view = new DataView(stl.buffer);
+  view.setUint32(80, count, true);
+  for (let t = 0; t < count; t++) {
+    const face = [[t, 0, 0], [t + 1, 0, 0], [t, 1, 0]];
+    for (let v = 0; v < 3; v++)
+      for (let c = 0; c < 3; c++)
+        view.setFloat32(84 + t * 50 + 12 + v * 12 + c * 4, face[v][c], true);
+  }
+  const stlPath = "/streamed.stl";
+  for (let at2 = 0; at2 < stl.length; at2 += 4096)
+    await kernel.takeUpload({ path: stlPath,
+                              bytes: stl.subarray(at2, Math.min(at2 + 4096, stl.length)), at: at2 });
+  await kernel.finishUpload({ path: stlPath });
+  const stlIn = await mdl.run({ op: "import", format: "stl", name: "bar.stl",
+                                from: stlPath, as: "single" });
+  check("a binary STL streams in as bytes, not as text",
+        /2000 faces/.test(stlIn.note), stlIn.note);
+  const stlRow = await at(stlIn.created[0]);
+  //! The triangles are a staircase one unit wide, so the corners weld to
+  //! 2001 + 2000 vertices rather than 6000. A file read as text would come
+  //! back with a different number here, or not read at all.
+  check("and the geometry in it is the geometry that went in",
+        !!stlRow.data && stlRow.data.count === 4001,
+        stlRow.data ? String(stlRow.data.count) : "no data");
+
+  // A DXF, which is surveyed rather than counted: its dialog asks about
+  // layers, not about parts.
+  const dxf = ["0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+               "0", "SECTION", "2", "ENTITIES"];
+  for (let i = 0; i < 300; i++)
+    dxf.push("0", "LINE", "8", i % 3 ? "walls" : "grid", "10", String(i * 10), "20", "0",
+             "30", "0", "11", String(i * 10 + 8), "21", "40", "31", "0");
+  dxf.push("0", "ENDSEC", "0", "EOF");
+  const dxfBytes = new TextEncoder().encode(dxf.join("\n"));
+  const dxfPath = "/streamed.dxf";
+  await kernel.takeUpload({ path: dxfPath, bytes: dxfBytes, at: 0 });
+  await kernel.finishUpload({ path: dxfPath });
+  const dxfSurveyed = await kernel.surveyUpload({ path: dxfPath, format: "dxf" });
+  check("a DXF is surveyed, layers and all",
+        !!dxfSurveyed.survey && dxfSurveyed.survey.entities === 300
+        && dxfSurveyed.survey.layers.length === 2,
+        dxfSurveyed.survey
+          ? dxfSurveyed.survey.entities + " on "
+            + dxfSurveyed.survey.layers.map(l => l.name).join(",")
+          : "no survey");
+
+  await blank();
+  const drawn = await mdl.run({ op: "import", format: "dxf", name: "plan.dxf",
+                                from: dxfPath, units: "mm", layers: ["walls"] });
+  // Two of every three lines are on "walls", so 200 of the 300 arrive - and
+  // the report counts what it took, not what it was offered.
+  check("and only the layers asked for come in",
+        /200 elements from 200 entities/.test(drawn.note), drawn.note);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall good");

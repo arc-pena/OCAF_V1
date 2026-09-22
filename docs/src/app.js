@@ -51,8 +51,8 @@ import { PACKING } from "./packing-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
-import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
-         productNames, readable, sniffFormat, toBase64, whyNot } from "./exchange.js";
+import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
+         readable, scanStep, sniffFormat, toBase64, whyNot } from "./exchange.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer,
          elementLocked, elementShown, isConstruction, nextSketchId, readSketch,
          sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
@@ -11894,8 +11894,8 @@ const packageKit = {
   //! A PACKAGE THAT CAN READ A KIND OF FILE NOBODY ELSE CAN.
   //!
   //! The one hook a format needs, because everything else about opening a file
-  //! - the picker, the drop veil, the size limit, sniffing what a nameless
-  //! file is - belongs to the page and stays with it. A reader says which
+  //! - the picker, the drop veil, sniffing what a nameless file is - belongs
+  //! to the page and stays with it. A reader says which
   //! extensions are its own and how to turn the text into a model file; the
   //! page does the rest, so an imported building lands on the undo stack like
   //! anything else.
@@ -12460,16 +12460,69 @@ fileInput.addEventListener("change", () => {
   if (file) takeFile(file);
 });
 
-//! How many parts a file says it has, read from the file's own words rather
-//! than from the geometry - which is what makes it cheap enough to ask before
-//! anything is transferred.
-function partsNamed(key, text) {
-  // A STEP file names a product per part, and one more per sub-assembly when
-  // it has any. Both are parts of it as far as the question goes: is this one
-  // thing, or several?
-  if (key === "step") return Math.max(productNames(text).length, isAssembly(text) ? 2 : 1);
-  if (key === "obj") return parseObj(text).length;
-  return 1;
+/* --------------------------------------------------- a file, a slice at a time
+
+   THE PAGE NEVER HOLDS THE FILE. It reads a slice, hands the slice to the
+   kernel, drops it and reads the next one - so a 184 MB import costs the page
+   8 MB at a time and costs it nothing at all once the last slice has gone.
+   The reader on the other side opens it off the kernel's own filesystem, and
+   what lands in the document is the geometry, packed.
+
+   This is what removes the size ceiling, and it is why there is no longer a
+   number to refuse at. The two places that still need a whole file as one
+   string are named where they happen: a package's own reader, and a model
+   file - both are read IN THE PAGE by code that wants the text, and streaming
+   into the kernel does nothing for either.                                   */
+
+//! One path per file taken. Two files dropped together are two uploads, and
+//! sharing a path would have the second one writing through the first.
+let uploadsMade = 0;
+const uploadPath = name =>
+  "/upload-" + (++uploadsMade) + "-" + String(name).replace(/[^\w.-]+/g, "_").slice(-40);
+
+//! The file into the kernel, one slice at a time, saying how far it has got -
+//! because on a large file this is the part that takes a visible while, and a
+//! page that says nothing for twenty seconds looks broken.
+async function streamIntoKernel(file, path) {
+  const started = performance.now();
+  for (let at = 0; at < file.size; at += IMPORT_CHUNK) {
+    const end = Math.min(at + IMPORT_CHUNK, file.size);
+    const bytes = new Uint8Array(await file.slice(at, end).arrayBuffer());
+    await kernel.takeUpload({ path, bytes, at });
+    if (file.size > IMPORT_CHUNK)
+      say("reading " + file.name + " · " + readable(end) + " of " + readable(file.size));
+  }
+  await kernel.finishUpload({ path });
+  return performance.now() - started;
+}
+
+//! A file handed over whole, which is what a kernel that cannot take an upload
+//! gets. THE NATIVE KERNEL OVER HTTP IS THAT KERNEL: its import is one POST of
+//! one JSON body, and the page has no way to feed a file into a server it did
+//! not write. So this road stays, honestly, for exactly that case - and it is
+//! the road with a ceiling on it, because the whole file really is in the page
+//! here, and base64 of a binary STL is a third bigger again.
+async function handOverWhole(file, format) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const binary = format.key === "stl" && isBinaryStl(bytes);
+  const data = binary ? toBase64(bytes) : new TextDecoder().decode(bytes);
+  //! Surveyed through the same window the kernel would have used, over the
+  //! string instead of over a file. The answers have to be the same ones or
+  //! the dialog would say one thing on one kernel and another on the other.
+  const read = (at, length) => data.slice(at, at + length);
+  const survey = { size: file.size, parts: 1, assembly: false };
+  if (!binary && format.key === "step") {
+    const { products, assembly } = scanStep(read, data.length);
+    survey.assembly = assembly;
+    survey.parts = Math.max(products, assembly ? 2 : 1);
+  } else if (!binary && format.key === "obj") {
+    survey.parts = countObjParts(read, data.length);
+  } else if (format.key === "dxf") {
+    survey.survey = dxfSurvey(data);
+  }
+  return { request: { op: "import", format: format.key, name: file.name,
+                      encoding: binary ? "base64" : "text", data,
+                      size: file.size, assembly: survey.assembly }, survey };
 }
 
 //! One file, read and taken for whatever it is. Says back which of three
@@ -12484,28 +12537,25 @@ async function takeFile(file) {
   const brought = readerFor(file.name);
   const excuse = brought ? null : whyNot(file.name);
   if (excuse) { say(file.name + " is " + excuse.name + ", and " + excuse.reason); return "no"; }
-  // Asked before the file is read rather than after, because reading it is the
-  // expensive part and the limit is about what the document can hold.
-  if (file.size > IMPORT_LIMIT) {
-    say(file.name + " is " + readable(file.size) + ", and the limit is "
-      + readable(IMPORT_LIMIT) + " — the whole file is kept in the model, and in every "
-      + "step of the undo stack with it");
-    return "no";
-  }
 
   say("reading " + file.name + " · " + readable(file.size) + "…");
-  const bytes = new Uint8Array(await file.arrayBuffer());
 
-  // The name first, and the contents only if the name said nothing. A file
-  // called .step is read as STEP whatever is inside it; a file dragged off a
-  // mail client as "attachment" has no name to go on, and every format here
-  // says what it is in its first few lines.
+  //! ENOUGH OF THE FILE TO SAY WHAT IT IS, and not a byte more. The name is
+  //! asked first and the contents only if the name said nothing - a file
+  //! called .step is read as STEP whatever is inside it; a file dragged off a
+  //! mail client as "attachment" has no name to go on, and every format here
+  //! says what it is in its first few lines.
+  const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+
   //! What the package hands back is a MODEL FILE, so it opens the way every
   //! model file opens: one edit, one undo step, one redraw. Nothing about a
   //! building being a building reaches this far.
+  //! READ WHOLE, and honestly so: the reader is in the page and wants the text,
+  //! so the text is what it gets. Streaming into the kernel would not help a
+  //! reader that never asks the kernel anything.
   if (brought) {
     try {
-      const got = brought.open(new TextDecoder().decode(bytes), file.name);
+      const got = brought.open(await file.text(), file.name);
       await mdl.run({ op: "model", model: got.model });
       fitView();
       for (const line of (got.say || [])) say(line);
@@ -12516,7 +12566,7 @@ async function takeFile(file) {
 
   let format = formatFor(file.name);
   if (!format || !format.read) {
-    const sniffed = sniffFormat(bytes);
+    const sniffed = sniffFormat(head);
     format = sniffed ? FORMATS.find(f => f.key === sniffed) : null;
     if (!format) {
       say("nothing here reads " + file.name + " — try "
@@ -12527,33 +12577,56 @@ async function takeFile(file) {
   }
 
   // A model file is not an import: it IS the document, so it replaces it.
+  //! The other whole-file read, and for the same reason - the JSON is parsed
+  //! here, in the page, before anything of it reaches the kernel.
   if (format.key === "model") {
     try {
-      await mdl.run({ op: "model", model: new TextDecoder().decode(bytes) });
+      await mdl.run({ op: "model", model: await file.text() });
       fitView();
       say(file.name + " opened");
     } catch (err) { say("could not open " + file.name + " — " + err.message); return "no"; }
     return "done";
   }
 
-  // A binary STL travels as base64; everything else is text and travels as
-  // text, so the model file and the console stay readable.
-  const binary = format.key === "stl" && isBinaryStl(bytes);
-  const request = { op: "import", format: format.key, name: file.name,
-                    encoding: binary ? "base64" : "text",
-                    data: binary ? toBase64(bytes) : new TextDecoder().decode(bytes) };
+  //! EVERY OTHER FORMAT GOES THE SAME WAY, whatever it is and whatever size it
+  //! is. STEP, BREP, OBJ, STL and DXF are all read by the kernel, so all five
+  //! are streamed into it rather than handed over as a string - there is no
+  //! format here with a limit and no format here with a fast path.
+  const streams = typeof kernel.takeUpload === "function";
+  const path = streams ? uploadPath(file.name) : "";
+  let request, survey;
+  try {
+    if (streams) {
+      const took = await streamIntoKernel(file, path);
+      say(file.name + " · " + readable(file.size) + " read in " + Math.round(took) + " ms");
+      survey = await kernel.surveyUpload({ path, format: format.key });
+      request = { op: "import", format: format.key, name: file.name,
+                  from: path, size: file.size, assembly: !!survey.assembly };
+    } else {
+      const handed = await handOverWhole(file, format);
+      request = handed.request;
+      survey = handed.survey;
+    }
+  } catch (err) {
+    if (path) await kernel.dropUpload({ path }).catch(() => {});
+    say("could not read " + file.name + " — " + err.message);
+    return "no";
+  }
 
   // A drawing is asked two things a solid never is: how big one unit in it is,
   // and which layers of it are wanted. Both have to be answered before it is
   // read, so the file is surveyed first and converted afterwards.
   if (format.key === "dxf") {
-    try { askDxf(request, format, dxfSurvey(request.data)); }
-    catch (err) { say("could not read " + file.name + " — " + err.message); return "no"; }
+    if (!survey.survey) {
+      if (path) await kernel.dropUpload({ path }).catch(() => {});
+      say("could not read " + file.name + " — nothing in it reads as a drawing");
+      return "no";
+    }
+    askDxf(request, format, survey.survey);
     return "asked";
   }
 
-  const several = format.structure && !binary ? partsNamed(format.key, request.data) : 1;
-  if (several > 1) { askImport(request, format, several); return "asked"; }
+  if (survey.parts > 1) { askImport(request, format, survey.parts); return "asked"; }
   await runImport({ ...request, as: "single" });
   return "done";
 }
@@ -12768,9 +12841,9 @@ function askImport(request, format, several) {
   pending = { ...request, as: "parts" };
   document.getElementById("import-title").textContent = "Import " + format.name;
   document.getElementById("import-note").textContent =
-    request.name + " · " + readable(request.data.length) + " — this file describes "
+    request.name + " · " + readable(request.size) + " — this file describes "
     + several + (format.key === "step"
-        ? (isAssembly(request.data) ? " products in an assembly." : " separate products.")
+        ? (request.assembly ? " products in an assembly." : " separate products.")
         : " named groups.")
     + " It can come in either way.";
 
@@ -12819,7 +12892,7 @@ function askDxf(request, format, survey) {
 
   document.getElementById("import-title").textContent = "Import " + format.name;
   document.getElementById("import-note").textContent =
-    request.name + " · " + readable(request.data.length) + " — " + survey.entities
+    request.name + " · " + readable(request.size) + " — " + survey.entities
     + " entities on " + survey.layers.length + (survey.layers.length === 1 ? " layer" : " layers")
     + (survey.blocks ? ", " + survey.blocks
         + (survey.blocks === 1 ? " block" : " blocks") : "") + ". "
@@ -12894,9 +12967,15 @@ function askDxf(request, format, survey) {
   importDialog.showModal();
 }
 
+//! NOTHING IMPORTED MEANS NOTHING LEFT BEHIND. The file is already on the
+//! kernel's filesystem by the time the dialog is up - it had to be, to be
+//! surveyed - and a cancelled import that leaves it there is two hundred
+//! megabytes nobody can see and nobody can free.
 document.getElementById("btn-import-cancel").addEventListener("click", () => {
   importDialog.close();
+  const dropped = pending;
   pending = null;
+  if (dropped && dropped.from) kernel.dropUpload({ path: dropped.from }).catch(() => {});
   say("nothing imported");
 });
 document.getElementById("btn-import-go").addEventListener("click", () => {
@@ -12920,7 +12999,14 @@ async function runImport(request) {
     say(request.name + " — " + answer.note);
   } catch (err) {
     say("could not import " + request.name + " — " + err.message);
-  } finally { button.disabled = false; }
+  } finally {
+    button.disabled = false;
+    //! Said again on the way out whatever happened. The kernel frees the file
+    //! as soon as the shapes are out of it, but a read that threw before that
+    //! would leave it there, and it is the largest thing in the kernel's
+    //! filesystem by a wide margin.
+    if (request.from) kernel.dropUpload({ path: request.from }).catch(() => {});
+  }
 }
 
 //! The document as text. Normally the whole of it - that is the point, the
