@@ -1718,7 +1718,7 @@ export function makeFactories(oc, kit) {
 
     { name: "fillet", takes: "solid, radius", gives: "solid",
       summary: "Every edge of a body rounded to a radius. The radius is checked "
-             + "against the body first: on an 80 mm cube OpenCascade answers r = 39.9 "
+             + "against the body first: on an 80 mm cube the solver answers r = 39.9 "
              + "with IsDone() true, r = 40 with false and r = 60 with true again, so "
              + "asking it whether the radius fits is not a way of finding out.",
       run: (solid, radius) => {

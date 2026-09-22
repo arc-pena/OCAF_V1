@@ -6,7 +6,7 @@
      is why an interface designed for a desktop arrives unreadable. With it the
      phone rules below are the ones that run. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OCAF Feature Modeller</title>
+<title>Feature Modeller</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -879,6 +879,25 @@ li.holds > .branch[hidden], .branch[hidden] { display: none; }
   padding: 3px 8px 3px 4px; cursor: pointer; user-select: none;
   border-left: 2px solid transparent;
 }
+
+/* ------------------------------------------- a tree with a building in it
+
+   THE ROWS NOBODY IS LOOKING AT COST NOTHING TO LAY OUT.
+
+   Opening every set of a six-thousand-feature building puts seven thousand
+   rows in the panel, and each of them is a glyph, two labels and a switch -
+   fifty thousand elements, of which about forty are on screen. Building them
+   took a third of a second; laying them all out and painting them took two
+   thirds more, and what that is, from the other side of the glass, is a
+   program that has stopped.
+
+   `content-visibility: auto` is the browser being told it may skip all of
+   that for a row that is not in view, and `contain-intrinsic-size` is what
+   it should assume the row's height is meanwhile, so the scrollbar stays
+   honest and the panel does not jump as you scroll. A `.node` is always a
+   single row - a set's children hang off a sibling <ul>, not off the row -
+   so there is nothing inside one that this can get wrong. */
+#tree .node { content-visibility: auto; contain-intrinsic-size: auto 23px; }
 /* The part of a name the search matched, so a filtered tree says WHY each
    row survived rather than leaving you to spot it. */
 .node .label mark {
@@ -1632,6 +1651,27 @@ body.barred #status { visibility: hidden; pointer-events: none; }
 #view-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 #view-tools .tool-sep { width: 1px; background: var(--line); margin: 3px 4px; }
 
+/* The arctic sliders, stacked over the style buttons they belong to. Narrow
+   on purpose: four numbers about how a white model looks are not a dialog. */
+#arctic-look {
+  right: var(--edge); bottom: calc(var(--edge) + 34px); z-index: 3;
+  width: 206px; padding: 8px 10px 9px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+#arctic-look .look-head {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--ink-3);
+}
+#arctic-look label {
+  display: grid; grid-template-columns: 4.6em 1fr 2.4em; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--ink-2);
+}
+#arctic-look output {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3); text-align: right;
+}
+#arctic-look input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
+#arctic-look #look-reset { align-self: flex-end; padding: 2px 8px; font-size: 10px; }
+body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-events: none; }
+
 /* A filled chip button is how a MODE is marked - Nodes, AI, the showroom. The
    two pane switches are not modes; they say what the window is showing, and
    they say it in the ink rather than by turning into a slab. */
@@ -2025,6 +2065,7 @@ dialog .dfoot { padding: 12px 16px; display: flex; gap: 8px; justify-content: fl
   /* The camera's five buttons are 34 px wide, which is under a fingertip. They
      move into the modes sheet, where they can be the size of one. */
   #view-tools { display: none; }
+  #arctic-look { display: none; }
 
   /* EVERY BAR STANDS ON THE DOCK. The dock is the bottom of a phone screen and
      nothing goes under it; a bar that tried has its last row behind a thumb.
@@ -2328,10 +2369,10 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 <div id="boot">
   <div class="ring"></div>
-  <b>OCAF Feature Modeller</b>
+  <b>Feature Modeller</b>
   <div id="boot-message">loading</div>
-  <p class="note">OpenCascade is compiled into this page. The first load unpacks the
-     kernel; after that it is instant.</p>
+  <p class="note">The modeller is compiled into this page. The first load unpacks it;
+     after that it is instant.</p>
 </div>
 
 <!-- WORKING. The one thing an interface must never do is go quiet and stop
@@ -2371,7 +2412,7 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   <button class="step pane" id="btn-panel" aria-pressed="false"
           title="Definition panel" aria-label="Definition panel"></button>
   <div class="sep"></div>
-  <button id="btn-link" title="Which kernel is building this"><span class="dot"></span><span id="link-label">starting…</span></button>
+  <button id="btn-link" title="Where the modelling happens"><span class="dot"></span><span id="link-label">starting…</span></button>
   <div class="sep"></div>
   <button class="step" id="btn-undo" data-label="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
   <button class="step" id="btn-redo" data-label="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
@@ -2503,6 +2544,25 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
      with the one that is open marked. Built from the same list the desktop
      buttons are built from, so a package that adds a mode adds a row here. -->
 <div class="float" id="sheet-modes" hidden></div>
+
+<!-- How white and how dark, for the one style where that is a question. It is
+     up only when Arctic is, because it is meaningless anywhere else. -->
+<div class="float" id="arctic-look" hidden>
+  <div class="look-head">ARCTIC</div>
+  <label><span>Shadows</span>
+    <input type="range" id="look-shadow" min="0" max="2" step="0.05" value="1">
+    <output id="look-shadow-out">1.00</output></label>
+  <label><span>Paper</span>
+    <input type="range" id="look-paper" min="0" max="1" step="0.02" value="0.35">
+    <output id="look-paper-out">0.35</output></label>
+  <label><span>Lines</span>
+    <input type="range" id="look-ink" min="0" max="1" step="0.02" value="0.85">
+    <output id="look-ink-out">0.85</output></label>
+  <label><span>Weight</span>
+    <input type="range" id="look-line" min="0.5" max="3" step="0.05" value="1.15">
+    <output id="look-line-out">1.15</output></label>
+  <button class="btn" id="look-reset">Reset</button>
+</div>
 
 <div class="float" id="view-tools">
   <!-- How the model is drawn, beside where it is looked at from: both are the
@@ -2656,32 +2716,29 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 
 <dialog id="modal-link">
   <div class="dhead">
-    <h3>Which kernel</h3>
-    <p>This page carries OpenCascade compiled to WebAssembly, and builds the geometry
-       itself. A native kernel does the same work with the real OCAF document behind
-       it — labels, TFunction drivers, TNaming results — and can write
-       <code>.cbf</code>, STEP and OBJ to disk.</p>
-    <ol>
-      <li>Build it once: <code>cmake -S ocaf -B ocaf/build &amp;&amp; cmake --build ocaf/build -j</code></li>
-      <li>Serve a model: <code>ocaf/build/ocafcad serve ocaf/examples/cube_fillet.ocaf.json</code></li>
-    </ol>
+    <h3>Where the modelling happens</h3>
+    <p>This page builds the geometry itself, and needs nothing else to do it. A
+       server does the same work with more room — it keeps the whole document
+       natively and can write files straight to disk.</p>
+    <p class="note">Leave this alone and everything happens in the page, which is
+       what most work wants. Point it at a server and the same interface uses that
+       instead — nothing else about the document changes.</p>
   </div>
-  <label class="row">Kernel address
+  <label class="row">Server address
     <input class="url" id="link-url" value="http://127.0.0.1:8787" spellcheck="false">
   </label>
   <div class="dfoot">
-    <button class="btn" id="btn-disconnect">Use the kernel in this page</button>
+    <button class="btn" id="btn-disconnect">Work in this page</button>
     <button class="btn primary" id="btn-connect">Connect</button>
   </div>
 </dialog>
 
 <dialog id="modal">
   <div class="dhead">
-    <h3>Model file — <span class="badge">.ocaf.json</span></h3>
+    <h3>Model file — <span class="badge">.model.json</span></h3>
     <p id="model-note">The parametric model — every feature, its arguments and its
-       references. Paste one in and the kernel rebuilds it.</p>
+       references. Paste one in and it is rebuilt.</p>
   </div>
-  <div class="cli">$ ocafcad build model.ocaf.json -o part.cbf --step part.step</div>
   <textarea id="model-text" spellcheck="false"></textarea>
   <div class="dfoot">
     <button class="btn" id="btn-copy">Copy</button>

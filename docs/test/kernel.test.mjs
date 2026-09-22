@@ -196,7 +196,7 @@ const bigId = out.id;
 out = await kernel.setParameter(bigId, "countX", 40);
 out = await kernel.setParameter(bigId, "countY", 40);
 check("an unreasonable pattern is refused, not attempted",
-  out.report.failed.length === 1 && /more than this kernel will build/.test(out.report.failed[0].message),
+  out.report.failed.length === 1 && /more than this build will make/.test(out.report.failed[0].message),
   JSON.stringify(out.report.failed.map(f => f.message)));
 
 console.log("14. the model file carries the pattern by name");

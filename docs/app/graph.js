@@ -849,7 +849,7 @@ export class GraphEditor {
       "<h4>Three rules</h4><ol>" +
       "<li><b>The JSON is the model.</b> Not a save format - the thing itself. " +
       "A button is a literal, <code>{\"op\":\"add\",\"type\":\"Cube\"}</code>; a slider is a " +
-      "literal, <code>{\"op\":\"set\",…}</code>. Geometry is what the kernel makes of the text.</li>" +
+      "literal, <code>{\"op\":\"set\",…}</code>. Geometry is what is made of the text.</li>" +
       "<li><b>Tree and graph are one graph.</b> The tree reads it in the order the solver " +
       "runs; the canvas reads it along the references that fix that order. Edit either one " +
       "and the other has already changed.</li>" +

@@ -32,9 +32,9 @@ export const FORMATS = [
     summary: "ISO-10303, the exchange format every CAD system reads. Surfaces and "
            + "solids, with the parts of an assembly kept apart." },
   { key: "brep", name: "BREP", extensions: [".brep", ".brp"], carries: "solid",
-    short: "OpenCascade's own, exact",
+    short: "this modeller's own, exact",
     read: true, write: true, structure: false,
-    summary: "OpenCascade's own shape format. Exact, fast to read back, and "
+    summary: "This modeller's own shape format. Exact, fast to read back, and "
            + "understood by nothing else." },
   { key: "obj", name: "OBJ", extensions: [".obj"], carries: "mesh",
     short: "meshes, with their faces kept",
@@ -66,13 +66,13 @@ export const FORMATS = [
 //! a file someone chose on purpose.
 export const UNAVAILABLE = [
   { extensions: [".iges", ".igs"], name: "IGES",
-    reason: "the IGES reader is not compiled into this kernel build. Re-export it "
+    reason: "the IGES reader is not compiled into this build. Re-export it "
           + "as STEP, which every system that writes IGES can also write." },
   { extensions: [".3dm"], name: "Rhino 3DM",
     reason: "reading it needs Rhino's own library, and this page may not fetch one. "
           + "Export from Rhino as STEP for solids, or OBJ for meshes." },
   { extensions: [".sat", ".sab"], name: "ACIS SAT",
-    reason: "ACIS is a licensed format and OpenCascade cannot read it. Export as STEP." },
+    reason: "ACIS is a licensed format and this modeller cannot read it. Export as STEP." },
   { extensions: [".ifc"], name: "IFC",
     reason: "IFC is a building model, not a shape file; it needs a reader this build "
           + "does not have. Export the geometry as STEP." },

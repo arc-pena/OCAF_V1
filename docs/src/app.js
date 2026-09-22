@@ -7,8 +7,8 @@ import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, Showroom } from "./showroom.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
-import { Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS, VIEW_STYLES, appearanceOf,
-         findFinish, findMark, findStyle, findWeight, hexOf,
+import { ARCTIC_LOOK, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS, VIEW_STYLES,
+         appearanceOf, findFinish, findMark, findStyle, findWeight, hexOf,
          makeSky, materialOf, rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
@@ -197,7 +197,7 @@ const mdl = new Mdl({
 //! takes nothing with it.
 async function edit(command, options = {}) {
   const watch = setTimeout(() => say("still working on " + (command.op || "that")
-    + " - OpenCascade is in this page, so a big one takes the page with it"), 1000);
+    + " - the modelling happens in this page, so a big one takes the page with it"), 1000);
   try { return await mdl.run(command, options); }
   catch (err) { showError(err.message); return null; }
   finally { clearTimeout(watch); }
@@ -1158,6 +1158,9 @@ async function feedTheView(hungry) {
     }
     rebuildPickList();
     rebuildBoxes();
+    //! AND THE CAPS, if there is a cut: the shapes that just landed are inside
+    //! it as much as the ones that were here before it.
+    settleSection();
     draw();
   } catch (err) {
     //! A round that failed must not stop the next one - the camera will ask
@@ -1277,10 +1280,20 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
     return clay;
   }
   if (!style.materials) {
+    //! The colour the body wears, on the modelling light - and only the
+    //! colour. A finish nobody has chosen is the neutral grey this always
+    //! drew, so a part that has never been given a material looks exactly as
+    //! it did.
+    const worn = style.colours ? materialOf(entry && entry.appearance) : null;
+    const colour = worn && entry && entry.appearance
+      ? new THREE.Color(...worn.color) : THEME.shape.clone();
     const shaded = bothSides(new THREE.MeshStandardMaterial({
-      color: THEME.shape.clone(), metalness: 0.15, roughness: 0.55,
+      color: colour, metalness: 0.15, roughness: 0.55,
+      transparent: worn && worn.opacity < 0.999,
+      opacity: worn ? worn.opacity : 1,
+      depthWrite: !worn || worn.opacity >= 0.999,
     }));
-    shaded.userData.base = THEME.shape.clone();
+    shaded.userData.base = colour.clone();
     return shaded;
   }
   const made = materialOf(entry && entry.appearance);
@@ -1299,15 +1312,30 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
 //! and clutter in a picture, so the styles that are pictures do without it -
 //! but a curve FEATURE is not an edge, it is the thing itself, and it is drawn
 //! in every style.
+//! THE COLOUR SOMEBODY GAVE IT, if they gave it one.
+//!
+//! A colour on a feature used to mean a colour on its surfaces, so a curve or
+//! a plane wore the theme's and nothing else - and a wireframe you have
+//! coloured on purpose, which is what a whole imported building's setting-out
+//! is, came out in the same green as every other curve. A line is as capable
+//! of being blue as a solid is.
+function wornColour(entry) {
+  const worn = entry && entry.appearance && entry.appearance.color;
+  return Array.isArray(worn) && worn.length === 3 ? new THREE.Color(...worn) : null;
+}
+
 function edgeMaterial(entry, style = findStyle(state.style)) {
   const datum = drawsFaint(entry);
   const curve = !!entry && entry.produces === "curve";
   const shown = curve || datum ? true : style.edges;
-  return new THREE.LineBasicMaterial({
-    color: datum ? THEME.datum : curve ? THEME.curve : THEME["shape-edge"],
+  const worn = datum || curve ? wornColour(entry) : null;
+  const line = new THREE.LineBasicMaterial({
+    color: worn || (datum ? THEME.datum : curve ? THEME.curve : THEME["shape-edge"]),
     transparent: true, opacity: datum ? 0.42 : curve ? 1 : 0.4,
     visible: shown && (datum ? style.datums : true),
   });
+  line.userData.base = line.color.clone();
+  return line;
 }
 
 //! The sky a rendered view reflects, built once and kept. Nothing needs it
@@ -1323,9 +1351,72 @@ function skyMap() {
 //! three shader programs that a shaded session has no use for.
 let arctic = null;
 function arcticPass() {
-  if (!arctic) arctic = new Arctic(THREE, renderer);
+  if (!arctic) { arctic = new Arctic(THREE, renderer); arctic.setLook(arcticLook); }
   return arctic;
 }
+
+/* ------------------------------------------------- how white, how dark
+
+   THE ONE STYLE WITH A DIAL ON IT, because it is the one whose whole job is
+   how something looks rather than what it is. Shaded and Rendered answer a
+   question - what is the shape, what is it made of - and there is a right
+   answer to both. Arctic is a picture, and how much shadow a picture wants
+   is a matter of what is in it: a stair detail wants its corners dug out, a
+   tower wants a whisper of grey in the reveals and clean white everywhere
+   else. Rhino gives it the same four sliders for the same reason.
+
+   Kept in the browser rather than in the document: it is how THIS WINDOW is
+   drawing, like the style itself, and a model file that told everyone else
+   how dark their shadows should be would be telling them the wrong thing. */
+
+const arcticLook = { ...ARCTIC_LOOK };
+
+const LOOK_FIELDS = [
+  { key: "shadow", input: "look-shadow", digits: 2 },
+  { key: "paper",  input: "look-paper",  digits: 2 },
+  { key: "ink",    input: "look-ink",    digits: 2 },
+  { key: "line",   input: "look-line",   digits: 2 },
+];
+
+function rememberedLook() {
+  try {
+    const kept = JSON.parse(localStorage.getItem("ocafcad/arctic-look") || "null");
+    if (kept && typeof kept === "object")
+      for (const { key } of LOOK_FIELDS)
+        if (typeof kept[key] === "number" && isFinite(kept[key])) arcticLook[key] = kept[key];
+  } catch (e) {}
+}
+
+function paintLook() {
+  for (const { key, input, digits } of LOOK_FIELDS) {
+    const slider = document.getElementById(input);
+    const shown = document.getElementById(input + "-out");
+    if (slider) slider.value = String(arcticLook[key]);
+    if (shown) shown.textContent = arcticLook[key].toFixed(digits);
+  }
+}
+
+function setLook(changes, remember = true) {
+  Object.assign(arcticLook, changes);
+  if (arctic) arctic.setLook(arcticLook);
+  paintLook();
+  if (remember)
+    try { localStorage.setItem("ocafcad/arctic-look", JSON.stringify(arcticLook)); } catch (e) {}
+  draw();
+}
+
+function wireLook() {
+  rememberedLook();
+  paintLook();
+  for (const { key, input } of LOOK_FIELDS) {
+    const slider = document.getElementById(input);
+    if (!slider) continue;
+    slider.addEventListener("input", () => setLook({ [key]: Number(slider.value) }));
+  }
+  const reset = document.getElementById("look-reset");
+  if (reset) reset.addEventListener("click", () => setLook({ ...ARCTIC_LOOK }));
+}
+wireLook();
 
 //! Which style is showing, applied to everything already on screen. Nothing is
 //! re-meshed - the triangles are the same triangles - so this is a walk over
@@ -1350,7 +1441,11 @@ function applyStyle(styleKey = state.style) {
         object.material = object.userData.datum
           ? was
           : surfaceMaterial(entry, style);
-        if (object.userData.datum) was.visible = style.datums;
+        if (object.userData.datum) {
+          was.color.copy(wornColour(entry) || THEME.datum);
+          was.userData.base = was.color.clone();
+          was.visible = style.datums;
+        }
         else was.dispose();
       } else if (object.isLineSegments) {
         object.material.dispose();
@@ -1364,6 +1459,9 @@ function applyStyle(styleKey = state.style) {
   // The backdrop belongs to the style too: a white model wants a plain ground
   // behind it, not a blue-grey sky that its own silhouette disappears into.
   document.body.dataset.style = style.key;
+  //! The dial is up only when the style it is about is.
+  const look = document.getElementById("arctic-look");
+  if (look) look.hidden = style.key !== "arctic";
   paintBackdrop();
   // The material panel says where a material is shown and that depends on the
   // style, so it is rebuilt rather than left saying something that was true a
@@ -1585,7 +1683,8 @@ function markOf(entry) {
 function markMaterial(entry, as) {
   const { mark, weight } = markOf(entry);
   const grow = as === "hover" ? 1.7 : as === "chosen" ? 1.45 : 1;
-  const colour = as === "hover" ? THEME.hover : as === "chosen" ? THEME.accent : THEME.datum;
+  const colour = as === "hover" ? THEME.hover : as === "chosen" ? THEME.accent
+               : wornColour(entry) || THEME.datum;
   return new THREE.PointsMaterial({
     color: colour.clone(),
     //! The ring is added at 1.45 of the base size, so the mark inside it stays
@@ -1616,10 +1715,17 @@ function groupFromStream(mesh, entry) {
     if (!mesh.normals) geometry.computeVertexNormals();
 
     const material = datum
-      ? new THREE.MeshBasicMaterial({ color: THEME.datum, transparent: true, opacity: 0.05,
+      ? new THREE.MeshBasicMaterial({ color: wornColour(entry) || THEME.datum,
+                                      transparent: true, opacity: 0.05,
                                       side: THREE.DoubleSide, depthWrite: false,
                                       visible: style.datums })
       : surfaceMaterial(entry, style);
+    //! WHAT TO GO BACK TO when a tint comes off. Every other material here
+    //! records it; a datum's did not, so the repaint that runs on every hover
+    //! put the theme's amber back over a colour somebody had chosen, and an
+    //! imported building's setting-out went from blue to amber the first time
+    //! the pointer crossed the viewport.
+    if (datum) material.userData.base = material.color.clone();
 
     const solid = new THREE.Mesh(geometry, material);
     solid.userData.id = mesh.id;
@@ -1685,7 +1791,10 @@ function setShape(mesh) {
   shapes.set(mesh.id, { revision: mesh.revision, group });
   // A shape that has just arrived has to be cut with everything else, and the
   // planes' travel re-measured against a model that may have grown.
-  if (cutter.on) sectionStale = true;
+  if (cutter.on) {
+    if (cutter.live.length) clipGroup(group, cutter.live);
+    sectionStale = true;
+  }
 }
 
 //! Rebuilding the caps walks every triangle, so it is done once after a batch
@@ -2054,14 +2163,22 @@ function paintSelection() {
       //! is five per cent opaque, so a tint of it is nothing. It goes opaque
       //! enough to see instead.
       if (object.isMesh && object.material.isMeshBasicMaterial && object.userData.datum) {
-        object.material.color.copy(selected || lit ? mark : THEME.datum);
+        //! ASKED OF THE DOCUMENT, not of what the material was made with. A
+        //! shape can land before the tree carrying its colour does - the
+        //! triangles and the tree arrive on different errands - and a datum's
+        //! material is the one thing a style change does not rebuild, so a
+        //! plane made in that window kept the theme's amber for good.
+        const base = wornColour(feature(object.userData.id))
+                  || object.material.userData.base || THEME.datum;
+        object.material.color.copy(selected || lit ? mark : base);
         object.material.opacity = selected ? 0.3 : lit ? 0.22 : 0.05;
       }
       if (object.isLineSegments && object.material.isLineBasicMaterial &&
           object.parent && object.parent.userData.solid) {
         // A curve keeps its own colour: the line is the feature, not the
         // silhouette of one, and dimming it to a tangent edge loses it.
-        const own = object.parent.userData.curve ? THEME.curve : THEME["shape-edge"];
+        const own = object.material.userData.base
+                 || (object.parent.userData.curve ? THEME.curve : THEME["shape-edge"]);
         object.material.color.copy(selected || lit ? mark : own);
         object.material.opacity = selected || lit ? 1 : object.parent.userData.curve ? 1 : 0.4;
       }
@@ -5036,6 +5153,7 @@ const cutter = {
   hatches: [],              // the cut faces' textures, told how far away they are
   group: null,              // the caps, the outlines and the handles
   planes: new Map(),        // axis key -> THREE.Plane, kept so a drag is cheap
+  live: [],                 // the ones in force, for a shape that lands later
   grab: null,
   hover: null,
 };
@@ -5270,19 +5388,29 @@ function livePlanes() {
 //! The planes handed to every material that draws the model, and to nothing
 //! else. Local clipping rather than global, so the widgets, the grid and the
 //! section's own handles are not cut in half by the cutter.
+function clipGroup(group, planes) {
+  group.traverse(object => {
+    const material = object.material;
+    if (!material) return;
+    for (const one of Array.isArray(material) ? material : [material]) {
+      one.clippingPlanes = planes.length ? planes : null;
+      one.clipShadows = true;
+      one.needsUpdate = true;
+    }
+  });
+}
+
 function applyClipping(planes) {
   renderer.localClippingEnabled = planes.length > 0;
-  for (const [, { group }] of shapes) {
-    group.traverse(object => {
-      const material = object.material;
-      if (!material) return;
-      for (const one of Array.isArray(material) ? material : [material]) {
-        one.clippingPlanes = planes.length ? planes : null;
-        one.clipShadows = true;
-        one.needsUpdate = true;
-      }
-    });
-  }
+  //! KEPT, because the model is no longer all here at once. A shape fetched
+  //! after the cut was made has a material of its own, made minutes later by
+  //! a camera move, and it has to be born clipped or it stands there whole
+  //! among the cut ones with no cap on it. That is what "one cut made several
+  //! pieces of strange geometry" was: half a building clipped and half of it
+  //! not, and caps drawn for only the half that existed when the plane went
+  //! through.
+  cutter.live = planes.length ? planes : [];
+  for (const [, { group }] of shapes) clipGroup(group, planes);
 }
 
 function clearSection() {
@@ -5502,8 +5630,15 @@ function toggleSection(force) {
 
 function setCut(axis, changes) {
   ensureCuts();
+  const was = cutter.on;
   Object.assign(cutter.cuts[axis], changes);
   if (!cutter.on && changes.on) cutter.on = true;
+  //! Switched on from the section bar rather than from the button, which is
+  //! the same decision and needs the same whole model behind it.
+  if (!was && cutter.on && unmeshed.size) {
+    makeResident("Cutting the model\u2026").then(refreshSection);
+    return;
+  }
   refreshSection();
 }
 
@@ -6668,10 +6803,13 @@ function seedFolds() {
 
 //! Every set in the document, and the headings with them.
 function foldAll(on, root = null) {
-  const inside = root ? withContents([root]).filter(id => id !== root) : null;
+  //! A SET, NOT A LIST. `includes` inside a loop over every feature is six
+  //! thousand times two thousand string comparisons on the branch this was
+  //! found on - fourteen million of them to fold one folder.
+  const inside = root ? new Set(withContents([root])) : null;
   for (const f of (state.tree ? state.tree.features : [])) {
     if (f.category !== "container") continue;
-    if (inside && !inside.includes(f.id)) continue;
+    if (inside && (f.id === root || !inside.has(f.id))) continue;
     if (on) shut.add(f.id); else shut.delete(f.id);
   }
   //! The root itself folds with its contents when the whole branch is asked
@@ -7085,6 +7223,18 @@ function allHidden(id) {
   return any && !showing;
 }
 
+const glyphCache = new Map();
+function glyphFor(type) {
+  let made = glyphCache.get(type);
+  if (!made) {
+    made = document.createElement("span");
+    made.className = "glyph";
+    made.innerHTML = svg(ICONS[type] || ICONS.part);
+    glyphCache.set(type, made);
+  }
+  return made.cloneNode(true);
+}
+
 function treeNode(entry, keep = null, hit = null) {
   const consumed = !!entry.consumedBy;
   //! A SET'S EYE IS ABOUT WHAT IS IN IT. A folder has no geometry of its own,
@@ -7120,9 +7270,10 @@ function treeNode(entry, keep = null, hit = null) {
       + " — it stays in the tree, not in the 3D view"
     : (schemaType(entry.type) || {}).summary || entry.type;
 
-  const glyph = document.createElement("span");
-  glyph.className = "glyph";
-  glyph.innerHTML = svg(ICONS[entry.type] || ICONS.part);
+  //! THE SAME ICON, COPIED, not parsed again. Seven thousand rows meant seven
+  //! thousand runs of the HTML parser over the same dozen glyphs; cloning the
+  //! one that was already made is the same picture for none of the work.
+  const glyph = glyphFor(entry.type);
 
   const label = document.createElement("span");
   label.className = "label";
@@ -10317,7 +10468,7 @@ function updateStamp() {
   document.getElementById("doc-count").textContent =
     state.tree.features.length + " features · " + state.tree.units;
   document.getElementById("status-kernel").textContent =
-    kernel ? (kernel.kind === "wasm" ? "OpenCascade · in page" : kernel.description) : "starting…";
+    kernel ? (kernel.kind === "wasm" ? "modelling in this page" : kernel.description) : "starting…";
 }
 
 /* ----------------------------------------------------------- which kernel */
@@ -10326,7 +10477,7 @@ function setLink(active) {
   const chip = document.getElementById("btn-link");
   chip.classList.toggle("live", !!active);
   document.getElementById("link-label").textContent = !active ? "starting…"
-    : active.kind === "wasm" ? "wasm"
+    : active.kind === "wasm" ? "in page"
     : (active.base ? active.base.replace(/^https?:\/\//, "") : "same origin");
 }
 
@@ -10381,12 +10532,12 @@ const boot = message => {
 //! is a file beside the page. Either way it arrives as a Response, so the
 //! streaming compiler starts on it before it has finished arriving.
 const kernelResponse = () =>
-  resource("kernel-payload", KERNEL_URL, "the OpenCascade kernel", "application/wasm");
+  resource("kernel-payload", KERNEL_URL, "the modeller", "application/wasm");
 
 let pageKernel = null;
 async function usePageKernel() {
   if (!pageKernel) {
-    boot("unpacking and compiling OpenCascade");
+    boot("unpacking the modeller");
     const instantiateWasm = (imports, onReady) => {
       kernelResponse()
         .then(answer => WebAssembly.instantiateStreaming(answer, imports))
@@ -10441,7 +10592,7 @@ document.getElementById("btn-connect").addEventListener("click", async () => {
     modalLink.close();
     button.textContent = "Connect";
   } catch (err) {
-    button.textContent = "No kernel at that address";
+    button.textContent = "Nothing at that address";
     setTimeout(() => { button.textContent = "Connect"; }, 2600);
   }
 });
@@ -10964,6 +11115,7 @@ let openMode = null;
 //! spirit: nothing in the program reads this back.
 globalThis.__cad = {
   detail, shapes, unmeshed, view, setShape,
+  entry: id => feature(id),
   get kernel() { return kernel; },
   get camera() { return camera; },
   look: () => lookAtDetail(),
@@ -11432,7 +11584,7 @@ document.getElementById("btn-step-copy").addEventListener("click", async () => {
    ========================================================================== */
 
 const EXTENSION = { step: ".step", brep: ".brep", obj: ".obj", stl: ".stl", dxf: ".dxf",
-                    model: ".ocaf.json" };
+                    model: ".model.json" };
 
 //! The name to save under: the document's, made safe for a filesystem.
 const stemOf = () => ((state.tree && state.tree.name) || "part").replace(/[^\w.-]+/g, "-");
@@ -11459,8 +11611,8 @@ async function offerFile(filename, text, title, note) {
   // page up filling one.
   if (text.length > 2 * 1024 * 1024) {
     say(filename + " is " + readable(text.length) + ", and this view cannot save files - "
-      + "it can only show text, which is no way to move a file that size. Connect a native "
-      + "kernel, or open the page where saving is allowed.");
+      + "it can only show text, which is no way to move a file that size. Connect a server, "
+      + "or open the page where saving is allowed.");
     return "too big";
   }
 
@@ -11486,7 +11638,7 @@ async function exportAs(key) {
       : await kernel.exportShapes(key);
     const how = await offerFile(filename, answer.text, "Export " + format.name,
       format.summary + " This view cannot save files, so copy the text and keep it under "
-      + "that name — or connect a native kernel, which writes one straight to disk.");
+      + "that name — or connect a server, which writes one straight to disk.");
     if (how === "saved") say(filename + " saved · " + answer.note);
     else if (how === "declined") say("not saved");
     else if (how === "shown") say(filename + " · " + answer.note);
@@ -12011,7 +12163,7 @@ async function openModelDialog() {
   } else {
     document.getElementById("model-text").value = text;
     heading.textContent = "The parametric model — every feature, its arguments and its "
-      + "references. Paste one in and the kernel rebuilds it.";
+      + "references. Paste one in and it is rebuilt.";
     rebuild.disabled = false;
   }
   modal.showModal();
@@ -13225,7 +13377,7 @@ addEventListener("keyup", event => {
   const sameOrigin = location.protocol.startsWith("http") ? "" : null;
   for (const candidate of [asked, sameOrigin].filter(c => c !== null && c !== undefined)) {
     try {
-      boot("connecting to the kernel");
+      boot("connecting");
       await useNativeKernel(candidate);
       document.getElementById("boot").hidden = true;
       offerSpare();
@@ -13236,7 +13388,7 @@ addEventListener("keyup", event => {
   try {
     await usePageKernel();
   } catch (err) {
-    boot("could not start OpenCascade: " + err.message);
+    boot("could not start the modeller: " + err.message);
     document.getElementById("boot").classList.add("failed");
     return;
   }

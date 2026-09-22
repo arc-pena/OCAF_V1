@@ -87,7 +87,7 @@ export function packagesBrief(packages) {
 //! on - the import op takes the file's text - and because a format that is not
 //! in this list is one to say no to rather than one to try.
 export function exchangeBrief(formats) {
-  if (!formats || !formats.length) return "No file exchange in this kernel.";
+  if (!formats || !formats.length) return "No file exchange in this build.";
   const line = f => "  " + f.name + " (" + f.extensions.join(", ") + ") "
     + (f.read && f.write ? "in and out" : f.read ? "in only" : "out only")
     + (f.structure ? ", carries several parts" : "")
@@ -224,8 +224,8 @@ export function briefing(schema, model, packages) {
     + "\n      " + op.summary
     + "\n      e.g. " + JSON.stringify(op.example)).join("\n");
 
-  return `You are working inside a parametric CAD modeller built on OpenCascade's
-OCAF. You edit the model the same way every other part of the interface does:
+  return `You are working inside a parametric CAD modeller. You edit the model
+the same way every other part of the interface does:
 by sending edits in its model description language. Nothing else reaches the
 document, and each edit you send is applied live in front of the person asking,
 so they watch the part being built.

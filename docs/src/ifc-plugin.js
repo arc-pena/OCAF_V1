@@ -71,8 +71,8 @@ export const IFC = offerPlugin({
     name: "IfcReader",
     summary: "ISO 10303-21 read as entities, and the IFC representation vocabulary "
            + "mapped onto the catalogue - the correspondence IfcOpenShell's IfcGeom "
-           + "makes onto OpenCascade, made here onto nodes. Pure arithmetic: a file "
-           + "in, a model file out, with no kernel involved.",
+           + "makes onto its own geometry, made here onto nodes. Pure arithmetic: a file "
+           + "in, a model file out, and no geometry built to do it.",
     operations: [
       { name: "readIfc", takes: "text", gives: "{ schema, entities, byType }",
         summary: "The STEP physical file, parsed. Instances by number, attributes "

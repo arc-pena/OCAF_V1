@@ -2262,7 +2262,7 @@ export const CATALOGUE = [
   { type: "Script", guid: "9a1b2c30-0030-4c00-9e00-caf000000030", category: "body",
     produces: "solid",
     summary: "A feature you write. The code declares its own parameters and returns "
-           + "a shape, so anything the kernel can build can become a feature. "
+           + "a shape, so anything this build can make can become a feature. "
            + "This one starts as a spiral stair.",
     args: [code("code", "Code", SPIRAL_STAIR)] },
   { type: "Center", guid: "9a1b2c30-0032-4c00-9e00-caf000000032", category: "body",
@@ -2411,7 +2411,7 @@ export const CATALOGUE = [
            + "where a mesh is placed by arithmetic rather than by hand. One factor for "
            + "all of it, then a factor per axis - which is where a squash along one "
            + "direction lives: a sphere with Z at 0.4 is the flattened dome a B-Rep "
-           + "transform in this kernel cannot make.",
+           + "transform cannot make.",
     args: [ref("mesh", "Mesh", ["mesh"], true),
            real("mx", "Move X", 0, -8000, 8000, 1), real("my", "Move Y", 0, -8000, 8000, 1),
            real("mz", "Move Z", 0, -8000, 8000, 1),
@@ -2453,7 +2453,7 @@ export const CATALOGUE = [
      it hands downstream is an ordinary shape. */
   { type: "Imported", guid: "9a1b2c30-00b0-4c00-9e00-caf0000000b0", category: "body",
     produces: "solid", hidden: true,
-    summary: "A solid or surface read from a file - STEP, or OpenCascade's own BREP. "
+    summary: "A solid or surface read from a file - STEP, or this modeller's own BREP. "
            + "Kept as the shape itself rather than as the file it came from, so it "
            + "rebuilds without the reader that first read it. Added by Import, not "
            + "from the toolbar.",
@@ -3782,9 +3782,9 @@ export class Driver {
 //! an Error depending on how it crossed the boundary. Say something useful
 //! whichever it was.
 export function kernelMessage(err) {
-  if (!err) return "the kernel failed without a message";
+  if (!err) return "it failed without a message";
   if (typeof err === "string") return err;
-  if (typeof err === "number") return "kernel fault (code " + err + ")";
+  if (typeof err === "number") return "internal fault (code " + err + ")";
   if (err.message) return err.message.replace(/^Error:\s*/, "");
   return String(err);
 }

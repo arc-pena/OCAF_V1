@@ -308,5 +308,38 @@ console.log("\n7. an outline that came in is an outline you can open");
         drawn[0].r + " over " + ((drawn[0].a1 - drawn[0].a0) * 180 / Math.PI).toFixed(1) + "deg");
 }
 
+console.log("\nA colour per trade, so a model you did not build can be read");
+{
+  const model = readIfc(readFileSync(new URL("./files/small.ifc", import.meta.url), "utf8"));
+  const { features } = ifcFeatures(model, {});
+  const worn = type => {
+    const f = features.filter(one => one.type === type && one.appearance)[0];
+    return f ? f.appearance.color : null;
+  };
+  //! By the names the file gives them - a column in an IFC is called what the
+  //! engineer called it, "UC305x305x97", not "column".
+  const SOLID = ["Extrude", "Revolve", "Sweep", "Boolean", "Trim", "Join", "MeshImported"];
+  const named = name => {
+    const f = features.find(one => one.appearance && one.name === name
+                                && SOLID.includes(one.type));
+    return f ? f.appearance.color : null;
+  };
+  const column = named("UC305x305x97");
+  const slab = named("Floor 250");
+  check("a column is green", !!column && column[1] > column[0] && column[1] > column[2],
+        JSON.stringify(column));
+  check("a slab is grey", !!slab && Math.abs(slab[0] - slab[2]) < 0.05
+                               && Math.abs(slab[0] - slab[1]) < 0.05, JSON.stringify(slab));
+  //! The setting-out, which is most of what an IFC import makes, reads as one
+  //! thing rather than as the same green every curve in the program wears.
+  const plane = worn("Plane"), point = worn("Point");
+  check("the planes it sets out on are blue", !!plane && plane[2] > plane[0] + 0.3,
+        JSON.stringify(plane));
+  check("and so are the points", !!point && point[2] > point[0] + 0.3, JSON.stringify(point));
+  //! A body nobody has classified keeps the neutral grey it has always had.
+  const proxy = features.find(f => f.type === "Extrude" && !f.appearance);
+  check("and a solid gets no colour it was not given", !!proxy);
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);

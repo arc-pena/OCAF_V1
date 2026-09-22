@@ -10,7 +10,7 @@ export async function createHttpKernel(base) {
   const kernel = {
     kind: "http",
     base: base || "",
-    description: base ? "OpenCascade at " + base : "OpenCascade, same origin",
+    description: base ? "modelling at " + base : "modelling, same origin",
 
     async request(path, options) {
       const response = await fetch(this.base + path, options);

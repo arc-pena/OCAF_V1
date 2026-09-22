@@ -260,7 +260,7 @@ export const MDL_OPS = [
     }),
 
   modelOp("import", ["format", "data", "name?", "encoding?", "as?", "units?", "layers?"],
-    "Read a file into the document. `format` is one of the kernel's read formats - step, "
+    "Read a file into the document. `format` is one of the formats this build reads - step, "
     + "brep, obj, stl - and `data` is the file itself, as text, or base64 with "
     + '`encoding` set to "base64" for a binary STL. `as` is "single" for one feature or '
     + '"parts" to break the file into the parts it names, which only a format that '
@@ -296,7 +296,7 @@ export const MDL_OPS = [
     "Replace the sub-shapes an argument is about - which edges a fillet rounds, which "
     + "face a draft hinges on, which face of a skin a Face node takes. A pick names the "
     + "feature it belongs to, the kind, and the number, counting from zero in the order "
-    + "the kernel enumerates them; \"near\" is optional and says where the thing was, so "
+    + "they are enumerated for you; \"near\" is optional and says where the thing was, so "
     + "a click can still find it after the body changes shape. Written without it - "
     + "{ of, kind, at } - the number is the whole of the pick, which is the practical "
     + "form when you are editing the file rather than clicking the model. An empty list "

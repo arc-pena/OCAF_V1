@@ -1044,10 +1044,26 @@ export function ifcFeatures(model, options = {}) {
   const missed = type => { report.missed[type] = (report.missed[type] || 0) + 1; };
   const made = type => { report.made[type] = (report.made[type] || 0) + 1; };
 
+  const byId = new Map();
   const put = (type, name, args, parent) => {
     const id = fresh(IFC_PREFIX[type] || "IF");
-    features.push({ id, type, name, parent, args });
+    const made = { id, type, name, parent, args };
+    //! THE WIREFRAME IS BLUE. Every datum this reader makes - the placement
+    //! planes, the profile points, the sketches the extrusions are pulled
+    //! from - is setting-out rather than building, and setting-out reads as
+    //! one colour or it does not read at all.
+    if (IFC_WIRE.has(type)) made.appearance = { finish: "matte", color: IFC_BLUE };
+    features.push(made);
+    byId.set(id, made);
     report.nodes++;
+    return id;
+  };
+  //! What a product is made of, put on the node that IS the product - the
+  //! last one, after the openings have been cut out of it, because that is
+  //! the one anybody sees.
+  const paint = (id, colour) => {
+    const one = byId.get(id);
+    if (one && colour) one.appearance = { finish: "matte", color: colour };
     return id;
   };
 
@@ -1660,9 +1676,41 @@ export function ifcFeatures(model, options = {}) {
                                       op: "Difference" }, set);
       }
     }
-    return body;
+    return paint(body, IFC_COLOURS[entity.type] || null);
   }
 }
+
+/* --------------------------------------------------- what a building is made of
+
+   A COLOUR PER TRADE, which is how anybody reads a model they did not build.
+
+   An IFC file names what every product IS - a beam, a column, a slab - and
+   that naming is the most useful thing in the file after the geometry. Drawn
+   all in one grey it is six thousand extrusions; drawn by class it is a frame
+   with a floor on it, and you can see at a glance that somebody has modelled
+   a column as a wall.
+
+   These are the four the eye needs and no more: everything else keeps the
+   neutral grey a body has when nobody has said anything about it, so the
+   colours that ARE here mean something.                                    */
+
+const IFC_BLUE = [0.16, 0.42, 0.78];
+const IFC_ORANGE = [0.90, 0.49, 0.13];
+const IFC_GREEN = [0.29, 0.62, 0.32];
+const IFC_GREY = [0.62, 0.63, 0.64];
+
+const IFC_COLOURS = {
+  IFCBEAM: IFC_ORANGE, IFCBEAMSTANDARDCASE: IFC_ORANGE,
+  IFCCOLUMN: IFC_GREEN, IFCCOLUMNSTANDARDCASE: IFC_GREEN,
+  IFCSLAB: IFC_GREY, IFCSLABSTANDARDCASE: IFC_GREY,
+  IFCSLABELEMENTEDCASE: IFC_GREY, IFCROOF: IFC_GREY,
+};
+
+//! The node types this reader makes that are setting-out rather than
+//! building. A Sketch is on the list because a sketch IS a wireframe, whether
+//! or not something has been pulled out of it.
+const IFC_WIRE = new Set(["Point", "Vector", "Plane", "Sketch", "Rectangle",
+                          "Circle", "Ellipse", "Section"]);
 
 //! What each node type's ids are prefixed with, matching the document's own
 //! habit - the reader has to be able to tell a sketch from a solid at a glance

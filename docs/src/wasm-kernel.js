@@ -50,9 +50,9 @@ import { FORMATS, fromBase64, isAssembly, parseObj, parseStl, realNames,
 import { DXF_LIMIT, describeDrawing, dxfDrawing, ignoredName, writeDxf } from "./dxf.js";
 
 export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm, onProgress }) {
-  if (onProgress) onProgress("starting OpenCascade");
+  if (onProgress) onProgress("starting the modeller");
   const oc = await initModule(instantiateWasm ? { instantiateWasm } : { wasmBinary });
-  if (onProgress) onProgress("kernel ready");
+  if (onProgress) onProgress("ready");
 
   const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE;
   const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID;
@@ -382,7 +382,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       if (typeof WebAssembly !== "undefined" && WebAssembly.Exception &&
           err instanceof WebAssembly.Exception && oc.getExceptionMessage) {
         const [kind, text] = oc.getExceptionMessage(err);
-        const message = text ? "OpenCascade: " + text : String(kind);
+        const message = text ? text : String(kind);
         if (oc.decrementExceptionRefcount) oc.decrementExceptionRefcount(err);
         return message;
       }
@@ -878,7 +878,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         const nz = Math.round(F.real(f, "countZ", 1));
         const total = Math.max(1, nx) * Math.max(1, ny) * Math.max(1, nz);
         if (total > INSTANCE_LIMIT)
-          return total + " copies is more than this kernel will build at once (limit "
+          return total + " copies is more than this build will make at once (limit "
                + INSTANCE_LIMIT + ")";
         // Copies stacked on top of each other are a modelling mistake, not a shape.
         const box = extents(F.shape(source));
@@ -893,7 +893,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       } else {
         const count = Math.round(F.real(f, "count", 6));
         if (count > INSTANCE_LIMIT)
-          return count + " copies is more than this kernel will build at once (limit "
+          return count + " copies is more than this build will make at once (limit "
                + INSTANCE_LIMIT + ")";
         const direction = readVector(F.reference(f, "axis"));
         if (direction && length(direction) < CONFUSION)
@@ -2291,7 +2291,7 @@ function sprawl(face, edges) {
         fill.Build(new oc.Message_ProgressRange());
         if (fill.IsDone()) face = fill.Shape();
         else if (hold && tangential)
-          refused.push("OpenCascade could not solve it with the tangency held");
+          refused.push("it could not be solved with the tangency held");
       } catch (error) {
         const said = kernelMessage(error);
         if (hold && tangential) refused.push(said);
@@ -2300,7 +2300,7 @@ function sprawl(face, edges) {
       }
       if (!face || face.IsNull()) {
         if (hold && tangential && !refused.length)
-          refused.push("OpenCascade could not solve it with the tangency held");
+          refused.push("it could not be solved with the tangency held");
         return { ok: false, refused, error: new Error("no surface would pass through that "
           + "boundary" + (tangential ? " and meet what it was told to meet" : "")) };
       }
@@ -3669,7 +3669,7 @@ function sprawl(face, edges) {
           throw new Error("the " + what + " has a face pointing at vertex " + index
             + ", and there are only " + mesh.points.length);
     if (mesh.points.length > 400000)
-      throw new Error(mesh.points.length + " vertices is more than this kernel will carry");
+      throw new Error(mesh.points.length + " vertices is more than this build will carry");
     return mesh;
   }
 
@@ -6250,7 +6250,7 @@ function sprawl(face, edges) {
       try { oc.FS.unlink(path); } catch (err) { /* the scratch file is not important */ }
     }
     if (status !== "IFSelect_RetDone")
-      throw new Error("OpenCascade refused that STEP file (" + status + ")");
+      throw new Error("that STEP file was refused (" + status + ")");
     if (!reader.NbRootsForTransfer())
       throw new Error("that STEP file holds nothing that transfers to a shape");
     reader.TransferRoots(new oc.Message_ProgressRange());
@@ -6368,7 +6368,7 @@ function sprawl(face, edges) {
 
   return {
     kind: "wasm",
-    description: "OpenCascade (WebAssembly), in this page",
+    description: "modelling in this page",
 
     //! What this kernel is: its catalogue of nodes, and the API those nodes are
     //! built out of. Two halves of one answer - a node is a driver and a driver
@@ -6741,12 +6741,12 @@ function sprawl(face, edges) {
         const status = writer.Transfer(part.shape,
           oc.STEPControl_StepModelType.STEPControl_AsIs, true, new oc.Message_ProgressRange());
         if (String(status) !== "IFSelect_RetDone")
-          throw new Error("OpenCascade could not transfer " + F.name(part.f) + " to STEP");
+          throw new Error("could not transfer " + F.name(part.f) + " to STEP");
       }
 
       const path = "/export.step";
       if (String(writer.Write(path)) !== "IFSelect_RetDone")
-        throw new Error("OpenCascade could not write the STEP file");
+        throw new Error("could not write the STEP file");
       const text = oc.FS.readFile(path, { encoding: "utf8" });
       try { oc.FS.unlink(path); } catch (err) { /* the scratch file is not important */ }
 
@@ -6945,7 +6945,7 @@ function sprawl(face, edges) {
         if (!shapes.length) throw new Error("there is no B-Rep geometry visible to write");
         return { ok: true, text: oc.BRepToolsWrapper.Write(compoundOf(shapes)),
                  parts: shapes.length, name: doc.title, units: doc.units,
-                 note: shapes.length + " shapes, exactly as the kernel holds them" };
+                 note: shapes.length + " shapes, exactly as they are held" };
       }
 
       // A DXF is a drawing, and the drawings in this document are its sketches.
