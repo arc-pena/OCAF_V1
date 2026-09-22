@@ -1768,6 +1768,18 @@ body.barred #status { visibility: hidden; pointer-events: none; }
   font-family: var(--mono); font-size: 10px; color: var(--ink-3); text-align: right;
 }
 #arctic-look input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
+/* The tick is not a slider and does not want the slider's three columns: a
+   checkbox stretched across a 1fr track is a checkbox nobody recognises. */
+#arctic-look label.look-tick {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  padding-top: 1px;
+}
+#arctic-look label.look-tick input { margin: 0; flex: none; accent-color: var(--accent); }
+#arctic-look label.look-tick input:disabled { cursor: default; }
+#arctic-look label.look-tick:has(input:disabled) { opacity: .45; cursor: default; }
+#arctic-look .look-note {
+  margin: -2px 0 0; font-size: 9.5px; line-height: 1.4; color: var(--ink-3);
+}
 #arctic-look #look-reset { align-self: flex-end; padding: 2px 8px; font-size: 10px; }
 body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-events: none; }
 
@@ -2683,6 +2695,16 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   <label><span>Weight</span>
     <input type="range" id="look-line" min="0.5" max="3" step="0.05" value="1.15">
     <output id="look-line-out">1.15</output></label>
+  <!-- The model's own edges, laid over the top. Right under the weight slider
+       because that is what sets how thick they are - the same number the ink
+       pass uses, because it is the same question. -->
+  <label class="look-tick" title="Lay the solid's own edges over the top, in black,
+at the weight above. The shading finds silhouettes and creases; these are the edges
+between faces that meet at a shallow angle, which leave nothing in a depth buffer
+to find.">
+    <input type="checkbox" id="look-edges">
+    <span>Edges</span></label>
+  <p class="look-note" id="look-edges-note" hidden></p>
   <button class="btn" id="look-reset">Reset</button>
 </div>
 

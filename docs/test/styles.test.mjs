@@ -10,8 +10,8 @@
 // honest test of it is a picture, which is taken in a browser.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
-import { FINISHES, VIEW_STYLES, appearanceOf, findFinish, findStyle, hexOf, materialOf, rgbOf }
-  from "../src/styles.js";
+import { ARCTIC_LOOK, ARCTIC_OVERLAY, FINISHES, VIEW_STYLES, appearanceOf, edgeRibbon,
+         findFinish, findStyle, hexOf, materialOf, rgbOf } from "../src/styles.js";
 import { readFileSync } from "fs";
 
 const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
@@ -147,6 +147,79 @@ console.log("\n4. it is a property of the object, so it survives the document");
   await mdl.run({ op: "appearance", id: "CU", appearance: appearanceOf("concrete") });
   check("painting a body does not rebuild it", (await at("CU")).revision === was,
         was + " -> " + (await at("CU")).revision);
+}
+
+/* ------------------------------------------- the overlay's own geometry
+
+   WHAT CAN BE CHECKED ON PAPER. The shader cannot - it is a projection, and
+   the honest test of it is a screenshot - but the quads it is handed can: how
+   many there are, which way round they go, and the one that decides whether
+   the thing draws as a line or as a row of bow ties.                        */
+
+console.log("\nan edge, as a ribbon");
+{
+  //! A stand-in for the two BufferAttribute shapes three.js makes, so this
+  //! runs in node with no WebGL anywhere near it. What is being checked is the
+  //! arithmetic, and the arithmetic does not know what a GPU is.
+  const FakeTHREE = {
+    BufferAttribute: class { constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; this.count = array.length / itemSize; } },
+    BufferGeometry: class {
+      constructor() { this.attributes = {}; this.index = null; }
+      setAttribute(name, attribute) { this.attributes[name] = attribute; }
+      setIndex(attribute) { this.index = attribute; }
+      computeBoundingSphere() { this.bounded = true; }
+    },
+  };
+
+  // One segment along X, from (0,0,0) to (10,0,0).
+  const one = edgeRibbon(FakeTHREE, [0, 0, 0, 10, 0, 0]);
+  check("a segment becomes four vertices", one.attributes.position.count === 4,
+        one.attributes.position.count + " vertices");
+  check("and two triangles", one.index.count === 6, one.index.count / 3 + " triangles");
+  check("with the bounds worked out, or nothing is ever culled", one.bounded === true);
+
+  const point = one.attributes.position.array, other = one.attributes.other.array;
+  const side = one.attributes.side.array;
+  // Two vertices sit at each end, and each carries the OTHER end as the
+  // direction to be pushed square to.
+  check("two vertices at each end of the segment",
+        point[0] === 0 && point[3] === 0 && point[6] === 10 && point[9] === 10,
+        [point[0], point[3], point[6], point[9]].join(","));
+  check("and each one carries the far end with it",
+        other[0] === 10 && other[3] === 10 && other[6] === 0 && other[9] === 0,
+        [other[0], other[3], other[6], other[9]].join(","));
+
+  //! THE ONE THAT MATTERS. The shader works the perpendicular out from "this
+  //! end towards the other end", and that direction REVERSES at the far end -
+  //! so +1 at b is the opposite side of the ribbon from +1 at a. Unflipped,
+  //! every quad is a bow tie: it still draws, it is still black, and at one
+  //! pixel wide nobody can see that it is wrong - until the weight slider is
+  //! turned up and every line becomes a row of hourglasses.
+  check("the side flips at the far end, so the quad is not a bow tie",
+        side[0] === 1 && side[1] === -1 && side[2] === -1 && side[3] === 1,
+        [...side].join(","));
+
+  // The winding has to be consistent or half the ribbon vanishes under
+  // back-face culling. 0,1,2 then 0,2,3 is one quad, wound one way.
+  check("the two triangles share an edge and wind together",
+        [...one.index.array].join(",") === "0,1,2,0,2,3",
+        [...one.index.array].join(","));
+
+  const many = edgeRibbon(FakeTHREE, new Array(6 * 5).fill(0).map((_, i) => i));
+  check("five segments make five quads", many.index.count === 30,
+        many.index.count / 6 + " quads");
+  check("nothing at all from nothing", edgeRibbon(FakeTHREE, []) === null);
+  //! A trailing half-segment is dropped rather than read past the end of the
+  //! array, which is how a buffer with an odd point count used to crash.
+  check("a segment with one end is not a segment",
+        edgeRibbon(FakeTHREE, [0, 0, 0, 1, 1]) === null);
+
+  check("the overlay has a layer of its own, and it is not the one everything "
+        + "else draws on", ARCTIC_OVERLAY > 0, String(ARCTIC_OVERLAY));
+  check("and the tick starts off, because an overlay is an opinion",
+        ARCTIC_LOOK.edges === false);
+  check("arctic still draws no tangent edges of its own - the overlay is the "
+        + "whole of that answer", findStyle("arctic").edges === false);
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

@@ -7,9 +7,10 @@ import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, Showroom } from "./showroom.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
-import { ARCTIC_LOOK, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS, VIEW_STYLES,
-         appearanceOf, findFinish, findMark, findStyle, findWeight, hexOf,
-         makeSky, materialOf, rgbOf } from "./styles.js";
+import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS,
+         VIEW_STYLES, appearanceOf, edgeRibbon, findFinish, findMark, findStyle,
+         findWeight, hardEdgeMaterial, hexOf, makeSky, materialOf,
+         rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
          sliderSpan } from "./ocaf.js";
@@ -1013,6 +1014,11 @@ function resize() {
   // shape and has to be laid out again on the new window.
   if (lookingThrough()) { placeThrough(); refreshSafe(); }
   sizeRibbons();
+  //! The overlay's width is in PIXELS, so it has to be told how many there
+  //! are: the same line is a different fraction of the picture on a window
+  //! half the size, and a weight that changed when you resized the window
+  //! would not be a weight.
+  paintHardEdges();
   draw();
 }
 
@@ -1383,12 +1389,130 @@ const LOOK_FIELDS = [
   { key: "line",   input: "look-line",   digits: 2 },
 ];
 
+/* ------------------------------------------------ the model's own edges
+
+   THE INK PASS CANNOT DRAW THESE. It finds silhouettes and creases in the
+   depth buffer, which is the right way to draw a form and is the only way
+   that works on a mesh - but the edge between two faces meeting at three
+   degrees leaves nothing in a depth buffer to find, and on a machined part
+   that is most of what you are looking at. Those edges are sitting in the
+   geometry: the kernel already sent them, and they are already on the card as
+   the LineSegments every other style draws.
+
+   So the overlay is built FROM those, as ribbons - see edgeRibbon - on a
+   layer of their own, and Arctic renders that layer once, over the clay and
+   under the ink.                                                          */
+
+//! How many segments are worth turning into quads. A ribbon is five times the
+//! memory of the line it replaces, and a building imported from IFC can carry
+//! millions of edges - so there is a ceiling, and going over it says so rather
+//! than quietly drawing half a model or stopping the page for ten seconds.
+const HARD_EDGE_BUDGET = 900000;
+
+const hardEdges = new Map();          // feature id -> the ribbon in its group
+let hardEdgeTally = { drawn: 0, left: 0 };
+
+//! The width the overlay is drawn at, and the size of the picture it is drawn
+//! into - both in pixels, because that is what a line weight means on screen.
+function paintHardEdges() {
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  for (const ribbon of hardEdges.values()) {
+    ribbon.material.uniforms.width.value = Math.max(0.25, arcticLook.line);
+    ribbon.material.uniforms.screen.value.set(size.x, size.y);
+  }
+}
+
+//! One shape's overlay, made or taken away. Called as shapes stream in as well
+//! as when the switch is thrown, because a model that is still meshing gains
+//! bodies for several seconds after the tick was set and every one of them
+//! needs its edges.
+function hardEdgesFor(id, held) {
+  const want = arcticLook.edges && state.style === "arctic";
+  const had = hardEdges.get(id);
+  if (!want) {
+    if (had) {
+      had.parent.remove(had);
+      had.geometry.dispose();
+      had.material.dispose();
+      hardEdges.delete(id);
+    }
+    return;
+  }
+  //! Rebuilt rather than kept when the shape is replaced: setShape makes a new
+  //! group, so an overlay held from before is attached to a group nobody is
+  //! drawing. Cheapest test for that is whether it is still in this one.
+  if (had && had.parent === held.group) return;
+  if (had) { had.geometry.dispose(); had.material.dispose(); hardEdges.delete(id); }
+  const lines = held.group.children.find(one => one.isLineSegments && one.userData.brepEdges);
+  if (!lines || !lines.geometry.attributes.position) return;
+  const positions = lines.geometry.attributes.position.array;
+  const segments = Math.floor(positions.length / 6);
+  if (hardEdgeTally.drawn + segments > HARD_EDGE_BUDGET) {
+    hardEdgeTally.left += segments;
+    return;
+  }
+  const geometry = edgeRibbon(THREE, positions);
+  if (!geometry) return;
+  const ribbon = new THREE.Mesh(geometry, hardEdgeMaterial(THREE, { width: arcticLook.line }));
+  //! NOT A SURFACE, and every walk over a group's children has to be told so:
+  //! it is a Mesh, it has triangles, and left unmarked the style walk paints
+  //! clay on it, the section walk makes stencil copies of it, and the
+  //! appearance walk gives it a finish.
+  ribbon.userData.hardEdge = true;
+  ribbon.layers.set(ARCTIC_OVERLAY);
+  ribbon.renderOrder = 3;
+  //! Culled by the LINES' bounds, which are the same bounds: the ribbon is
+  //! half a pixel wider and a frustum test does not care.
+  ribbon.frustumCulled = true;
+  held.group.add(ribbon);
+  hardEdges.set(id, ribbon);
+  hardEdgeTally.drawn += segments;
+}
+
+//! Every shape, brought into line with the switch. Cheap when the switch is
+//! off and nothing has been built; a walk plus a build when it has just been
+//! turned on.
+function syncHardEdges() {
+  hardEdgeTally = { drawn: 0, left: 0 };
+  for (const [id, held] of shapes) hardEdgesFor(id, held);
+  paintHardEdges();
+  const tick = document.getElementById("look-edges");
+  if (tick) tick.disabled = !anyBrepEdges();
+  const note = document.getElementById("look-edges-note");
+  if (note) {
+    //! WHAT WAS LEFT OUT, SAID OUT LOUD. An overlay that quietly drew the
+    //! first nine hundred thousand segments and stopped is an overlay that
+    //! looks like a model with its edges missing.
+    note.textContent = hardEdgeTally.left
+      ? Math.round(hardEdgeTally.left / 1000) + "k edges over the limit, not drawn"
+      : !anyBrepEdges() ? "nothing on screen has edges to draw" : "";
+    note.hidden = !note.textContent;
+  }
+}
+
+//! Is there a B-Rep on screen at all? What decides whether the tick is offered
+//! - "if you are looking at a solid" is the condition, and a scene of nothing
+//! but meshes and curves has no edges of this kind to lay over anything.
+function anyBrepEdges() {
+  for (const [, held] of shapes)
+    if (held.group.visible
+        && held.group.children.some(one => one.isLineSegments && one.userData.brepEdges
+          && one.geometry.attributes.position
+          && one.geometry.attributes.position.count > 1)) return true;
+  return false;
+}
+
 function rememberedLook() {
   try {
     const kept = JSON.parse(localStorage.getItem("ocafcad/arctic-look") || "null");
-    if (kept && typeof kept === "object")
+    if (kept && typeof kept === "object") {
       for (const { key } of LOOK_FIELDS)
         if (typeof kept[key] === "number" && isFinite(kept[key])) arcticLook[key] = kept[key];
+      //! The tick is not one of the four sliders and is not a number, so it is
+      //! read on its own. Remembered like the rest of them: how this window
+      //! draws is a preference, not a property of the document.
+      if (typeof kept.edges === "boolean") arcticLook.edges = kept.edges;
+    }
   } catch (e) {}
 }
 
@@ -1399,12 +1523,22 @@ function paintLook() {
     if (slider) slider.value = String(arcticLook[key]);
     if (shown) shown.textContent = arcticLook[key].toFixed(digits);
   }
+  const tick = document.getElementById("look-edges");
+  if (tick) tick.checked = !!arcticLook.edges;
 }
 
 function setLook(changes, remember = true) {
+  const wasEdges = arcticLook.edges;
   Object.assign(arcticLook, changes);
   if (arctic) arctic.setLook(arcticLook);
   paintLook();
+  //! The weight slider drives BOTH: the ink pass's own thickness, which is a
+  //! uniform Arctic already took above, and the overlay's line width, which is
+  //! the same number in the same units. One slider, because "how thick is a
+  //! line here" is one question and answering it twice is how the two drift
+  //! apart.
+  if (arcticLook.edges !== wasEdges) syncHardEdges();
+  else if (arcticLook.edges) paintHardEdges();
   if (remember)
     try { localStorage.setItem("ocafcad/arctic-look", JSON.stringify(arcticLook)); } catch (e) {}
   draw();
@@ -1418,6 +1552,8 @@ function wireLook() {
     if (!slider) continue;
     slider.addEventListener("input", () => setLook({ [key]: Number(slider.value) }));
   }
+  const tick = document.getElementById("look-edges");
+  if (tick) tick.addEventListener("change", () => setLook({ edges: tick.checked }));
   const reset = document.getElementById("look-reset");
   if (reset) reset.addEventListener("click", () => setLook({ ...ARCTIC_LOOK }));
 }
@@ -1441,6 +1577,9 @@ function applyStyle(styleKey = state.style) {
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
     for (const object of group.children) {
+      //! The arctic overlay is a Mesh and is not a surface - see hardEdgesFor.
+      //! Unguarded, the style walk put clay on it and the edges went white.
+      if (object.userData.hardEdge) continue;
       if (object.isMesh) {
         const was = object.material;
         object.material = object.userData.datum
@@ -1467,6 +1606,10 @@ function applyStyle(styleKey = state.style) {
   //! The dial is up only when the style it is about is.
   const look = document.getElementById("arctic-look");
   if (look) look.hidden = style.key !== "arctic";
+  //! And the overlay exists only while Arctic does. Left standing, it would
+  //! be five times the memory of the edge buffers for something on a layer
+  //! nothing is rendering.
+  syncHardEdges();
   paintBackdrop();
   // The material panel says where a material is shown and that depends on the
   // style, so it is rebuilt rather than left saying something that was true a
@@ -1752,6 +1895,13 @@ function groupFromStream(mesh, entry) {
     // A curve is the feature, not the outline of one, so it is drawn in its own
     // colour at full strength rather than as a solid's tangent edge.
     const lines = new THREE.LineSegments(geometry, edgeMaterial(entry, style));
+    //! AND WHETHER THESE ARE A SOLID'S EDGES, said here where it is known
+    //! rather than worked out again later. A curve feature IS its lines and a
+    //! datum's are scaffolding; only a body's are the edges an arctic overlay
+    //! is about, and asking the feature again from the other side of the
+    //! program would be the same question answered twice.
+    lines.userData.brepEdges = !drawsFaint(entry)
+      && !(entry && entry.produces === "curve");
     group.add(lines);
   }
 
@@ -1793,7 +1943,29 @@ function setShape(mesh) {
   //! walking the triangles. See lookAtDetail.
   group.userData.ball = ballOf(group);
   group.userData.triangles = mesh.triangles || 0;
-  shapes.set(mesh.id, { revision: mesh.revision, group });
+  const held = { revision: mesh.revision, group };
+  shapes.set(mesh.id, held);
+  //! AND ITS EDGES, IF THE OVERLAY IS ON. A shape that lands after the tick
+  //! was set has to be given one too - a model meshes for several seconds, and
+  //! an overlay built once when the switch was thrown would cover whatever had
+  //! arrived by then and nothing after it.
+  if (arcticLook.edges && state.style === "arctic") hardEdgesFor(mesh.id, held);
+  //! AND THE TICK ITSELF COMES BACK TO LIFE when the first solid lands. It is
+  //! offered only when there is something with edges on screen, and on a model
+  //! that is still meshing that is false for the first second - so a tick
+  //! switched off at open would stay switched off with a building in front of
+  //! it. Asked of THIS shape rather than of all of them, because this runs
+  //! once per shape and walking the scene each time is the same quadratic that
+  //! cost a third of a second a frame elsewhere.
+  if (state.style === "arctic" && group.children.some(one =>
+        one.isLineSegments && one.userData.brepEdges)) {
+    const tick = document.getElementById("look-edges");
+    if (tick && tick.disabled) {
+      tick.disabled = false;
+      const note = document.getElementById("look-edges-note");
+      if (note && !hardEdgeTally.left) { note.textContent = ""; note.hidden = true; }
+    }
+  }
   // A shape that has just arrived has to be cut with everything else, and the
   // planes' travel re-measured against a model that may have grown.
   if (cutter.on) {
@@ -1855,6 +2027,7 @@ function rebuildPickList() {
   pickable.length = 0;
   for (const { group } of shapes.values())
     group.traverse(object => {
+      if (object.userData.hardEdge) return;
       if ((object.isMesh || object.isPoints) && object.userData.id) pickable.push(object);
     });
 }
@@ -5464,7 +5637,8 @@ function refreshSection() {
 
       if (cut.pattern !== "none") {
         shapeGroup.traverse(object => {
-          if (!object.isMesh || object.userData.datum || !object.geometry) return;
+          if (!object.isMesh || object.userData.datum || object.userData.hardEdge
+              || !object.geometry) return;
           for (const copy of stencilCopies(object.geometry, plane, at)) group.add(copy);
         });
         const lid = new THREE.Mesh(new THREE.PlaneGeometry(span * 2.5, span * 2.5),
@@ -8931,7 +9105,7 @@ function repaintMaterial(id) {
       object.material = markMaterial(entry, "plain");
       continue;
     }
-    if (!object.isMesh || object.userData.datum) continue;
+    if (!object.isMesh || object.userData.datum || object.userData.hardEdge) continue;
     object.material.dispose();
     object.material = surfaceMaterial(entry, style);
   }

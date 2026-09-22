@@ -271,7 +271,160 @@ void main() {
      ink       how black a line is
      line      how thick, in pixels                                        */
 
-export const ARCTIC_LOOK = { shadow: 1, paper: 0.35, ink: 0.85, line: 1.15 };
+//! \p edges is not a shader uniform and is not one of the four. It is a
+//! switch: whether the model's OWN edges - the B-Rep's, the ones the kernel
+//! sent - are laid over the top in black. The ink pass finds silhouettes and
+//! creases from the depth buffer, which is the right way to draw a form; what
+//! it cannot do is draw the edge between two faces that meet at a couple of
+//! degrees, because there is nothing in the depth buffer to find. Those are
+//! exactly the edges a machined part is read by, and they are sitting in the
+//! geometry already.
+export const ARCTIC_LOOK = { shadow: 1, paper: 0.35, ink: 0.85, line: 1.15, edges: false };
+
+/* -------------------------------------------------- lines with a width
+
+   WEBGL WILL NOT DRAW A LINE THICKER THAN ONE PIXEL. `linewidth` on a
+   LineBasicMaterial is in the specification, is respected by nobody, and
+   fails silently - which makes it worse than absent, because a slider wired
+   to it moves and nothing happens.
+
+   So a line with a width is not a line, it is a RIBBON: two triangles per
+   segment, pushed apart sideways. Sideways in SCREEN SPACE, worked out per
+   vertex from the two ends after they are projected, so a 2 px line is 2 px
+   whether the edge is a metre away or a kilometre, and nothing has to be
+   rebuilt when the camera moves.
+
+   The same idea as ribbonOf in section.js, and deliberately not the same
+   code: that one expands in the plane of a cut, which is right for a line
+   that lies in one and wrong for an edge of a solid seen from anywhere. */
+
+const RIBBON_VERTEX = `
+attribute vec3 other;          // the segment's far end
+attribute float side;          // which way to push this vertex, +1 or -1
+uniform vec2 screen;           // the drawing buffer, in pixels
+uniform float width;           // how thick, in pixels
+
+void main() {
+  vec4 here = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 there = projectionMatrix * modelViewMatrix * vec4(other, 1.0);
+  //! BEHIND THE CAMERA, w GOES NEGATIVE and the perspective divide turns a
+  //! segment into a streak across the whole screen. A segment with either end
+  //! behind the eye is left unexpanded - it is a hairline for one frame while
+  //! it crosses the plane, which nobody sees, rather than a triangle the size
+  //! of the window, which everybody does.
+  if (here.w > 0.0001 && there.w > 0.0001) {
+    //! NOT CALLED "half": that is a reserved word in GLSL, reserved for a type
+    //! this version does not have, and the compiler reports it as a parse
+    //! error the page swallows into "shader error".
+    //!
+    //! And the word is not in BACKTICKS here either, which is the second half
+    //! of the same hour: this shader is a template literal, a backtick inside
+    //! one ends it, and what the browser then reported was a JavaScript syntax
+    //! error - "Unexpected identifier" - on a line of GLSL.
+    vec2 middle = screen * 0.5;
+    vec2 a = (here.xy / here.w) * middle;
+    vec2 b = (there.xy / there.w) * middle;
+    vec2 along = b - a;
+    float run = length(along);
+    vec2 across = run > 0.0001 ? vec2(-along.y, along.x) / run : vec2(0.0, 1.0);
+    vec2 push = across * side * (width * 0.5);
+    here.xy += (push / middle) * here.w;
+  }
+  gl_Position = here;
+  #include <clipping_planes_vertex>
+}
+`;
+
+const RIBBON_FRAGMENT = `
+precision mediump float;
+uniform vec3 ink;
+uniform float opacity;
+void main() {
+  #include <clipping_planes_fragment>
+  gl_FragColor = vec4(ink, opacity);
+}
+`;
+
+//! The material every hard-edge overlay is drawn with. Depth-tested, so an
+//! edge behind a wall stays behind it; offset towards the eye, because an edge
+//! lies exactly ON the surface it belongs to and a tie in the depth test is
+//! decided by whichever happened to be drawn last, which flickers.
+export function hardEdgeMaterial(THREE, { width = 1.15, ink = 0x000000, opacity = 1 } = {}) {
+  const material = new THREE.ShaderMaterial({
+    vertexShader: RIBBON_VERTEX,
+    fragmentShader: RIBBON_FRAGMENT,
+    uniforms: {
+      screen: { value: new THREE.Vector2(1, 1) },
+      width: { value: width },
+      ink: { value: new THREE.Color(ink) },
+      opacity: { value: opacity },
+    },
+    transparent: opacity < 1,
+    //! So the section plane cuts the overlay with everything else. Without it
+    //! the edges of the half you cut away go on being drawn in mid-air.
+    clipping: true,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    side: THREE.DoubleSide,
+  });
+  material.userData.hardEdge = true;
+  return material;
+}
+
+//! Segment pairs in, a ribbon out. \p positions is the flat array the kernel
+//! already sent for the edges - six numbers a segment - so nothing is fetched
+//! and nothing is recomputed; this reads the buffer that is already on the
+//! card and builds the quads beside it.
+export function edgeRibbon(THREE, positions) {
+  const segments = Math.floor(positions.length / 6);
+  if (!segments) return null;
+  const point = new Float32Array(segments * 4 * 3);
+  const other = new Float32Array(segments * 4 * 3);
+  const side = new Float32Array(segments * 4);
+  //! Over 65,535 vertices an index has to be 32 bits, and a model with more
+  //! than sixteen thousand edges in one body is not unusual.
+  const index = segments * 4 > 65535 ? new Uint32Array(segments * 6)
+                                     : new Uint16Array(segments * 6);
+  for (let s = 0; s < segments; s++) {
+    const at = s * 6;
+    const a = [positions[at], positions[at + 1], positions[at + 2]];
+    const b = [positions[at + 3], positions[at + 4], positions[at + 5]];
+    //! FOUR VERTICES, AND THE SIDE FLIPS AT THE FAR END. The shader works the
+    //! perpendicular out from "this end towards the other end", which reverses
+    //! at b - so +1 at b is the opposite side of the ribbon from +1 at a, and
+    //! the quad comes out as a bow tie. Flipped here, once, rather than with a
+    //! second attribute saying which end this is.
+    const rows = [[a, b, 1], [a, b, -1], [b, a, -1], [b, a, 1]];
+    for (let i = 0; i < 4; i++) {
+      const [here, there, way] = rows[i];
+      const v = (s * 4 + i) * 3;
+      point[v] = here[0]; point[v + 1] = here[1]; point[v + 2] = here[2];
+      other[v] = there[0]; other[v + 1] = there[1]; other[v + 2] = there[2];
+      side[s * 4 + i] = way;
+    }
+    const base = s * 4, out = s * 6;
+    index[out] = base; index[out + 1] = base + 1; index[out + 2] = base + 2;
+    index[out + 3] = base; index[out + 4] = base + 2; index[out + 5] = base + 3;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(point, 3));
+  geometry.setAttribute("other", new THREE.BufferAttribute(other, 3));
+  geometry.setAttribute("side", new THREE.BufferAttribute(side, 1));
+  geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  //! The bounds are the SEGMENTS' bounds, and they are wrong by half a line
+  //! width at the rim - which is a fraction of a pixel and is the right answer
+  //! for frustum culling, where the alternative is computing them from a
+  //! projection that has not happened yet.
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+//! The layer the overlay lives on. A camera renders layer 0 and nothing else
+//! unless it is told otherwise, so an object put here is invisible to every
+//! ordinary render and is drawn only by the one pass in Arctic that asks for
+//! it. That is what keeps it out of the depth-and-normals buffer the shading
+//! is estimated from, where a ribbon has no normals and would carve a black
+//! trench either side of every edge.
+export const ARCTIC_OVERLAY = 2;
 
 const AO_FRAGMENT = `
 precision highp float;
@@ -690,6 +843,15 @@ export class Arctic {
     const wasClear = renderer.getClearColor(new this.THREE.Color());
     const wasAlpha = renderer.getClearAlpha();
 
+    //! THE OVERLAY IS NOT IN THE SHADING. It is on a layer of its own and the
+    //! camera is told to ignore that layer for the two passes that estimate
+    //! the form - the depth-and-normals buffer, and the clay - and then to
+    //! render nothing BUT that layer, once, on top. A ribbon has no normals to
+    //! give the first pass, and left in it, each edge carved a black trench
+    //! down both sides of itself.
+    const wasLayers = camera.layers.mask;
+    camera.layers.disable(ARCTIC_OVERLAY);
+
     // 1. normals and depth. White means depth 1.0, which is "nothing here".
     scene.overrideMaterial = this.depthMaterial;
     renderer.setRenderTarget(this.buffer);
@@ -723,11 +885,25 @@ export class Arctic {
     renderer.setClearColor(wasClear, wasAlpha);
     renderer.render(scene, camera);
 
-    // 4. the shading and the ink, multiplied over it. autoClear OFF, and that
-    // is the whole of it: a full-screen pass that clears first is a full-screen
-    // pass multiplied over nothing, which is black - and over a canvas with an
-    // alpha channel, invisible.
+    //! 3b. THE MODEL'S OWN EDGES, over the clay and under the ink. Over the
+    //! clay because they are drawn against the depth the clay just wrote, so
+    //! an edge round the back stays round the back. Under the ink because the
+    //! ink pass multiplies, and black multiplied by anything is still black -
+    //! so an edge drawn here is exactly as black as it was asked to be, and
+    //! the paper slider cannot wash it out.
+    //!
+    //! Nothing at all when nothing is on the layer, which is the usual case:
+    //! a render of an empty layer is one state change.
+    camera.layers.set(ARCTIC_OVERLAY);
     renderer.autoClear = false;
+    renderer.render(scene, camera);
+    camera.layers.mask = wasLayers;
+
+    // 4. the shading and the ink, multiplied over it. autoClear stays OFF -
+    // 3b turned it off and this pass needs it off for the same reason: a
+    // full-screen pass that clears first is a full-screen pass multiplied over
+    // nothing, which is black, and over a canvas with an alpha channel,
+    // invisible.
     this.blit.material = this.inkMaterial;
     renderer.render(this.screen, this.screenCamera);
 
