@@ -47,6 +47,9 @@ import { CLIMATE } from "./climate-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
+import { DRAWINGS } from "./drawings-plugin.js";
+import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
+         toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_LIMIT, formatFor, isAssembly, isBinaryStl, parseObj,
          productNames, readable, sniffFormat, toBase64, whyNot } from "./exchange.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer,
@@ -5455,7 +5458,7 @@ function refreshSection() {
       if (!shapeGroup.visible || !shapeGroup.userData.solid) continue;
       const one = feature(id);
       if (!one) continue;
-      const cut = cutStyleOf(one.appearance, cutter.style);
+      const cut = cutStyleOf(one.appearance, cutter.style, setsAbove(id));
       const paper = cut.fill ? hexOf(cut.fill) : "#" + THEME["cut-fill"].getHexString();
       const ink = cut.ink ? hexOf(cut.ink) : "#" + THEME["cut-line"].getHexString();
 
@@ -6291,6 +6294,12 @@ const SKETCH_ICONS = {
 const ICONS = {
   ...LAYER_ICONS,
 
+  // A body above, and the lines it casts onto a sheet below: what a projection
+  // view IS, said in one mark.
+  ProjectionView: '<path d="M3.2 2.4h6.4l2.8 2.6v4.2H3.2z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/><path d="M4 11.4v2.6M8 11.4v2.6M12 11.4v2.6" stroke="currentColor" stroke-width="1" opacity=".55"/><path d="M1.6 14.6h12.8" stroke="currentColor" stroke-width="1.3"/>',
+  // The same, with the plane through it and the cut hatched - the one mark
+  // everybody already reads as a section.
+  CutView: '<path d="M3.4 3.2h9.2v9.6H3.4z" fill="none" stroke="currentColor" stroke-width="1.15"/><path d="M3.4 6.4h9.2v3.2H3.4z" fill="currentColor" opacity=".22"/><path d="M4.2 9.6l2.4-3.2M7 9.6l2.4-3.2M9.8 9.6l2.4-3.2" stroke="currentColor" stroke-width=".9" opacity=".8"/><path d="M1.2 6.4h13.6M1.2 9.6h13.6" stroke="currentColor" stroke-width="1.25"/>',
   Point: '<circle cx="8" cy="8" r="2.4" fill="currentColor"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.2"/>',
   Vector: '<path d="M2 13L12 4" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 2.5L9 3.6l3.4 3.2z" fill="currentColor"/>',
   Line: '<path d="M2 13L14 3" stroke="currentColor" stroke-width="1.5"/><circle cx="2.6" cy="12.6" r="1.6" fill="currentColor"/><circle cx="13.4" cy="3.4" r="1.6" fill="currentColor"/>',
@@ -6686,6 +6695,12 @@ function buildToolbar() {
     });
     targets[group.key] = box;
   });
+  //! A HEADING WITH NOTHING UNDER IT is a heading that teaches somebody the
+  //! rail is longer than it is. A category is only there when something is in
+  //! it - which is what lets a package bring a category of its own without
+  //! everybody who has not loaded it scrolling past an empty word.
+  const stocked = new Set(state.schema.types.filter(spec => !spec.hidden)
+                                            .map(spec => spec.category));
 
   for (const spec of state.schema.types) {
     // A node nobody adds by hand has no button. Import makes these, and an
@@ -6699,6 +6714,13 @@ function buildToolbar() {
     button.setAttribute("aria-label", spec.type);
     button.addEventListener("click", () => addFeature(spec.type));
     (targets[spec.category] || targets.operation || rail).appendChild(button);
+  }
+  for (const group of groups) {
+    if (stocked.has(group.key)) continue;
+    const box = targets[group.key];
+    const head = rail.querySelector('.rail-head[data-group="' + group.key + '"]');
+    if (box) box.remove();
+    if (head) head.remove();
   }
   document.getElementById("btn-def-close").innerHTML = svg(ICONS.close);
   document.getElementById("ai-close").innerHTML = svg(ICONS.close);
@@ -8386,6 +8408,8 @@ function buildPanel() {
                    : arg.kind === "choice" ? choiceField(entry, arg)
                    : arg.kind === "edits" ? editsField(entry, arg)
                    : arg.kind === "subs" ? subsField(entry, arg)
+                   : (arg.key === "exclude" && drawsAView(entry))
+                       ? exclusionField(entry, arg)
                    : arg.kind === "text" ? textField(entry, arg)
                    : arg.kind === "blob" ? blobField(entry, arg)
                    : arg.kind === "sketch" ? sketchField(entry, arg)
@@ -8408,6 +8432,10 @@ function buildPanel() {
   // What the feature computed, as opposed to what it built. A Panel is nothing
   // but this; a DivideCurve has it as well as geometry.
   if (entry.data) host.appendChild(dataField(entry));
+  //! THE PENS, for anything that produced a drawing. Asked of the result
+  //! rather than of the type, so a node added later that makes one gets the
+  //! same panel without this line changing.
+  if (drawsAView(entry)) host.appendChild(drawingLayersField(entry));
 
   // What it is made of. A property of the object, like its size - held on the
   // feature, written into the model file, and read by both renderers.
@@ -8421,7 +8449,14 @@ function buildPanel() {
   // AND HOW IT IS CUT. Beside the material because it is the same kind of
   // fact: a property of the object that travels with it. Offered on anything
   // a section plane can pass through, which is anything solid.
-  if (wearsMaterial(entry) && entry.produces === "solid")
+  //! AND ON A SET, which is where a drawing standard actually lives. A
+  //! building is not styled object by object - it is styled by trade: every
+  //! wall in the blockwork set poched one way, every slab in the structure set
+  //! another. Set it once on the set and every solid inside it follows, unless
+  //! it has been given an answer of its own. See cutStyleOf, which resolves
+  //! the three levels, and setsAbove, which finds the middle one.
+  if ((wearsMaterial(entry) && entry.produces === "solid")
+      || entry.category === "container")
     host.appendChild(cutField(entry));
 
   // Whatever the script declared for itself, as sliders.
@@ -8631,10 +8666,36 @@ function patternSwatch(kind, ink, paper, tile) {
   return canvas.toDataURL();
 }
 
+//! THE SETS AN OBJECT SITS IN, NEAREST FIRST - which is the order "use the
+//! parent" means. A wall is in the blockwork set, which is in the fabric set,
+//! which is in the building: a style set on any of the three reaches the wall,
+//! and the nearest one wins.
+//!
+//! Cached on the tree's identity, because it is asked once per object per
+//! plane per frame while a section plane is being dragged, and a walk up a
+//! twelve-deep tree for each of six hundred walls is a walk done seventy-two
+//! thousand times a frame.
+let styleChain = new Map(), styleChainOf = null;
+function setsAbove(id) {
+  if (styleChainOf !== state.tree) { styleChain = new Map(); styleChainOf = state.tree; }
+  const had = styleChain.get(id);
+  if (had) return had;
+  const out = [];
+  let at = feature(id), guard = 0;
+  while (at && at.parent && guard++ < 200) {
+    const up = feature(at.parent);
+    if (!up) break;
+    if (up.appearance) out.push(up.appearance);
+    at = up;
+  }
+  styleChain.set(id, out);
+  return out;
+}
+
 function cutField(entry) {
   const field = document.createElement("div");
   field.className = "field material cut-style";
-  const cut = cutStyleOf(entry.appearance, cutter.style);
+  const cut = cutStyleOf(entry.appearance, cutter.style, setsAbove(entry.id));
   const paper = cut.fill ? hexOf(cut.fill) : "#" + THEME["cut-fill"].getHexString();
   const ink = cut.ink ? hexOf(cut.ink) : "#" + THEME["cut-line"].getHexString();
   const own = (entry.appearance && entry.appearance.cut) || {};
@@ -8766,16 +8827,38 @@ function cutField(entry) {
     }
   }
 
+  //! WHERE THE ANSWER CAME FROM, in the words of the thing it came from. "From
+  //! the view" when a wall is poched because a set three levels up says so is
+  //! true of nothing, and leaves somebody hunting for a setting they never
+  //! made. Named, they can go and change it.
+  const namedSet = () => {
+    let at = feature(entry.id), guard = 0;
+    while (at && at.parent && guard++ < 200) {
+      const up = feature(at.parent);
+      if (!up) break;
+      if (up.appearance && up.appearance.cut
+          && Object.keys(up.appearance.cut).length) return up.name;
+      at = up;
+    }
+    return "a set it is in";
+  };
   const note = document.createElement("div");
   note.className = "summary";
-  note.textContent = (cut.own ? "Its own: " : "From the view: ") + saysCut(cut)
+  note.textContent = (cut.from === "own" ? "Its own: "
+                    : cut.from === "set" ? "From " + namedSet() + ": "
+                    : "From the view: ") + saysCut(cut)
     + (cutter.on ? "" : " \u00b7 press X to see it");
   field.appendChild(note);
 
   if (cut.own) {
     const back = document.createElement("button");
     back.className = "btn row-btn";
-    back.textContent = "Back to the view's style";
+    //! "Use parent" is DELETING the answer rather than writing a word that
+    //! means "ask upstairs" - which is what lets it fall through to the set
+    //! when there is one and to the view when there is not.
+    back.textContent = cut.from === "own" && setsAbove(entry.id).some(one =>
+      one.cut && Object.keys(one.cut).length)
+      ? "Use the set's style" : "Back to the view's style";
     back.addEventListener("click", () => wearCut(entry.id, null));
     field.appendChild(back);
   }
@@ -9421,6 +9504,235 @@ function sketchField(entry, arg) {
 //! fillet that is every edge. So the field says "every edge" rather than
 //! "0 picked", and the button is an offer to narrow it rather than a
 //! requirement to start it.
+/* --------------------------------------------------------- a drawing view
+
+   TWO CONTROLS A DRAWING NEEDS AND NOTHING ELSE HAS. What the view leaves out,
+   which is a tree with ticks against it, and what each layer is drawn with,
+   which is a pen per layer. Both are built here rather than in the package,
+   because the package must not know this page exists - it hands over the
+   tables and the resolver, and this puts them on screen.                    */
+
+const DRAWING_VIEWS = new Set(["ProjectionView", "CutView"]);
+
+const drawsAView = entry => !!entry && DRAWING_VIEWS.has(entry.type);
+
+//! WHAT A VIEW LEAVES OUT, as the model's own tree with a tick against
+//! everything. An exclusion list, so a wing added tomorrow is in the drawing
+//! tomorrow - see includedIn, where the same thing is said about why.
+function exclusionField(entry, arg) {
+  const field = document.createElement("div");
+  field.className = "field";
+  const off = new Set(readExclusions((entry.texts && entry.texts[arg.key]) || ""));
+  const parentOf = id => { const f = feature(id); return f ? (f.parent || null) : null; };
+  const childrenOf = id => kidsOf(id).map(f => f.id);
+  //! The same list the view itself will draw: everything that is not
+  //! setting-out and is not another drawing. A tree with the datums in it is a
+  //! tree nobody can find the building in.
+  //! WHAT A DRAWING WOULD DRAW, which is the same list the driver works from:
+  //! not setting-out, not a number, and not another drawing.
+  const drawable = f => f.category !== "datum" && f.category !== "data"
+                     && f.category !== "container" && !DRAWING_VIEWS.has(f.type);
+
+  field.innerHTML = '<div class="field-head"><label>' + escapeHtml(arg.label) + "</label>"
+    + '<span class="badge">' + (off.size ? off.size + " left out" : "all of it")
+    + "</span></div>"
+    + '<p class="hint">Everything is in the drawing until you clear its tick. Clearing a '
+    + "set clears everything in it - and anything added to the model later is in the "
+    + "drawing from the moment it exists.</p>";
+
+  const box = document.createElement("div");
+  box.className = "dr-tree";
+  //! A SET WITH NOTHING DRAWABLE IN IT IS NOT IN THE TREE. Every document
+  //! opens with Origin, Parameters and Relations in it, and none of the three
+  //! has anything a drawing could leave out - listed, they are three rows of
+  //! ticks that do nothing, at the top, where the building should be.
+  const holds = id => {
+    for (const child of kidsOf(id)) {
+      if (child.category === "container") { if (holds(child.id)) return true; continue; }
+      if (drawable(child)) return true;
+    }
+    return false;
+  };
+  const rows = [];
+  const walk = (id, depth) => {
+    for (const child of kidsOf(id)) {
+      const isSet = child.category === "container";
+      if (isSet ? !holds(child.id) : !drawable(child)) continue;
+      const kids = kidsOf(child.id).filter(one =>
+        one.category === "container" ? holds(one.id) : drawable(one));
+      rows.push({ f: child, depth, kids: kids.length, set: isSet });
+      walk(child.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  if (!rows.length) {
+    const none = document.createElement("p");
+    none.className = "hint";
+    none.textContent = "There is nothing in the model to leave out yet.";
+    box.appendChild(none);
+  }
+  for (const row of rows) {
+    const line = document.createElement("label");
+    line.className = "dr-row";
+    line.style.paddingLeft = (6 + row.depth * 14) + "px";
+    const tick = document.createElement("input");
+    tick.type = "checkbox";
+    //! TICKED MEANS DRAWN, and a child of an excluded set reads unticked even
+    //! though its own id is not in the list - because it is not in the
+    //! drawing, and a tick that says otherwise is a tick that lies.
+    tick.checked = includedIn(off, row.f.id, parentOf);
+    tick.disabled = tick.checked ? false : !off.has(row.f.id);
+    tick.addEventListener("change", () => {
+      const next = toggleExclusion([...off], row.f.id, tick.checked, childrenOf);
+      edit({ op: "code", id: entry.id, key: arg.key,
+             text: next.length ? writeExclusions(next) : "" }, { keepPanel: true });
+    });
+    line.appendChild(tick);
+    const name = document.createElement("span");
+    name.className = "dr-name";
+    name.textContent = row.f.name;
+    line.appendChild(name);
+    const what = document.createElement("span");
+    what.className = "dr-kind";
+    what.textContent = row.set ? row.kids + (row.kids === 1 ? " item" : " items")
+                               : row.f.type;
+    line.appendChild(what);
+    box.appendChild(line);
+  }
+  field.appendChild(box);
+  const path = document.createElement("div");
+  path.className = "attr-path";
+  path.innerHTML = (entry.labels[arg.key] || entry.entry) + " · <b>TDataStd_AsciiString</b>";
+  field.appendChild(path);
+  return field;
+}
+
+//! THE PENS. A layer, a weight, a line type and an ink - which is the whole of
+//! what a drawing office ever set, and the reason a drawing reads at a glance.
+//!
+//! The computed layers are locked: their lines are rebuilt from the model and
+//! an edit to them would go silently. Their PENS are not - a pen is not a
+//! line, it survives every rebuild, and setting it is most of what somebody
+//! wants from this panel.
+function drawingLayersField(entry) {
+  const field = document.createElement("div");
+  field.className = "field";
+  //! THE LAYERS ARE WORKED OUT HERE, not sent. The drawing itself is tens of
+  //! thousands of points on a building and it travels on every rebuild; the
+  //! layer list is the standard set for this kind of view plus whatever the
+  //! user has added, which is exactly what assembleDrawing decides, and it can
+  //! be decided again here from the authored half alone. How many lines are on
+  //! each is in the Computed line above.
+  const kind = entry.type === "CutView" ? "cut" : "projection";
+  const authored = (entry.sketch && entry.sketch.drawing) || {};
+  const layers = assembleDrawing([], authored, kind).layers;
+  field.innerHTML = '<div class="field-head"><label>Layers</label>'
+    + '<span class="badge">' + layers.length + "</span></div>"
+    + '<p class="hint">What each kind of line is drawn with. The computed layers cannot '
+    + "be drawn on - their lines come from the model - but their pens are yours, and they "
+    + "survive every rebuild. Add a layer to annotate on.</p>";
+
+  //! Written back through the node's own drawing argument, which is the
+  //! authored half - so a pen set here is saved with the document and is not
+  //! thrown away by the next rebuild.
+  const writeLayers = next => {
+    const held = entry.sketch && entry.sketch.drawing ? entry.sketch.drawing : {};
+    edit({ op: "sketch", id: entry.id, key: "notes",
+           drawing: { ...held, layers: next } }, { keepPanel: true });
+  };
+  const mine = () => {
+    const held = entry.sketch && entry.sketch.drawing ? entry.sketch.drawing : {};
+    return Array.isArray(held.layers) ? held.layers.map(one => ({ ...one })) : [];
+  };
+
+  const box = document.createElement("div");
+  box.className = "dr-layers";
+  for (const layer of layers) {
+    const pen = layerPen(layer);
+    const row = document.createElement("div");
+    row.className = "dr-layer";
+    const name = document.createElement("span");
+    name.className = "dr-name";
+    name.textContent = layer.name;
+    name.title = (DRAW_LAYERS.find(one => one.name === layer.name) || {}).hint || "";
+    row.appendChild(name);
+
+    const weight = document.createElement("select");
+    weight.className = "dr-pen";
+    weight.title = "Pen weight";
+    for (const one of CUT_WEIGHTS) {
+      const option = document.createElement("option");
+      option.value = String(one.key);
+      option.textContent = one.label;
+      option.selected = Math.abs(one.key - pen.weight) < 1e-6;
+      weight.appendChild(option);
+    }
+    row.appendChild(weight);
+
+    const line = document.createElement("select");
+    line.className = "dr-pen";
+    line.title = "Line type";
+    for (const one of CUT_LINES) {
+      if (one.key === "inherit") continue;
+      const option = document.createElement("option");
+      option.value = one.key;
+      option.textContent = one.label;
+      option.selected = one.key === pen.line;
+      line.appendChild(option);
+    }
+    row.appendChild(line);
+
+    const ink = document.createElement("input");
+    ink.type = "color";
+    ink.className = "dr-ink";
+    ink.title = "Ink";
+    ink.value = hexOf(pen.ink);
+    row.appendChild(ink);
+
+    const shown = document.createElement("button");
+    shown.type = "button";
+    shown.className = "btn row-btn dr-eye";
+    shown.textContent = layer.on === false ? "Off" : "On";
+    shown.title = "Whether this layer is drawn";
+    row.appendChild(shown);
+
+    const change = changes => {
+      const next = mine();
+      const at = next.findIndex(one => one.name === layer.name);
+      const was = at >= 0 ? next[at] : { name: layer.name };
+      const written = penRecord({ ...was, name: layer.name }, changes);
+      if (at >= 0) next[at] = written; else next.push(written);
+      writeLayers(next);
+    };
+    weight.addEventListener("change", () => change({ weight: Number(weight.value) }));
+    line.addEventListener("change", () => change({ line: line.value }));
+    ink.addEventListener("change", () => change({ ink: rgbOf(ink.value) }));
+    shown.addEventListener("click", () => {
+      const next = mine();
+      const at = next.findIndex(one => one.name === layer.name);
+      const was = at >= 0 ? next[at] : { name: layer.name };
+      const now = { ...was, name: layer.name, on: layer.on === false };
+      if (at >= 0) next[at] = now; else next.push(now);
+      writeLayers(next);
+    });
+    box.appendChild(row);
+  }
+  field.appendChild(box);
+
+  const add = document.createElement("button");
+  add.className = "btn row-btn";
+  add.textContent = "Add a layer";
+  add.addEventListener("click", () => {
+    const next = mine();
+    let n = next.length + 1;
+    while (layers.some(one => one.name === "Layer " + n)) n++;
+    next.push({ name: "Layer " + n, on: true, locked: false });
+    writeLayers(next);
+  });
+  field.appendChild(add);
+  return field;
+}
+
 function subsField(entry, arg) {
   const field = document.createElement("div");
   field.className = "field";
@@ -10481,8 +10793,17 @@ function updateStamp() {
   document.getElementById("doc-title").textContent = state.tree.name;
   document.getElementById("doc-count").textContent =
     state.tree.features.length + " features · " + state.tree.units;
+  //! WHICH THREAD IS DOING THE WORK, and it has to be asked of `inWorker`
+  //! rather than of `kind`. The worker's proxy carries the kernel's own
+  //! properties across the port, `kind` among them - so a kernel in a worker
+  //! says "wasm" exactly like one in the page, and this read "modelling in
+  //! this page" for the whole time it was not. Which is the one line anybody
+  //! would look at to find out whether the worker started.
   document.getElementById("status-kernel").textContent =
-    kernel ? (kernel.kind === "wasm" ? "modelling in this page" : kernel.description) : "starting…";
+    !kernel ? "starting…"
+    : kernel.inWorker ? "modelling on its own thread"
+    : kernel.kind === "wasm" ? "modelling in this page"
+    : kernel.description;
 }
 
 /* ----------------------------------------------------------- which kernel */

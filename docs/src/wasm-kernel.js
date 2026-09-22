@@ -4068,69 +4068,8 @@ function sprawl(face, edges) {
       const sharp = Feature_choice(f, "boundary") === 0;
       for (let i = 0; i < levels; i++) mesh = catmullClark(mesh, { sharpBoundary: sharp });
       const tolerance = Math.max(1e-6, F.real(f, "tolerance", 0.01));
-
-      const faceOfRing = ring => {
-        const points = ring.map(i => mesh.points[i]);
-        const maker = new oc.BRepBuilderAPI_MakeWire();
-        let edges = 0;
-        for (let i = 0; i < points.length; i++) {
-          const a = points[i], b = points[(i + 1) % points.length];
-          if (V.length(V.sub(b, a)) < tolerance) continue;
-          maker.Add(new oc.BRepBuilderAPI_MakeEdge(pnt(a), pnt(b)).Edge());
-          edges++;
-        }
-        if (edges < 3) return null;
-        const face = new oc.BRepBuilderAPI_MakeFace(maker.Wire(), true);
-        return face.IsDone() ? face.Face() : null;
-      };
-
-      //! How far from flat a face is, as a fraction of its own size. A quad
-      //! off by a thousandth of its diagonal is flat as far as a B-Rep is
-      //! concerned; one off by a tenth is a saddle and has to be split.
-      const flatEnough = ring => {
-        if (ring.length <= 3) return true;
-        const points = ring.map(i => mesh.points[i]);
-        const normal = faceNormal(mesh.points, ring);
-        const at = centroid(points);
-        let far = 0, size = 0;
-        for (const p of points) {
-          far = Math.max(far, Math.abs(V.dot(V.sub(p, at), normal)));
-          size = Math.max(size, V.length(V.sub(p, at)));
-        }
-        return far <= Math.max(tolerance, size * 1e-3);
-      };
-
-      const sewing = new oc.BRepBuilderAPI_Sewing(tolerance, true, true, true, false);
-      let made = 0, split = 0;
-      for (const ring of mesh.faces) {
-        const whole = flatEnough(ring) ? faceOfRing(ring) : null;
-        if (whole) { sewing.Add(whole); made++; continue; }
-        // Not flat: fanned into triangles, which cannot help being flat.
-        for (let i = 1; i + 1 < ring.length; i++) {
-          const piece = faceOfRing([ring[0], ring[i], ring[i + 1]]);
-          if (piece) { sewing.Add(piece); made++; }
-        }
-        split++;
-      }
-      if (!made) throw new Error("none of the faces of that mesh could be built");
-      sewing.Perform(new oc.Message_ProgressRange());
-      let shape = sewing.SewedShape();
-      if (!shape || shape.IsNull()) throw new Error("those faces would not sew together");
-
-      // A SOLID ONLY IF THE CAGE CLOSED. OpenCascade will happily make a solid
-      // out of an open shell and report success - it has no opinion about
-      // whether the shell bounds anything - so the question is asked of the
-      // mesh, where it has an exact answer: an edge with one face on it is a
-      // hole, and a mesh with a hole in it is a shell.
-      const rim = [...topologyOf(mesh).edges.values()].filter(e => e.faces.length === 1);
-      let closed = false;
-      if (!rim.length && Feature_choice(f, "solid") === 0
-          && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
-        try {
-          const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
-          if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
-        } catch (error) { closed = false; }
-      }
+      const sewn = sewMesh(mesh, tolerance, Feature_choice(f, "solid") === 0);
+      const { shape, closed, split, rim } = sewn;
       const faces = countSubShapes(shape, FACE);
       return {
         shape,
@@ -6224,6 +6163,151 @@ function sprawl(face, edges) {
 
   let doc = new Doc(drivers);
 
+  //! A CAGE, SEWN INTO A B-REP. One quad per face where the quad is flat and a
+  //! fan of triangles where it is not, sewn, and closed into a solid if the
+  //! cage had no rim.
+  //!
+  //! Lifted out of MeshToShape's driver because a DRAWING needs it too, and
+  //! for the same reason the node exists: hidden-line removal is a B-Rep
+  //! operation and half the world's IFC arrives tessellated. Two copies of
+  //! this would be two answers to "is that quad flat enough", and the one that
+  //! disagreed would be the one that made a drawing with holes in it.
+  const sewMesh = (mesh, tolerance = 0.01, wantSolid = true) => {
+    const faceOfRing = ring => {
+      const points = ring.map(i => mesh.points[i]);
+      const maker = new oc.BRepBuilderAPI_MakeWire();
+      let edges = 0;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        if (V.length(V.sub(b, a)) < tolerance) continue;
+        maker.Add(new oc.BRepBuilderAPI_MakeEdge(pnt(a), pnt(b)).Edge());
+        edges++;
+      }
+      if (edges < 3) return null;
+      const face = new oc.BRepBuilderAPI_MakeFace(maker.Wire(), true);
+      return face.IsDone() ? face.Face() : null;
+    };
+
+    //! How far from flat a face is, as a fraction of its own size. A quad off
+    //! by a thousandth of its diagonal is flat as far as a B-Rep is concerned;
+    //! one off by a tenth is a saddle and has to be split.
+    const flatEnough = ring => {
+      if (ring.length <= 3) return true;
+      const points = ring.map(i => mesh.points[i]);
+      const normal = faceNormal(mesh.points, ring);
+      const at = centroid(points);
+      let far = 0, size = 0;
+      for (const p of points) {
+        far = Math.max(far, Math.abs(V.dot(V.sub(p, at), normal)));
+        size = Math.max(size, V.length(V.sub(p, at)));
+      }
+      return far <= Math.max(tolerance, size * 1e-3);
+    };
+
+    const sewing = new oc.BRepBuilderAPI_Sewing(tolerance, true, true, true, false);
+    let made = 0, split = 0;
+    for (const ring of mesh.faces) {
+      const whole = flatEnough(ring) ? faceOfRing(ring) : null;
+      if (whole) { sewing.Add(whole); made++; continue; }
+      // Not flat: fanned into triangles, which cannot help being flat.
+      for (let i = 1; i + 1 < ring.length; i++) {
+        const piece = faceOfRing([ring[0], ring[i], ring[i + 1]]);
+        if (piece) { sewing.Add(piece); made++; }
+      }
+      split++;
+    }
+    if (!made) throw new Error("none of the faces of that mesh could be built");
+    sewing.Perform(new oc.Message_ProgressRange());
+    let shape = sewing.SewedShape();
+    if (!shape || shape.IsNull()) throw new Error("those faces would not sew together");
+
+    // A SOLID ONLY IF THE CAGE CLOSED. OpenCascade will happily make a solid
+    // out of an open shell and report success - it has no opinion about
+    // whether the shell bounds anything - so the question is asked of the
+    // mesh, where it has an exact answer: an edge with one face on it is a
+    // hole, and a mesh with a hole in it is a shell.
+    const rim = [...topologyOf(mesh).edges.values()].filter(e => e.faces.length === 1);
+    let closed = false;
+    if (!rim.length && wantSolid && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
+      try {
+        const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
+        if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
+      } catch (error) { closed = false; }
+    }
+    return { shape, closed, split, rim };
+  };
+
+  //! EVERY BODY IN THE DOCUMENT, with what it is called and what it sits
+  //! inside. A drawing view is the one thing here that is about the model as a
+  //! whole rather than about the shapes wired into it: "draw this building"
+  //! means all of it, and a view that had to be wired to six hundred walls
+  //! would be a view nobody makes.
+  //!
+  //! IT IS READ AT BUILD TIME, so it sees whatever has been built by then.
+  //! Document order is build order, so a view made after the model sees the
+  //! finished model - which is the order anybody works in. Wire the bodies in
+  //! explicitly and the dependency is recorded and the order is guaranteed;
+  //! leave it empty and it is the natural order rather than a promised one,
+  //! and that is worth knowing rather than hiding.
+  const bodies = (options = {}) => {
+    const skip = new Set(options.except || []);
+    const out = [];
+    //! Counted rather than swallowed: a drawing that quietly left three
+    //! buildings out is a drawing nobody can trust, and the count is what the
+    //! panel says out loud.
+    let sewn = 0, over = 0, failed = 0;
+    for (const f of doc.features()) {
+      const id = F.id(f);
+      if (skip.has(id)) continue;
+      const spec = F.spec(f);
+      if (options.notTypes && options.notTypes.includes(spec.type)) continue;
+      if (options.notCategories && options.notCategories.includes(spec.category)) continue;
+      if (options.visible !== false && !F.visible(f)) continue;
+      let shape = F.shape(f);
+      //! A POLYMESH HAS NO B-REP, and half the IFC in the world arrives as
+      //! one: tessellated in the file, so what came in is triangles and
+      //! nothing else. Hidden-line removal is a B-Rep operation, so a drawing
+      //! of a tessellated import would be an empty sheet - which is the
+      //! failure that looks most like success there is, because a blank
+      //! drawing of a building looks like a drawing that has not built yet.
+      //!
+      //! So they are sewn, here, on the way past. It costs a face per triangle
+      //! and it is the honest cost of drawing something that arrived as a
+      //! picture of itself - and there is a budget, because a 200,000-triangle
+      //! site model would sew for minutes. What is over the budget is counted
+      //! and reported rather than dropped in silence.
+      if ((!shape || shape.IsNull()) && options.sewMeshes) {
+        const data = F.data(f);
+        if (data && data.kind === "mesh") {
+          const cage = { points: F.triples(data), faces: meshFaces(data) };
+          if (cage.faces.length > (options.faceBudget || 20000)) { over++; continue; }
+          try { shape = sewMesh(cage, options.tolerance || 0.01, true).shape; sewn++; }
+          catch (err) { failed++; continue; }
+        }
+      }
+      if (!shape || shape.IsNull()) continue;
+      if (options.solidsOnly && countSubShapes(shape, SOLID) === 0) continue;
+      //! THE APPEARANCE TRAVELS WITH THE BODY, and the sets it sits in with
+      //! it. A drawing hatches concrete one way and blockwork another, and the
+      //! answer to "which" is the same three-level cascade the section cutter
+      //! resolves - so the driver needs the same three levels, and this is
+      //! where the tree that holds them is.
+      const above = [];
+      for (let up = doc.find(F.parent(f)), guard = 0; up && guard < 200;
+           up = doc.find(F.parent(up)), guard++) {
+        const worn = F.appearance(up);
+        if (worn) above.push(worn);
+      }
+      out.push({ id, name: F.name(f), type: spec.type, category: spec.category,
+                 parent: F.parent(f), appearance: F.appearance(f), above, shape });
+    }
+    //! The tally rides on the list rather than beside it, so a caller that
+    //! only wants the bodies can ignore it and one that has to be honest
+    //! about what it left out cannot lose it.
+    out.sewn = sewn; out.overBudget = over; out.unsewable = failed;
+    return out;
+  };
+
   const state = report => ({ ok: true, tree: doc.treeJson(), report });
 
   /* ------------------------------------------------------------ exchange
@@ -6408,7 +6492,7 @@ function sprawl(face, edges) {
         deflectionFor, tessellationOf, countSubShapes, describeError,
         points, numbers, vectors, text, pointsOf, zip,
         tessellate, sampleCurve, capped, outlines,
-        FACE, EDGE, SOLID, ANY,
+        bodies, FACE, EDGE, SOLID, ANY,
       };
     },
 
@@ -6671,7 +6755,22 @@ function sprawl(face, edges) {
       const f = doc.find(id);
       if (!f) throw new Error("no feature '" + id + "'");
       doc.setAppearance(f, appearance);
-      return { ok: true, tree: doc.treeJson(), report: null };
+      //! AN APPEARANCE IS USUALLY ONLY LOOKS, and looks are the renderer's -
+      //! which is why this has never rebuilt anything. A drawing is the
+      //! exception: what hatch a body is poched with is part of its
+      //! appearance AND is geometry on the sheet, so a view that reads
+      //! appearances has to be rebuilt when one changes or the drawing goes
+      //! on showing the hatch you just took off.
+      //!
+      //! Declared by the node - `readsAppearance` on its spec - rather than
+      //! named here, so the kernel does not have to know what a drawing is.
+      const readers = doc.features().filter(one => {
+        const spec = F.spec(one);
+        return spec && spec.readsAppearance;
+      });
+      if (!readers.length) return { ok: true, tree: doc.treeJson(), report: null };
+      for (const one of readers) doc.log.touch(F.argLabel(one, F.spec(one).args[0].key, true));
+      return state(await settleAsync(false, null));
     },
 
     //! Show a body that something else swallowed, or stop showing it. See

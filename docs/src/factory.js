@@ -804,6 +804,51 @@ export function makeFactories(oc, kit) {
 
   /* ================================================== HybridShapeFactory */
 
+  //! THE VIEW'S OWN AXES, worked out in ONE place because two places is two
+  //! answers. The projection and the cut face are drawn on the same sheet and
+  //! have to agree about which way u runs; derived separately, they did not -
+  //! the cut came out turned a quarter turn from the lines round it, which on
+  //! a square plan is invisible and on anything else is obviously wrong.
+  //!
+  //! It is the same rule viewFrame uses on the page, for the same reason.
+  const viewAxes = (look, up) => {
+    const gaze = V.norm(look) || [0, 0, -1];
+    const z = [-gaze[0], -gaze[1], -gaze[2]];
+    let hint = V.norm(up || [0, 0, 1]);
+    //! Looking straight down, "up the sheet" cannot be the world Z - that is
+    //! the direction of travel - so it becomes world Y, which is north-up.
+    if (!hint || Math.abs(V.dot(hint, z)) > 0.999)
+      hint = Math.abs(z[2]) > 0.999 ? [0, 1, 0] : [0, 0, 1];
+    const x = V.norm(V.cross(hint, z)) || [1, 0, 0];
+    return { x, y: V.cross(z, x), z };
+  };
+
+  //! Runs joined end to end while their ends agree. Enough for a wire,
+  //! which is a chain by definition - so this is a matching problem rather
+  //! than a search, and it stops the moment the loop closes.
+  const chainRuns = (pieces, tol) => {
+    const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= tol;
+    const left = pieces.slice();
+    const out = [];
+    while (left.length) {
+      const run = left.shift();
+      for (;;) {
+        const tip = run[run.length - 1];
+        let at = -1, flip = false;
+        for (let i = 0; i < left.length; i++) {
+          if (near(left[i][0], tip)) { at = i; flip = false; break; }
+          if (near(left[i][left[i].length - 1], tip)) { at = i; flip = true; break; }
+        }
+        if (at < 0) break;
+        const piece = left.splice(at, 1)[0];
+        run.push(...(flip ? piece.slice(0, -1).reverse() : piece.slice(1)));
+        if (near(run[0], run[run.length - 1])) break;
+      }
+      out.push(run);
+    }
+    return out;
+  };
+
   const hybridTable = [
 
     /* ----------------------------------------------------------- points */
@@ -1474,6 +1519,191 @@ export function makeFactories(oc, kit) {
         const q = gap.PointOnShape2(1);
         return [q.X(), q.Y(), q.Z()];
       }) },
+
+
+    /* ------------------------------------------------ hidden-line removal
+
+       THE OPERATION A DRAWING IS MADE OF, and the one thing in this program
+       that cannot be approximated. A drawing is not a render with the colours
+       removed: it is the model's edges sorted into what you can see, what is
+       behind something, what is only a silhouette and what is a smooth crease,
+       and the sorting IS the drawing. Do it by rendering and reading pixels
+       back and you get an image; do it in the geometry and you get lines you
+       can dimension, select, and send to a plotter.
+
+       OpenCascade's HLR does it exactly, in the B-Rep, which is why it is slow
+       and why it is worth it. It is handed the bodies and an eye position, and
+       gives back compounds of 2D edges lying on z = 0 in the eye's own frame -
+       so the flattening is already done and u and v are simply x and y.     */
+
+    { name: "projectHidden",
+      takes: "shapes, origin, look, up, { curved, tolerance }",
+      gives: "{ sharp, outline, smooth, sharpHidden, outlineHidden, smoothHidden }, "
+           + "each a list of polylines in the view plane's own u-v",
+      summary: "Hidden-line removal: the bodies as they would be DRAWN from a given "
+             + "direction, with every line classified. Seen edges, silhouettes of "
+             + "curved surfaces, smooth creases, and the same three again for what is "
+             + "behind something else. Exact, in the geometry - not read back off a "
+             + "picture - so what comes out can be dimensioned and plotted.",
+      run: (shapes, origin, look, up, opts = {}) => {
+        const list = (Array.isArray(shapes) ? shapes : [shapes]).filter(Boolean);
+        const empty = { sharp: [], outline: [], smooth: [],
+                        sharpHidden: [], outlineHidden: [], smoothHidden: [] };
+        if (!list.length) return empty;
+        //! The frame's z points AT the eye, which is the opposite of the way
+        //! you are looking - see viewFrame, which works the same sign out for
+        //! the same reason. The two have to agree or the drawing the kernel
+        //! makes and the plane the page puts it on are mirror images.
+        const { x, z } = viewAxes(look, up);
+        const at = origin || [0, 0, 0];
+
+        const eye = new oc.gp_Ax2(pnt(at), dir(z), dir(x));
+        const algo = new oc.HLRBRep_Algo();
+        //! The second argument is the "nb iso" - isoparametric lines drawn
+        //! across a curved face. Zero, because isos are a shading convention
+        //! from before shading, and on a building they are a grey mess.
+        for (const one of list) algo.Add(one, 0);
+        algo.Projector(new oc.HLRAlgo_Projector(eye));
+        algo.Update();
+        //! HIDING IS THE EXPENSIVE HALF and the half that makes it a drawing.
+        //! Without it every edge comes back visible and a solid reads as a
+        //! wireframe of itself.
+        algo.Hide();
+        const to = new oc.HLRBRep_HLRToShape(algo);
+
+        //! Straight edges get their two ends and nothing between; everything
+        //! else is sampled. A curve's sample count is its length over the
+        //! tolerance, capped - a 90 m viaduct arris at a tenth of a millimetre
+        //! would be nine hundred thousand points nobody can see.
+        const tol = Math.max(1e-6, opts.tolerance || 0.05);
+        const curved = Math.max(4, Math.min(400, Math.round(opts.curved || 48)));
+        const runsOf = compound => {
+          const out = [];
+          if (!compound || compound.IsNull()) return out;
+          const walk = new oc.TopExp_Explorer(compound, EDGE, ANY);
+          while (walk.More()) {
+            try {
+              const edge = oc.TopoDS.Edge(walk.Current());
+              const adaptor = new oc.BRepAdaptor_Curve(edge);
+              const first = adaptor.FirstParameter(), last = adaptor.LastParameter();
+              const straight = String(adaptor.GetType()) === "GeomAbs_Line";
+              const steps = straight ? 1 : curved;
+              const run = [];
+              for (let i = 0; i <= steps; i++) {
+                const p = adaptor.Value(first + (last - first) * (i / steps));
+                //! z is dropped, not checked: every point HLR returns lies on
+                //! the projection plane by construction, and keeping a
+                //! coordinate that is always zero would only invite something
+                //! downstream to believe it.
+                const uv = [p.X(), p.Y()];
+                const had = run[run.length - 1];
+                if (!had || Math.hypot(uv[0] - had[0], uv[1] - had[1]) > tol) run.push(uv);
+              }
+              if (run.length >= 2) out.push(run);
+            } catch (err) { /* an edge that will not sample is an edge left out */ }
+            walk.Next();
+          }
+          walk.delete();
+          return out;
+        };
+        const ask = name => {
+          try { return runsOf(to[name]()); } catch (err) { return []; }
+        };
+        return {
+          sharp: ask("VCompound"),
+          outline: ask("OutLineVCompound"),
+          smooth: [...ask("Rg1LineVCompound"), ...ask("RgNLineVCompound")],
+          sharpHidden: ask("HCompound"),
+          outlineHidden: ask("OutLineHCompound"),
+          smoothHidden: [...ask("Rg1LineHCompound"), ...ask("RgNLineHCompound")],
+        };
+      } },
+
+    /* ------------------------------------------------------- the cut face
+
+       WHAT THE PLANE PASSED THROUGH, as closed loops on the sheet. Not the
+       same question as "where do these two surfaces cross": a section curve is
+       a line, and what poche needs is a REGION - the loop that bounds solid
+       material - because that is what gets filled.
+
+       Taken off the trimmed solid rather than computed: after a body has been
+       trimmed at the plane, the faces that lie IN the plane are the cut, and
+       their outer wires are the loops. Exact, already closed, and right for a
+       body with a hole in it, which an intersection curve is not.           */
+
+    { name: "cutLoops", takes: "shapes, origin, normal, look, up, { tolerance }",
+      gives: "loops, each a closed polyline in the VIEW's own u-v",
+      summary: "The closed regions where a cutting plane passed through solid "
+             + "material - what poche fills. Read off the faces of the trimmed body "
+             + "that lie in the plane, so a body with a void in it gives the void "
+             + "back as its own loop rather than filling it in. Flattened in the "
+             + "view's axes, not the plane's, so the fill lands under the lines.",
+      //! TWO DIRECTIONS AND THEY ARE NOT THE SAME ONE. \p normal says which
+      //! plane counts as the cut; \p look says which way the sheet is faced.
+      //! They agree for a plan and a section and disagree the moment somebody
+      //! asks for an axonometric of a cut - and flattening by the plane's own
+      //! axes rather than the view's turned the poche a quarter turn out of
+      //! register with the lines drawn round it.
+      run: (shapes, origin, normal, look, up, opts = {}) => {
+        const list = (Array.isArray(shapes) ? shapes : [shapes]).filter(Boolean);
+        const n = V.norm(normal) || [0, 0, 1];
+        const at = origin || [0, 0, 0];
+        const { x, y } = viewAxes(look || V.scale(n, -1), up);
+        const flat = p => [V.dot(V.sub(p, at), x), V.dot(V.sub(p, at), y)];
+        const tol = Math.max(1e-6, opts.tolerance || 0.05);
+        const out = [];
+        for (const one of list) {
+          const faces = new oc.TopExp_Explorer(one, FACE, ANY);
+          while (faces.More()) {
+            try {
+              const face = oc.TopoDS.Face(faces.Current());
+              const surface = new oc.BRepAdaptor_Surface(face);
+              //! Only planes, and only THIS plane. A cylinder's face is never
+              //! the cut however close it lies, and a parallel plane fifty
+              //! millimetres away is a different storey.
+              if (String(surface.GetType()) === "GeomAbs_Plane") {
+                const pln = surface.Plane();
+                const ax = pln.Axis();
+                const d = ax.Direction(), o = ax.Location();
+                const facing = Math.abs(V.dot([d.X(), d.Y(), d.Z()], n));
+                const offset = Math.abs(V.dot(V.sub([o.X(), o.Y(), o.Z()], at), n));
+                if (facing > 0.999 && offset < tol * 20) {
+                  for (const wire of each(face, WIRE, s => oc.TopoDS.Wire(s))) {
+                    //! EACH EDGE ON ITS OWN, THEN CHAINED. A wire's edges come
+                    //! out of the explorer in the order they were built, not
+                    //! the order they join - and a loop whose points are in
+                    //! build order is a bow tie. It fills as one too, which is
+                    //! how a poche of half the right area looked like a poche
+                    //! rather than like a bug. This build has no
+                    //! BRepTools_WireExplorer to ask for the right order, so
+                    //! the ends are matched here.
+                    const pieces = [];
+                    for (const edge of each(wire, EDGE, s => oc.TopoDS.Edge(s))) {
+                      const adaptor = new oc.BRepAdaptor_Curve(edge);
+                      const a = adaptor.FirstParameter(), b = adaptor.LastParameter();
+                      const straight = String(adaptor.GetType()) === "GeomAbs_Line";
+                      const steps = straight ? 1 : 32;
+                      const piece = [];
+                      for (let i = 0; i <= steps; i++) {
+                        const p = adaptor.Value(a + (b - a) * (i / steps));
+                        const uv = flat([p.X(), p.Y(), p.Z()]);
+                        const had = piece[piece.length - 1];
+                        if (!had || Math.hypot(uv[0] - had[0], uv[1] - had[1]) > tol) piece.push(uv);
+                      }
+                      if (piece.length >= 2) pieces.push(piece);
+                    }
+                    for (const run of chainRuns(pieces, tol * 4))
+                      if (run.length >= 3) out.push(run);
+                  }
+                }
+              }
+            } catch (err) { /* a face that will not read is a face left out */ }
+            faces.Next();
+          }
+          faces.delete();
+        }
+        return out;
+      } },
 
     { name: "intersect", takes: "a, b", gives: "shape",
       summary: "Where two shapes cross, as wireframe: the section curve of two "

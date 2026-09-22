@@ -86,7 +86,12 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",
-           "section.js", "story.js", "pie.js", "meshedit.js",
+           "section.js",
+           # drawings reads the section's pen tables and the sketch's layers,
+           # so it comes after both; its package is where the projection is
+           # asked for.
+           "drawings.js", "drawings-plugin.js",
+           "story.js", "pie.js", "meshedit.js",
            # The tour points at the interface and knows nothing else, so it
            # can go anywhere before the page that starts it.
            "tour.js",

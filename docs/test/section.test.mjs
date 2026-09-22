@@ -183,6 +183,31 @@ console.log("\n5. how ONE object is cut, which is where a section stops being a 
   check("and \"as the view\" said out loud means the same thing",
         cutStyleOf({ cut: { pattern: "inherit" } }, "poche").pattern === "diagonal");
 
+  // THE MIDDLE LEVEL. A building is styled by trade, not object by object:
+  // every wall in the blockwork set poched the same, said once on the set.
+  const set = [{ cut: { pattern: "brick", weight: 3 } }];
+  const wall = cutStyleOf(null, "poche", set);
+  check("an object that says nothing takes the style of the set it is in",
+        wall.pattern === "brick" && wall.weight === 3, JSON.stringify(wall));
+  check("and says so, so the panel can name where it came from",
+        wall.from === "set" && wall.own === false, wall.from);
+  const glazed = cutStyleOf({ cut: { pattern: "none" } }, "poche", set);
+  check("an object that says something beats the set it is in",
+        glazed.pattern === "none" && glazed.from === "own", JSON.stringify(glazed));
+  check("and what it does NOT say still comes from the set, not the view",
+        glazed.weight === 3, String(glazed.weight));
+  // Nearest first, which is what "use the parent" means.
+  const nested = cutStyleOf(null, "poche", [{ cut: { weight: 1 } },
+                                            { cut: { weight: 4.5, pattern: "brick" } }]);
+  check("the nearest set that says anything wins",
+        nested.weight === 1, String(nested.weight));
+  check("but a field it is silent about falls through to the one above",
+        nested.pattern === "brick", nested.pattern);
+  check("with no sets at all, nothing changes",
+        cutStyleOf(null, "poche", []).from === "view");
+  check("and a set that has been given nothing is not a level",
+        cutStyleOf(null, "poche", [{ cut: {} }, { cut: { weight: 3 } }]).weight === 3);
+
   check("the four buttons on the bar are cut styles too",
         styleAsCut("open").pattern === "none" && styleAsCut("capped").pattern === "solid"
         && styleAsCut("poche").pattern === "diagonal"

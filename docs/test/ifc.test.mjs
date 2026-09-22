@@ -372,5 +372,73 @@ console.log("\nA colour per trade, so a model you did not build can be read");
   check("and a solid gets no colour it was not given", !!proxy);
 }
 
+/* ---------------------------------------------------- corners are shared
+
+   THE FAILURE THAT LOOKED PERFECT. A faceted B-rep names every corner of every
+   facet separately, and written out one corner at a time a box becomes
+   twenty-four vertices and twelve triangles in which every edge has exactly
+   one face on it. On screen that is indistinguishable from a solid box. It is
+   a triangle SOUP: it cannot be subdivided, it cannot be sewn, and a section
+   through it finds no closed region - so a whole IFC building sections to an
+   empty sheet and nothing about the model looks wrong.
+
+   What tells the two apart is the topology, and the number to check it against
+   is Euler's: a closed box is 8 vertices, and every edge of a closed surface
+   has exactly two faces on it.                                               */
+
+console.log("\nA facet shares its corners with its neighbours, or it is not a surface");
+{
+  // Two triangulated boxes: a wall written as an IfcTriangulatedFaceSet with
+  // its corners repeated per face, which is what exporters write.
+  const box = [[0, 0, 0], [200, 0, 0], [200, 100, 0], [0, 100, 0],
+               [0, 0, 60], [200, 0, 60], [200, 100, 60], [0, 100, 60]];
+  const faces = [[1, 3, 2], [1, 4, 3], [5, 6, 7], [5, 7, 8], [1, 2, 6], [1, 6, 5],
+                 [2, 3, 7], [2, 7, 6], [3, 4, 8], [3, 8, 7], [4, 1, 5], [4, 5, 8]];
+  // Written the way an exporter does: the coordinate list repeats a corner
+  // once per face that touches it.
+  const spread = [];
+  const spreadFaces = faces.map(f => f.map(i => { spread.push(box[i - 1]); return spread.length; }));
+  const text = "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n"
+    + "#1=IFCCARTESIANPOINTLIST3D((" + spread.map(p => "(" + p.join(",") + ")").join(",") + "));\n"
+    + "#2=IFCTRIANGULATEDFACESET(#1,$,.T.,("
+    + spreadFaces.map(f => "(" + f.join(",") + ")").join(",") + "),$);\n"
+    + "ENDSEC;\nEND-ISO-10303-21;\n";
+  const model = readIfc(text);
+  const obj = objOf(model, [model.entities.get(2)],
+                    { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, 1);
+  const points = obj.text.split("\n").filter(line => line.startsWith("v ")).length;
+  check("thirty-six repeated corners come in as the eight a box has",
+        points === 8, points + " vertices");
+  check("and all twelve triangles are still there", obj.faces === 12, obj.faces + " faces");
+
+  // The topology is the point: every edge with two faces on it is a closed
+  // surface, and a closed surface is something a section can fill.
+  const rings = obj.text.split("\n").filter(line => line.startsWith("f "))
+    .map(line => line.slice(2).split(" ").map(Number));
+  const edges = new Map();
+  for (const ring of rings)
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const key = Math.min(a, b) + ":" + Math.max(a, b);
+      edges.set(key, (edges.get(key) || 0) + 1);
+    }
+  const rim = [...edges.values()].filter(n => n === 1).length;
+  check("every edge has two faces on it, so the surface closes",
+        rim === 0, rim + " edges with only one face");
+  check("and a box has eighteen edges when its quads are split into triangles",
+        edges.size === 18, edges.size + " edges");
+
+  // AND THE INDICES STILL MEAN WHAT THEY SAID. Sharing corners renumbers the
+  // vertices, and a face set addresses its COORD LIST rather than the vertices
+  // written so far - so an import that shared corners without remapping drew
+  // its faces through whichever vertices happened to sit at those positions.
+  // That is a shape. It is not this shape, and it looks like a shape.
+  const corners = obj.text.split("\n").filter(l => l.startsWith("v "))
+    .map(l => l.slice(2).split(" ").map(Number));
+  const sameSet = one => [...new Set(one.map(p => p.join(",")))].sort().join(" | ");
+  check("and the eight corners are the box's own eight",
+        sameSet(corners) === sameSet(box), sameSet(corners));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);

@@ -1751,10 +1751,30 @@ const IFC_PREFIX = {
 export function objOf(model, entities, frame, scale) {
   const lines = [];
   let vertices = 0, faces = 0;
+  //! CORNERS ARE SHARED, and they have to be or the mesh is not a mesh.
+  //!
+  //! A faceted B-rep names every corner of every facet separately - the file
+  //! says so, and an exporter has no reason not to. Written out one corner at
+  //! a time, a box becomes twenty-four vertices and twelve triangles in which
+  //! every single edge has exactly one face on it. That is a triangle SOUP,
+  //! not a surface: it shades faceted, it cannot be subdivided, it cannot be
+  //! sewn into a solid, and a section through it finds no closed region to
+  //! poche - a whole IFC building sections to an empty sheet, which is the
+  //! failure that looks most like "it has not finished building yet".
+  //!
+  //! So identical corners are one corner. Keyed on the coordinate written
+  //! rather than on a tolerance, because two corners a file says are in the
+  //! same place are the same corner and two it says are a micron apart are a
+  //! micron apart - guessing which is which is how a shape loses a feature.
+  const shared = new Map();
   const say = p => {
     const at = ifcAt(frame, p);
+    const key = at[0] + "," + at[1] + "," + at[2];
+    const had = shared.get(key);
+    if (had) return had;
     lines.push("v " + at[0] + " " + at[1] + " " + at[2]);
-    return ++vertices;
+    shared.set(key, ++vertices);
+    return vertices;
   };
   const ring = run => {
     if (run.length < 3) return;
@@ -1794,7 +1814,14 @@ export function objOf(model, entities, frame, scale) {
         return [xyz[0] || 0, xyz[1] || 0, xyz[2] || 0];
       }) : [];
       const base = vertices;
-      for (const p of coords) say(p);
+      //! WHERE EACH COORDINATE LANDED, kept rather than assumed. The indices
+      //! in a face set address the COORD LIST; the numbers a mesh uses address
+      //! the vertices written so far, and the two stopped being the same
+      //! offset apart the moment identical corners started sharing one vertex.
+      //! Assumed, a welded box drew its faces through whichever vertices
+      //! happened to be at those positions - which is a shape, and is not this
+      //! shape.
+      const placed = coords.map(p => say(p));
       //! PnIndex, WHEN THERE IS ONE. A tessellated face set may address its
       //! points through a second list - which is how an exporter shares one
       //! point list between several sets, or writes the same corner once and
@@ -1803,7 +1830,8 @@ export function objOf(model, entities, frame, scale) {
         .map(n => Math.round(asNumber(n)));
       const at = n => {
         const one = Math.round(asNumber(n));
-        return base + (through.length ? (through[one - 1] || one) : one);
+        const which = through.length ? (through[one - 1] || one) : one;
+        return placed[which - 1] || (base + which);
       };
       if (e.type === "IFCTRIANGULATEDFACESET") {
         //! THE TRIANGLES ARE ATTRIBUTE THREE, not two.

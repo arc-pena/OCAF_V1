@@ -297,27 +297,59 @@ export function styleAsCut(key) {
            fill: null, ink: null, tile: "" };
 }
 
-//! AN OBJECT'S CUT STYLE, resolved: what it says for itself, with the window's
-//! setting standing in wherever it says nothing. One answer, in one shape, so
-//! the fill, the line and the panel cannot disagree about what is meant.
-export function cutStyleOf(appearance, viewStyle = "capped") {
+//! AN OBJECT'S CUT STYLE, resolved down THREE levels: what the object says
+//! for itself, then what the sets it sits in say, then the window's own
+//! setting. One answer, in one shape, so the fill, the line and the panel
+//! cannot disagree about what is meant.
+//!
+//! THE MIDDLE LEVEL IS THE ONE THAT MAKES IT USABLE. A building is not styled
+//! object by object - it is styled by trade. Every wall in the blockwork set
+//! is poched the same, every slab in the structure set is heavier, and saying
+//! so once on the set is the difference between a drawing standard and six
+//! hundred right-clicks. An object that says nothing takes its set's answer;
+//! a set that says nothing takes ITS set's; and what nobody claims is the
+//! view's.
+//!
+//! \p above is the sets the object sits in, NEAREST FIRST - which is the order
+//! "use the parent" means, and the order the walk up the tree produces.
+export function cutStyleOf(appearance, viewStyle = "capped", above = []) {
   const own = (appearance && appearance.cut) || {};
+  //! Each set's own cut record, in the same shape, read once here so the
+  //! lookup below is a list of plain objects rather than a walk per field.
+  const inherited = (Array.isArray(above) ? above : [])
+    .map(one => (one && one.cut) || (one && one.appearance && one.appearance.cut) || {})
+    .filter(one => one && Object.keys(one).length);
   const under = styleAsCut(viewStyle);
-  const pick = (value, fallback) =>
-    (value === undefined || value === null || value === "inherit") ? fallback : value;
-  const pattern = pick(own.pattern, under.pattern);
-  const line = pick(own.line, under.line);
+  const said = value => !(value === undefined || value === null || value === "inherit");
+  //! "USE PARENT" IS THE ABSENCE OF AN ANSWER, not a fourth value to store. An
+  //! object that has been given nothing follows its set; one that has been
+  //! given something follows itself; and "back to the parent" is done by
+  //! deleting the field rather than by writing a word meaning "ask upstairs" -
+  //! which is what keeps a file that has never been styled empty.
+  const pick = (key, fallback) => {
+    if (said(own[key])) return own[key];
+    for (const level of inherited) if (said(level[key])) return level[key];
+    return fallback;
+  };
+  const pattern = pick("pattern", under.pattern);
+  const line = pick("line", under.line);
+  //! Where the answer came from, so the panel can say "as the structure set"
+  //! rather than leaving somebody to guess why a wall they never touched is
+  //! hatched. Own beats set beats view, and it is the same order as above.
+  const from = Object.keys(own).length ? "own"
+             : inherited.length ? "set" : "view";
   return {
+    from,
     pattern: patternNamed(pattern).key === "inherit" ? under.pattern : pattern,
     line: lineNamed(line).key === "inherit" ? under.line : line,
-    weight: Math.max(0.5, Math.min(12, Number(pick(own.weight, under.weight)) || under.weight)),
-    scale: Math.max(0.05, Math.min(20, Number(pick(own.scale, 1)) || 1)),
-    angle: Number(pick(own.angle, 0)) || 0,
+    weight: Math.max(0.5, Math.min(12, Number(pick("weight", under.weight)) || under.weight)),
+    scale: Math.max(0.05, Math.min(20, Number(pick("scale", 1)) || 1)),
+    angle: Number(pick("angle", 0)) || 0,
     // Nothing said means "the colour the view uses", which the viewport knows
     // and this does not - so it says nothing rather than guessing at a colour.
-    fill: Array.isArray(own.fill) && own.fill.length === 3 ? own.fill : null,
-    ink: Array.isArray(own.ink) && own.ink.length === 3 ? own.ink : null,
-    tile: typeof own.tile === "string" ? own.tile : "",
+    fill: (v => Array.isArray(v) && v.length === 3 ? v : null)(pick("fill", null)),
+    ink: (v => Array.isArray(v) && v.length === 3 ? v : null)(pick("ink", null)),
+    tile: (v => typeof v === "string" ? v : "")(pick("tile", "")),
     own: Object.keys(own).length > 0,
   };
 }

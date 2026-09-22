@@ -2882,6 +2882,10 @@ export const CATEGORIES = [
   { key: "curve",     label: "curves" },
   { key: "body",      label: "solids" },
   { key: "mesh",      label: "mesh" },
+  //! Drawings are their own kind of thing, not curves that happen to be flat:
+  //! a drawing is about the model rather than part of it. The heading is empty
+  //! - and therefore not drawn - until the Drawings package is loaded.
+  { key: "drawing",   label: "drawings" },
   { key: "analysis",  label: "analysis" },
   { key: "operation", label: "operations" },
   { key: "container", label: "sets" },
@@ -4985,6 +4989,11 @@ export function schemaJson() {
       // catalogue and the assistant is told about it - it just has no button,
       // because pressing one would make an import of nothing.
       ...(spec.hidden ? { hidden: true } : {}),
+      //! A node that reads other features' APPEARANCES, and so has to be
+      //! rebuilt when one changes. A drawing is the only kind there is: what
+      //! a body is poched with is part of how it looks AND is geometry on the
+      //! sheet. See setAppearance, which asks this rather than knowing names.
+      ...(spec.readsAppearance ? { readsAppearance: true } : {}),
       args: spec.args.map((arg, index) => {
         const base = { key: arg.key, label: arg.label, tag: FIRST_ARG_TAG + index, kind: arg.kind };
         if (arg.showWhen) base.showWhen = arg.showWhen;
