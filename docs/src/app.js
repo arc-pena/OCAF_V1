@@ -437,6 +437,105 @@ function sceneBounds() {
   return any && !box.isEmpty() ? box : null;
 }
 
+/* ------------------------------------------------- framing what is actually there
+
+   A BOX ROUND EVERYTHING IS NOT ALWAYS A USEFUL PLACE TO POINT A CAMERA.
+
+   A surveyed STEP file carries the building and, beside it, the coordinate
+   markers its exporter put at the world origin. Imported as one object they
+   are one body, so the body's box is 2,492 km across; fit framed 1,270 km, and
+   a 400 m tower came out a fifth of a pixel wide on a 1,500 px canvas. It was
+   drawn. Nobody could see it. "The STEP is broken and shows no 3D" is what
+   that looks like from the other side of the glass.
+
+   So the bulk is measured as well as the extent: a sample of the vertices
+   actually on screen, and the box that holds all but the outermost half a
+   per cent of them per axis. When the two agree - which is every ordinary
+   model - nothing changes. When the extent is more than twenty times the
+   bulk, something is sitting a very long way from everything else, and the
+   camera goes to where the model is. It SAYS SO when it does; a fit that
+   quietly leaves part of the model out of frame would be its own small lie. */
+
+const BULK_SAMPLES = 4000;
+//! HOW FAR OUT "MOST OF IT" REACHES, and then a generous multiple of that, so
+//! nothing is cropped. Measured on the tower: 5% of its vertices are the
+//! coordinate markers at the origin and 95% are the building, so a per-axis
+//! tail small enough to leave the building whole was far too small to cut the
+//! markers off, and one big enough to cut them clipped the building. Distance
+//! from the middle separates the two in one number: the building is within a
+//! few hundred metres of its own median, the markers are 2,492 km away, and
+//! anything inside five times the ninetieth percentile is the building.
+const BULK_REACH = 0.9;
+const BULK_MARGIN = 5;
+const BULK_RATIO = 20;            // how much bigger the extent must be to matter
+
+//! The vertices on screen, sampled, in MODEL coordinates - the geometry is
+//! held against the scene anchor, so the group's own position is what puts a
+//! sample back into the numbers the rest of the page thinks in.
+function bulkBounds() {
+  const xs = [], ys = [], zs = [];
+  let seen = 0;
+  for (const [id, { group }] of shapes) {
+    const entry = feature(id);
+    if (!showsInModel(id, group) || !entry || entry.category === "datum") continue;
+    group.traverse(one => {
+      if (!one.isMesh && !one.isLineSegments && !one.isPoints) return;
+      if (one.userData && one.userData.hardEdge) return;
+      const at = one.geometry && one.geometry.attributes && one.geometry.attributes.position;
+      if (!at || !at.count) return;
+      const step = Math.max(1, Math.floor(at.count / (BULK_SAMPLES / 8)));
+      for (let i = 0; i < at.count; i += step) {
+        xs.push(at.getX(i) + group.position.x);
+        ys.push(at.getY(i) + group.position.y);
+        zs.push(at.getZ(i) + group.position.z);
+        seen++;
+      }
+    });
+  }
+  if (seen < 8) return null;
+  const middle = list => { const v = list.slice().sort((a, b) => a - b); return v[v.length >> 1]; };
+  const centre = new THREE.Vector3(middle(xs), middle(ys), middle(zs));
+  const far = [];
+  for (let i = 0; i < xs.length; i++)
+    far.push(Math.hypot(xs[i] - centre.x, ys[i] - centre.y, zs[i] - centre.z));
+  far.sort((a, b) => a - b);
+  const reach = far[Math.floor(far.length * BULK_REACH)] * BULK_MARGIN;
+  if (!(reach > 0)) return null;
+  const box = new THREE.Box3();
+  for (let i = 0; i < xs.length; i++) {
+    const d = Math.hypot(xs[i] - centre.x, ys[i] - centre.y, zs[i] - centre.z);
+    if (d <= reach) box.expandByPoint(new THREE.Vector3(xs[i], ys[i], zs[i]));
+  }
+  return box.isEmpty() ? null : box;
+}
+
+//! The box to point the camera at, and whether anything was left out of it.
+function framingBounds() {
+  const whole = sceneBounds();
+  if (!whole) return null;
+  const wide = whole.getSize(new THREE.Vector3()).length();
+  const bulk = bulkBounds();
+  if (!bulk || bulk.isEmpty()) return { box: whole, left: false };
+  const close = bulk.getSize(new THREE.Vector3()).length();
+  if (!(close > 0) || wide < close * BULK_RATIO) return { box: whole, left: false };
+  //! How far the furthest thing is from what was framed, which is the one
+  //! number a person wants when they are told part of the model is not on
+  //! screen.
+  const middle = bulk.getCenter(new THREE.Vector3());
+  const away = Math.max(middle.distanceTo(whole.min), middle.distanceTo(whole.max));
+  return { box: bulk, left: true, away };
+}
+
+//! A distance in the units a person would say it in. The model is in
+//! millimetres and the answer is usually kilometres, and "2492245 mm" is not
+//! a sentence anybody reads.
+function metres(mm) {
+  const m = Math.abs(mm) / 1000;
+  return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + " km"
+    : m >= 1 ? m.toFixed(m >= 100 ? 0 : 1) + " m"
+    : mm.toFixed(0) + " mm";
+}
+
 //! The part of the canvas you can actually see. The panels float over the
 //! model rather than sitting beside it, so a fit to the whole canvas puts a
 //! third of the part underneath them - which is what "it does not fit" looked
@@ -1910,6 +2009,103 @@ function markMaterial(entry, as) {
   });
 }
 
+/* ================================================ where the scene's zero is
+
+   A MODEL DOES NOT HAVE TO BE NEAR THE ORIGIN, and a real one usually is not.
+   A tower surveyed onto its site sits at x 496,600,000 mm, y 2,492,200,000 mm
+   - two and a half thousand kilometres out - because that is where the site
+   is. Every coordinate in the file is honest and every one of them is useless
+   to a graphics card.
+
+   A position attribute is float32. At 2.49e9 the gap between one representable
+   number and the next is 256 MILLIMETRES, so a 200 mm mullion is thinner than
+   the grid its corners can land on: the whole building snaps to a quarter-metre
+   lattice before a single pixel is drawn. The camera suffers the same way - the
+   near plane came out at 25 km on that model.
+
+   So the triangles are stored RELATIVE to an anchor and the anchor goes on the
+   group's own transform. The geometry then holds small numbers, which float32
+   represents exactly; the group's matrix holds the big one, in float64, where
+   it is exact too; and three.js multiplies view by model on the CPU before it
+   uploads anything, so what reaches the shader is the small difference rather
+   than the difference of two huge numbers.
+
+   AND NOTHING ELSE IN THE PAGE HAS TO KNOW. That is the whole reason the
+   offset lives on the group rather than on the world: a group's WORLD position
+   is unchanged, so Box3.setFromObject still reports model coordinates, the
+   raycaster still works, the section planes still cut, and every gizmo, handle
+   and pick list goes on being built in the model's own numbers as before.   */
+
+//! Rounded, so it is a number a person could read in a debugger and so that
+//! two shapes a millimetre apart cannot end up with different anchors.
+const ANCHOR_STEP = 1000;
+
+//! How far a shape may be from the anchor before the anchor is worth moving.
+//! Ten kilometres: far enough that no ordinary model ever re-anchors, near
+//! enough that float32 still has a tenth of a millimetre at the edge of it.
+const ANCHOR_REACH = 10 * 1000 * 1000;
+
+let sceneAnchor = null;
+
+//! The anchor a shape should be drawn against, chosen the first time anything
+//! with real geometry arrives. A DATUM does not get to choose it: the origin
+//! planes are always at zero, they are always the first thing built, and
+//! anchoring on them would anchor every model at the origin - which is the
+//! behaviour this exists to undo.
+function anchorFrom(mesh, entry) {
+  if (!mesh || !mesh.positions || !mesh.positions.length) return null;
+  if (drawsFaint(entry)) return null;
+  //! THE MEDIAN, NOT THE MEAN. The mean is what an average does to an outlier:
+  //! the tower's own body carries coordinate markers at the world origin as
+  //! well as the building, and averaging the two put the anchor 1.6 km off the
+  //! building - where float32 has 0.125 mm to work with instead of 0.008. A
+  //! median lands wherever most of the vertices are, which is the definition
+  //! of where the model is.
+  const xs = [], ys = [], zs = [];
+  const step = Math.max(3, Math.floor(mesh.positions.length / 600 / 3) * 3);
+  for (let i = 0; i + 2 < mesh.positions.length; i += step) {
+    xs.push(mesh.positions[i]); ys.push(mesh.positions[i + 1]); zs.push(mesh.positions[i + 2]);
+  }
+  if (!xs.length) return null;
+  const middle = list => { list.sort((a, b) => a - b); return list[list.length >> 1]; };
+  const round = v => Math.round(v / ANCHOR_STEP) * ANCHOR_STEP;
+  return new THREE.Vector3(round(middle(xs)), round(middle(ys)), round(middle(zs)));
+}
+
+//! Everything already drawn, drawn again against the anchor that has just been
+//! chosen. Only ever runs once on a document - the first body to arrive picks
+//! the anchor, and the datums built before it are the only things needing
+//! moving.
+function reanchor() {
+  for (const [id, held] of [...shapes]) {
+    const mesh = streams.get(id);
+    if (!mesh) continue;
+    disposeGroup(held.group);
+    const group = groupFromStream(mesh, feature(id));
+    world.add(group);
+    group.userData.ball = ballOf(group);
+    group.userData.triangles = mesh.triangles || 0;
+    shapes.set(id, { revision: held.revision, group });
+  }
+  syncHardEdges();
+}
+
+//! Three numbers at a time, moved to the anchor. A copy rather than an edit:
+//! the stream is kept as the kernel sent it, in the model's own coordinates,
+//! because everything else that reads a stream - the section cutter, the
+//! handles, what a measurement says - wants those and not these.
+function againstAnchor(flat, anchor) {
+  if (!anchor || !flat || !flat.length) return flat;
+  const out = new Float32Array(flat.length);
+  const ax = anchor.x, ay = anchor.y, az = anchor.z;
+  for (let i = 0; i + 2 < flat.length; i += 3) {
+    out[i] = flat[i] - ax;
+    out[i + 1] = flat[i + 1] - ay;
+    out[i + 2] = flat[i + 2] - az;
+  }
+  return out;
+}
+
 function groupFromStream(mesh, entry) {
   const group = new THREE.Group();
   const datum = drawsFaint(entry);
@@ -1918,9 +2114,27 @@ function groupFromStream(mesh, entry) {
   group.userData.curve = !!entry && entry.produces === "curve";
   group.userData.datum = datum;
 
+  //! THE ANCHOR, chosen here because this is where the first real geometry
+  //! passes through. A shape that lands more than ANCHOR_REACH away from the
+  //! one in hand means the anchor no longer serves, so it is chosen again and
+  //! everything already drawn is rebuilt against it.
+  const mine = anchorFrom(mesh, entry);
+  if (mine && (!sceneAnchor || sceneAnchor.distanceTo(mine) > ANCHOR_REACH)) {
+    const had = sceneAnchor;
+    sceneAnchor = mine;
+    //! Not from inside itself: the rebuild would call this again for the shape
+    //! that is halfway through being built. Deferred by a frame, which is
+    //! also when the page next draws.
+    if (had) setTimeout(() => { if (sceneAnchor === mine) reanchor(); }, 0);
+  }
+  const anchor = sceneAnchor;
+  if (anchor) group.position.copy(anchor);
+
   if (mesh.positions && mesh.index) {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(mesh.positions, 3));
+    geometry.setAttribute("position",
+      new THREE.Float32BufferAttribute(againstAnchor(mesh.positions, anchor), 3));
+    //! Normals are directions and a direction does not move with the anchor.
     if (mesh.normals)
       geometry.setAttribute("normal", new THREE.Float32BufferAttribute(mesh.normals, 3));
     geometry.setIndex(mesh.index);
@@ -1957,7 +2171,8 @@ function groupFromStream(mesh, entry) {
 
   if (mesh.edges && mesh.edges.length) {
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(mesh.edges, 3));
+    geometry.setAttribute("position",
+      new THREE.Float32BufferAttribute(againstAnchor(mesh.edges, anchor), 3));
     // A curve is the feature, not the outline of one, so it is drawn in its own
     // colour at full strength rather than as a solid's tangent edge.
     const lines = new THREE.LineSegments(geometry, edgeMaterial(entry, style));
@@ -1978,7 +2193,7 @@ function groupFromStream(mesh, entry) {
   if (marks) {
     const dots = new THREE.Points(
       new THREE.BufferGeometry().setAttribute("position",
-        new THREE.Float32BufferAttribute(marks, 3)),
+        new THREE.Float32BufferAttribute(againstAnchor(marks, anchor), 3)),
       markMaterial(entry, "plain"));
     dots.userData.id = mesh.id;
     dots.userData.mark = true;
@@ -6392,8 +6607,16 @@ function pick(event) {
 //! sphere is used rather than the box because a sphere looks the same from
 //! every angle, so the framing does not change when the model is turned.
 function fitView() {
-  const box = sceneBounds();
-  if (!box) return;
+  //! NOT "framing" - that name is taken six lines down by what frameFor hands
+  //! back, and the shadow was a page that would not start.
+  const framed = framingBounds();
+  if (!framed) return;
+  const box = framed.box;
+  //! Said once, where the status line is read, rather than left for somebody
+  //! to wonder why the view is not centred on everything they can see.
+  if (framed.left)
+    say("framed on the model — part of it lies " + metres(framed.away)
+      + " away and is out of shot");
   const sphere = box.getBoundingSphere(new THREE.Sphere());
   view.span = Math.max(sphere.radius, 1);
   const framing = frameFor(view.span, freeRect());
@@ -11198,6 +11421,10 @@ async function attachKernel(next, model) {
 
   for (const [, { group }] of shapes) disposeGroup(group);
   shapes.clear();
+  //! A NEW DOCUMENT CHOOSES ITS OWN ANCHOR. Keeping the last one would draw a
+  //! bracket at the origin against a tower's site, which is exactly the
+  //! arithmetic this is here to avoid.
+  sceneAnchor = null;
   state.stream = null;
 
   const payload = model ? await kernel.loadModel(model) : await kernel.tree();
