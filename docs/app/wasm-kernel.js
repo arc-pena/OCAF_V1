@@ -356,7 +356,58 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     return whole ? whole.smallest : Infinity;
   }
 
+  /* ------------------------------- how fine to tessellate, and what by
+
+     BY THE SOLIDS IN A SHAPE, NOT BY THE BOX AROUND THEM.
+
+     The box around them is what this used to be, and on a model sited at
+     survey coordinates it is a disaster. A STEP file with a coordinate marker
+     at the world origin and the building 2,492 km away has a bounding box
+     2,500 km across. Two thousandths of that is a deflection of FIVE
+     KILOMETRES, so every member in the tower was tessellated to within five
+     kilometres of itself - 15,563 faces came down to 67,462 triangles, about
+     four per face, which is each face reduced to its own corners. The model
+     was all there. It was drawn as nothing, and it looked exactly like an
+     import that had lost most of the file.
+
+     It is wrong in the ordinary case too, just less loudly. A 476-part
+     assembly brought in as one object is one shape, so the whole building was
+     meshed at two thousandths of the whole building - and a 200 mm mullion in
+     a 400 m tower is a great deal finer than that. The same model as separate
+     bodies always looked better, and that was the only reason why.
+
+     So: the MEDIAN solid's diagonal. Median rather than smallest, because one
+     bolt would then mesh a whole building at the bolt's tolerance; median
+     rather than largest, because one core wall running the full height would
+     put it back where it started. A shape with no solids in it - a surface, a
+     wire, a datum - has nothing to take a median of, and its own box is the
+     right answer for those anyway.                                        */
+
+  //! At most this many solids are measured. A box per solid is not free and an
+  //! import can hold sixty thousand of them; a median off five hundred spread
+  //! through the shape is the same median, and it is bounded.
+  const DEFLECTION_SAMPLES = 512;
+
+  const medianSolidSpan = shape => {
+    const total = countSubShapes(shape, SOLID);
+    if (!total) return null;
+    const stride = Math.max(1, Math.ceil(total / DEFLECTION_SAMPLES));
+    const spans = [];
+    const explorer = new oc.TopExp_Explorer(shape, SOLID, ANY);
+    for (let i = 0; explorer.More(); explorer.Next(), i++) {
+      if (i % stride) continue;
+      const box = extents(explorer.Current());
+      if (box && box.diagonal > 0) spans.push(box.diagonal);
+    }
+    explorer.delete();
+    if (!spans.length) return null;
+    spans.sort((a, b) => a - b);
+    return spans[spans.length >> 1];
+  };
+
   const deflectionFor = shape => {
+    const span = medianSolidSpan(shape);
+    if (span) return Math.max(1e-3, span * 2e-3);
     const box = extents(shape);
     return Math.max(1e-3, (box ? box.diagonal : 100) * 2e-3);
   };

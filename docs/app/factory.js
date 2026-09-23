@@ -112,6 +112,78 @@ export function makeFactories(oc, kit) {
     if (!(value > CONFUSION)) throw new Error(what + " must be greater than zero");
     return value;
   };
+
+  /* ------------------------------------------- a boolean that came out broken
+
+     IsDone() IS NOT THE SAME QUESTION AS "is the answer a solid".
+
+     A 58 x 81 m floor slab, one metre thick, with an opening cut out of it by a
+     tool exactly one metre thick starting on the same plane: coincident faces
+     top and bottom, which is the degenerate case for a boolean. OpenCascade
+     returned IsDone() true and a shape that LOOKED right - one solid, 235
+     faces, 8,048 m2 of surface, the right bounding box - whose shell was not
+     closed. A shell that is not closed encloses nothing, so it measured zero
+     volume, and STEP would not write it: sixty-one floors of a tower were
+     silently absent from every export, with nothing anywhere saying so.
+
+     Asking for a fuzzy value is the remedy OpenCascade documents for exactly
+     this. Measured on that slab:
+
+         plain             1 solid, 235 faces, volume     0.0000 m3, shell open
+         fuzzy 1e-4        1 solid, 233 faces, volume  2410.0232 m3, shell closed
+
+     and 2410.0 is the slab's 3802.7 less the 1392.7 the opening overlapped, so
+     it is not merely closed, it is right. Every fuzzy value from 1e-4 to 1 gave
+     the identical answer, so this is not a tolerance to tune - any non-zero one
+     puts OpenCascade on its robust path. Sewing the broken result instead does
+     not help: the shell stays open.
+
+     So the fuzzy run is the RETRY, not the default. The plain one is faster and
+     is right nearly always; this is what happens when it is not.            */
+
+  //! Is every solid in this shape actually closed? A solid whose shell is open
+  //! is the failure this exists to catch, and it is invisible from outside:
+  //! it draws, it has faces, and it has no volume.
+  const closedThroughout = shape => {
+    if (!shape || shape.IsNull()) return false;
+    const shells = each(shape, oc.TopAbs_ShapeEnum.TopAbs_SHELL, x => x);
+    if (!shells.length) return false;
+    return shells.every(shell => oc.BRep_Tool.IsClosed(shell));
+  };
+
+  //! What both arguments are, in size - the fuzzy value has to mean something
+  //! against the model, and a value that is sane for a bracket in millimetres
+  //! is meaningless for a tower sited in survey coordinates.
+  const BOOLEAN_FUZZ = 1e-4;
+
+  //! One boolean, run plainly and then again with a fuzzy value if what came
+  //! back was not a closed solid. \p make builds the operation; it is called
+  //! twice at most, because a second failure is a real one and handing back a
+  //! shape that is not a solid would be handing back the bug.
+  const booleanResult = (make, whatFailed) => {
+    const plain = make();
+    plain.Build(new oc.Message_ProgressRange());
+    if (plain.IsDone()) {
+      const shape = plain.Shape();
+      //! A result with no solids in it at all is a legitimate answer - cutting
+      //! a body entirely away leaves nothing - so only a shape that claims
+      //! solids is asked whether they close.
+      if (!count(shape, SOLID) || closedThroughout(shape)) return shape;
+    }
+    const fuzzy = make();
+    if (typeof fuzzy.SetFuzzyValue === "function") fuzzy.SetFuzzyValue(BOOLEAN_FUZZ);
+    fuzzy.Build(new oc.Message_ProgressRange());
+    if (!fuzzy.IsDone()) throw new Error(whatFailed);
+    const shape = fuzzy.Shape();
+    //! STILL NOT CLOSED, and now it is said out loud rather than handed on.
+    //! A broken solid that travels downstream is a body that measures zero,
+    //! exports as nothing and explains itself nowhere.
+    if (count(shape, SOLID) && !closedThroughout(shape))
+      throw new Error(whatFailed + " - the result came back open, which usually means the "
+        + "two bodies share a face exactly; move one of them a little, or make the tool "
+        + "reach past the far side of what it cuts");
+    return shape;
+  };
   //! An axis system from a location and a normal, with an X direction that is
   //! a suggestion rather than a demand: gp_Ax2 projects it onto the plane, so
   //! a rough one will do as long as it is not along the normal.
@@ -1847,32 +1919,23 @@ export function makeFactories(oc, kit) {
 
     { name: "add", takes: "a, b", gives: "solid",
       summary: "Two bodies fused into one. CATIA calls it Add; it is the union.",
-      run: (a, b) => {
-        const made = new oc.BRepAlgoAPI_Fuse(a, b, new oc.Message_ProgressRange());
-        made.Build(new oc.Message_ProgressRange());
-        if (!made.IsDone()) throw new Error("those two will not add together");
-        return made.Shape();
-      } },
+      run: (a, b) => booleanResult(
+        () => new oc.BRepAlgoAPI_Fuse(a, b, new oc.Message_ProgressRange()),
+        "those two will not add together") },
 
     { name: "remove", takes: "a, b", gives: "solid",
       summary: "The second body taken out of the first. CATIA calls it Remove. If it "
              + "ever appears to do nothing, measure it: a self-intersecting argument "
              + "is answered by handing back what it was given, with no error.",
-      run: (a, b) => {
-        const made = new oc.BRepAlgoAPI_Cut(a, b, new oc.Message_ProgressRange());
-        made.Build(new oc.Message_ProgressRange());
-        if (!made.IsDone()) throw new Error("that will not cut");
-        return made.Shape();
-      } },
+      run: (a, b) => booleanResult(
+        () => new oc.BRepAlgoAPI_Cut(a, b, new oc.Message_ProgressRange()),
+        "that will not cut") },
 
     { name: "intersect", takes: "a, b", gives: "solid",
       summary: "What two bodies have in common.",
-      run: (a, b) => {
-        const made = new oc.BRepAlgoAPI_Common(a, b, new oc.Message_ProgressRange());
-        made.Build(new oc.Message_ProgressRange());
-        if (!made.IsDone()) throw new Error("those two do not overlap");
-        return made.Shape();
-      } },
+      run: (a, b) => booleanResult(
+        () => new oc.BRepAlgoAPI_Common(a, b, new oc.Message_ProgressRange()),
+        "those two do not overlap") },
 
     { name: "thickness", takes: "surface, thickness, both", gives: "solid",
       summary: "A surface given a thickness, so a skin becomes a body. Thickening is "

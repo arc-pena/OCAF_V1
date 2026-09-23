@@ -1434,14 +1434,39 @@ const HARD_EDGE_BUDGET = 900000;
 const hardEdges = new Map();          // feature id -> the ribbon in its group
 let hardEdgeTally = { drawn: 0, left: 0 };
 
+/* ------------------------------------------ the overlay's two pixel numbers
+
+   A RIBBON IS NOT A RIBBON UNTIL IT HAS BEEN TOLD HOW BIG THE WINDOW IS.
+
+   The shader pushes each vertex sideways by `width` pixels, and it converts
+   pixels to clip space by dividing by half the drawing buffer. The material is
+   born with `screen` at (1, 1) because a material cannot know what it will be
+   drawn into - so a ribbon that reaches the scene before anything sets it is
+   expanded by width against a half-pixel screen, which is to say by about a
+   thousand times, and every edge in the model becomes a band the width of the
+   window.
+
+   That is what "the edges go haywire when I change a fillet radius" was. The
+   sweep set these on every ribbon it had, and the tick looked right because
+   the sweep is what the tick runs. But a REBUILD makes its ribbon in setShape,
+   one shape at a time, and nothing there ran the sweep: change a radius and
+   the new overlay arrived with a one-pixel screen.
+
+   So they are set where the ribbon is MADE, and the sweep is just the same
+   thing applied to all of them. A ribbon now cannot exist in the scene, for
+   even one frame, without knowing what it is being drawn into.             */
+
+function dressRibbon(ribbon, size) {
+  const into = size || renderer.getDrawingBufferSize(new THREE.Vector2());
+  ribbon.material.uniforms.width.value = Math.max(0.25, arcticLook.line);
+  ribbon.material.uniforms.screen.value.set(into.x, into.y);
+}
+
 //! The width the overlay is drawn at, and the size of the picture it is drawn
 //! into - both in pixels, because that is what a line weight means on screen.
 function paintHardEdges() {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  for (const ribbon of hardEdges.values()) {
-    ribbon.material.uniforms.width.value = Math.max(0.25, arcticLook.line);
-    ribbon.material.uniforms.screen.value.set(size.x, size.y);
-  }
+  for (const ribbon of hardEdges.values()) dressRibbon(ribbon, size);
 }
 
 //! One shape's overlay, made or taken away. Called as shapes stream in as well
@@ -1451,11 +1476,21 @@ function paintHardEdges() {
 function hardEdgesFor(id, held) {
   const want = arcticLook.edges && state.style === "arctic";
   const had = hardEdges.get(id);
+  //! WHAT A RIBBON COST, GIVEN BACK WHEN IT GOES. The tally is a budget, and a
+  //! budget that only ever goes up is a budget that runs out: every rebuild
+  //! used to add its segments again without the replaced ribbon's coming off,
+  //! so dragging a radius on a large model eventually pushed the whole overlay
+  //! over the limit and the edges stopped appearing. Only the sweep reset it,
+  //! and a rebuild is not the sweep.
+  const refund = one => {
+    hardEdgeTally.drawn = Math.max(0, hardEdgeTally.drawn - (one.userData.segments || 0));
+  };
   if (!want) {
     if (had) {
-      had.parent.remove(had);
+      if (had.parent) had.parent.remove(had);
       had.geometry.dispose();
       had.material.dispose();
+      refund(had);
       hardEdges.delete(id);
     }
     return;
@@ -1464,7 +1499,13 @@ function hardEdgesFor(id, held) {
   //! group, so an overlay held from before is attached to a group nobody is
   //! drawing. Cheapest test for that is whether it is still in this one.
   if (had && had.parent === held.group) return;
-  if (had) { had.geometry.dispose(); had.material.dispose(); hardEdges.delete(id); }
+  if (had) {
+    if (had.parent) had.parent.remove(had);
+    had.geometry.dispose();
+    had.material.dispose();
+    refund(had);
+    hardEdges.delete(id);
+  }
   const lines = held.group.children.find(one => one.isLineSegments && one.userData.brepEdges);
   if (!lines || !lines.geometry.attributes.position) return;
   const positions = lines.geometry.attributes.position.array;
@@ -1481,6 +1522,9 @@ function hardEdgesFor(id, held) {
   //! clay on it, the section walk makes stencil copies of it, and the
   //! appearance walk gives it a finish.
   ribbon.userData.hardEdge = true;
+  ribbon.userData.segments = segments;
+  //! BEFORE IT GOES INTO THE SCENE, not after - see dressRibbon.
+  dressRibbon(ribbon);
   ribbon.layers.set(ARCTIC_OVERLAY);
   ribbon.renderOrder = 3;
   //! Culled by the LINES' bounds, which are the same bounds: the ribbon is
