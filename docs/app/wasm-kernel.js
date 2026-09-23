@@ -6577,19 +6577,47 @@ function sprawl(face, edges) {
   //! A transferred root broken into the parts a person would call parts:
   //! solids if there are any, shells if there are not, faces if there are
   //! neither. A root that is one of those already comes back as itself.
+  //!
+  //! AND IT SAYS HOW MUCH IT LEFT BEHIND. "Solids if there are any" means a
+  //! root holding both solids and loose surfaces gives the surfaces up, and a
+  //! real file does exactly that: a 476-product tower carried 107 solids and
+  //! 169 shell-based surface models beside them, and the import said "107
+  //! parts" and not one word about the rest of somebody's building.
+  //!
+  //! COUNTED IN FACES, because faces are what these bindings can count. There
+  //! is no TopoDS_Iterator here, no TopExp, no TopTools map - so "how many
+  //! loose shells" cannot be asked without guessing, and a guess dressed as a
+  //! count is worse than silence. A face explorer over the root and over what
+  //! was kept is two numbers that are both exact, and their difference is the
+  //! surface area of the file that did not come in. On that tower it is 6,839
+  //! faces of 15,563, which is the sentence worth reading.
   const explode = parts => {
     const SHELL = oc.TopAbs_ShapeEnum.TopAbs_SHELL;
     const out = [];
+    let had = 0, kept = 0;
     for (const part of parts) {
+      had += countSubShapes(part.shape, FACE);
       const solids = subShapes(part.shape, SOLID, oc.TopoDS.Solid);
       const shells = solids.length ? [] : subShapes(part.shape, SHELL, oc.TopoDS.Shell);
       const faces = solids.length || shells.length ? [] : subShapes(part.shape, FACE, oc.TopoDS.Face);
       const pieces = solids.length ? solids : shells.length ? shells : faces;
-      if (!pieces.length) { out.push(part); continue; }
-      for (const piece of pieces) out.push({ shape: piece, name: part.name });
+      if (!pieces.length) { out.push(part); kept += countSubShapes(part.shape, FACE); continue; }
+      for (const piece of pieces) {
+        out.push({ shape: piece, name: part.name });
+        kept += countSubShapes(piece, FACE);
+      }
     }
+    out.facesLeft = Math.max(0, had - kept);
+    out.facesHad = had;
     return out;
   };
+
+  //! What exploding gave up, in words, or nothing at all when it gave up
+  //! nothing - which is the usual case and should read as silence.
+  const saysPassedOver = pieces => !pieces.facesLeft ? ""
+    : " · " + pieces.facesLeft + " of " + pieces.facesHad + " faces were not brought in - "
+      + "breaking a file into parts takes its solids, and these are surfaces beside them; "
+      + "import it as one object to keep them";
 
   //! A compound that holds one solid and nothing else IS that solid, and a STEP
   //! reader hands back plenty of them. Unwrapped here so what lands in the tree
@@ -7265,7 +7293,8 @@ function sprawl(face, edges) {
         note = pieces.length === 1
           ? "one object, " + describeShape(pieces[0].shape)
           : pieces.length + " parts"
-            + (named ? ", named from the file" : ", numbered - the file gave no usable names");
+            + (named ? ", named from the file" : ", numbered - the file gave no usable names")
+            + saysPassedOver(pieces);
         //! WHAT THE DOCUMENT NOW HOLDS, said out loud. An import that packed a
         //! hundred and eighty megabytes into twenty-four is worth knowing
         //! about: it is the difference between a model file somebody can send
