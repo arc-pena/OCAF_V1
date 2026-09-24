@@ -2179,6 +2179,26 @@ export const CATALOGUE = [
            choice("closed", "Ends", ["Open", "Closed"], 0),
            real("degree", "Degree", 3, 1, 8, 1, "")] },
 
+  //! A SURFACE FROM MEASUREMENTS RATHER THAN FROM A RECIPE. Everything else
+  //! here is made by a rule - extruded, revolved, swept, lofted. A terrain, a
+  //! survey, a scanned panel, a table of deflections is a GRID OF HEIGHTS, and
+  //! there was no way in for one.
+  //!
+  //! It interpolates: measured on a 6x6 grid, the worst distance from an input
+  //! point to the fitted surface is 0.000000 mm. Note that asking such a face
+  //! for its bounding box answers with the CONTROL POLES, which on that same
+  //! grid span 180.7 mm where the surface itself spans 49.7.
+  { type: "Surface", guid: "9a1b2c30-0124-4c00-9e00-caf000000124", category: "body",
+    produces: "plane",
+    summary: "A smooth surface fitted through a grid of points, passing exactly "
+           + "through every one of them. Across is how many points make one row, so "
+           + "thirty-six points with Across 6 is a 6x6 grid, read row by row. The "
+           + "points must make a rectangle - a ragged grid is refused rather than "
+           + "guessed at.",
+    args: [refs("points", "Points", ["point"]),
+           real("across", "Across", 4, 2, 200, 1, ""),
+           real("degree", "Degree", 3, 2, 8, 1, "")] },
+
   /* ----------------------------------------------------------- analysis
      The other direction: geometry back into numbers and points. */
   //! THE FILL SURFACE, with constraints - which is the class-A tool and the
@@ -2259,6 +2279,20 @@ export const CATALOGUE = [
     produces: "solid",
     summary: "A sphere centred on a point.",
     args: [ref("center", "Centre point", ["point"]), real("radius", "Radius", 50, 1, 2000, 1)] },
+  //! THE FIFTH PRIMITIVE. Box, cylinder, sphere and cone were here and the ring
+  //! was not, so every elbow, every gasket, every handrail return and every
+  //! torus-section dome had to be swept by hand along an arc somebody drew.
+  { type: "Torus", guid: "9a1b2c30-0122-4c00-9e00-caf000000122", category: "body",
+    produces: "solid",
+    summary: "A ring. Ring radius is out to the middle of the tube and Tube radius "
+           + "is the tube's own, which is how every drawing of one is dimensioned. "
+           + "An angle less than 360 makes a BEND rather than a closed ring - a "
+           + "90 degree one is a pipe elbow.",
+    args: [ref("center", "Centre point", ["point"]),
+           ref("axis", "Axis", ["vector", "axis"]),
+           real("ring", "Ring radius", 60, 1, 5000, 1),
+           real("tube", "Tube radius", 15, 0.5, 2000, 0.5),
+           real("angle", "Angle", 360, 1, 360, 1, "\u00b0")] },
   { type: "Script", guid: "9a1b2c30-0030-4c00-9e00-caf000000030", category: "body",
     produces: "solid",
     summary: "A feature you write. The code declares its own parameters and returns "
@@ -2560,15 +2594,32 @@ export const CATALOGUE = [
            + "way - a handrail, a gutter, a moulding, a road. On Solid the profile is "
            + "capped first, so a closed profile comes out as a body. Give it a second "
            + "profile and the section BECOMES that one along the rail rather than "
-           + "staying as it was: a duct that starts round and ends square, a handrail "
-           + "that tapers.",
+           + "staying as it was: a duct that starts round and ends square. "
+           + "Section stays says how the section is held as it travels: Square to the "
+           + "rail is right for a handrail, Frenet lets it roll with the rail's own "
+           + "curvature (which differs from Square only where the rail leaves a "
+           + "plane), Upright keeps it level however the rail climbs, and Facing the "
+           + "guide aims it at a second rail. At corners decides what happens where "
+           + "the rail kinks - Right corner mitres it, Round corner rolls round it. "
+           + "Scale at the end grows or shrinks the section along the way, Straight or "
+           + "Eased; scaling and Becoming are alternatives, not a pair.",
     args: [ref("profile", "Profile", ["curve"], true),
            ref("spine", "Rail", ["curve"], true),
            choice("cap", "Result", ["Solid", "Surface"], 0),
            //! Appended, never inserted: an argument's index here is its OCAF
            //! child tag, so a new question goes at the end whatever that does
            //! to the order it is asked in.
-           spare("into", "Becoming", ["curve"])] },
+           spare("into", "Becoming", ["curve"]),
+           //! THE REST OF WHAT A PIPE SHELL OFFERS, appended for the same
+           //! reason. Every one of these is measured in factory.js above
+           //! pipeAlong; two of them look broken and are not, and the comment
+           //! there says which and why.
+           spare("guide", "Guide rail", ["curve"]),
+           choice("hold", "Section stays",
+                  ["Square to the rail", "Frenet", "Upright", "Facing the guide"], 0),
+           choice("corner", "At corners", ["Right corner", "Round corner", "Transformed"], 0),
+           real("scale", "Scale at the end", 1, 0.05, 20, 0.05, ""),
+           choice("easing", "Scaling", ["Straight", "Eased"], 0)] },
   //! A REVOLUTION, which this had no road to at all.
   //!
   //! Everything turned about an axis - a dome, a dish, a baluster, a tank end,
@@ -2708,6 +2759,17 @@ export const CATALOGUE = [
            + "measure.",
     args: [ref("boundary", "Boundary", ["curve", "plane"], true),
            choice("surface", "Surface", ["Whichever fits", "Planar only", "Patch"], 0)] },
+  //! THE OTHER WAY TO BREAK AN EDGE. A fillet rolls a radius into the corner and
+  //! a chamfer takes a slice off it, and they are not interchangeable: a
+  //! chamfer is what a drawing calls up for a lead-in, a weld preparation or an
+  //! arris, and there was no way to ask for one.
+  { type: "Chamfer", guid: "9a1b2c30-0123-4c00-9e00-caf000000123", category: "operation",
+    produces: "solid",
+    summary: "Every edge of a body cut back flat by a distance. A fillet rounds a "
+           + "corner; a chamfer slices it. Measured on a 40x30x20 box at 3 mm: "
+           + "22.52 cm3 against the box's own 24.00.",
+    args: [ref("body", "Body", ["solid"], true),
+           real("distance", "Distance", 2, 0.1, 500, 0.1)] },
   { type: "Draft", guid: "9a1b2c30-007b-4c00-9e00-caf00000007b", category: "operation",
     produces: "solid",
     summary: "Leans the sides of a body over by an angle, hinged where they meet a "

@@ -823,6 +823,71 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
                             F.real(f, "radius", 50)),
     },
 
+    Torus: {
+      precondition: f => {
+        if (!readPoint(F.reference(f, "center"))) return "centre point is missing";
+        const ring = F.real(f, "ring", 60), tube = F.real(f, "tube", 15);
+        if (ring <= CONFUSION) return "ring radius must be positive";
+        if (tube <= CONFUSION) return "tube radius must be positive";
+        //! Said here as well as in the factory, because a precondition is what
+        //! the panel shows BEFORE anything is built - and "the tube is fatter
+        //! than the ring" is a thing you want to read while you are typing it,
+        //! not after a rebuild.
+        if (tube >= ring) return "the tube must be thinner than the ring it goes round";
+        return null;
+      },
+      build: f => {
+        const middle = readPoint(F.reference(f, "center"));
+        //! The axis a ring lies about, which is what turns a torus on its side.
+        //! Absent, it lies flat, which is what anybody drawing a gasket wants.
+        const way = readVector(F.reference(f, "axis")) || [0, 0, 1];
+        const angle = F.real(f, "angle", 360);
+        const place = HSF.planeNormal(middle, way);
+        return angle >= 359.999
+          ? SF.torus(place, F.real(f, "ring", 60), F.real(f, "tube", 15))
+          : SF.torus(place, F.real(f, "ring", 60), F.real(f, "tube", 15), angle);
+      },
+    },
+
+    Chamfer: {
+      //! The same guard the fillet needs, and for the same reason: IsDone() is
+      //! not a statement about whether the answer is a body.
+      precondition: f => {
+        const source = F.reference(f, "body");
+        if (!source) return "no body selected";
+        const body = F.shape(source);
+        if (!body) return "the body to chamfer has not been built";
+        const distance = F.real(f, "distance", 2);
+        if (distance <= CONFUSION) return "distance must be positive";
+        if (countSubShapes(body, EDGE) === 0) return "this body has no edges to cut back";
+        if (countSubShapes(body, SOLID) === 0)
+          return "a chamfer needs a body with a volume, and this is a surface";
+        const smallest = smallestSolidExtent(body);
+        if (Number.isFinite(smallest) && distance >= smallest / 2)
+          return "a " + distance + " mm chamfer does not fit a body only "
+               + Math.round(smallest * 10) / 10 + " mm across";
+        return null;
+      },
+      build: f => SF.chamfer(F.shape(F.reference(f, "body")), F.real(f, "distance", 2)),
+    },
+
+    Surface: {
+      precondition: f => {
+        const points = pointsOf(f, "points");
+        const across = Math.round(F.real(f, "across", 4));
+        if (points.length < 4) return "a surface needs at least four points";
+        if (across < 2) return "Across must be at least 2";
+        if (points.length % across)
+          return points.length + " points do not make a rectangular grid " + across
+               + " across - " + (points.length % across) + " are left over";
+        if (points.length / across < 2) return "a grid needs at least two rows";
+        return null;
+      },
+      build: f => SF.surfaceThrough(pointsOf(f, "points"),
+                                    Math.round(F.real(f, "across", 4)),
+                                    Math.round(F.real(f, "degree", 3))),
+    },
+
     Fillet: {
       //! The guard that matters. On an 80 mm cube OpenCascade answers r = 39.9
       //! with IsDone() == true, r = 40 with false, and r = 60 with true again -
@@ -5413,10 +5478,39 @@ function sprawl(face, edges) {
       const into = F.reference(f, "into");
       const second = into ? F.shape(into) : null;
       if (into && !second) throw new Error(F.name(into) + " has not been built");
-      const made = Feature_choice(f, "cap") === 0 ? SF.rib(source, spine, second)
-                                                  : HSF.sweep1(source, spine, second);
-      return second ? { shape: made, note: "the section becomes " + F.name(into) }
-                    : made;
+      //! EVERYTHING THE PIPE SHELL OFFERS, read off the labels. The defaults
+      //! are exactly what this node did before any of them existed, so an old
+      //! model file opens unchanged: hold 0 is corrected Frenet, corner 0 is
+      //! the right-corner mitre, scale 1 is no law at all.
+      const rail = F.reference(f, "guide");
+      const guide = rail ? F.shape(rail) : null;
+      if (rail && !guide) throw new Error(F.name(rail) + " has not been built");
+      const hold = Feature_choice(f, "hold");
+      const how = {
+        guide: hold === 3 ? guide : null,
+        hold,
+        corner: Feature_choice(f, "corner"),
+        scale: F.real(f, "scale", 1),
+        eased: Feature_choice(f, "easing") === 1,
+      };
+      //! ASKED FOR, AND NOT WIRED UP. "Facing the guide" with no guide rail is
+      //! a question with no answer, and silently sweeping it square to the rail
+      //! instead would be the wrong shape with the right name on it.
+      if (hold === 3 && !guide)
+        throw new Error("Facing the guide needs a guide rail wired into it");
+      if (how.scale !== 1 && second)
+        throw new Error("a section that BECOMES another one cannot also be scaled - "
+          + "the law and the second profile are two ways of saying the same thing, "
+          + "and OpenCascade takes only one of them");
+      const made = Feature_choice(f, "cap") === 0 ? SF.rib(source, spine, second, how)
+                                                  : HSF.sweep1(source, spine, second, how);
+      const said = [];
+      if (second) said.push("the section becomes " + F.name(into));
+      if (how.guide) said.push("held facing " + F.name(rail));
+      else if (hold === 1) said.push("Frenet");
+      else if (hold === 2) said.push("held upright");
+      if (how.scale !== 1) said.push("scaled to " + how.scale + (how.eased ? ", eased" : ""));
+      return said.length ? { shape: made, note: said.join(" · ") } : made;
     },
   };
 

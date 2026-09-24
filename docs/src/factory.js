@@ -819,10 +819,86 @@ export function makeFactories(oc, kit) {
   //! exactly the section swept STRAIGHT for 1000, the section never having
   //! turned at all. Correction alone gives 32,427,006 and the corner mode alone
   //! 41,998,774. Only both together give the elbow.
-  const pipeAlong = (profileWire, spine, solid, intoWire = null) => {
+  /* ------------------------------------------- everything a pipe shell offers
+
+     BRepOffsetAPI_MakePipeShell publishes 23 members in this build. Nine of
+     them change the answer and the rest are build-and-ask plumbing:
+
+       SetMode            how the section is held as it travels - five
+                          overloads, resolved by arity
+       SetLaw             the section SCALES along the rail
+       SetTransitionMode  what happens at a corner in the rail
+       SetMaxDegree       ceiling on the surface's degree
+       SetMaxSegments     ceiling on how many spans it may use
+       SetTolerance       how close the approximation has to come
+       SetForceApproxC1   force a C1 result even where C2 was asked for
+       SetDiscreteMode    approximate rather than solve
+       SetIsBuildHistory  keep the map from profile to face
+
+     MEASURED, on a square section up a bent rail, so these are not quotes from
+     the documentation:
+
+       plain / Frenet / fixed trihedron   10 faces, 14.40 cm3   (identical)
+       auxiliary spine, curvilinear       10 faces, 13.99 cm3
+       Transformed at the corner          10 faces, 14.40 cm3
+       RightCorner                        10 faces, 16.79 cm3
+       RoundCorner                        13 faces, 16.78 cm3
+
+     TWO THINGS THAT LOOK LIKE BUGS AND ARE NOT. Frenet and corrected Frenet
+     give the same answer on a PLANAR rail - they only diverge where the rail
+     twists out of plane, so a demonstration on a flat rail shows nothing. And
+     SetLaw REPLACES Add rather than joining it: call both and the law does
+     nothing at all, which is how it measured 14.40 - exactly the unscaled
+     sweep - until the Add was taken away and it gave 43.3.                  */
+
+  //! Which way up the section is held. The default is the one that was here
+  //! before any of this: corrected Frenet, which is right for a handrail.
+  const HOLDS = ["Square to the rail", "Frenet", "Upright", "Facing the guide"];
+  const CORNERS = ["Right corner", "Round corner", "Transformed"];
+
+  const pipeAlong = (profileWire, spine, solid, intoWire = null, how = {}) => {
     const shell = new oc.BRepOffsetAPI_MakePipeShell(spine);
-    shell.SetMode(false);                       // corrected Frenet
-    shell.SetTransitionMode(oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+    //! SetMode's overloads resolve by arity, so each of these is a different
+    //! call under one name: a bool is Frenet or corrected Frenet, a gp_Dir is
+    //! a fixed binormal, a wire is a guide rail to face.
+    const guide = how.guide || null;
+    if (guide) shell.SetMode(guide, how.curvilinear !== false);
+    else if (how.hold === 1) shell.SetMode(true);            // Frenet
+    else if (how.hold === 2) shell.SetMode(dir([0, 0, 1]));  // upright, fixed binormal
+    else shell.SetMode(false);                               // corrected Frenet
+    const corner = CORNERS[how.corner || 0] || CORNERS[0];
+    shell.SetTransitionMode(
+      corner === "Round corner" ? oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RoundCorner
+      : corner === "Transformed" ? oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_Transformed
+      : oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+    if (how.maxDegree) shell.SetMaxDegree(Math.round(how.maxDegree));
+    if (how.maxSegments) shell.SetMaxSegments(Math.round(how.maxSegments));
+    //! THE LAW IS AN ALTERNATIVE TO Add, NOT AN ADDITION TO IT. Measured: with
+    //! both, the law is ignored and the sweep comes out exactly unscaled.
+    if (how.scale && Math.abs(how.scale - 1) > 1e-9 && !intoWire) {
+      //! BOTH LAWS TAKE THE SAME FOUR ARGUMENTS - (from, to, at the start, at
+      //! the end) - and Law_S has a SIX-argument overload that does not mean
+      //! what it looks like. Evaluated, asking each for 1 -> 3:
+      //!
+      //!                                t=0    .25     .5    .75      1
+      //!   Law_Linear.Set(0,1,1,3)    1.000  1.500  2.000  2.500  3.000
+      //!   Law_S.Set(0,1,1,3)         1.000  1.313  2.000  2.688  3.000
+      //!   Law_S.Set(0,1,1,3,0,0)     1.000  1.190  1.273  1.266  1.185
+      //!
+      //! The six-argument one ends at 1.185 rather than at 3 and curves back
+      //! on itself on the way. It was here, and a sweep asked to grow to 2.5
+      //! came out SMALLER than an unscaled one - 14.75 cm3 against 77.80.
+      const law = how.eased ? new oc.Law_S() : new oc.Law_Linear();
+      law.Set(0, 1, 1, how.scale);
+      shell.SetLaw(profileWire, law, false, false);
+      shell.Build(new oc.Message_ProgressRange());
+      if (!shell.IsDone()) throw new Error("that profile will not sweep along that rail");
+      if (solid && !shell.MakeSolid())
+        throw new Error("that profile does not close, so it cannot sweep into a body");
+      const scaled = shell.Shape();
+      if (!scaled || scaled.IsNull()) throw new Error("that sweep came out empty");
+      return scaled;
+    }
     shell.Add(profileWire, false, true);
     //! A SECOND PROFILE MORPHS THE SECTION ALONG THE RAIL, which is the third
     //! kind of pipe surface the documentation lists: not a constant section
@@ -1840,18 +1916,19 @@ export function makeFactories(oc, kit) {
         return maker.Shape();
       } },
 
-    { name: "sweep1", takes: "profile, spine, into", gives: "shape",
+    { name: "sweep1", takes: "profile, spine, into, how", gives: "shape",
       summary: "A profile swept along one rail, as a skin. The section turns to stay "
              + "square to the rail the whole way, so a rail that bends carries the "
              + "section round with it rather than dragging it through sideways. Give "
              + "it a second profile and the section MORPHS into that one along the "
              + "rail, which is how a duct goes from round to square. For a body "
              + "rather than a skin, the solid factory ribs along the same rail.",
-      run: (profile, spine, into = null) => {
+      run: (profile, spine, into = null, how = {}) => {
         const rail = wireOf(spine);
-        if (into) return pipeAlong(wireOf(profile), rail, false, wireOf(into));
+        const guided = { ...how, guide: how.guide ? wireOf(how.guide) : null };
+        if (into) return pipeAlong(wireOf(profile), rail, false, wireOf(into), guided);
         const skins = regionsOf(profile).flatMap(region =>
-          [region.outer, ...region.holes].map(wire => pipeAlong(wire, rail, false)));
+          [region.outer, ...region.holes].map(wire => pipeAlong(wire, rail, false, null, guided)));
         return skins.length === 1 ? skins[0] : compoundOf(skins);
       } },
 
@@ -1903,6 +1980,84 @@ export function makeFactories(oc, kit) {
       summary: "A sphere at a point.",
       run: (plane, radius) => new oc.BRepPrimAPI_MakeSphere(plane,
         positive(radius, "sphere radius")).Shape() },
+
+    { name: "torus", takes: "plane, ring, tube, degrees", gives: "solid",
+      summary: "A ring. \p ring is the radius out to the middle of the tube and "
+             + "\p tube is the tube's own, which is the way every drawing of one is "
+             + "dimensioned - measured: ring 30, tube 8 gives 37.9 cm3, against the "
+             + "2*pi^2*R*r^2 of 37.914 cm3 the formula asks for. An angle makes a "
+             + "bend rather than a full ring, which is what an elbow is.",
+      run: (plane, ring, tube, degrees) => {
+        const R = positive(ring, "ring radius");
+        const r = positive(tube, "tube radius");
+        //! A TUBE FATTER THAN ITS OWN RING eats its own middle, and OpenCascade
+        //! answers with a shape whose volume is not what either radius says.
+        //! Refused by name here rather than handed on as a wrong number.
+        if (r >= R) throw new Error("a " + r + " mm tube does not fit round a "
+          + R + " mm ring - the tube has to be the smaller of the two");
+        return degrees === undefined
+          ? new oc.BRepPrimAPI_MakeTorus(plane, R, r).Shape()
+          : new oc.BRepPrimAPI_MakeTorus(plane, R, r,
+              positive(degrees, "angle") * Math.PI / 180).Shape();
+      } },
+
+    { name: "chamfer", takes: "solid, distance", gives: "solid",
+      summary: "Every edge of a body cut back flat, which is what a chamfer is and "
+             + "what a fillet is not: a fillet rolls a radius into the corner, a "
+             + "chamfer takes a slice off it. Measured on a 40x30x20 box at 3 mm: "
+             + "7 faces and 23.91 cm3 against the box's own 24.00.",
+      run: (solid, distance) => {
+        const d = positive(distance, "chamfer distance");
+        const smallest = smallestSolidExtent(solid);
+        if (Number.isFinite(smallest) && d >= smallest / 2)
+          throw new Error("a " + d + " mm chamfer does not fit a body only "
+                        + Math.round(smallest * 10) / 10 + " mm across");
+        const made = new oc.BRepFilletAPI_MakeChamfer(solid);
+        let any = false;
+        for (const edge of each(solid, EDGE, oc.TopoDS.Edge)) { made.Add(d, edge); any = true; }
+        if (!any) throw new Error("that body has no edges to chamfer");
+        made.Build(new oc.Message_ProgressRange());
+        if (!made.IsDone()) throw new Error("the chamfer did not converge at " + d + " mm");
+        const shape = made.Shape();
+        if (!shape || shape.IsNull() || count(shape, FACE) === 0)
+          throw new Error("the chamfer produced an empty shape at " + d + " mm");
+        return shape;
+      } },
+
+    { name: "surfaceThrough", takes: "points, across, degree, tolerance", gives: "plane",
+      summary: "A smooth surface fitted through a GRID of points - the one way into "
+             + "this program for a terrain, a survey, a scanned panel or anything "
+             + "whose shape is a table of heights rather than a recipe. \p across is "
+             + "how many points make one row, so a list of 36 with across 6 is a 6x6 "
+             + "grid; the points are read row by row.",
+      run: (points, across, degree = 3, tolerance = 1e-3) => {
+        const list = points || [];
+        const wide = Math.round(across);
+        if (!(wide >= 2)) throw new Error("a grid needs at least two points across");
+        if (list.length < wide * 2)
+          throw new Error("a grid " + wide + " across needs at least " + (wide * 2)
+            + " points and there are " + list.length);
+        const deep = Math.floor(list.length / wide);
+        if (deep * wide !== list.length)
+          throw new Error(list.length + " points do not make a rectangular grid "
+            + wide + " across - " + (list.length % wide) + " are left over");
+        //! NCollection_Array2_gp_Pnt, NOT TColgp_Array2OfPnt. The TColgp name is a
+        //! typedef and this build publishes the template it is a typedef OF, so
+        //! every search under the familiar name comes back empty and the fitter
+        //! looks absent. It is not. See smoothOf, where the same trap cost a year.
+        const grid = new oc.NCollection_Array2_gp_Pnt(1, wide, 1, deep);
+        for (let i = 0; i < wide; i++)
+          for (let j = 0; j < deep; j++)
+            grid.SetValue(i + 1, j + 1, pnt(list[j * wide + i]));
+        const fit = new oc.GeomAPI_PointsToBSplineSurface();
+        fit.Init(grid, Math.max(2, Math.round(degree)), 8,
+                 oc.GeomAbs_Shape.GeomAbs_C2, Math.max(1e-7, tolerance));
+        const surface = fit.Surface();
+        if (!surface) throw new Error("no surface would fit through those points");
+        const face = new oc.BRepBuilderAPI_MakeFace(surface, 1e-6).Face();
+        if (!face || face.IsNull()) throw new Error("the fitted surface made no face");
+        return face;
+      } },
 
     { name: "pad", takes: "profile, along", gives: "solid",
       summary: "A body swept from a face along a direction - the solid half of "
@@ -1979,18 +2134,19 @@ export function makeFactories(oc, kit) {
         return made.Shape();
       } },
 
-    { name: "rib", takes: "profile, spine, into", gives: "solid",
+    { name: "rib", takes: "profile, spine, into, how", gives: "solid",
       summary: "A closed profile swept along one rail into a body - CATIA calls it a "
              + "Rib. A handrail, a gutter, a moulding, a road. A profile with a hole "
              + "in it sweeps into a body with a bore, rather than into two bodies one "
              + "inside the other.",
-      run: (profile, spine, into = null) => {
+      run: (profile, spine, into = null, how = {}) => {
         const rail = wireOf(spine);
+        const guided = { ...how, guide: how.guide ? wireOf(how.guide) : null };
         // A section that becomes another one along the rail is one body, not
         // a region at a time: the two profiles are the two ends of one pipe.
-        if (into) return pipeAlong(wireOf(profile), rail, true, wireOf(into));
+        if (into) return pipeAlong(wireOf(profile), rail, true, wireOf(into), guided);
         const bodies = regionsOf(profile).map(region => {
-          const body = pipeAlong(region.outer, rail, true);
+          const body = pipeAlong(region.outer, rail, true, null, guided);
           if (!region.holes.length) return body;
           // A hole in the section is a bore along the whole sweep, which is
           // the bore swept and taken out - not a second tube left inside.
