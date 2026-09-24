@@ -13,7 +13,8 @@ import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGH
          rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
-         sliderSpan } from "./ocaf.js";
+         sliderRange, sliderSpan } from "./ocaf.js";
+import { armSliderEditor, closeSliderEditor, openSliderEditor } from "./slider.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost, unpackResource } from "./plugin.js";
@@ -10632,7 +10633,8 @@ function realField(entry, arg) {
   // The declared range is how far the slider travels, not a limit on the value:
   // a number typed or wired may be anywhere. So the track stretches to hold
   // whatever it is actually showing, and the handle never sits lying at one end.
-  const span = sliderSpan(arg, value);
+  const shape = sliderRange(arg, entry.ranges);
+  const span = sliderSpan(shape, value);
   field.innerHTML =
     '<div class="field-head"><label for="p-' + arg.key + '">' + arg.label + "</label>" +
     //! TEXT, NOT A NUMBER INPUT. A number input will not hold "10m" or
@@ -10643,7 +10645,8 @@ function realField(entry, arg) {
     '" value="' + round(value) + '" autocomplete="off" spellcheck="false"' +
     (from ? " disabled" : "") + "><span class=\"unit\">" + (arg.unit || "") + "</span></span></div>" +
     '<input type="range" id="p-' + arg.key + '" min="' + span.min + '" max="' + span.max +
-    '" step="' + arg.step + '" value="' + value + '"' + (from ? " disabled" : "") + ">";
+    '" step="' + shape.step + '" value="' + value + '"' + (from ? " disabled" : "") +
+    ' title="' + escapeAttr(sliderTitle(arg, shape)) + '">';
 
   if (from) {
     const wire = document.createElement("div");
@@ -10717,7 +10720,34 @@ function realField(entry, arg) {
   slider.addEventListener("change", () => restParameter());
   number.addEventListener("change", () => typeValue(entry, arg, number, slider));
   number.addEventListener("input", () => sayValue(field, entry, arg, number.value));
+  //! WHAT THE SLIDER IS, behind the one gesture dragging it cannot reach.
+  //! Offered on a driven slider too: the wire says what the value is, not how
+  //! far the handle would travel when the wire comes off.
+  armSliderEditor(slider, {
+    revert: was => send(was, true),
+    open: () => editSlider(document, slider, entry.id, arg, shape),
+  });
   return field;
+}
+
+//! The same sentence on the handle, in the panel and in the graph.
+function sliderTitle(arg, shape) {
+  return (arg.label || arg.key) + ": " + round(shape.min) + " to " + round(shape.max)
+    + " in " + round(shape.step) + (shape.whole ? ", whole numbers" : "")
+    + (shape.custom ? " (set here)" : "") + " — double-click to change";
+}
+
+//! Opened from both hosts, and both hand it the document they live in - the
+//! node graph may be a window of its own.
+function editSlider(doc, near, id, arg, shape) {
+  openSliderEditor({
+    doc, near, title: arg.label || arg.key, unit: arg.unit || "",
+    range: shape, base: { min: arg.min, max: arg.max, step: arg.step },
+    onApply: range => mdl.run({ op: "range", id, key: arg.key, ...range })
+      .catch(error => showError(error.message)),
+    onReset: () => mdl.run({ op: "range", id, key: arg.key, reset: true })
+      .catch(error => showError(error.message)),
+  });
 }
 
 /* ------------------------------------------- what a person may type into it
@@ -11545,6 +11575,8 @@ async function attachKernel(next, model) {
   //! bracket at the origin against a tower's site, which is exactly the
   //! arithmetic this is here to avoid.
   sceneAnchor = null;
+  //! And a slider editor pointing at a feature the new document does not have.
+  closeSliderEditor();
   state.stream = null;
 
   const payload = model ? await kernel.loadModel(model) : await kernel.tree();

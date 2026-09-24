@@ -38,6 +38,7 @@ export async function createHttpKernel(base) {
     setReference(id, key, target, remove = false, only = false) {
       return this.post("/api/reference", { id, key, target, remove, only });
     },
+    setArgRange(id, key, range) { return this.post("/api/range", { id, key, range }); },
     setCode(id, key, text) { return this.post("/api/code", { id, key, text }); },
     setSketch(id, key, drawing) { return this.post("/api/sketch", { id, key, drawing }); },
     moveVertex(id, index, offset) { return this.post("/api/vertex", { id, index, offset }); },

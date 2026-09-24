@@ -172,6 +172,21 @@ export const MDL_OPS = [
     (ctx, edit) => ctx.kernel.setParameter(
       needText(edit, "id"), needText(edit, "key"), needNumber(edit, "value"))),
 
+  modelOp("range", ["id", "key", "min?", "max?", "step?", "whole?", "reset?"],
+    "Say what a slider IS: how far it travels, what it moves in, and whether it holds "
+    + "whole numbers. Per feature and per argument - the catalogue's range suits the "
+    + "thing in general, this one suits this one. min and max are how far the HANDLE "
+    + "goes and never a cap on the value; whole rounds it. reset true puts the "
+    + "argument back to what the catalogue declares.",
+    { op: "range", id: "CB1", key: "dx", min: 90, max: 300, step: 10, whole: true },
+    (ctx, edit) => ctx.kernel.setArgRange(needText(edit, "id"), needText(edit, "key"),
+      edit.reset ? null : {
+        min: edit.min === undefined ? undefined : Number(edit.min),
+        max: edit.max === undefined ? undefined : Number(edit.max),
+        step: edit.step === undefined ? undefined : Number(edit.step),
+        whole: edit.whole === undefined ? undefined : !!edit.whole,
+      })),
+
   modelOp("connect", ["id", "key", "from", "mode?"],
     "Wire one feature into another's input - a reference, a section of a loft, or a "
     + "slider being driven by a number. What an input takes is what a source produces, "

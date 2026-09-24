@@ -3285,6 +3285,30 @@ export const F = {
     return !!(label && label.attr.TDF_Reference);
   },
   setReal(f, key, value) { F.argLabel(f, key, true).attr.TDataStd_Real = value; },
+
+  //! WHAT THE SLIDER IS, as opposed to what it currently says. The catalogue
+  //! declares a range that suits the thing in general - a fillet radius from 0
+  //! to 200 - and that is a statement about fillets. "This wall, 90 to 300, in
+  //! tens, whole millimetres only" is a statement about THIS wall, so it is
+  //! stored on the feature rather than in the catalogue.
+  //!
+  //! Four numbers in a TDataStd_RealArray on the argument's own label, which is
+  //! where its value already lives: min, max, step, and 1 for whole numbers.
+  //! Absent means "whatever the catalogue says", which is what every file
+  //! written before this says and what most features will always say.
+  range(f, key) {
+    const label = F.argLabel(f, key);
+    const held = label && label.attr.TDataStd_RealArray;
+    if (!Array.isArray(held) || held.length < 3) return null;
+    return { min: held[0], max: held[1], step: held[2], whole: held[3] === 1 };
+  },
+  setRange(f, key, range) {
+    const label = F.argLabel(f, key, true);
+    if (!range) { delete label.attr.TDataStd_RealArray; return null; }
+    label.attr.TDataStd_RealArray =
+      [range.min, range.max, range.step, range.whole ? 1 : 0];
+    return { min: range.min, max: range.max, step: range.step, whole: !!range.whole };
+  },
   choice(f, key, fallback = 0) {
     const label = F.argLabel(f, key);
     return label && typeof label.attr.TDataStd_Integer === "number"
@@ -4197,10 +4221,49 @@ export class Doc {
       // wrong. The drivers guard themselves; that is what preconditions are for.
       if (!Number.isFinite(value)) throw new Error("'" + key + "' must be a number");
       stored = value;
+      //! A WHOLE-NUMBER SLIDER HOLDS WHOLE NUMBERS wherever the number came
+      //! from - the handle, the box, a script, the assistant. Said once, here,
+      //! which is what stops "bays: 4" and "bays: 4.0000001" both existing in
+      //! a document that claims neither can.
+      const shape = F.range(f, key);
+      if (shape && shape.whole) stored = Math.round(stored);
       label.attr.TDataStd_Real = stored;
     }
     this.log.touch(label);
     return stored;
+  }
+
+  //! WHAT A SLIDER IS, changed. An edit like any other - logged, undone,
+  //! redone and saved - because it is part of the model: "bays, 1 to 12, whole
+  //! numbers" is a decision about the building, not a preference about the
+  //! window it is edited in. Grasshopper puts it behind a double-click on the
+  //! slider; so does this.
+  //!
+  //! \p range null puts the argument back to the catalogue's own declaration.
+  setArgRange(f, key, range) {
+    const spec = F.spec(f);
+    const arg = spec && spec.args.find(a => a.key === key && a.kind === "real");
+    if (!arg) throw new Error(F.name(f) + " has no slider at '" + key + "'");
+    if (range === null || range === undefined) {
+      F.setRange(f, key, null);
+      this.log.touch(F.argLabel(f, key, true));
+      return null;
+    }
+    const made = cleanRange(arg, range, F.range(f, key));
+    F.setRange(f, key, made);
+    //! THE VALUE FOLLOWS THE KIND. Turning a slider to whole numbers and
+    //! leaving 4.37 sitting on it is a slider that lies about itself the
+    //! moment you look away, so the number goes with it. Nothing else is
+    //! touched: min and max are how far the HANDLE travels and never a cap on
+    //! what the value may be - see setParameter, where clamping was taken out
+    //! because a 9 m wall silently became 4 m.
+    if (made.whole) {
+      const label = F.argLabel(f, key, true);
+      if (typeof label.attr.TDataStd_Real === "number")
+        label.attr.TDataStd_Real = Math.round(label.attr.TDataStd_Real);
+    }
+    this.log.touch(F.argLabel(f, key, true));
+    return made;
   }
 
   //! Editing the source is an edit like any other: the label is touched and the
@@ -4495,11 +4558,17 @@ export class Doc {
         // tree travels on every rebuild, and a few megabytes of B-Rep in it
         // would be a few megabytes moved to redraw a name.
         const sizes = {};
+        //! Only the arguments somebody has SHAPED. A tree carrying
+        //! {"min":0,"max":200,"step":1,"whole":false} on every real argument of
+        //! every feature is the catalogue sent again, per node, per redraw.
+        const ranges = {};
         for (const arg of spec.args) {
           const label = F.argLabel(f, arg.key, true);
           labels[arg.key] = label.entry;
           if (arg.kind === "real") {
             values[arg.key] = F.real(f, arg.key, arg.def);
+            const shape = F.range(f, arg.key);
+            if (shape) ranges[arg.key] = shape;
             // A slider with a wire on it shows what is arriving; the literal
             // underneath is what comes back when the wire is pulled off.
             if (label.attr.TDF_Reference) {
@@ -4535,6 +4604,7 @@ export class Doc {
           revision: F.revision(f), built: !!F.shape(f), values, refs, labels, driven,
           lists, texts, sizes,
         };
+        if (Object.keys(ranges).length) entry.ranges = ranges;
         const holder = F.parent(f);
         if (holder) entry.parent = F.id(holder);
         if (spec.category === "container") {
@@ -4653,6 +4723,16 @@ export class Doc {
           }
         }
         const entry = { id: F.id(f), type: spec.type, name: F.name(f), args };
+        //! Beside the arguments rather than among them, because a range is not
+        //! a value: a file that put {"value":90,"min":...} where 90 used to be
+        //! is a file every reader written before this one refuses.
+        const ranges = {};
+        for (const arg of spec.args) {
+          if (arg.kind !== "real") continue;
+          const shape = F.range(f, arg.key);
+          if (shape) ranges[arg.key] = shape;
+        }
+        if (Object.keys(ranges).length) entry.ranges = ranges;
         const holder = F.parent(f);
         if (holder) entry.parent = F.id(holder);
         const appearance = F.appearance(f);
@@ -4686,6 +4766,17 @@ export class Doc {
     for (const entry of model.features) {
       const f = doc.find(entry.id);
       const spec = F.spec(f);
+      //! BEFORE THE VALUES, so a whole-number slider rounds the number it is
+      //! handed rather than being handed a number it then has to go back and
+      //! round. Read through cleanRange like every other way in, so a file
+      //! saying step 0 or min above max opens instead of refusing.
+      for (const [key, shape] of Object.entries(entry.ranges || {})) {
+        const arg = spec.args.find(a => a.key === key && a.kind === "real");
+        if (!arg) throw new Error(spec.type + ' has no slider "' + key + '"');
+        if (!shape || typeof shape !== "object")
+          throw new Error(key + " of " + entry.id + ": a range is an object");
+        F.setRange(f, key, cleanRange(arg, shape, null));
+      }
       for (const [key, value] of Object.entries(entry.args || {})) {
         if (key === "params" && value && typeof value === "object") {
           // Restored before the script runs; the driver reconciles them against
@@ -4705,7 +4796,8 @@ export class Doc {
           const literal = value && typeof value === "object" ? value.value : value;
           if (typeof literal !== "number")
             throw new Error(key + " of " + entry.id + " must be a number");
-          F.setReal(f, key, literal);
+          const shape = F.range(f, key);
+          F.setReal(f, key, shape && shape.whole ? Math.round(literal) : literal);
           if (value && typeof value === "object" && value.from) {
             const source = doc.find(value.from);
             if (!source) throw new Error(entry.id + "." + key + " is driven by an unknown feature");
@@ -4900,6 +4992,51 @@ export function dataLines(data) {
 //! How far a slider's track runs: what the catalogue suggests, opened out to
 //! hold the value if it is outside - and rounded to something a person would
 //! have chosen, so the track ends at 25 000 rather than at 22 143.
+//! THE RANGE A SLIDER ACTUALLY TRAVELS: what the catalogue declared, with
+//! whatever this feature was given on top. Everything that draws a slider goes
+//! through here, so the definition panel and the node graph cannot disagree
+//! about what one is.
+export function sliderRange(arg, ranges) {
+  const base = { min: arg.min, max: arg.max, step: arg.step, whole: false, custom: false };
+  const own = ranges && ranges[arg.key];
+  if (!own) return base;
+  return {
+    min: Number.isFinite(own.min) ? own.min : base.min,
+    max: Number.isFinite(own.max) ? own.max : base.max,
+    step: Number.isFinite(own.step) && own.step > 0 ? own.step : base.step,
+    whole: !!own.whole,
+    custom: true,
+  };
+}
+
+//! A RANGE SOMEBODY ASKED FOR, MADE SENSIBLE. Every way into a slider's shape -
+//! the editor, a model file, the assistant - comes through this, so a range
+//! that is refused is refused the same way everywhere and a range that is
+//! merely upside-down is simply turned the right way up.
+export function cleanRange(arg, want, had) {
+  const was = had || { min: arg.min, max: arg.max, step: arg.step, whole: false };
+  const num = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+  let min = num(want.min, was.min), max = num(want.max, was.max);
+  const whole = want.whole === undefined ? !!was.whole : !!want.whole;
+  //! Upside down is a typo, not an instruction: somebody typed the two boxes
+  //! in the order they read them. Refusing it teaches nothing.
+  if (min > max) { const swap = min; min = max; max = swap; }
+  if (min === max)
+    throw new Error("a slider needs somewhere to travel: min and max are both " + min);
+  let step = num(want.step, was.step);
+  if (!(step > 0)) throw new Error("the step must be more than zero");
+  //! A step bigger than the range is a slider with one position on it.
+  step = Math.min(step, max - min);
+  //! A whole-number slider that moves in tenths is a contradiction, and the
+  //! one it resolves in favour of is the kind rather than the increment.
+  if (whole) {
+    min = Math.round(min); max = Math.round(max);
+    step = Math.max(1, Math.round(step));
+    if (min === max) max = min + 1;
+  }
+  return { min, max, step, whole };
+}
+
 export function sliderSpan(arg, value) {
   let { min, max } = arg;
   if (!Number.isFinite(value)) return { min, max };

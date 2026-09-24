@@ -6941,6 +6941,17 @@ function sprawl(face, edges) {
       return state(await settleAsync(false, tell));
     },
 
+    //! WHAT A SLIDER IS, changed. A rebuild follows because it can change the
+    //! number: a slider turned to whole numbers rounds the value sitting on it.
+    async setArgRange(id, key, range) {
+      const f = doc.find(id);
+      if (!f) throw new Error("no feature '" + id + "'");
+      doc.setArgRange(f, key, range === null ? null : range);
+      const tell = this.onBuild
+        ? step => this.onBuild({ stage: "rebuilding", ...step }) : null;
+      return state(await settleAsync(false, tell));
+    },
+
     //! Editing a script is an edit of the document, undone and redone and saved
     //! like any other.
     //! One vertex, moved. The offset lands on whichever argument of the feature

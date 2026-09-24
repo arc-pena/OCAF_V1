@@ -80,7 +80,10 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "handle.js", "gizmo.js", "camera.js", "gcc.js", "formula.js", "reuse.js",
            # generate reads reuse, and the kernel reads both.
            "generate.js",
-           "wasm-kernel.js", "http-kernel.js", "mdl.js", "graph.js",
+           "wasm-kernel.js", "http-kernel.js", "mdl.js",
+           # the slider editor: one window, opened by the definition panel and
+           # by the node graph, so it comes before both of them.
+           "slider.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
            # ifc reads sections and the model language and nothing else; its

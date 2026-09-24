@@ -15,7 +15,8 @@
 // want, which is what to do with a second screen.
 
 import { MDL_OPS, parseEdits } from "./mdl.js";
-import { acceptsFrom, sliderSpan } from "./ocaf.js";
+import { acceptsFrom, sliderRange, sliderSpan } from "./ocaf.js";
+import { armSliderEditor, closeSliderEditor, openSliderEditor } from "./slider.js";
 import { membersOf, reachesOut, setInputGroups } from "./reuse.js";
 
 const GRAPH_CSS = `
@@ -687,6 +688,8 @@ export class GraphEditor {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = 0; }
     if (this.shutPopup) { window.removeEventListener("beforeunload", this.shutPopup); this.shutPopup = null; }
     if (this.unwatch) { this.unwatch(); this.unwatch = null; }
+    //! A window anchored to a slider in a graph that is going away.
+    closeSliderEditor();
     if (this.win) { try { this.win.close(); } catch (e) { /* already gone */ } this.win = null; }
     if (this.floater) { this.floater.remove(); this.floater = null; }
     this.doc = null; this.host = null; this.nodes.clear(); this.signature = "";
@@ -1158,6 +1161,12 @@ export class GraphEditor {
       f.id + ":" + f.type + ":" + Object.keys(f.values).join(",") +
       ":" + Object.entries(f.refs).map(([k, v]) => k + ">" + v).join(",") +
       ":" + Object.keys(f.texts || {}).join(",") +
+      //! THE RANGES, IN FULL rather than by name. A node's row is drawn from
+      //! them - the track's ends, its step, whether it says "int" - so a
+      //! slider reshaped from anywhere has to redraw the node, and changing a
+      //! range does not add or remove a key for the names alone to notice.
+      ":" + Object.entries(f.ranges || {}).map(([k, r]) =>
+        k + "=" + r.min + "/" + r.max + "/" + r.step + "/" + (r.whole ? 1 : 0)).join(",") +
       ":" + Object.entries(f.lists || {}).map(([k, v]) =>
         k + "*" + (Array.isArray(v) ? v.join("+") : v)).join(",") +
       ":" + (f.params ? f.params.map(p => p.key).join(",") : "")).join("|");
@@ -1517,16 +1526,27 @@ export class GraphEditor {
     row.className = "g-row wired-row";
     row.style.display = "block";
     // The declared range is how far the track travels, not a cap on the value.
-    const span = sliderSpan(arg, value);
+    //! And what it travels may have been said about THIS feature - see
+    //! sliderRange. The graph and the definition panel read the same answer
+    //! from the same place, which is the only way a slider dragged in one and
+    //! a slider dragged in the other can be the same slider.
+    const shape = sliderRange(arg, entry.ranges);
+    const span = sliderSpan(shape, value);
+    const said = (arg.label || key) + ": " + gnum(shape.min) + " to " + gnum(shape.max)
+      + " in " + gnum(shape.step) + (shape.whole ? ", whole numbers" : "")
+      + (shape.custom ? " (set here)" : "") + " — double-click to change";
     row.innerHTML =
       '<div style="display:flex;align-items:center;gap:6px">' +
-        '<span class="g-lab">' + gesc(arg.label || key) + "</span>" +
+        '<span class="g-lab">' + gesc(arg.label || key)
+        + (shape.whole ? '<span class="g-sub" style="font-size:9px"> int</span>' : "")
+        + "</span>" +
         (count > 1 ? '<span class="g-sub" style="font-size:9px">×' + count + "</span>" : "") +
-        '<input class="g-num" type="number" step="' + arg.step + '" value="'
+        '<input class="g-num" type="number" step="' + shape.step + '" value="'
         + gnum(value) + '"' + (from ? " disabled" : "") +
         "></div>" +
       '<input class="g-rng" type="range" min="' + span.min + '" max="' + span.max +
-      '" step="' + arg.step + '" value="' + value + '"' + (from ? " disabled" : "") + ">";
+      '" step="' + shape.step + '" value="' + value + '"' + (from ? " disabled" : "") +
+      ' title="' + gesc(said) + '">';
 
     if (ports) {
       const port = doc.createElement("div");
@@ -1558,6 +1578,20 @@ export class GraphEditor {
     }
     slider.addEventListener("input", () => send(slider.value));
     number.addEventListener("change", () => send(number.value));
+    //! WHAT THE SLIDER IS, behind a double-click - Grasshopper's gesture, on
+    //! Grasshopper's own surface. Built in this.doc, because the graph may be a
+    //! window of its own with its own body to hang a panel on.
+    armSliderEditor(slider, {
+      revert: was => send(was),
+      open: () => openSliderEditor({
+        doc, near: slider, title: arg.label || key, unit: arg.unit || "",
+        range: shape, base: { min: arg.min, max: arg.max, step: arg.step },
+        onApply: range => this.mdl.run({ op: "range", id: entry.id, key, ...range })
+          .catch(() => { /* the log has it */ }),
+        onReset: () => this.mdl.run({ op: "range", id: entry.id, key, reset: true })
+          .catch(() => { /* the log has it */ }),
+      }),
+    });
     return row;
   }
 
