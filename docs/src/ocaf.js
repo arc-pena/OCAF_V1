@@ -2625,8 +2625,13 @@ export const CATALOGUE = [
   //! section is one of the two.
   { type: "Sweep", guid: "9a1b2c30-0077-4c00-9e00-caf000000077", category: "operation",
     produces: "solid",
-    summary: "Sweeps a profile along one rail, keeping its angle to the rail the whole "
-           + "way - a handrail, a gutter, a moulding, a road. On Solid the profile is "
+    summary: "Pick a profile, pick a rail, and it sweeps: a handrail, a gutter, a "
+           + "moulding, a road. Twist turns the section about the rail's own tangent "
+           + "before it sets off, for when the section is drawn the right shape and "
+           + "the wrong way up. Everything else is behind Show, and none of it has to "
+           + "be answered. "
+           + "It keeps the section's angle to the rail the whole "
+           + "way. On Solid the profile is "
            + "capped first, so a closed profile comes out as a body. Give it a second "
            + "profile and the section BECOMES that one along the rail rather than "
            + "staying as it was: a duct that starts round and ends square - and that "
@@ -2648,17 +2653,37 @@ export const CATALOGUE = [
            //! Appended, never inserted: an argument's index here is its OCAF
            //! child tag, so a new question goes at the end whatever that does
            //! to the order it is asked in.
-           spare("into", "Becoming", ["curve"]),
+           //!
+           //! AND FOLDED AWAY BEHIND "Show", because a sweep is a profile and a
+           //! rail and the other six were in front of that every time. They are
+           //! all still here and an old file still opens with whatever it set;
+           //! what changed is that you are not asked six questions to answer
+           //! two. Show is itself appended, so it is the last row rather than
+           //! the one it reads as - there is no way to put it earlier without
+           //! moving every tag after it.
+           when(spare("into", "Becoming", ["curve"]), "show", 1),
            //! THE REST OF WHAT A PIPE SHELL OFFERS, appended for the same
            //! reason. Every one of these is measured in factory.js above
            //! pipeAlong; two of them look broken and are not, and the comment
            //! there says which and why.
-           spare("guide", "Guide rail", ["curve"]),
-           choice("hold", "Section stays",
-                  ["Square to the rail", "Frenet", "Upright", "Facing the guide"], 0),
-           choice("corner", "At corners", ["Right corner", "Round corner", "Transformed"], 0),
-           real("scale", "Scale at the end", 1, 0.05, 20, 0.05, ""),
-           choice("easing", "Scaling", ["Straight", "Eased"], 0)] },
+           when(spare("guide", "Guide rail", ["curve"]), "show", 1),
+           when(choice("hold", "Section stays",
+                       ["Square to the rail", "Frenet", "Upright", "Facing the guide"], 0),
+                "show", 1),
+           when(choice("corner", "At corners",
+                       ["Right corner", "Round corner", "Transformed"], 0), "show", 1),
+           when(real("scale", "Scale at the end", 1, 0.05, 20, 0.05, ""), "show", 1),
+           when(choice("easing", "Scaling", ["Straight", "Eased"], 0), "show", 1),
+           //! THE PROFILE, TURNED ABOUT THE RAIL before it sets off. A section
+           //! is drawn on a plane square across the rail, and which way is UP
+           //! on that plane is whatever OpenCascade's arithmetic reached - so a
+           //! gutter came out on its side and the only cure was to redraw the
+           //! sketch. This turns it about the rail's own tangent at the start,
+           //! which is the axis a person means when they say "rotate the
+           //! profile": the section spins in its own plane and the sweep is
+           //! otherwise exactly what it was.
+           real("twist", "Twist", 0, -360, 360, 1, "\u00b0"),
+           choice("show", "Show", ["The basics", "Everything"], 0)] },
   //! A REVOLUTION, which this had no road to at all.
   //!
   //! Everything turned about an axis - a dome, a dish, a baluster, a tank end,
@@ -2687,7 +2712,7 @@ export const CATALOGUE = [
   //! It is the trim that Extrude's "up to plane" does, as a node of its own -
   //! so anything at all can be cut, not only the thing being padded.
   { type: "Trim", guid: "9a1b2c30-0111-4c00-9e00-caf000000111", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "Everything on one side of a plane, cut flush with it. The plane is "
            + "infinite, whatever square is drawn for it, so a body is cut wherever it "
            + "reaches - and a plane at an angle cuts at that angle, which is the whole "
@@ -2826,12 +2851,12 @@ export const CATALOGUE = [
                 "which faces lean over · empty uses the choice above",
                 "whichever the choice above says")] },
   { type: "Join", guid: "9a1b2c30-0074-4c00-9e00-caf000000074", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "parts",
     summary: "Gathers several shapes into one without cutting or fusing them - the group "
            + "of a node editor. What goes downstream as a single thing.",
     args: [refs("parts", "Parts", ["solid", "curve"], true)] },
   { type: "PlaceAt", guid: "9a1b2c30-0076-4c00-9e00-caf000000076", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "Puts one shape at every point in a list, turned by an angle taken from "
            + "another. The shape is built once and the copies are the same shape at a "
            + "different axis system, which is why a hundred cost about what one does.",
@@ -2847,7 +2872,7 @@ export const CATALOGUE = [
      built, so it costs a matrix and not a rebuild, and the shape it moves stays
      in the tree with its own parameters still live.                          */
   { type: "Move", guid: "9a1b2c30-00e0-4c00-9e00-caf0000000e0", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "Moves a shape: along a direction by a distance, from one point to "
            + "another, or part of the way between two points. Between is the useful "
            + "one - wire a number into how far along and the shape tweens.",
@@ -2867,7 +2892,7 @@ export const CATALOGUE = [
   //! at 15 and end at 75 and the shape turns 60, and a number wired into either
   //! end animates it.
   { type: "Rotate", guid: "9a1b2c30-00e1-4c00-9e00-caf0000000e1", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "Turns a shape about an axis, from a start angle to an end angle. The axis "
            + "is a direction through a point, a line, or an axis system - and an axis "
            + "system brings its own origin, so nothing else is needed.",
@@ -2878,7 +2903,7 @@ export const CATALOGUE = [
            real("end", "End angle", 90, -3600, 3600, 1, "\u00b0"),
            choice("keep", "Result", ["The shape turned", "Both, before and after"], 0)] },
   { type: "Mirror", guid: "9a1b2c30-00e2-4c00-9e00-caf0000000e2", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "The mirror image of a shape in a plane - a datum plane, or a point with a "
            + "normal through it. Both halves keeps the original, which is what makes a "
            + "symmetrical part out of half of one.",
@@ -2896,7 +2921,7 @@ export const CATALOGUE = [
   //! scaling along one direction is a mesh operation, and Mesh Transform takes
   //! a factor per axis.
   { type: "Scale", guid: "9a1b2c30-00e3-4c00-9e00-caf0000000e3", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "A shape larger or smaller about a point, by one factor in every "
            + "direction. Squashing along one direction only is a mesh operation here - "
            + "put the shape through Mesh from shape and scale that, which takes a "
@@ -2917,7 +2942,7 @@ export const CATALOGUE = [
   //! composes them in, so a part turned and moved is where you expect and not
   //! somewhere out past the origin.
   { type: "Transform", guid: "9a1b2c30-00e5-4c00-9e00-caf0000000e5", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "A shape moved, turned and resized by numbers - what the move, turn and "
            + "size widgets write. Press W, E or R with something selected and drag the "
            + "handles; the numbers here are what your hand did, and they can be typed "
@@ -2936,7 +2961,7 @@ export const CATALOGUE = [
   //! The assembly transform. Nothing is typed: a part drawn about its own frame
   //! goes to wherever the target frame is, and moving the target moves the part.
   { type: "AxisToAxis", guid: "9a1b2c30-00e4-4c00-9e00-caf0000000e4", category: "operation",
-    produces: "solid",
+    produces: "solid", passes: "shape",
     summary: "Takes a shape from one axis system to another - the assembly move. What "
            + "was drawn about the first frame ends up placed about the second, so "
            + "moving the target frame moves the part with it.",
@@ -4547,6 +4572,33 @@ export class Doc {
   }
   consumedBy(f) { return this.eaterIndex().get(f) || null; }
 
+  //! WHAT A FEATURE OFFERS DOWNSTREAM - see acceptsFrom for why this is not
+  //! simply what the catalogue declares. A transform carries the kind of what
+  //! went into it, resolved down the chain: a sketch rotated and then moved is
+  //! still a curve, and can still be a sweep's profile.
+  //!
+  //! With nothing wired in, or with several kinds wired into one input at
+  //! once, the catalogue's own answer stands - an empty Rotate still has to
+  //! offer SOMETHING as a port kind or there would be no way to wire it up in
+  //! the first place. \p seen guards a cycle that the solver would refuse
+  //! anyway; this runs while the tree is being published and must not hang.
+  kindOf(f, seen = null) {
+    const spec = F.spec(f);
+    if (!spec) return null;
+    if (!spec.passes) return spec.produces;
+    const guard = seen || new Set();
+    if (guard.has(f)) return spec.produces;
+    guard.add(f);
+    const arg = spec.args.find(a => a.key === spec.passes);
+    if (!arg) return spec.produces;
+    const sources = arg.kind === "refs"
+      ? F.references(f, spec.passes)
+      : [F.reference(f, spec.passes)];
+    const kinds = new Set();
+    for (const one of sources) if (one) kinds.add(this.kindOf(one, guard));
+    return kinds.size === 1 ? [...kinds][0] : spec.produces;
+  }
+
   /* --------------------------------------------------- the wire formats */
 
   //! The document a front-end mirrors. Identical in shape to TreeToJson() in
@@ -4603,7 +4655,7 @@ export class Doc {
         const consumer = this.consumedBy(f);
         const entry = {
           id: F.id(f), name: F.name(f), type: spec.type, category: spec.category,
-          produces: spec.produces, entry: f.entry, visible: F.visible(f),
+          produces: this.kindOf(f), entry: f.entry, visible: F.visible(f),
           revision: F.revision(f), built: !!F.shape(f), values, refs, labels, driven,
           lists, texts, sizes,
         };
@@ -4861,6 +4913,17 @@ export class Doc {
 //! take, not the feature types, so a component added later is accepted
 //! everywhere its output makes sense. Type names are still honoured, because a
 //! native kernel that predates kinds publishes those.
+//! WHAT A FEATURE OFFERS DOWNSTREAM, which for a transform is not what the
+//! catalogue says. Move, Rotate, Mirror, Scale, Transform, Axis to axis, Place
+//! at, Trim and Join all declare that they produce a solid, because that is
+//! what they are usually asked for - and every one of them takes a CURVE as
+//! readily. Turning a sketch and sweeping the result is the plainest thing a
+//! modeller does, and it could not be wired up at all: the Rotate said "solid"
+//! and a sweep's profile takes a curve.
+//!
+//! So a transform says what went into it. \p passes on the spec names the
+//! argument it carries the kind of; resolved down the chain, so a sketch
+//! rotated and then moved is still a curve at the far end.
 export function acceptsFrom(accepts, entry) {
   if (!entry) return false;
   const list = Array.isArray(accepts) ? accepts : String(accepts || "").split(",");

@@ -1244,10 +1244,22 @@ export class GraphEditor {
     const { schema } = this.read();
     return schema ? schema.types.find(t => t.type === type) || null : null;
   }
+  //! An argument that is doing something is never hidden - see argDoingSomething
+  //! in app.js for why. Said again here rather than imported: the graph may be a
+  //! window of its own, and the rule is four lines.
   applies(entry, arg) {
     if (!arg.showWhen) return true;
     const now = entry.values[arg.showWhen.key];
-    return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+    const said = arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+    if (said) return true;
+    if (arg.kind === "ref" || arg.kind === "refs")
+      return !!(entry.refs && entry.refs[arg.key]);
+    //! def in the catalogue, default in the published schema - see
+    //! argDoingSomething in app.js.
+    const was = arg.def === undefined ? arg.default : arg.def, v = entry.values[arg.key];
+    if (arg.kind === "real") return Number.isFinite(v) && Number.isFinite(was) && Math.abs(v - was) > 1e-9;
+    if (arg.kind === "choice") return Number.isFinite(v) && Number.isFinite(was) && v !== was;
+    return false;
   }
 
   //! One feature, as a node. Every control on it sends one line of JSON.

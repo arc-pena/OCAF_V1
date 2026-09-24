@@ -5528,6 +5528,7 @@ function sprawl(face, edges) {
         corner: Feature_choice(f, "corner"),
         scale: F.real(f, "scale", 1),
         eased: Feature_choice(f, "easing") === 1,
+        twist: F.real(f, "twist", 0),
       };
       //! ASKED FOR, AND NOT WIRED UP. "Facing the guide" with no guide rail is
       //! a question with no answer, and silently sweeping it square to the rail
@@ -5546,6 +5547,7 @@ function sprawl(face, edges) {
       else if (hold === 1) said.push("Frenet");
       else if (hold === 2) said.push("held upright");
       if (how.scale !== 1) said.push("scaled to " + how.scale + (how.eased ? ", eased" : ""));
+      if (how.twist) said.push("twisted " + Math.round(how.twist * 10) / 10 + "\u00b0 about the rail");
       return said.length ? { shape: made, note: said.join(" · ") } : made;
     },
   };

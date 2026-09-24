@@ -9688,10 +9688,38 @@ function refreshPanelNotice() {
 
 //! An argument governed by a choice is shown only for the alternative it
 //! belongs to, so one feature can carry two patterns without two dialogs.
+//! AND AN ARGUMENT THAT IS DOING SOMETHING IS NEVER HIDDEN. Folding the
+//! advanced half of a sweep away is a simplification right up until a file
+//! arrives with one of them set: then the panel quietly stops showing the
+//! setting that is deciding the shape, which is the trap the fold was supposed
+//! to be worth avoiding. A value that is not the catalogue's default, or a
+//! reference with something wired into it, shows whatever the fold says.
+function argDoingSomething(entry, arg) {
+  //! THE CATALOGUE SAYS def AND THE PUBLISHED SCHEMA SAYS default, and the
+  //! panel is handed the schema while a test holds the catalogue. Reading only
+  //! one of them is not an error anybody sees: a real argument compares against
+  //! undefined, NaN > 0 is false, and it simply never unfolds - which looks
+  //! exactly like the fold working.
+  const fallback = arg.def === undefined ? arg.default : arg.def;
+  //! spare() is a ref, so "ref" covers Becoming and Guide rail too.
+  if (arg.kind === "ref" || arg.kind === "refs")
+    return !!((entry.refs && entry.refs[arg.key]) || (entry.lists && entry.lists[arg.key]
+      && entry.lists[arg.key].length));
+  const now = entry.values ? entry.values[arg.key] : undefined;
+  if (arg.kind === "real")
+    return Number.isFinite(now) && Number.isFinite(fallback) && Math.abs(now - fallback) > 1e-9;
+  if (arg.kind === "choice")
+    return Number.isFinite(now) && Number.isFinite(fallback) && now !== fallback;
+  if (arg.kind === "text" || arg.kind === "code")
+    return !!(entry.texts && entry.texts[arg.key] && entry.texts[arg.key] !== fallback);
+  return false;
+}
+
 function argApplies(entry, arg) {
   if (!arg.showWhen) return true;
   const now = entry.values[arg.showWhen.key];
-  return arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+  const said = arg.showWhen.any ? arg.showWhen.any.includes(now) : now === arg.showWhen.equals;
+  return said || argDoingSomething(entry, arg);
 }
 
 //! HOW THIS FEATURE PAIRS UP THE LISTS ARRIVING ON IT.

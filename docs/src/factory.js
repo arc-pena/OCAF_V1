@@ -856,7 +856,36 @@ export function makeFactories(oc, kit) {
   const HOLDS = ["Square to the rail", "Frenet", "Upright", "Facing the guide"];
   const CORNERS = ["Right corner", "Round corner", "Transformed"];
 
+  //! THE PROFILE TURNED ABOUT THE RAIL, before anything else happens to it.
+  //! The axis is the rail's own tangent where the sweep starts, through the
+  //! point it starts at - which is the axis somebody means by "rotate the
+  //! profile": the section spins in the plane it was drawn on and goes nowhere.
+  //! Done to the WIRE rather than asked of the pipe shell, because the shell
+  //! has no such setting: SetMode fixes which way the section is CARRIED, not
+  //! how it was oriented before it set off.
+  const turnedAboutRail = (wire, spine, degrees) => {
+    if (!degrees || Math.abs(degrees) < 1e-9) return wire;
+    const walk = new oc.BRepAdaptor_CompCurve(spine);
+    const u = walk.FirstParameter();
+    const at = new oc.gp_Pnt(), along = new oc.gp_Vec();
+    walk.D1(u, at, along);
+    const way = V.norm([along.X(), along.Y(), along.Z()]);
+    if (!way) throw new Error("that rail has no direction at its start to turn the profile about");
+    const trsf = new oc.gp_Trsf();
+    trsf.SetRotation(new oc.gp_Ax1(at, dir(way)), (degrees * Math.PI) / 180);
+    const moved = new oc.BRepBuilderAPI_Transform(wire, trsf, true);
+    if (!moved.IsDone()) throw new Error("the profile will not turn about the rail");
+    return moved.Shape();
+  };
+
   const pipeAlong = (profileWire, spine, solid, intoWire = null, how = {}) => {
+    //! BOTH SECTIONS, and by the same angle. A section that BECOMES another is
+    //! two drawings of one thing; twisting one of them and not the other would
+    //! put a quarter turn into the morph nobody asked for.
+    if (how.twist) {
+      profileWire = turnedAboutRail(profileWire, spine, how.twist);
+      if (intoWire) intoWire = turnedAboutRail(intoWire, spine, how.twist);
+    }
     const shell = new oc.BRepOffsetAPI_MakePipeShell(spine);
     //! SetMode's overloads resolve by arity, so each of these is a different
     //! call under one name: a bool is Frenet or corrected Frenet, a gp_Dir is
