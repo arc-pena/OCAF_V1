@@ -1,244 +1,1152 @@
 {
  "format": "ocaf-parametric-model",
  "version": 1,
- "name": "Sweep gallery",
+ "name": "Sweep gallery — a facade",
  "units": "mm",
  "features": [
   {
-   "id": "C1_P0",
-   "type": "Point",
-   "args": {
-    "x": 0,
-    "y": 0,
-    "z": 0
-   }
+   "id": "GS_PARAM",
+   "type": "GeometricalSet",
+   "name": "00 Parameters"
   },
   {
-   "id": "C1_P1",
-   "type": "Point",
+   "id": "N_STOREY",
+   "type": "Number",
+   "name": "Storey height",
    "args": {
-    "x": 23.7116544171704,
-    "y": 8.25,
-    "z": 15
-   }
+    "value": 3200
+   },
+   "ranges": {
+    "value": {
+     "min": 2600,
+     "max": 4500,
+     "step": 50
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P2",
-   "type": "Point",
+   "id": "N_BAY",
+   "type": "Number",
+   "name": "Structural bay",
    "args": {
-    "x": 44.619679282408285,
-    "y": 16.5,
-    "z": 30
-   }
+    "value": 5400
+   },
+   "ranges": {
+    "value": {
+     "min": 3000,
+     "max": 9000,
+     "step": 100
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P3",
-   "type": "Point",
+   "id": "N_SETBACK",
+   "type": "Number",
+   "name": "Terrace step",
    "args": {
-    "x": 60.25194189027606,
-    "y": 24.75,
-    "z": 45
-   }
+    "value": 1500
+   },
+   "ranges": {
+    "value": {
+     "min": 0,
+     "max": 4000,
+     "step": 100
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P4",
-   "type": "Point",
+   "id": "N_ARMA",
+   "type": "Number",
+   "name": "Arm A, along the street",
    "args": {
-    "x": 68.7601075510082,
-    "y": 33,
-    "z": 60
-   }
+    "value": 30000
+   },
+   "ranges": {
+    "value": {
+     "min": 12000,
+     "max": 60000,
+     "step": 500
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P5",
-   "type": "Point",
+   "id": "N_ARMB",
+   "type": "Number",
+   "name": "Arm B, the return",
    "args": {
-    "x": 69.13818384165964,
-    "y": 41.25,
-    "z": 75
-   }
+    "value": 21000
+   },
+   "ranges": {
+    "value": {
+     "min": 9000,
+     "max": 45000,
+     "step": 500
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P6",
-   "type": "Point",
+   "id": "N_DEPTH",
+   "type": "Number",
+   "name": "Building depth",
    "args": {
-    "x": 61.34146760307044,
-    "y": 49.5,
-    "z": 90
-   }
+    "value": 14000
+   },
+   "ranges": {
+    "value": {
+     "min": 8000,
+     "max": 26000,
+     "step": 250
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P7",
-   "type": "Point",
+   "id": "N_BOW",
+   "type": "Number",
+   "name": "Facade bow",
    "args": {
-    "x": 46.29183057265563,
-    "y": 57.75,
-    "z": 105
-   }
+    "value": 900
+   },
+   "ranges": {
+    "value": {
+     "min": 0,
+     "max": 3000,
+     "step": 50
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P8",
-   "type": "Point",
+   "id": "N_CAP_L",
+   "type": "Number",
+   "name": "Handrail cap, along",
    "args": {
-    "x": 25.768718687927443,
-    "y": 66,
-    "z": 120
-   }
+    "value": 460
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 900,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P9",
-   "type": "Point",
+   "id": "N_CAP_W",
+   "type": "Number",
+   "name": "Handrail cap, across",
    "args": {
-    "x": 2.1987531354689764,
-    "y": 74.25,
-    "z": 135
-   }
+    "value": 320
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 600,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_P10",
-   "type": "Point",
+   "id": "N_MULL_D",
+   "type": "Number",
+   "name": "Mullion depth",
    "args": {
-    "x": -21.63118960624634,
-    "y": 82.5,
-    "z": 150
-   }
+    "value": 380
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 1200,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 1",
+   "id": "N_MULL_W",
+   "type": "Number",
+   "name": "Mullion width",
    "args": {
-    "points": [
-     {
-      "ref": "C1_P0"
-     },
-     {
-      "ref": "C1_P1"
-     },
-     {
-      "ref": "C1_P2"
-     },
-     {
-      "ref": "C1_P3"
-     },
-     {
-      "ref": "C1_P4"
-     },
-     {
-      "ref": "C1_P5"
-     },
-     {
-      "ref": "C1_P6"
-     },
-     {
-      "ref": "C1_P7"
-     },
-     {
-      "ref": "C1_P8"
-     },
-     {
-      "ref": "C1_P9"
-     },
-     {
-      "ref": "C1_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
+    "value": 300
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 800,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
   },
   {
-   "id": "C1_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 1",
+   "id": "N_POST_R",
+   "type": "Number",
+   "name": "Balustrade post radius",
    "args": {
-    "curve": {
-     "ref": "C1_RAIL"
+    "value": 170
+   },
+   "ranges": {
+    "value": {
+     "min": 150,
+     "max": 400,
+     "step": 5
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "N_SHEET_W",
+   "type": "Number",
+   "name": "Soffit sheet, wide",
+   "args": {
+    "value": 1200
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 3000,
+     "step": 50
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "N_SHEET_T",
+   "type": "Number",
+   "name": "Soffit sheet, thick",
+   "args": {
+    "value": 300
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 600,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "N_ANGLE_D",
+   "type": "Number",
+   "name": "Parapet angle, depth",
+   "args": {
+    "value": 420
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 900,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "N_ANGLE_W",
+   "type": "Number",
+   "name": "Parapet angle, width",
+   "args": {
+    "value": 300
+   },
+   "ranges": {
+    "value": {
+     "min": 300,
+     "max": 900,
+     "step": 10
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "N_STOREYS",
+   "type": "Number",
+   "name": "Storeys",
+   "args": {
+    "value": 11
+   },
+   "ranges": {
+    "value": {
+     "min": 6,
+     "max": 20,
+     "step": 1,
+     "whole": true
+    }
+   },
+   "parent": "GS_PARAM"
+  },
+  {
+   "id": "GS_LEVELS",
+   "type": "GeometricalSet",
+   "name": "01 Levels"
+  },
+  {
+   "id": "L_SER",
+   "type": "Series",
+   "name": "Level numbers",
+   "args": {
+    "start": 0,
+    "step": 1,
+    "count": {
+     "value": 11,
+     "from": "N_STOREYS"
+    }
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "L_Z",
+   "type": "Expression",
+   "name": "Level height",
+   "args": {
+    "a": {
+     "value": 0,
+     "from": "L_SER"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "b": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * b"
+   },
+   "parent": "GS_LEVELS"
   },
   {
-   "id": "C1_PL",
-   "type": "Plane",
-   "name": "Normal to rail 1",
+   "id": "L_SB",
+   "type": "Expression",
+   "name": "Terrace setback",
    "args": {
+    "a": {
+     "value": 0,
+     "from": "L_SER"
+    },
+    "b": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "Math.max(0, a - 5) * b"
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "L_TOPZ",
+   "type": "Expression",
+   "name": "Height to the top",
+   "args": {
+    "a": {
+     "value": 11,
+     "from": "N_STOREYS"
+    },
+    "b": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "(a - 1) * b"
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "L_PTS",
+   "type": "Point",
+   "name": "Level markers",
+   "args": {
+    "kind": "Coordinates",
+    "x": -4000,
+    "y": {
+     "value": 0,
+     "from": "L_SB"
+    },
+    "z": {
+     "value": 0,
+     "from": "L_Z"
+    }
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "L_TOP",
+   "type": "Point",
+   "name": "Head of the stack",
+   "args": {
+    "kind": "Coordinates",
+    "x": -4000,
+    "y": 0,
+    "z": {
+     "value": 35200,
+     "from": "L_TOPZ"
+    }
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "L_TAG",
+   "type": "Tag",
+   "name": "Level stack",
+   "args": {
+    "at": {
+     "ref": "L_TOP"
+    },
+    "note": "levels",
+    "size": "Small"
+   },
+   "parent": "GS_LEVELS"
+  },
+  {
+   "id": "GS_PLAN",
+   "type": "GeometricalSet",
+   "name": "02 Plan — the L"
+  },
+  {
+   "id": "PN_O",
+   "type": "Point",
+   "name": "Plan origin",
+   "args": {
+    "kind": "Coordinates",
+    "x": -9000,
+    "y": -6000,
+    "z": 0
+   },
+   "parent": "GS_PLAN"
+  },
+  {
+   "id": "PN_Z",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "GS_PLAN"
+  },
+  {
+   "id": "PN_X",
+   "type": "Vector",
+   "name": "East",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "GS_PLAN"
+  },
+  {
+   "id": "PN_PL",
+   "type": "Plane",
+   "name": "Ground",
+   "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C1_EV"
+     "ref": "PN_O"
     },
     "normal": {
-     "ref": "C1_EV"
+     "ref": "PN_Z"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "PN_X"
+    },
+    "size": 8000
+   },
+   "parent": "GS_PLAN"
   },
   {
-   "id": "C1_SEC",
+   "id": "PN_SK",
    "type": "Sketch",
-   "name": "Section 1",
+   "name": "Footprint",
    "args": {
     "plane": {
-     "ref": "C1_PL"
+     "ref": "PN_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "p1",
+       "type": "arc",
+       "c": [
+        15000,
+        124550
+       ],
+       "r": 125450,
+       "a0": -1.690652637,
+       "a1": -1.450940017
+      },
+      {
+       "id": "p2",
        "type": "line",
        "a": [
-        -11,
-        -11
+        30000,
+        0
        ],
        "b": [
-        11,
-        -11
+        30000,
+        14000
        ]
       },
       {
-       "id": "q1",
+       "id": "p3",
+       "type": "arc",
+       "c": [
+        22000,
+        -56886.1111
+       ],
+       "r": 71336.1111,
+       "a0": 1.458414754,
+       "a1": 1.683177899
+      },
+      {
+       "id": "p4",
        "type": "line",
        "a": [
-        11,
-        -11
+        14000,
+        14000
        ],
        "b": [
-        11,
-        11
+        14000,
+        21000
        ]
       },
       {
-       "id": "q2",
+       "id": "p5",
        "type": "line",
        "a": [
-        11,
-        11
+        14000,
+        21000
        ],
        "b": [
-        -11,
-        11
+        0,
+        21000
        ]
       },
       {
-       "id": "q3",
+       "id": "p6",
        "type": "line",
        "a": [
-        -11,
-        11
+        0,
+        21000
        ],
        "b": [
-        -11,
-        -11
+        0,
+        0
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "p1.end",
+        "p2.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "p2.b",
+        "p3.start"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "p3.end",
+        "p4.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "p4.b",
+        "p5.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "p5.b",
+        "p6.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "p6.b",
+        "p1.start"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "p2"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "p4"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "p5"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "p6"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "GS_PLAN"
+  },
+  {
+   "id": "GS_MASS",
+   "type": "GeometricalSet",
+   "name": "03 Massing — the terraced L"
+  },
+  {
+   "id": "M_H",
+   "type": "Expression",
+   "name": "Height to the terrace",
+   "args": {
+    "a": {
+     "value": 11,
+     "from": "N_STOREYS"
+    },
+    "b": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "Math.round(a * 0.6) * b"
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_TOP",
+   "type": "Expression",
+   "name": "Height of the terraces",
+   "args": {
+    "a": {
+     "value": 11,
+     "from": "N_STOREYS"
+    },
+    "b": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "(a - Math.round(a * 0.6)) * b"
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_TD",
+   "type": "Expression",
+   "name": "Terraced depth",
+   "args": {
+    "a": {
+     "value": 14000,
+     "from": "N_DEPTH"
+    },
+    "b": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a - 2 * b"
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_A",
+   "type": "Rectangle",
+   "name": "Arm A footprint",
+   "args": {
+    "plane": {
+     "ref": "PN_PL"
+    },
+    "onPlane": "Is what it lies on",
+    "anchor": "A corner",
+    "radius": 1200,
+    "width": {
+     "value": 30000,
+     "from": "N_ARMA"
+    },
+    "height": {
+     "value": 14000,
+     "from": "N_DEPTH"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_B",
+   "type": "Rectangle",
+   "name": "Arm B footprint",
+   "args": {
+    "plane": {
+     "ref": "PN_PL"
+    },
+    "onPlane": "Is what it lies on",
+    "anchor": "A corner",
+    "radius": 1200,
+    "width": {
+     "value": 14000,
+     "from": "N_DEPTH"
+    },
+    "height": {
+     "value": 21000,
+     "from": "N_ARMB"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_EXA",
+   "type": "Extrude",
+   "name": "Arm A",
+   "appearance": {
+    "finish": "glass"
+   },
+   "args": {
+    "profile": {
+     "ref": "M_A"
+    },
+    "limit": "Distance",
+    "cap": "Surface",
+    "way": "Normal to the profile",
+    "distance": {
+     "value": 21120,
+     "from": "M_H"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_EXB",
+   "type": "Extrude",
+   "name": "Arm B",
+   "appearance": {
+    "finish": "glass"
+   },
+   "args": {
+    "profile": {
+     "ref": "M_B"
+    },
+    "limit": "Distance",
+    "cap": "Surface",
+    "way": "Normal to the profile",
+    "distance": {
+     "value": 21120,
+     "from": "M_H"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_TPL",
+   "type": "Plane",
+   "name": "Terrace level",
+   "args": {
+    "kind": "Offset from a plane",
+    "from": {
+     "ref": "PN_PL"
+    },
+    "offset": {
+     "value": 21120,
+     "from": "M_H"
+    },
+    "size": 8000
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_TR",
+   "type": "Rectangle",
+   "name": "Terraced footprint",
+   "args": {
+    "plane": {
+     "ref": "M_TPL"
+    },
+    "onPlane": "Is what it lies on",
+    "anchor": "A corner",
+    "radius": 1200,
+    "width": {
+     "value": 30000,
+     "from": "N_ARMA"
+    },
+    "height": {
+     "value": 11000,
+     "from": "M_TD"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "M_EXT",
+   "type": "Extrude",
+   "name": "Terraces",
+   "appearance": {
+    "finish": "glass"
+   },
+   "args": {
+    "profile": {
+     "ref": "M_TR"
+    },
+    "limit": "Distance",
+    "cap": "Surface",
+    "way": "Normal to the profile",
+    "distance": {
+     "value": 14080,
+     "from": "M_TOP"
+    }
+   },
+   "parent": "GS_MASS"
+  },
+  {
+   "id": "C1_GS",
+   "type": "GeometricalSet",
+   "name": "01 Slab edge band — Square to the rail"
+  },
+  {
+   "id": "C1_X",
+   "type": "Expression",
+   "name": "Bay 1",
+   "args": {
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_Z",
+   "type": "Expression",
+   "name": "Level 0",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C1_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C1_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C1_Z"
+    }
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_VN",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_PL",
+   "type": "Plane",
+   "name": "Floor plane",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "C1_O"
+    },
+    "normal": {
+     "ref": "C1_VN"
+    },
+    "xdir": {
+     "ref": "C1_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_RAIL",
+   "type": "Sketch",
+   "name": "Rail",
+   "args": {
+    "plane": {
+     "ref": "C1_PL"
+    },
+    "faces": "Leave as wires",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "e1",
+       "type": "line",
+       "a": [
+        0,
+        0
+       ],
+       "b": [
+        900,
+        0
+       ]
+      },
+      {
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        900,
+        1500
+       ],
+       "r": 1500,
+       "a0": -1.570796327,
+       "a1": 0
+      },
+      {
+       "id": "e3",
+       "type": "line",
+       "a": [
+        2400,
+        1500
+       ],
+       "b": [
+        2400,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.start"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "e2.end",
+        "e3.a"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e1",
+        "e2"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e3",
+        "e2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e1"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "e3"
+       ]
+      }
+     ]
+    }
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C1_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C1_GS"
+  },
+  {
+   "id": "C1_SEC",
+   "type": "Sketch",
+   "name": "Slab edge band",
+   "args": {
+    "plane": {
+     "ref": "C1_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "t1",
+       "type": "line",
+       "a": [
+        -900,
+        -40
+       ],
+       "b": [
+        0,
+        -210
+       ]
+      },
+      {
+       "id": "t2",
+       "type": "arc",
+       "c": [
+        0,
+        0
+       ],
+       "r": 210,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "t3",
+       "type": "line",
+       "a": [
+        0,
+        210
+       ],
+       "b": [
+        -900,
+        210
+       ]
+      },
+      {
+       "id": "t4",
+       "type": "line",
+       "a": [
+        -900,
+        210
+       ],
+       "b": [
+        -900,
+        -40
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "t1.b",
+        "t2.start"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t2.end",
+        "t3.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t3.b",
+        "t4.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t4.b",
+        "t1.a"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "t3",
+        "t2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "t3"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "t4"
+       ]
+      }
+     ]
+    }
+   },
+   "parent": "C1_GS"
   },
   {
    "id": "C1_SW",
    "type": "Sweep",
-   "name": "1 · Square to the rail",
+   "name": "Slab edge band",
+   "appearance": {
+    "finish": "concrete"
+   },
    "args": {
     "profile": {
      "ref": "C1_SEC"
@@ -247,264 +1155,369 @@
      "ref": "C1_RAIL"
     },
     "cap": "Solid"
-   }
+   },
+   "parent": "C1_GS"
   },
   {
-   "id": "T1_O",
+   "id": "C1_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 27.2945420660215,
-    "y": 39.076094100591455,
-    "z": 195.95836856459704
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C1_SW"
+    }
+   },
+   "parent": "C1_GS"
   },
   {
-   "id": "T1_TAG",
+   "id": "C1_TAG",
    "type": "Tag",
-   "name": "Tag 1",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T1_O"
+     "ref": "C1_TP"
     },
     "note": "1",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C1_GS"
   },
   {
-   "id": "C2_P0",
-   "type": "Point",
-   "args": {
-    "x": 210,
-    "y": 0,
-    "z": 0
-   }
+   "id": "C2_GS",
+   "type": "GeometricalSet",
+   "name": "02 Balcony nose — Frenet"
   },
   {
-   "id": "C2_P1",
-   "type": "Point",
+   "id": "C2_X",
+   "type": "Expression",
+   "name": "Bay 2",
    "args": {
-    "x": 233.7116544171704,
-    "y": 8.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C2_P2",
-   "type": "Point",
-   "args": {
-    "x": 254.6196792824083,
-    "y": 16.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C2_P3",
-   "type": "Point",
-   "args": {
-    "x": 270.25194189027604,
-    "y": 24.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C2_P4",
-   "type": "Point",
-   "args": {
-    "x": 278.7601075510082,
-    "y": 33,
-    "z": 60
-   }
-  },
-  {
-   "id": "C2_P5",
-   "type": "Point",
-   "args": {
-    "x": 279.1381838416596,
-    "y": 41.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C2_P6",
-   "type": "Point",
-   "args": {
-    "x": 271.34146760307044,
-    "y": 49.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C2_P7",
-   "type": "Point",
-   "args": {
-    "x": 256.2918305726556,
-    "y": 57.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C2_P8",
-   "type": "Point",
-   "args": {
-    "x": 235.76871868792745,
-    "y": 66,
-    "z": 120
-   }
-  },
-  {
-   "id": "C2_P9",
-   "type": "Point",
-   "args": {
-    "x": 212.19875313546896,
-    "y": 74.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C2_P10",
-   "type": "Point",
-   "args": {
-    "x": 188.36881039375365,
-    "y": 82.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C2_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 2",
-   "args": {
-    "points": [
-     {
-      "ref": "C2_P0"
-     },
-     {
-      "ref": "C2_P1"
-     },
-     {
-      "ref": "C2_P2"
-     },
-     {
-      "ref": "C2_P3"
-     },
-     {
-      "ref": "C2_P4"
-     },
-     {
-      "ref": "C2_P5"
-     },
-     {
-      "ref": "C2_P6"
-     },
-     {
-      "ref": "C2_P7"
-     },
-     {
-      "ref": "C2_P8"
-     },
-     {
-      "ref": "C2_P9"
-     },
-     {
-      "ref": "C2_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C2_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 2",
-   "args": {
-    "curve": {
-     "ref": "C2_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 1"
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_Z",
+   "type": "Expression",
+   "name": "Level 0",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C2_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C2_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C2_Z"
+    }
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_VN",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C2_GS"
   },
   {
    "id": "C2_PL",
    "type": "Plane",
-   "name": "Normal to rail 2",
+   "name": "Floor plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C2_EV"
+     "ref": "C2_O"
     },
     "normal": {
-     "ref": "C2_EV"
+     "ref": "C2_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C2_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C2_GS"
   },
   {
-   "id": "C2_SEC",
+   "id": "C2_RAIL",
    "type": "Sketch",
-   "name": "Section 2",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C2_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1800,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        1800,
+        700
+       ],
+       "r": 700,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "e3",
        "type": "line",
        "a": [
-        11,
-        -11
+        1800,
+        1400
        ],
        "b": [
-        11,
-        11
+        300,
+        1400
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.start"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "e2.end",
+        "e3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "tangent",
+       "of": [
+        "e1",
+        "e2"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e3",
+        "e2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e1"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e3"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C2_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C2_GS"
+  },
+  {
+   "id": "C2_SEC",
+   "type": "Sketch",
+   "name": "Slab edge band",
+   "args": {
+    "plane": {
+     "ref": "C2_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "t1",
+       "type": "line",
+       "a": [
+        -900,
+        -40
+       ],
+       "b": [
+        0,
+        -210
+       ]
+      },
+      {
+       "id": "t2",
+       "type": "arc",
+       "c": [
+        0,
+        0
+       ],
+       "r": 210,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "t3",
+       "type": "line",
+       "a": [
+        0,
+        210
+       ],
+       "b": [
+        -900,
+        210
+       ]
+      },
+      {
+       "id": "t4",
+       "type": "line",
+       "a": [
+        -900,
+        210
+       ],
+       "b": [
+        -900,
+        -40
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "t1.b",
+        "t2.start"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t2.end",
+        "t3.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t3.b",
+        "t4.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t4.b",
+        "t1.a"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "t3",
+        "t2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "t3"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "t4"
+       ]
+      }
+     ]
+    }
+   },
+   "parent": "C2_GS"
   },
   {
    "id": "C2_SW",
    "type": "Sweep",
-   "name": "2 · Frenet",
+   "name": "Balcony nose",
+   "appearance": {
+    "finish": "concrete"
+   },
    "args": {
     "profile": {
      "ref": "C2_SEC"
@@ -514,264 +1527,276 @@
     },
     "cap": "Solid",
     "hold": "Frenet"
-   }
+   },
+   "parent": "C2_GS"
   },
   {
-   "id": "T2_O",
+   "id": "C2_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 222.02981282775625,
-    "y": 32.47934694672994,
-    "z": 246.43739029523488
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C2_SW"
+    }
+   },
+   "parent": "C2_GS"
   },
   {
-   "id": "T2_TAG",
+   "id": "C2_TAG",
    "type": "Tag",
-   "name": "Tag 2",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T2_O"
+     "ref": "C2_TP"
     },
     "note": "2",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C2_GS"
   },
   {
-   "id": "C3_P0",
-   "type": "Point",
-   "args": {
-    "x": 420,
-    "y": 0,
-    "z": 0
-   }
+   "id": "C3_GS",
+   "type": "GeometricalSet",
+   "name": "03 Handrail cap — Upright"
   },
   {
-   "id": "C3_P1",
-   "type": "Point",
+   "id": "C3_X",
+   "type": "Expression",
+   "name": "Bay 3",
    "args": {
-    "x": 443.7116544171704,
-    "y": 8.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C3_P2",
-   "type": "Point",
-   "args": {
-    "x": 464.6196792824083,
-    "y": 16.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C3_P3",
-   "type": "Point",
-   "args": {
-    "x": 480.25194189027604,
-    "y": 24.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C3_P4",
-   "type": "Point",
-   "args": {
-    "x": 488.7601075510082,
-    "y": 33,
-    "z": 60
-   }
-  },
-  {
-   "id": "C3_P5",
-   "type": "Point",
-   "args": {
-    "x": 489.1381838416596,
-    "y": 41.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C3_P6",
-   "type": "Point",
-   "args": {
-    "x": 481.34146760307044,
-    "y": 49.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C3_P7",
-   "type": "Point",
-   "args": {
-    "x": 466.2918305726556,
-    "y": 57.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C3_P8",
-   "type": "Point",
-   "args": {
-    "x": 445.76871868792745,
-    "y": 66,
-    "z": 120
-   }
-  },
-  {
-   "id": "C3_P9",
-   "type": "Point",
-   "args": {
-    "x": 422.19875313546896,
-    "y": 74.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C3_P10",
-   "type": "Point",
-   "args": {
-    "x": 398.3688103937537,
-    "y": 82.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C3_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 3",
-   "args": {
-    "points": [
-     {
-      "ref": "C3_P0"
-     },
-     {
-      "ref": "C3_P1"
-     },
-     {
-      "ref": "C3_P2"
-     },
-     {
-      "ref": "C3_P3"
-     },
-     {
-      "ref": "C3_P4"
-     },
-     {
-      "ref": "C3_P5"
-     },
-     {
-      "ref": "C3_P6"
-     },
-     {
-      "ref": "C3_P7"
-     },
-     {
-      "ref": "C3_P8"
-     },
-     {
-      "ref": "C3_P9"
-     },
-     {
-      "ref": "C3_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C3_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 3",
-   "args": {
-    "curve": {
-     "ref": "C3_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 2"
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_Z",
+   "type": "Expression",
+   "name": "Level 0",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C3_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C3_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C3_Z"
+    }
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_VN",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C3_GS"
   },
   {
    "id": "C3_PL",
    "type": "Plane",
-   "name": "Normal to rail 3",
+   "name": "Floor plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C3_EV"
+     "ref": "C3_O"
     },
     "normal": {
-     "ref": "C3_EV"
+     "ref": "C3_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C3_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C3_GS"
   },
   {
-   "id": "C3_SEC",
+   "id": "C3_RAIL",
    "type": "Sketch",
-   "name": "Section 3",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C3_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1800,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        1800,
+        700
+       ],
+       "r": 700,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "e3",
        "type": "line",
        "a": [
-        11,
-        -11
+        1800,
+        1400
        ],
        "b": [
-        11,
-        11
+        300,
+        1400
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.start"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "e2.end",
+        "e3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "tangent",
+       "of": [
+        "e1",
+        "e2"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e3",
+        "e2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e1"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e3"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C3_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C3_GS"
+  },
+  {
+   "id": "C3_SEC",
+   "type": "Oblong",
+   "name": "Handrail cap",
+   "args": {
+    "plane": {
+     "ref": "C3_SPL"
+    },
+    "onPlane": "Is what it lies on",
+    "length": {
+     "value": 460,
+     "from": "N_CAP_L"
+    },
+    "width": {
+     "value": 320,
+     "from": "N_CAP_W"
+    }
+   },
+   "parent": "C3_GS"
   },
   {
    "id": "C3_SW",
    "type": "Sweep",
-   "name": "3 · Upright",
+   "name": "Handrail cap",
+   "appearance": {
+    "finish": "chrome"
+   },
    "args": {
     "profile": {
      "ref": "C3_SEC"
@@ -781,407 +1806,323 @@
     },
     "cap": "Solid",
     "hold": "Upright"
-   }
+   },
+   "parent": "C3_GS"
   },
   {
-   "id": "T3_O",
+   "id": "C3_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 448.46912626157905,
-    "y": 41.2507999317301,
-    "z": 197.75003003266283
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C3_SW"
+    }
+   },
+   "parent": "C3_GS"
   },
   {
-   "id": "T3_TAG",
+   "id": "C3_TAG",
    "type": "Tag",
-   "name": "Tag 3",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T3_O"
+     "ref": "C3_TP"
     },
     "note": "3",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C3_GS"
   },
   {
-   "id": "C4_P0",
-   "type": "Point",
-   "args": {
-    "x": 630,
-    "y": 0,
-    "z": 0
-   }
+   "id": "C4_GS",
+   "type": "GeometricalSet",
+   "name": "04 Rib, woven — Facing the guide"
   },
   {
-   "id": "C4_P1",
-   "type": "Point",
+   "id": "C4_X",
+   "type": "Expression",
+   "name": "Bay 4",
    "args": {
-    "x": 653.7116544171704,
-    "y": 8.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C4_P2",
-   "type": "Point",
-   "args": {
-    "x": 674.6196792824082,
-    "y": 16.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C4_P3",
-   "type": "Point",
-   "args": {
-    "x": 690.251941890276,
-    "y": 24.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C4_P4",
-   "type": "Point",
-   "args": {
-    "x": 698.7601075510082,
-    "y": 33,
-    "z": 60
-   }
-  },
-  {
-   "id": "C4_P5",
-   "type": "Point",
-   "args": {
-    "x": 699.1381838416596,
-    "y": 41.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C4_P6",
-   "type": "Point",
-   "args": {
-    "x": 691.3414676030704,
-    "y": 49.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C4_P7",
-   "type": "Point",
-   "args": {
-    "x": 676.2918305726556,
-    "y": 57.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C4_P8",
-   "type": "Point",
-   "args": {
-    "x": 655.7687186879274,
-    "y": 66,
-    "z": 120
-   }
-  },
-  {
-   "id": "C4_P9",
-   "type": "Point",
-   "args": {
-    "x": 632.198753135469,
-    "y": 74.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C4_P10",
-   "type": "Point",
-   "args": {
-    "x": 608.3688103937536,
-    "y": 82.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C4_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 4",
-   "args": {
-    "points": [
-     {
-      "ref": "C4_P0"
-     },
-     {
-      "ref": "C4_P1"
-     },
-     {
-      "ref": "C4_P2"
-     },
-     {
-      "ref": "C4_P3"
-     },
-     {
-      "ref": "C4_P4"
-     },
-     {
-      "ref": "C4_P5"
-     },
-     {
-      "ref": "C4_P6"
-     },
-     {
-      "ref": "C4_P7"
-     },
-     {
-      "ref": "C4_P8"
-     },
-     {
-      "ref": "C4_P9"
-     },
-     {
-      "ref": "C4_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C4_G0",
-   "type": "Point",
-   "args": {
-    "x": 725,
-    "y": 0,
-    "z": 0
-   }
-  },
-  {
-   "id": "C4_G1",
-   "type": "Point",
-   "args": {
-    "x": 748.7116544171704,
-    "y": 8.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C4_G2",
-   "type": "Point",
-   "args": {
-    "x": 769.6196792824082,
-    "y": 16.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C4_G3",
-   "type": "Point",
-   "args": {
-    "x": 785.251941890276,
-    "y": 24.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C4_G4",
-   "type": "Point",
-   "args": {
-    "x": 793.7601075510082,
-    "y": 33,
-    "z": 60
-   }
-  },
-  {
-   "id": "C4_G5",
-   "type": "Point",
-   "args": {
-    "x": 794.1381838416596,
-    "y": 41.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C4_G6",
-   "type": "Point",
-   "args": {
-    "x": 786.3414676030704,
-    "y": 49.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C4_G7",
-   "type": "Point",
-   "args": {
-    "x": 771.2918305726556,
-    "y": 57.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C4_G8",
-   "type": "Point",
-   "args": {
-    "x": 750.7687186879275,
-    "y": 66,
-    "z": 120
-   }
-  },
-  {
-   "id": "C4_G9",
-   "type": "Point",
-   "args": {
-    "x": 727.198753135469,
-    "y": 74.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C4_G10",
-   "type": "Point",
-   "args": {
-    "x": 703.3688103937536,
-    "y": 82.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C4_GUIDE",
-   "type": "Interpolate",
-   "name": "Guide 4",
-   "args": {
-    "points": [
-     {
-      "ref": "C4_G0"
-     },
-     {
-      "ref": "C4_G1"
-     },
-     {
-      "ref": "C4_G2"
-     },
-     {
-      "ref": "C4_G3"
-     },
-     {
-      "ref": "C4_G4"
-     },
-     {
-      "ref": "C4_G5"
-     },
-     {
-      "ref": "C4_G6"
-     },
-     {
-      "ref": "C4_G7"
-     },
-     {
-      "ref": "C4_G8"
-     },
-     {
-      "ref": "C4_G9"
-     },
-     {
-      "ref": "C4_G10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C4_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 4",
-   "args": {
-    "curve": {
-     "ref": "C4_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 3"
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_Z",
+   "type": "Expression",
+   "name": "Level 0",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C4_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C4_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C4_Z"
+    }
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C4_GS"
   },
   {
    "id": "C4_PL",
    "type": "Plane",
-   "name": "Normal to rail 4",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C4_EV"
+     "ref": "C4_O"
     },
     "normal": {
-     "ref": "C4_EV"
+     "ref": "C4_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C4_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C4_GS"
   },
   {
-   "id": "C4_SEC",
+   "id": "C4_RAIL",
    "type": "Sketch",
-   "name": "Section 4",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C4_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
+       "type": "arc",
+       "c": [
+        -800,
+        1500
+       ],
+       "r": 1700,
+       "a0": -1.080839001,
+       "a1": 1.080839001
+      }
+     ],
+     "constraints": []
+    }
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_GPL",
+   "type": "Plane",
+   "name": "Neighbour's plane",
+   "args": {
+    "kind": "Offset from a plane",
+    "from": {
+     "ref": "C4_PL"
+    },
+    "offset": -1400,
+    "size": 3400
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_GUIDE",
+   "type": "Sketch",
+   "name": "Neighbouring rib",
+   "args": {
+    "plane": {
+     "ref": "C4_GPL"
+    },
+    "faces": "Leave as wires",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "e1",
+       "type": "arc",
+       "c": [
+        -800,
+        1500
+       ],
+       "r": 1700,
+       "a0": -1.080839001,
+       "a1": 1.080839001
+      }
+     ],
+     "constraints": []
+    }
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C4_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C4_GS"
+  },
+  {
+   "id": "C4_SEC",
+   "type": "Sketch",
+   "name": "Exoskeleton rib",
+   "args": {
+    "plane": {
+     "ref": "C4_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "r1",
+       "type": "arc",
+       "c": [
+        300,
+        0
+       ],
+       "r": 190,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "r2",
        "type": "line",
        "a": [
-        -11,
-        -11
+        300,
+        190
        ],
        "b": [
-        11,
-        -11
+        -620,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "r3",
        "type": "line",
        "a": [
-        11,
-        -11
+        -620,
+        0
        ],
        "b": [
-        11,
-        11
+        300,
+        -190
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "r1.end",
+        "r2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "r2.b",
+        "r3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "coincident",
+       "of": [
+        "r3.b",
+        "r1.start"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r2",
+        "r1"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r3",
+        "r1"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C4_GS"
   },
   {
    "id": "C4_SW",
    "type": "Sweep",
-   "name": "4 · Facing the guide",
+   "name": "Rib, woven",
+   "appearance": {
+    "finish": "brass"
+   },
    "args": {
     "profile": {
      "ref": "C4_SEC"
@@ -1194,179 +2135,246 @@
      "ref": "C4_GUIDE"
     },
     "hold": "Facing the guide"
-   }
+   },
+   "parent": "C4_GS"
   },
   {
-   "id": "T4_O",
+   "id": "C4_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 654.2269981744681,
-    "y": 41.25000000000328,
-    "z": 192.00214033116467
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C4_SW"
+    }
+   },
+   "parent": "C4_GS"
   },
   {
-   "id": "T4_TAG",
+   "id": "C4_TAG",
    "type": "Tag",
-   "name": "Tag 4",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T4_O"
+     "ref": "C4_TP"
     },
     "note": "4",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C4_GS"
   },
   {
-   "id": "C5_P0",
-   "type": "Point",
-   "args": {
-    "x": 840,
-    "y": 0,
-    "z": 0
-   }
+   "id": "C5_GS",
+   "type": "GeometricalSet",
+   "name": "05 Mullion at the plan kink — Right corner"
   },
   {
-   "id": "C5_P1",
-   "type": "Point",
+   "id": "C5_X",
+   "type": "Expression",
+   "name": "Bay 5",
    "args": {
-    "x": 840,
-    "y": 0,
-    "z": 70
-   }
-  },
-  {
-   "id": "C5_P2",
-   "type": "Point",
-   "args": {
-    "x": 895,
-    "y": 0,
-    "z": 70
-   }
-  },
-  {
-   "id": "C5_P3",
-   "type": "Point",
-   "args": {
-    "x": 895,
-    "y": 0,
-    "z": 150
-   }
-  },
-  {
-   "id": "C5_RAIL",
-   "type": "Polyline",
-   "name": "Rail 5",
-   "args": {
-    "points": [
-     {
-      "ref": "C5_P0"
-     },
-     {
-      "ref": "C5_P1"
-     },
-     {
-      "ref": "C5_P2"
-     },
-     {
-      "ref": "C5_P3"
-     }
-    ],
-    "closed": "Open"
-   }
-  },
-  {
-   "id": "C5_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 5",
-   "args": {
-    "curve": {
-     "ref": "C5_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 4"
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_Z",
+   "type": "Expression",
+   "name": "Level 0",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 0"
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C5_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C5_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C5_Z"
+    }
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C5_GS"
   },
   {
    "id": "C5_PL",
    "type": "Plane",
-   "name": "Normal to rail 5",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C5_EV"
+     "ref": "C5_O"
     },
     "normal": {
-     "ref": "C5_EV"
+     "ref": "C5_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C5_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C5_GS"
   },
   {
-   "id": "C5_SEC",
+   "id": "C5_RAIL",
    "type": "Sketch",
-   "name": "Section 5",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C5_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1600,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
        "type": "line",
        "a": [
-        11,
-        -11
+        1600,
+        0
        ],
        "b": [
-        11,
-        11
+        1600,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "horizontal",
+       "of": [
+        "e1"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "vertical",
+       "of": [
+        "e2"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C5_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C5_GS"
+  },
+  {
+   "id": "C5_SEC",
+   "type": "Section",
+   "name": "Box mullion",
+   "args": {
+    "plane": {
+     "ref": "C5_SPL"
+    },
+    "kind": "Rectangular hollow",
+    "depth": {
+     "value": 380,
+     "from": "N_MULL_D"
+    },
+    "width": {
+     "value": 300,
+     "from": "N_MULL_W"
+    },
+    "web": 10,
+    "flange": 10
+   },
+   "parent": "C5_GS"
   },
   {
    "id": "C5_SW",
    "type": "Sweep",
-   "name": "5 · Right corner",
+   "name": "Mullion at the plan kink",
+   "appearance": {
+    "finish": "aluminium"
+   },
    "args": {
     "profile": {
      "ref": "C5_SEC"
@@ -1376,179 +2384,246 @@
     },
     "cap": "Solid",
     "corner": "Right corner"
-   }
+   },
+   "parent": "C5_GS"
   },
   {
-   "id": "T5_O",
+   "id": "C5_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 867.5,
-    "y": 0,
-    "z": 185.00000015
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C5_SW"
+    }
+   },
+   "parent": "C5_GS"
   },
   {
-   "id": "T5_TAG",
+   "id": "C5_TAG",
    "type": "Tag",
-   "name": "Tag 5",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T5_O"
+     "ref": "C5_TP"
     },
     "note": "5",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C5_GS"
   },
   {
-   "id": "C6_P0",
-   "type": "Point",
-   "args": {
-    "x": 0,
-    "y": 290,
-    "z": 0
-   }
+   "id": "C6_GS",
+   "type": "GeometricalSet",
+   "name": "06 Mullion at the plan kink — Round corner"
   },
   {
-   "id": "C6_P1",
-   "type": "Point",
+   "id": "C6_X",
+   "type": "Expression",
+   "name": "Bay 1",
    "args": {
-    "x": 0,
-    "y": 290,
-    "z": 70
-   }
-  },
-  {
-   "id": "C6_P2",
-   "type": "Point",
-   "args": {
-    "x": 55,
-    "y": 290,
-    "z": 70
-   }
-  },
-  {
-   "id": "C6_P3",
-   "type": "Point",
-   "args": {
-    "x": 55,
-    "y": 290,
-    "z": 150
-   }
-  },
-  {
-   "id": "C6_RAIL",
-   "type": "Polyline",
-   "name": "Rail 6",
-   "args": {
-    "points": [
-     {
-      "ref": "C6_P0"
-     },
-     {
-      "ref": "C6_P1"
-     },
-     {
-      "ref": "C6_P2"
-     },
-     {
-      "ref": "C6_P3"
-     }
-    ],
-    "closed": "Open"
-   }
-  },
-  {
-   "id": "C6_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 6",
-   "args": {
-    "curve": {
-     "ref": "C6_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 0"
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 1"
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_Z",
+   "type": "Expression",
+   "name": "Level 2",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C6_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C6_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C6_Z"
+    }
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C6_GS"
   },
   {
    "id": "C6_PL",
    "type": "Plane",
-   "name": "Normal to rail 6",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C6_EV"
+     "ref": "C6_O"
     },
     "normal": {
-     "ref": "C6_EV"
+     "ref": "C6_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C6_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C6_GS"
   },
   {
-   "id": "C6_SEC",
+   "id": "C6_RAIL",
    "type": "Sketch",
-   "name": "Section 6",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C6_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1600,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
        "type": "line",
        "a": [
-        11,
-        -11
+        1600,
+        0
        ],
        "b": [
-        11,
-        11
+        1600,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "horizontal",
+       "of": [
+        "e1"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "vertical",
+       "of": [
+        "e2"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C6_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C6_GS"
+  },
+  {
+   "id": "C6_SEC",
+   "type": "Section",
+   "name": "Box mullion",
+   "args": {
+    "plane": {
+     "ref": "C6_SPL"
+    },
+    "kind": "Rectangular hollow",
+    "depth": {
+     "value": 380,
+     "from": "N_MULL_D"
+    },
+    "width": {
+     "value": 300,
+     "from": "N_MULL_W"
+    },
+    "web": 10,
+    "flange": 10
+   },
+   "parent": "C6_GS"
   },
   {
    "id": "C6_SW",
    "type": "Sweep",
-   "name": "6 · Round corner",
+   "name": "Mullion at the plan kink",
+   "appearance": {
+    "finish": "aluminium"
+   },
    "args": {
     "profile": {
      "ref": "C6_SEC"
@@ -1558,179 +2633,246 @@
     },
     "cap": "Solid",
     "corner": "Round corner"
-   }
+   },
+   "parent": "C6_GS"
   },
   {
-   "id": "T6_O",
+   "id": "C6_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 27.500000000000004,
-    "y": 290,
-    "z": 185.00000015
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C6_SW"
+    }
+   },
+   "parent": "C6_GS"
   },
   {
-   "id": "T6_TAG",
+   "id": "C6_TAG",
    "type": "Tag",
-   "name": "Tag 6",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T6_O"
+     "ref": "C6_TP"
     },
     "note": "6",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C6_GS"
   },
   {
-   "id": "C7_P0",
-   "type": "Point",
-   "args": {
-    "x": 210,
-    "y": 290,
-    "z": 0
-   }
+   "id": "C7_GS",
+   "type": "GeometricalSet",
+   "name": "07 Mullion at the plan kink — Transformed"
   },
   {
-   "id": "C7_P1",
-   "type": "Point",
+   "id": "C7_X",
+   "type": "Expression",
+   "name": "Bay 2",
    "args": {
-    "x": 210,
-    "y": 290,
-    "z": 70
-   }
-  },
-  {
-   "id": "C7_P2",
-   "type": "Point",
-   "args": {
-    "x": 265,
-    "y": 290,
-    "z": 70
-   }
-  },
-  {
-   "id": "C7_P3",
-   "type": "Point",
-   "args": {
-    "x": 265,
-    "y": 290,
-    "z": 150
-   }
-  },
-  {
-   "id": "C7_RAIL",
-   "type": "Polyline",
-   "name": "Rail 7",
-   "args": {
-    "points": [
-     {
-      "ref": "C7_P0"
-     },
-     {
-      "ref": "C7_P1"
-     },
-     {
-      "ref": "C7_P2"
-     },
-     {
-      "ref": "C7_P3"
-     }
-    ],
-    "closed": "Open"
-   }
-  },
-  {
-   "id": "C7_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 7",
-   "args": {
-    "curve": {
-     "ref": "C7_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 1"
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 1"
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_Z",
+   "type": "Expression",
+   "name": "Level 2",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C7_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C7_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C7_Z"
+    }
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C7_GS"
   },
   {
    "id": "C7_PL",
    "type": "Plane",
-   "name": "Normal to rail 7",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C7_EV"
+     "ref": "C7_O"
     },
     "normal": {
-     "ref": "C7_EV"
+     "ref": "C7_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C7_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C7_GS"
   },
   {
-   "id": "C7_SEC",
+   "id": "C7_RAIL",
    "type": "Sketch",
-   "name": "Section 7",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C7_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1600,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
        "type": "line",
        "a": [
-        11,
-        -11
+        1600,
+        0
        ],
        "b": [
-        11,
-        11
+        1600,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "horizontal",
+       "of": [
+        "e1"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "vertical",
+       "of": [
+        "e2"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C7_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C7_GS"
+  },
+  {
+   "id": "C7_SEC",
+   "type": "Section",
+   "name": "Box mullion",
+   "args": {
+    "plane": {
+     "ref": "C7_SPL"
+    },
+    "kind": "Rectangular hollow",
+    "depth": {
+     "value": 380,
+     "from": "N_MULL_D"
+    },
+    "width": {
+     "value": 300,
+     "from": "N_MULL_W"
+    },
+    "web": 10,
+    "flange": 10
+   },
+   "parent": "C7_GS"
   },
   {
    "id": "C7_SW",
    "type": "Sweep",
-   "name": "7 · Transformed",
+   "name": "Mullion at the plan kink",
+   "appearance": {
+    "finish": "aluminium"
+   },
    "args": {
     "profile": {
      "ref": "C7_SEC"
@@ -1740,264 +2882,280 @@
     },
     "cap": "Solid",
     "corner": "Transformed"
-   }
+   },
+   "parent": "C7_GS"
   },
   {
-   "id": "T7_O",
+   "id": "C7_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 237.5,
-    "y": 290,
-    "z": 185.0000001
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C7_SW"
+    }
+   },
+   "parent": "C7_GS"
   },
   {
-   "id": "T7_TAG",
+   "id": "C7_TAG",
    "type": "Tag",
-   "name": "Tag 7",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T7_O"
+     "ref": "C7_TP"
     },
     "note": "7",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C7_GS"
   },
   {
-   "id": "C8_P0",
-   "type": "Point",
-   "args": {
-    "x": 420,
-    "y": 290,
-    "z": 0
-   }
+   "id": "C8_GS",
+   "type": "GeometricalSet",
+   "name": "08 Rib flaring out — Scaled to 2.5"
   },
   {
-   "id": "C8_P1",
-   "type": "Point",
+   "id": "C8_X",
+   "type": "Expression",
+   "name": "Bay 3",
    "args": {
-    "x": 443.7116544171704,
-    "y": 298.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C8_P2",
-   "type": "Point",
-   "args": {
-    "x": 464.6196792824083,
-    "y": 306.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C8_P3",
-   "type": "Point",
-   "args": {
-    "x": 480.25194189027604,
-    "y": 314.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C8_P4",
-   "type": "Point",
-   "args": {
-    "x": 488.7601075510082,
-    "y": 323,
-    "z": 60
-   }
-  },
-  {
-   "id": "C8_P5",
-   "type": "Point",
-   "args": {
-    "x": 489.1381838416596,
-    "y": 331.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C8_P6",
-   "type": "Point",
-   "args": {
-    "x": 481.34146760307044,
-    "y": 339.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C8_P7",
-   "type": "Point",
-   "args": {
-    "x": 466.2918305726556,
-    "y": 347.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C8_P8",
-   "type": "Point",
-   "args": {
-    "x": 445.76871868792745,
-    "y": 356,
-    "z": 120
-   }
-  },
-  {
-   "id": "C8_P9",
-   "type": "Point",
-   "args": {
-    "x": 422.19875313546896,
-    "y": 364.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C8_P10",
-   "type": "Point",
-   "args": {
-    "x": 398.3688103937537,
-    "y": 372.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C8_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 8",
-   "args": {
-    "points": [
-     {
-      "ref": "C8_P0"
-     },
-     {
-      "ref": "C8_P1"
-     },
-     {
-      "ref": "C8_P2"
-     },
-     {
-      "ref": "C8_P3"
-     },
-     {
-      "ref": "C8_P4"
-     },
-     {
-      "ref": "C8_P5"
-     },
-     {
-      "ref": "C8_P6"
-     },
-     {
-      "ref": "C8_P7"
-     },
-     {
-      "ref": "C8_P8"
-     },
-     {
-      "ref": "C8_P9"
-     },
-     {
-      "ref": "C8_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C8_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 8",
-   "args": {
-    "curve": {
-     "ref": "C8_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 2"
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 1"
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_Z",
+   "type": "Expression",
+   "name": "Level 2",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C8_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C8_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C8_Z"
+    }
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C8_GS"
   },
   {
    "id": "C8_PL",
    "type": "Plane",
-   "name": "Normal to rail 8",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C8_EV"
+     "ref": "C8_O"
     },
     "normal": {
-     "ref": "C8_EV"
+     "ref": "C8_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C8_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C8_GS"
   },
   {
-   "id": "C8_SEC",
+   "id": "C8_RAIL",
    "type": "Sketch",
-   "name": "Section 8",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C8_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
+       "type": "arc",
+       "c": [
+        -800,
+        1500
+       ],
+       "r": 1700,
+       "a0": -1.080839001,
+       "a1": 1.080839001
+      }
+     ],
+     "constraints": []
+    }
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C8_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C8_GS"
+  },
+  {
+   "id": "C8_SEC",
+   "type": "Sketch",
+   "name": "Exoskeleton rib",
+   "args": {
+    "plane": {
+     "ref": "C8_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "r1",
+       "type": "arc",
+       "c": [
+        300,
+        0
+       ],
+       "r": 190,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "r2",
        "type": "line",
        "a": [
-        -11,
-        -11
+        300,
+        190
        ],
        "b": [
-        11,
-        -11
+        -620,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "r3",
        "type": "line",
        "a": [
-        11,
-        -11
+        -620,
+        0
        ],
        "b": [
-        11,
-        11
+        300,
+        -190
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "r1.end",
+        "r2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "r2.b",
+        "r3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "coincident",
+       "of": [
+        "r3.b",
+        "r1.start"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r2",
+        "r1"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r3",
+        "r1"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C8_GS"
   },
   {
    "id": "C8_SW",
    "type": "Sweep",
-   "name": "8 · Scaled to 2.5",
+   "name": "Rib flaring out",
+   "appearance": {
+    "finish": "brass"
+   },
    "args": {
     "profile": {
      "ref": "C8_SEC"
@@ -2007,264 +3165,280 @@
     },
     "cap": "Solid",
     "scale": 2.5
-   }
+   },
+   "parent": "C8_GS"
   },
   {
-   "id": "T8_O",
+   "id": "C8_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 445.83818003081694,
-    "y": 344.6057417518445,
-    "z": 217.5527100898088
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C8_SW"
+    }
+   },
+   "parent": "C8_GS"
   },
   {
-   "id": "T8_TAG",
+   "id": "C8_TAG",
    "type": "Tag",
-   "name": "Tag 8",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T8_O"
+     "ref": "C8_TP"
     },
     "note": "8",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C8_GS"
   },
   {
-   "id": "C9_P0",
-   "type": "Point",
-   "args": {
-    "x": 630,
-    "y": 290,
-    "z": 0
-   }
+   "id": "C9_GS",
+   "type": "GeometricalSet",
+   "name": "09 Rib flaring, eased — Scaled to 2.5, eased"
   },
   {
-   "id": "C9_P1",
-   "type": "Point",
+   "id": "C9_X",
+   "type": "Expression",
+   "name": "Bay 4",
    "args": {
-    "x": 653.7116544171704,
-    "y": 298.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C9_P2",
-   "type": "Point",
-   "args": {
-    "x": 674.6196792824082,
-    "y": 306.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C9_P3",
-   "type": "Point",
-   "args": {
-    "x": 690.251941890276,
-    "y": 314.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C9_P4",
-   "type": "Point",
-   "args": {
-    "x": 698.7601075510082,
-    "y": 323,
-    "z": 60
-   }
-  },
-  {
-   "id": "C9_P5",
-   "type": "Point",
-   "args": {
-    "x": 699.1381838416596,
-    "y": 331.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C9_P6",
-   "type": "Point",
-   "args": {
-    "x": 691.3414676030704,
-    "y": 339.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C9_P7",
-   "type": "Point",
-   "args": {
-    "x": 676.2918305726556,
-    "y": 347.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C9_P8",
-   "type": "Point",
-   "args": {
-    "x": 655.7687186879274,
-    "y": 356,
-    "z": 120
-   }
-  },
-  {
-   "id": "C9_P9",
-   "type": "Point",
-   "args": {
-    "x": 632.198753135469,
-    "y": 364.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C9_P10",
-   "type": "Point",
-   "args": {
-    "x": 608.3688103937536,
-    "y": 372.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C9_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 9",
-   "args": {
-    "points": [
-     {
-      "ref": "C9_P0"
-     },
-     {
-      "ref": "C9_P1"
-     },
-     {
-      "ref": "C9_P2"
-     },
-     {
-      "ref": "C9_P3"
-     },
-     {
-      "ref": "C9_P4"
-     },
-     {
-      "ref": "C9_P5"
-     },
-     {
-      "ref": "C9_P6"
-     },
-     {
-      "ref": "C9_P7"
-     },
-     {
-      "ref": "C9_P8"
-     },
-     {
-      "ref": "C9_P9"
-     },
-     {
-      "ref": "C9_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C9_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 9",
-   "args": {
-    "curve": {
-     "ref": "C9_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 3"
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 1"
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_Z",
+   "type": "Expression",
+   "name": "Level 2",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C9_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C9_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C9_Z"
+    }
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C9_GS"
   },
   {
    "id": "C9_PL",
    "type": "Plane",
-   "name": "Normal to rail 9",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C9_EV"
+     "ref": "C9_O"
     },
     "normal": {
-     "ref": "C9_EV"
+     "ref": "C9_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C9_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C9_GS"
   },
   {
-   "id": "C9_SEC",
+   "id": "C9_RAIL",
    "type": "Sketch",
-   "name": "Section 9",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C9_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
+       "type": "arc",
+       "c": [
+        -800,
+        1500
+       ],
+       "r": 1700,
+       "a0": -1.080839001,
+       "a1": 1.080839001
+      }
+     ],
+     "constraints": []
+    }
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C9_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C9_GS"
+  },
+  {
+   "id": "C9_SEC",
+   "type": "Sketch",
+   "name": "Exoskeleton rib",
+   "args": {
+    "plane": {
+     "ref": "C9_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "r1",
+       "type": "arc",
+       "c": [
+        300,
+        0
+       ],
+       "r": 190,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "r2",
        "type": "line",
        "a": [
-        -11,
-        -11
+        300,
+        190
        ],
        "b": [
-        11,
-        -11
+        -620,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "r3",
        "type": "line",
        "a": [
-        11,
-        -11
+        -620,
+        0
        ],
        "b": [
-        11,
-        11
+        300,
+        -190
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "r1.end",
+        "r2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "r2.b",
+        "r3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "coincident",
+       "of": [
+        "r3.b",
+        "r1.start"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r2",
+        "r1"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r3",
+        "r1"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C9_GS"
   },
   {
    "id": "C9_SW",
    "type": "Sweep",
-   "name": "9 · Scaled 2.5, eased",
+   "name": "Rib flaring, eased",
+   "appearance": {
+    "finish": "brass"
+   },
    "args": {
     "profile": {
      "ref": "C9_SEC"
@@ -2275,264 +3449,280 @@
     "cap": "Solid",
     "scale": 2.5,
     "easing": "Eased"
-   }
+   },
+   "parent": "C9_GS"
   },
   {
-   "id": "T9_O",
+   "id": "C9_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 655.5878838683219,
-    "y": 344.6057417518445,
-    "z": 217.55271008980884
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C9_SW"
+    }
+   },
+   "parent": "C9_GS"
   },
   {
-   "id": "T9_TAG",
+   "id": "C9_TAG",
    "type": "Tag",
-   "name": "Tag 9",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T9_O"
+     "ref": "C9_TP"
     },
     "note": "9",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C9_GS"
   },
   {
-   "id": "C10_P0",
-   "type": "Point",
-   "args": {
-    "x": 840,
-    "y": 290,
-    "z": 0
-   }
+   "id": "C10_GS",
+   "type": "GeometricalSet",
+   "name": "10 Rib tapering in — Scaled to 0.4"
   },
   {
-   "id": "C10_P1",
-   "type": "Point",
+   "id": "C10_X",
+   "type": "Expression",
+   "name": "Bay 5",
    "args": {
-    "x": 863.7116544171704,
-    "y": 298.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C10_P2",
-   "type": "Point",
-   "args": {
-    "x": 884.6196792824082,
-    "y": 306.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C10_P3",
-   "type": "Point",
-   "args": {
-    "x": 900.251941890276,
-    "y": 314.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C10_P4",
-   "type": "Point",
-   "args": {
-    "x": 908.7601075510082,
-    "y": 323,
-    "z": 60
-   }
-  },
-  {
-   "id": "C10_P5",
-   "type": "Point",
-   "args": {
-    "x": 909.1381838416596,
-    "y": 331.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C10_P6",
-   "type": "Point",
-   "args": {
-    "x": 901.3414676030704,
-    "y": 339.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C10_P7",
-   "type": "Point",
-   "args": {
-    "x": 886.2918305726556,
-    "y": 347.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C10_P8",
-   "type": "Point",
-   "args": {
-    "x": 865.7687186879274,
-    "y": 356,
-    "z": 120
-   }
-  },
-  {
-   "id": "C10_P9",
-   "type": "Point",
-   "args": {
-    "x": 842.198753135469,
-    "y": 364.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C10_P10",
-   "type": "Point",
-   "args": {
-    "x": 818.3688103937536,
-    "y": 372.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C10_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 10",
-   "args": {
-    "points": [
-     {
-      "ref": "C10_P0"
-     },
-     {
-      "ref": "C10_P1"
-     },
-     {
-      "ref": "C10_P2"
-     },
-     {
-      "ref": "C10_P3"
-     },
-     {
-      "ref": "C10_P4"
-     },
-     {
-      "ref": "C10_P5"
-     },
-     {
-      "ref": "C10_P6"
-     },
-     {
-      "ref": "C10_P7"
-     },
-     {
-      "ref": "C10_P8"
-     },
-     {
-      "ref": "C10_P9"
-     },
-     {
-      "ref": "C10_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C10_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 10",
-   "args": {
-    "curve": {
-     "ref": "C10_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 4"
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 1"
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_Z",
+   "type": "Expression",
+   "name": "Level 2",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C10_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C10_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C10_Z"
+    }
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C10_GS"
   },
   {
    "id": "C10_PL",
    "type": "Plane",
-   "name": "Normal to rail 10",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C10_EV"
+     "ref": "C10_O"
     },
     "normal": {
-     "ref": "C10_EV"
+     "ref": "C10_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C10_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C10_GS"
   },
   {
-   "id": "C10_SEC",
+   "id": "C10_RAIL",
    "type": "Sketch",
-   "name": "Section 10",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C10_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
+       "type": "arc",
+       "c": [
+        -800,
+        1500
+       ],
+       "r": 1700,
+       "a0": -1.080839001,
+       "a1": 1.080839001
+      }
+     ],
+     "constraints": []
+    }
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C10_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C10_GS"
+  },
+  {
+   "id": "C10_SEC",
+   "type": "Sketch",
+   "name": "Exoskeleton rib",
+   "args": {
+    "plane": {
+     "ref": "C10_SPL"
+    },
+    "faces": "Make faces",
+    "solve": "Solve",
+    "drawing": {
+     "elements": [
+      {
+       "id": "r1",
+       "type": "arc",
+       "c": [
+        300,
+        0
+       ],
+       "r": 190,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "r2",
        "type": "line",
        "a": [
-        -11,
-        -11
+        300,
+        190
        ],
        "b": [
-        11,
-        -11
+        -620,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "r3",
        "type": "line",
        "a": [
-        11,
-        -11
+        -620,
+        0
        ],
        "b": [
-        11,
-        11
+        300,
+        -190
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "r1.end",
+        "r2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "r2.b",
+        "r3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "coincident",
+       "of": [
+        "r3.b",
+        "r1.start"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r2",
+        "r1"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "r3",
+        "r1"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C10_GS"
   },
   {
    "id": "C10_SW",
    "type": "Sweep",
-   "name": "10 · Scaled to 0.4",
+   "name": "Rib tapering in",
+   "appearance": {
+    "finish": "brass"
+   },
    "args": {
     "profile": {
      "ref": "C10_SEC"
@@ -2542,313 +3732,403 @@
     },
     "cap": "Solid",
     "scale": 0.4
-   }
+   },
+   "parent": "C10_GS"
   },
   {
-   "id": "T10_O",
+   "id": "C10_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 867.9116042402321,
-    "y": 328.9533558965,
-    "z": 190.20843369836942
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C10_SW"
+    }
+   },
+   "parent": "C10_GS"
   },
   {
-   "id": "T10_TAG",
+   "id": "C10_TAG",
    "type": "Tag",
-   "name": "Tag 10",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T10_O"
+     "ref": "C10_TP"
     },
     "note": "10",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C10_GS"
   },
   {
-   "id": "C11_P0",
-   "type": "Point",
-   "args": {
-    "x": 0,
-    "y": 580,
-    "z": 0
-   }
+   "id": "C11_GS",
+   "type": "GeometricalSet",
+   "name": "11 Band becoming a handrail — Into a second profile"
   },
   {
-   "id": "C11_P1",
-   "type": "Point",
+   "id": "C11_X",
+   "type": "Expression",
+   "name": "Bay 1",
    "args": {
-    "x": 23.7116544171704,
-    "y": 588.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C11_P2",
-   "type": "Point",
-   "args": {
-    "x": 44.619679282408285,
-    "y": 596.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C11_P3",
-   "type": "Point",
-   "args": {
-    "x": 60.25194189027606,
-    "y": 604.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C11_P4",
-   "type": "Point",
-   "args": {
-    "x": 68.7601075510082,
-    "y": 613,
-    "z": 60
-   }
-  },
-  {
-   "id": "C11_P5",
-   "type": "Point",
-   "args": {
-    "x": 69.13818384165964,
-    "y": 621.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C11_P6",
-   "type": "Point",
-   "args": {
-    "x": 61.34146760307044,
-    "y": 629.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C11_P7",
-   "type": "Point",
-   "args": {
-    "x": 46.29183057265563,
-    "y": 637.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C11_P8",
-   "type": "Point",
-   "args": {
-    "x": 25.768718687927443,
-    "y": 646,
-    "z": 120
-   }
-  },
-  {
-   "id": "C11_P9",
-   "type": "Point",
-   "args": {
-    "x": 2.1987531354689764,
-    "y": 654.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C11_P10",
-   "type": "Point",
-   "args": {
-    "x": -21.63118960624634,
-    "y": 662.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C11_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 11",
-   "args": {
-    "points": [
-     {
-      "ref": "C11_P0"
-     },
-     {
-      "ref": "C11_P1"
-     },
-     {
-      "ref": "C11_P2"
-     },
-     {
-      "ref": "C11_P3"
-     },
-     {
-      "ref": "C11_P4"
-     },
-     {
-      "ref": "C11_P5"
-     },
-     {
-      "ref": "C11_P6"
-     },
-     {
-      "ref": "C11_P7"
-     },
-     {
-      "ref": "C11_P8"
-     },
-     {
-      "ref": "C11_P9"
-     },
-     {
-      "ref": "C11_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C11_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 11",
-   "args": {
-    "curve": {
-     "ref": "C11_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 0"
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_Z",
+   "type": "Expression",
+   "name": "Level 4",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 4"
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C11_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C11_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C11_Z"
+    }
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_VN",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C11_GS"
   },
   {
    "id": "C11_PL",
    "type": "Plane",
-   "name": "Normal to rail 11",
+   "name": "Floor plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C11_EV"
+     "ref": "C11_O"
     },
     "normal": {
-     "ref": "C11_EV"
+     "ref": "C11_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C11_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "C11_SEC",
+   "id": "C11_RAIL",
    "type": "Sketch",
-   "name": "Section 11",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C11_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        900,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        900,
+        1500
+       ],
+       "r": 1500,
+       "a0": -1.570796327,
+       "a1": 0
+      },
+      {
+       "id": "e3",
        "type": "line",
        "a": [
-        11,
-        -11
+        2400,
+        1500
        ],
        "b": [
-        11,
-        11
+        2400,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.start"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "e2.end",
+        "e3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "tangent",
+       "of": [
+        "e1",
+        "e2"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e3",
+        "e2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e1"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "e3"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "C11_EV2",
-   "type": "EvaluateCurve",
-   "name": "End of rail 11",
+   "id": "C11_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
    "args": {
+    "kind": "Normal to a curve",
     "curve": {
      "ref": "C11_RAIL"
     },
-    "t": 1,
-    "tangent": 40
-   }
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "C11_PL2",
-   "type": "Plane",
-   "name": "Normal at the end 11",
-   "args": {
-    "origin": {
-     "ref": "C11_EV2"
-    },
-    "normal": {
-     "ref": "C11_EV2"
-    },
-    "size": 90
-   }
-  },
-  {
-   "id": "C11_SEC2",
+   "id": "C11_SEC",
    "type": "Sketch",
-   "name": "Becoming 11",
+   "name": "Slab edge band",
    "args": {
     "plane": {
-     "ref": "C11_PL2"
+     "ref": "C11_SPL"
     },
+    "faces": "Make faces",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "c",
-       "type": "circle",
+       "id": "t1",
+       "type": "line",
+       "a": [
+        -900,
+        -40
+       ],
+       "b": [
+        0,
+        -210
+       ]
+      },
+      {
+       "id": "t2",
+       "type": "arc",
        "c": [
         0,
         0
        ],
-       "r": 18
+       "r": 210,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "t3",
+       "type": "line",
+       "a": [
+        0,
+        210
+       ],
+       "b": [
+        -900,
+        210
+       ]
+      },
+      {
+       "id": "t4",
+       "type": "line",
+       "a": [
+        -900,
+        210
+       ],
+       "b": [
+        -900,
+        -40
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "t1.b",
+        "t2.start"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t2.end",
+        "t3.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t3.b",
+        "t4.a"
+       ]
+      },
+      {
+       "type": "coincident",
+       "of": [
+        "t4.b",
+        "t1.a"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "t3",
+        "t2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "t3"
+       ]
+      },
+      {
+       "type": "vertical",
+       "of": [
+        "t4"
+       ]
       }
      ]
     }
-   }
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_SPL2",
+   "type": "Plane",
+   "name": "Square across, at the far end",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C11_RAIL"
+    },
+    "at": 1,
+    "size": 1400
+   },
+   "parent": "C11_GS"
+  },
+  {
+   "id": "C11_SEC2",
+   "type": "Oblong",
+   "name": "Handrail cap",
+   "args": {
+    "plane": {
+     "ref": "C11_SPL2"
+    },
+    "onPlane": "Is what it lies on",
+    "length": {
+     "value": 460,
+     "from": "N_CAP_L"
+    },
+    "width": {
+     "value": 320,
+     "from": "N_CAP_W"
+    }
+   },
+   "parent": "C11_GS"
   },
   {
    "id": "C11_SW",
    "type": "Sweep",
-   "name": "11 · Becoming a circle",
+   "name": "Band becoming a handrail",
+   "appearance": {
+    "finish": "concrete"
+   },
    "args": {
     "profile": {
      "ref": "C11_SEC"
@@ -2860,264 +4140,278 @@
     "into": {
      "ref": "C11_SEC2"
     }
-   }
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "T11_O",
+   "id": "C11_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 26.73724695208048,
-    "y": 622.827035043517,
-    "z": 201.12549172848517
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C11_SW"
+    }
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "T11_TAG",
+   "id": "C11_TAG",
    "type": "Tag",
-   "name": "Tag 11",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T11_O"
+     "ref": "C11_TP"
     },
     "note": "11",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C11_GS"
   },
   {
-   "id": "C12_P0",
-   "type": "Point",
-   "args": {
-    "x": 210,
-    "y": 580,
-    "z": 0
-   }
+   "id": "C12_GS",
+   "type": "GeometricalSet",
+   "name": "12 Balcony soffit — As a surface"
   },
   {
-   "id": "C12_P1",
-   "type": "Point",
+   "id": "C12_X",
+   "type": "Expression",
+   "name": "Bay 2",
    "args": {
-    "x": 233.7116544171704,
-    "y": 588.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C12_P2",
-   "type": "Point",
-   "args": {
-    "x": 254.6196792824083,
-    "y": 596.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C12_P3",
-   "type": "Point",
-   "args": {
-    "x": 270.25194189027604,
-    "y": 604.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C12_P4",
-   "type": "Point",
-   "args": {
-    "x": 278.7601075510082,
-    "y": 613,
-    "z": 60
-   }
-  },
-  {
-   "id": "C12_P5",
-   "type": "Point",
-   "args": {
-    "x": 279.1381838416596,
-    "y": 621.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C12_P6",
-   "type": "Point",
-   "args": {
-    "x": 271.34146760307044,
-    "y": 629.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C12_P7",
-   "type": "Point",
-   "args": {
-    "x": 256.2918305726556,
-    "y": 637.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C12_P8",
-   "type": "Point",
-   "args": {
-    "x": 235.76871868792745,
-    "y": 646,
-    "z": 120
-   }
-  },
-  {
-   "id": "C12_P9",
-   "type": "Point",
-   "args": {
-    "x": 212.19875313546896,
-    "y": 654.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C12_P10",
-   "type": "Point",
-   "args": {
-    "x": 188.36881039375365,
-    "y": 662.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C12_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 12",
-   "args": {
-    "points": [
-     {
-      "ref": "C12_P0"
-     },
-     {
-      "ref": "C12_P1"
-     },
-     {
-      "ref": "C12_P2"
-     },
-     {
-      "ref": "C12_P3"
-     },
-     {
-      "ref": "C12_P4"
-     },
-     {
-      "ref": "C12_P5"
-     },
-     {
-      "ref": "C12_P6"
-     },
-     {
-      "ref": "C12_P7"
-     },
-     {
-      "ref": "C12_P8"
-     },
-     {
-      "ref": "C12_P9"
-     },
-     {
-      "ref": "C12_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C12_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 12",
-   "args": {
-    "curve": {
-     "ref": "C12_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 1"
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_Z",
+   "type": "Expression",
+   "name": "Level 4",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 4"
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C12_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C12_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C12_Z"
+    }
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_VN",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C12_GS"
   },
   {
    "id": "C12_PL",
    "type": "Plane",
-   "name": "Normal to rail 12",
+   "name": "Floor plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C12_EV"
+     "ref": "C12_O"
     },
     "normal": {
-     "ref": "C12_EV"
+     "ref": "C12_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C12_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C12_GS"
   },
   {
-   "id": "C12_SEC",
+   "id": "C12_RAIL",
    "type": "Sketch",
-   "name": "Section 12",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C12_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1800,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        1800,
+        700
+       ],
+       "r": 700,
+       "a0": -1.570796327,
+       "a1": 1.570796327
+      },
+      {
+       "id": "e3",
        "type": "line",
        "a": [
-        11,
-        -11
+        1800,
+        1400
        ],
        "b": [
-        11,
-        11
+        300,
+        1400
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.start"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "coincident",
+       "of": [
+        "e2.end",
+        "e3.a"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "tangent",
+       "of": [
+        "e1",
+        "e2"
+       ]
+      },
+      {
+       "type": "tangent",
+       "of": [
+        "e3",
+        "e2"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e1"
+       ]
+      },
+      {
+       "type": "horizontal",
+       "of": [
+        "e3"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C12_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C12_GS"
+  },
+  {
+   "id": "C12_SEC",
+   "type": "Rectangle",
+   "name": "Soffit sheet",
+   "args": {
+    "plane": {
+     "ref": "C12_SPL"
+    },
+    "onPlane": "Is what it lies on",
+    "anchor": "Its middle",
+    "width": {
+     "value": 1200,
+     "from": "N_SHEET_W"
+    },
+    "height": {
+     "value": 300,
+     "from": "N_SHEET_T"
+    },
+    "radius": 60
+   },
+   "parent": "C12_GS"
   },
   {
    "id": "C12_SW",
    "type": "Sweep",
-   "name": "12 · As a surface",
+   "name": "Balcony soffit",
+   "appearance": {
+    "finish": "matte"
+   },
    "args": {
     "profile": {
      "ref": "C12_SEC"
@@ -3126,225 +4420,227 @@
      "ref": "C12_RAIL"
     },
     "cap": "Surface"
-   }
+   },
+   "parent": "C12_GS"
   },
   {
-   "id": "T12_O",
+   "id": "C12_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 237.2945420660215,
-    "y": 619.0760941005915,
-    "z": 195.95836856459704
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C12_SW"
+    }
+   },
+   "parent": "C12_GS"
   },
   {
-   "id": "T12_TAG",
+   "id": "C12_TAG",
    "type": "Tag",
-   "name": "Tag 12",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T12_O"
+     "ref": "C12_TP"
     },
     "note": "12",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C12_GS"
   },
   {
-   "id": "C13_P0",
-   "type": "Point",
-   "args": {
-    "x": 420,
-    "y": 580,
-    "z": 0
-   }
+   "id": "C13_GS",
+   "type": "GeometricalSet",
+   "name": "13 Balustrade post — A round section"
   },
   {
-   "id": "C13_P1",
-   "type": "Point",
+   "id": "C13_X",
+   "type": "Expression",
+   "name": "Bay 3",
    "args": {
-    "x": 443.7116544171704,
-    "y": 588.25,
-    "z": 15
-   }
-  },
-  {
-   "id": "C13_P2",
-   "type": "Point",
-   "args": {
-    "x": 464.6196792824083,
-    "y": 596.5,
-    "z": 30
-   }
-  },
-  {
-   "id": "C13_P3",
-   "type": "Point",
-   "args": {
-    "x": 480.25194189027604,
-    "y": 604.75,
-    "z": 45
-   }
-  },
-  {
-   "id": "C13_P4",
-   "type": "Point",
-   "args": {
-    "x": 488.7601075510082,
-    "y": 613,
-    "z": 60
-   }
-  },
-  {
-   "id": "C13_P5",
-   "type": "Point",
-   "args": {
-    "x": 489.1381838416596,
-    "y": 621.25,
-    "z": 75
-   }
-  },
-  {
-   "id": "C13_P6",
-   "type": "Point",
-   "args": {
-    "x": 481.34146760307044,
-    "y": 629.5,
-    "z": 90
-   }
-  },
-  {
-   "id": "C13_P7",
-   "type": "Point",
-   "args": {
-    "x": 466.2918305726556,
-    "y": 637.75,
-    "z": 105
-   }
-  },
-  {
-   "id": "C13_P8",
-   "type": "Point",
-   "args": {
-    "x": 445.76871868792745,
-    "y": 646,
-    "z": 120
-   }
-  },
-  {
-   "id": "C13_P9",
-   "type": "Point",
-   "args": {
-    "x": 422.19875313546896,
-    "y": 654.25,
-    "z": 135
-   }
-  },
-  {
-   "id": "C13_P10",
-   "type": "Point",
-   "args": {
-    "x": 398.3688103937537,
-    "y": 662.5,
-    "z": 150
-   }
-  },
-  {
-   "id": "C13_RAIL",
-   "type": "Interpolate",
-   "name": "Rail 13",
-   "args": {
-    "points": [
-     {
-      "ref": "C13_P0"
-     },
-     {
-      "ref": "C13_P1"
-     },
-     {
-      "ref": "C13_P2"
-     },
-     {
-      "ref": "C13_P3"
-     },
-     {
-      "ref": "C13_P4"
-     },
-     {
-      "ref": "C13_P5"
-     },
-     {
-      "ref": "C13_P6"
-     },
-     {
-      "ref": "C13_P7"
-     },
-     {
-      "ref": "C13_P8"
-     },
-     {
-      "ref": "C13_P9"
-     },
-     {
-      "ref": "C13_P10"
-     }
-    ],
-    "closed": "Open",
-    "degree": 3
-   }
-  },
-  {
-   "id": "C13_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 13",
-   "args": {
-    "curve": {
-     "ref": "C13_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 2"
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_Z",
+   "type": "Expression",
+   "name": "Level 4",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 4"
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C13_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C13_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C13_Z"
+    }
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C13_GS"
   },
   {
    "id": "C13_PL",
    "type": "Plane",
-   "name": "Normal to rail 13",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C13_EV"
+     "ref": "C13_O"
     },
     "normal": {
-     "ref": "C13_EV"
+     "ref": "C13_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C13_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C13_GS"
   },
   {
-   "id": "C13_SEC",
+   "id": "C13_RAIL",
    "type": "Sketch",
-   "name": "Section 13",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C13_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "c",
-       "type": "circle",
+       "id": "e1",
+       "type": "arc",
        "c": [
         0,
-        0
+        1500
        ],
-       "r": 11
+       "r": 1500,
+       "a0": -1.570796327,
+       "a1": 0
+      },
+      {
+       "id": "e2",
+       "type": "arc",
+       "c": [
+        3000,
+        1500
+       ],
+       "r": 1500,
+       "a0": 1.570796327,
+       "a1": 3.141592654
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.end",
+        "e2.end"
+       ]
       }
      ]
     }
-   }
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C13_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C13_GS"
+  },
+  {
+   "id": "C13_SEC",
+   "type": "Circle",
+   "name": "Balustrade post",
+   "args": {
+    "plane": {
+     "ref": "C13_SPL"
+    },
+    "onPlane": "Is what it lies on",
+    "kind": "A radius",
+    "radius": {
+     "value": 170,
+     "from": "N_POST_R"
+    }
+   },
+   "parent": "C13_GS"
   },
   {
    "id": "C13_SW",
    "type": "Sweep",
-   "name": "13 · A round section",
+   "name": "Balustrade post",
+   "appearance": {
+    "finish": "steel"
+   },
    "args": {
     "profile": {
      "ref": "C13_SEC"
@@ -3353,179 +4649,246 @@
      "ref": "C13_RAIL"
     },
     "cap": "Solid"
-   }
+   },
+   "parent": "C13_GS"
   },
   {
-   "id": "T13_O",
+   "id": "C13_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 452.9748607365465,
-    "y": 622.0594336606274,
-    "z": 205.52458833350045
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C13_SW"
+    }
+   },
+   "parent": "C13_GS"
   },
   {
-   "id": "T13_TAG",
+   "id": "C13_TAG",
    "type": "Tag",
-   "name": "Tag 13",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T13_O"
+     "ref": "C13_TP"
     },
     "note": "13",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C13_GS"
   },
   {
-   "id": "C14_P0",
-   "type": "Point",
-   "args": {
-    "x": 630,
-    "y": 580,
-    "z": 0
-   }
+   "id": "C14_GS",
+   "type": "GeometricalSet",
+   "name": "14 Parapet over the corner — Squaring up a kink"
   },
   {
-   "id": "C14_P1",
-   "type": "Point",
+   "id": "C14_X",
+   "type": "Expression",
+   "name": "Bay 4",
    "args": {
-    "x": 630,
-    "y": 580,
-    "z": 70
-   }
-  },
-  {
-   "id": "C14_P2",
-   "type": "Point",
-   "args": {
-    "x": 685,
-    "y": 580,
-    "z": 70
-   }
-  },
-  {
-   "id": "C14_P3",
-   "type": "Point",
-   "args": {
-    "x": 685,
-    "y": 580,
-    "z": 150
-   }
-  },
-  {
-   "id": "C14_RAIL",
-   "type": "Polyline",
-   "name": "Rail 14",
-   "args": {
-    "points": [
-     {
-      "ref": "C14_P0"
-     },
-     {
-      "ref": "C14_P1"
-     },
-     {
-      "ref": "C14_P2"
-     },
-     {
-      "ref": "C14_P3"
-     }
-    ],
-    "closed": "Open"
-   }
-  },
-  {
-   "id": "C14_EV",
-   "type": "EvaluateCurve",
-   "name": "Start of rail 14",
-   "args": {
-    "curve": {
-     "ref": "C14_RAIL"
+    "a": {
+     "value": 5400,
+     "from": "N_BAY"
     },
-    "t": 0,
-    "tangent": 40
-   }
+    "formula": "a * 3"
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_Y",
+   "type": "Expression",
+   "name": "Terrace setback",
+   "args": {
+    "a": {
+     "value": 1500,
+     "from": "N_SETBACK"
+    },
+    "formula": "a * 2"
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_Z",
+   "type": "Expression",
+   "name": "Level 4",
+   "args": {
+    "a": {
+     "value": 3200,
+     "from": "N_STOREY"
+    },
+    "formula": "a * 4"
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_O",
+   "type": "Point",
+   "name": "Station",
+   "args": {
+    "kind": "Coordinates",
+    "x": {
+     "value": 0,
+     "from": "C14_X"
+    },
+    "y": {
+     "value": 0,
+     "from": "C14_Y"
+    },
+    "z": {
+     "value": 0,
+     "from": "C14_Z"
+    }
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_VN",
+   "type": "Vector",
+   "name": "Out",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "C14_GS"
   },
   {
    "id": "C14_PL",
    "type": "Plane",
-   "name": "Normal to rail 14",
+   "name": "Facade plane",
    "args": {
+    "kind": "Origin and normal",
     "origin": {
-     "ref": "C14_EV"
+     "ref": "C14_O"
     },
     "normal": {
-     "ref": "C14_EV"
+     "ref": "C14_VN"
     },
-    "size": 90
-   }
+    "xdir": {
+     "ref": "C14_VX"
+    },
+    "size": 3400
+   },
+   "parent": "C14_GS"
   },
   {
-   "id": "C14_SEC",
+   "id": "C14_RAIL",
    "type": "Sketch",
-   "name": "Section 14",
+   "name": "Rail",
    "args": {
     "plane": {
      "ref": "C14_PL"
     },
+    "faces": "Leave as wires",
+    "solve": "Solve",
     "drawing": {
      "elements": [
       {
-       "id": "q0",
+       "id": "e1",
        "type": "line",
        "a": [
-        -11,
-        -11
+        0,
+        0
        ],
        "b": [
-        11,
-        -11
+        1600,
+        0
        ]
       },
       {
-       "id": "q1",
+       "id": "e2",
        "type": "line",
        "a": [
-        11,
-        -11
+        1600,
+        0
        ],
        "b": [
-        11,
-        11
+        1600,
+        3000
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "type": "coincident",
+       "of": [
+        "e1.b",
+        "e2.a"
        ]
       },
       {
-       "id": "q2",
-       "type": "line",
-       "a": [
-        11,
-        11
-       ],
-       "b": [
-        -11,
-        11
+       "type": "horizontal",
+       "of": [
+        "e1"
        ]
       },
       {
-       "id": "q3",
-       "type": "line",
-       "a": [
-        -11,
-        11
-       ],
-       "b": [
-        -11,
-        -11
+       "type": "vertical",
+       "of": [
+        "e2"
        ]
       }
      ]
     }
-   }
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_SPL",
+   "type": "Plane",
+   "name": "Square across the rail",
+   "args": {
+    "kind": "Normal to a curve",
+    "curve": {
+     "ref": "C14_RAIL"
+    },
+    "at": 0,
+    "size": 1400
+   },
+   "parent": "C14_GS"
+  },
+  {
+   "id": "C14_SEC",
+   "type": "Section",
+   "name": "Parapet angle",
+   "args": {
+    "plane": {
+     "ref": "C14_SPL"
+    },
+    "kind": "L angle",
+    "depth": {
+     "value": 420,
+     "from": "N_ANGLE_D"
+    },
+    "width": {
+     "value": 300,
+     "from": "N_ANGLE_W"
+    },
+    "web": 14,
+    "flange": 14
+   },
+   "parent": "C14_GS"
   },
   {
    "id": "C14_SW",
    "type": "Sweep",
-   "name": "14 · Square up a kink",
+   "name": "Parapet over the corner",
+   "appearance": {
+    "finish": "aluminium"
+   },
    "args": {
     "profile": {
      "ref": "C14_SEC"
@@ -3534,28 +4897,34 @@
      "ref": "C14_RAIL"
     },
     "cap": "Solid"
-   }
+   },
+   "parent": "C14_GS"
   },
   {
-   "id": "T14_O",
+   "id": "C14_TP",
    "type": "Point",
+   "name": "Tag point",
    "args": {
-    "x": 657.5,
-    "y": 580,
-    "z": 185.00000015
-   }
+    "kind": "Centre of",
+    "of": {
+     "ref": "C14_SW"
+    }
+   },
+   "parent": "C14_GS"
   },
   {
-   "id": "T14_TAG",
+   "id": "C14_TAG",
    "type": "Tag",
-   "name": "Tag 14",
+   "name": "Number",
    "args": {
     "at": {
-     "ref": "T14_O"
+     "ref": "C14_TP"
     },
     "note": "14",
+    "lift": 2400,
     "size": "Large"
-   }
+   },
+   "parent": "C14_GS"
   }
  ]
 }

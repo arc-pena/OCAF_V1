@@ -1039,16 +1039,19 @@ export const SAMPLES = [
            + "Double-click any of them to draw on it.",
     model: SKETCHER_PART },
 
-  { key: "sweep-gallery", name: "Sweep gallery", file: "samples/sweep_gallery.json",
-    summary: "Fourteen sweeps side by side, one per thing a sweep can be asked for, "
-           + "each numbered in the model so it can be referred to. Two rails, and "
-           + "both are forced: Frenet and Square to the rail are the SAME answer on "
-           + "a flat rail, and the three corner modes only differ where a rail "
-           + "kinks. Each section is mounted on a plane normal to its rail, taken "
-           + "from the rail itself. Spacing is measured rather than guessed - every "
-           + "cell was built once to find the widest, and the grid is pitched on "
-           + "that. The numbers are Tags: drawn on the glass, so they weigh "
-           + "nothing and no boolean can see them. 239 nodes." },
+  { key: "sweep-gallery", name: "Sweep gallery — a facade", file: "samples/sweep_gallery.json",
+    summary: "Fourteen sweeps side by side, one per thing a sweep can be asked for - and "
+           + "each one is a real part of a facade at a real size, read off photographs of "
+           + "520 West 28th Street: the bullnose band at every slab edge, the lenticular "
+           + "rib of the exoskeleton, the stadium cap on the glass balustrade, the box "
+           + "mullion, the round post. One geometrical set per example, and three more for "
+           + "the system: the parameters, the level stack, the L in plan and the terraced "
+           + "massing. Every station is an Expression over those parameters, so dragging "
+           + "the storey height restacks the gallery and dragging the terrace step walks "
+           + "the upper rows back. Rails are arcs and lines under constraint, because that "
+           + "is what this building is. Profiles the catalogue can make parametrically are "
+           + "made that way with their dimensions wired; the two it cannot are sketches "
+           + "carrying their tangencies instead. 243 nodes." },
 
   { key: "3dspline", name: "3dspline", file: "samples/3dspline.json",
     summary: "A blend curve run between the ends of two sketched splines, with "
