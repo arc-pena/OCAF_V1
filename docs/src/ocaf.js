@@ -1039,6 +1039,17 @@ export const SAMPLES = [
            + "Double-click any of them to draw on it.",
     model: SKETCHER_PART },
 
+  { key: "sweep-gallery", name: "Sweep gallery", file: "samples/sweep_gallery.json",
+    summary: "Fourteen sweeps side by side, one per thing a sweep can be asked for, "
+           + "each numbered in the model so it can be referred to. Two rails, and "
+           + "both are forced: Frenet and Square to the rail are the SAME answer on "
+           + "a flat rail, and the three corner modes only differ where a rail "
+           + "kinks. Each section is mounted on a plane normal to its rail, taken "
+           + "from the rail itself. Spacing is measured rather than guessed - every "
+           + "cell was built once to find the widest, and the grid is pitched on "
+           + "that. The numbers are Tags: drawn on the glass, so they weigh "
+           + "nothing and no boolean can see them. 239 nodes." },
+
   { key: "3dspline", name: "3dspline", file: "samples/3dspline.json",
     summary: "A blend curve run between the ends of two sketched splines, with "
            + "its tangent direction and tension set at each end - so the join "
@@ -1852,6 +1863,27 @@ export const CATALOGUE = [
            when(ref("plane", "Plane", ["plane"]), "kind", 2),
            real("size", "Display size", 200, 10, 20000, 5)] },
 
+  //! A LABEL IS NOT A SOLID. The first numbering in the sweep gallery was
+  //! seven-segment bars swept into faces and extruded, because no font is bound
+  //! in this build - and a number you can boolean with is a number that turns
+  //! up in the mass, in the STEP file, and in every count of how many bodies
+  //! the model has. This one is drawn on the glass instead: the model carries a
+  //! point and a string, the viewport draws the dot, and nothing downstream
+  //! ever sees a shape. Rhino calls it a text dot, and that is exactly what it
+  //! is.
+  { type: "Tag", guid: "9a1b2c30-0125-4c00-9e00-caf000000125", category: "datum",
+    produces: "point",
+    summary: "A text dot: a short label pinned to a point, or to the middle of "
+           + "anything else, and drawn at the same size however far away the camera "
+           + "is. It is an annotation and not geometry - it has no volume, it is not "
+           + "exported, and a boolean cannot see it. Wire it to a row of points and "
+           + "every one of them is labelled.",
+    args: [ref("at", "On", ANY),
+           text("note", "Text", "", "what the dot says - keep it short, it is read "
+                                  + "at a glance from across the model"),
+           real("lift", "Lift", 0, -10000, 10000, 1),
+           choice("size", "Size", ["Small", "Medium", "Large"], 1)] },
+
   /* --------------------------------------------------------------- data
      Nothing here makes geometry. They make the numbers geometry is made of,
      and they are wired into any slider in the document. */
@@ -2594,7 +2626,11 @@ export const CATALOGUE = [
            + "way - a handrail, a gutter, a moulding, a road. On Solid the profile is "
            + "capped first, so a closed profile comes out as a body. Give it a second "
            + "profile and the section BECOMES that one along the rail rather than "
-           + "staying as it was: a duct that starts round and ends square. "
+           + "staying as it was: a duct that starts round and ends square - and that "
+           + "second profile has to be drawn WHERE IT ENDS UP, on a plane at the far "
+           + "end of the rail, because OpenCascade orders the sections by where they "
+           + "sit. Two sections on one plane are two sections in the same place and "
+           + "there is no morph between them to find. "
            + "Section stays says how the section is held as it travels: Square to the "
            + "rail is right for a handrail, Frenet lets it roll with the rail's own "
            + "curvature (which differs from Square only where the rail leaves a "

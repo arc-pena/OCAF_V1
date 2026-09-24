@@ -608,6 +608,42 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       },
     },
 
+    //! WHERE THE DOT SITS, and nothing else - the words are carried by the
+    //! feature and drawn by the viewport, so the kernel's whole job here is to
+    //! answer with a location. A vertex, because a vertex is what the mesher
+    //! already knows how to send as a mark, and because it makes the tag
+    //! clickable without a single new path through the picker.
+    Tag: {
+      precondition: f => {
+        const on = F.reference(f, "at");
+        if (!on) return "nothing to tag";
+        if (!F.shape(on) && !readPoints(on).length)
+          return F.name(on) + " has not been built";
+        return null;
+      },
+      build: f => {
+        const on = F.reference(f, "at");
+        const lift = F.real(f, "lift", 0);
+        //! A ROW OF POINTS IS LABELLED POINT BY POINT; anything else is
+        //! labelled once, in the middle of its box. A tag on the centre of a
+        //! solid is the common case and it should not need a Point node in
+        //! front of it to say so.
+        let rows = readPoints(on);
+        if (!rows.length) {
+          const box = extents(F.shape(on));
+          if (!box) throw new Error("that has nowhere to put a tag");
+          rows = [[(box.low[0] + box.high[0]) / 2,
+                   (box.low[1] + box.high[1]) / 2,
+                   (box.low[2] + box.high[2]) / 2]];
+        }
+        if (lift) rows = rows.map(([x, y, z]) => [x, y, z + lift]);
+        const shape = rows.length === 1
+          ? HSF.pointVertex(rows[0])
+          : HSF.join(rows.map(row => HSF.pointVertex(row)));
+        return { shape, data: points(rows) };
+      },
+    },
+
     //! One vector node, two ways of having a direction, and nothing downstream
     //! knows the difference - a plane's normal reads what this COMPUTED, not
     //! what was typed into it, so a tangent orients a plane exactly the way

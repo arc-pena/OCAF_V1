@@ -1983,6 +1983,111 @@ function markTexture(kind, pen, ringed) {
   return texture;
 }
 
+//! A TEXT DOT, the way Rhino draws one: a pill on the glass, the same size
+//! however far away the thing it labels is, and read through whatever is in
+//! front of it. Drawn rather than modelled - see the Tag node for why a number
+//! built out of solids is a number that turns up in the mass properties.
+//!
+//! One texture per string, because a gallery of fourteen tags is fourteen
+//! canvases and a floor plan of four hundred room numbers is four hundred, and
+//! the ones that repeat should cost nothing.
+const TAG_TEXTURES = new Map();
+const TAG_FONT = '600 40px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+//! How tall the pill is as a FRACTION OF THE VIEWPORT, which is what a sprite
+//! with sizeAttenuation off actually holds constant. A tag is therefore the
+//! same share of the window on a phone and on a 4K monitor.
+const TAG_HEIGHTS = [0.016, 0.022, 0.030];
+//! Drawn at four times the size it is shown at, so it is still sharp with the
+//! camera up against it.
+const TAG_OVER = 4;
+
+function tagTexture(note) {
+  const made = TAG_TEXTURES.get(note);
+  if (made) return made;
+  const pad = 13 * TAG_OVER, high = 58 * TAG_OVER, round = high / 2;
+  const gauge = document.createElement("canvas").getContext("2d");
+  gauge.font = TAG_FONT.replace("40px", (40 * TAG_OVER) + "px");
+  const wide = Math.max(high, Math.ceil(gauge.measureText(note).width) + pad * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = wide; canvas.height = high;
+  const ink = canvas.getContext("2d");
+  const edge = 3 * TAG_OVER;
+  ink.beginPath();
+  //! roundRect is not everywhere yet; the arcs are the same shape and always
+  //! there.
+  ink.moveTo(round, edge / 2);
+  ink.arcTo(wide - edge / 2, edge / 2, wide - edge / 2, high - edge / 2, round - edge / 2);
+  ink.arcTo(wide - edge / 2, high - edge / 2, edge / 2, high - edge / 2, round - edge / 2);
+  ink.arcTo(edge / 2, high - edge / 2, edge / 2, edge / 2, round - edge / 2);
+  ink.arcTo(edge / 2, edge / 2, wide - edge / 2, edge / 2, round - edge / 2);
+  ink.closePath();
+  ink.fillStyle = "#1d2530";
+  ink.fill();
+  ink.lineWidth = edge;
+  ink.strokeStyle = "rgba(255,255,255,0.82)";
+  ink.stroke();
+  ink.font = gauge.font;
+  ink.fillStyle = "#ffffff";
+  ink.textAlign = "center";
+  ink.textBaseline = "middle";
+  ink.fillText(note, wide / 2, high / 2 + 2 * TAG_OVER);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  const out = { texture, aspect: wide / high };
+  //! A cache with no lid is a leak. Typing into a tag's text field makes one
+  //! of these per keystroke, and the half-typed ones are never wanted again.
+  if (TAG_TEXTURES.size > 64) {
+    const first = TAG_TEXTURES.keys().next().value;
+    const old = TAG_TEXTURES.get(first);
+    TAG_TEXTURES.delete(first);
+    if (old) old.texture.dispose();
+  }
+  TAG_TEXTURES.set(note, out);
+  return out;
+}
+
+//! Multiplied into the texture, so plain means leave it alone.
+const TAG_PLAIN = new THREE.Color(0xffffff);
+
+//! More than this and the labels are the drawing rather than a note on it, and
+//! every one of them is a draw call.
+const TAG_LIMIT = 400;
+
+function tagSprites(entry, marks, anchor) {
+  const note = entry && entry.texts && entry.texts.note;
+  if (!note) return [];
+  const { texture, aspect } = tagTexture(note);
+  //! A sprite's scale with sizeAttenuation off is multiplied by the distance
+  //! to the camera, so it lands as a share of the view's HEIGHT at the lens it
+  //! is seen through. That is the number the fractions above are in.
+  const across = 2 * Math.tan((camera.fov * Math.PI) / 360);
+  const size = Math.round((entry.values && entry.values.size) || 1);
+  const high = (TAG_HEIGHTS[size] || TAG_HEIGHTS[1]) * across;
+  const flat = againstAnchor(marks, anchor);
+  const out = [];
+  for (let i = 0; i + 2 < flat.length && out.length < TAG_LIMIT; i += 3) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: texture, transparent: true,
+      //! THE ONE THING THAT MAKES IT A LABEL rather than a very small object.
+      //! Left at its default of true the scale is read in millimetres, and the
+      //! fractions above are fractions - the first run drew fourteen pills
+      //! three hundredths of a millimetre wide and showed nothing at all.
+      sizeAttenuation: false,
+      //! READ THROUGH WHAT IS IN FRONT OF IT. A label hidden inside the solid
+      //! it labels is a label that is not there; Rhino's dot does the same.
+      depthTest: false, depthWrite: false,
+    }));
+    sprite.position.set(flat[i], flat[i + 1], flat[i + 2]);
+    sprite.scale.set(high * aspect, high, 1);
+    sprite.renderOrder = 9000;
+    sprite.userData.id = entry.id;
+    sprite.userData.tag = true;
+    out.push(sprite);
+  }
+  return out;
+}
+
 //! What a feature says its points should look like, with the defaults filled
 //! in. Stored on the appearance, beside the finish and the colour, because it
 //! is the same kind of fact - how the thing is drawn, not what it is.
@@ -2205,6 +2310,9 @@ function groupFromStream(mesh, entry) {
     //! threshold is set from the view so a point is as easy to hit far away as
     //! up close.
     pickable.push(dots);
+    //! THE WORDS, over the dot. The mark stays underneath it: it is what the
+    //! picker hits, so a tag is still something you can click on and delete.
+    for (const sprite of tagSprites(entry, marks, anchor)) group.add(sprite);
   }
   return group;
 }
@@ -2681,6 +2789,13 @@ function paintSelection() {
           object.material = markMaterial(feature(id), want);
         }
       }
+      //! A TAG IS TINTED rather than replaced. Its texture is the words, and
+      //! the words do not change when you point at it; SpriteMaterial
+      //! multiplies the map by its colour, so one assignment says the same
+      //! thing the new material would have.
+      if (object.isSprite && object.userData.tag)
+        object.material.color.copy(selected ? THEME.accent : lit ? THEME.hover
+                                            : TAG_PLAIN);
     });
   }
   draw();
@@ -6810,6 +6925,11 @@ const ICONS = {
   AxisSystem: '<path d="M3 13V4M3 13h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
             + '<path d="M3 13L9.5 8.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".6"/>'
             + '<circle cx="3" cy="13" r="1.5" fill="currentColor"/>',
+  // A pill with words in it, and the dot it is pinned to.
+  Tag: '<rect x="1.4" y="2.4" width="13.2" height="6.4" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.25"/>'
+     + '<path d="M4.4 5.6h7.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".7"/>'
+     + '<path d="M8 8.8v3.2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity=".55"/>'
+     + '<circle cx="8" cy="13.2" r="1.4" fill="currentColor"/>',
   // A shape and the same shape further on, with the travel between them.
   Move: '<rect x="1.4" y="8.6" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
       + '<rect x="9.6" y="2.4" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".45"/>'

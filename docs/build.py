@@ -142,6 +142,7 @@ SAMPLES = [
     ("sample-slab", "sample_slab_for_flow.json"),
     ("sample-cap", "Sample_Cap.json"),
     ("samplecap-one", "samplecap_onecaponly.json"),
+    ("sweep-gallery", "sweep_gallery.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

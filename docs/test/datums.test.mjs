@@ -395,5 +395,65 @@ console.log("\n10. a plane on a curve, and a sketch that starts where the plane 
         + byVector.map(v => v.toFixed(4)).join(", "));
 }
 
+/* ------------------------------------------------------------------- tags
+
+   A LABEL THAT IS GEOMETRY IS A BUG THAT LOOKS LIKE A FEATURE. The sweep
+   gallery's numbers were seven-segment bars swept into faces and extruded,
+   because no font is bound in this build - and they read perfectly while
+   quietly adding fourteen solids to the mass, to the body count and to
+   anything exported. A Tag carries a point and a string and nothing else;
+   the last check here is the one that tells the two apart.                 */
+{
+  await fresh();
+  const kit = kernel.toolkit();
+  await point("A", "Corner", 10, 20, 30);
+  await mdl.run({ op: "add", type: "Tag", id: "TAG", name: "Tag" });
+  await mdl.run({ op: "connect", id: "TAG", key: "at", from: "A", mode: "only" });
+  await mdl.run({ op: "code", id: "TAG", key: "note", text: "7" });
+  check("a tag sits on the point it is pinned to", near(await where("TAG"), [10, 20, 30]),
+        String(await where("TAG")));
+  check("and it carries the words rather than drawing them",
+        (await at("TAG")).texts.note === "7", JSON.stringify((await at("TAG")).texts));
+
+  await mdl.run({ op: "set", id: "TAG", key: "lift", value: 25 });
+  check("lift raises it clear of what it names", near(await where("TAG"), [10, 20, 55]),
+        String(await where("TAG")));
+
+  //! ANYTHING ELSE IS TAGGED IN THE MIDDLE OF ITS BOX, so a solid does not need
+  //! a Point node in front of it to be labelled.
+  await mdl.run({ op: "add", type: "Cube", id: "BX", name: "Block" });
+  for (const [key, value] of [["dx", 40], ["dy", 60], ["dz", 20]])
+    await mdl.run({ op: "set", id: "BX", key, value });
+  await mdl.run({ op: "add", type: "Tag", id: "TB", name: "On the block" });
+  await mdl.run({ op: "connect", id: "TB", key: "at", from: "BX", mode: "only" });
+  await mdl.run({ op: "code", id: "TB", key: "note", text: "block" });
+  const box = kit.extents(kit.bodies({ notCategories: ["datum", "data"], sewMeshes: false })
+    .find(b => b.id === "BX").shape);
+  const middle = [0, 1, 2].map(k => (box.low[k] + box.high[k]) / 2);
+  check("a tag on a solid lands in the middle of it",
+        near(await where("TB"), middle, 0.01), String(await where("TB")));
+
+  //! A ROW OF POINTS IS LABELLED POINT BY POINT - one tag, one mark each.
+  await mdl.run({ op: "add", type: "Series", id: "SR", name: "Along" });
+  for (const [key, value] of [["start", 0], ["step", 50], ["count", 4]])
+    await mdl.run({ op: "set", id: "SR", key, value });
+  await mdl.run({ op: "add", type: "Point", id: "ROW", name: "Row" });
+  await mdl.run({ op: "connect", id: "ROW", key: "x", from: "SR", mode: "only" });
+  await mdl.run({ op: "add", type: "Tag", id: "TR", name: "On the row" });
+  await mdl.run({ op: "connect", id: "TR", key: "at", from: "ROW", mode: "only" });
+  await mdl.run({ op: "code", id: "TR", key: "note", text: "x" });
+  check("a tag on a row of points marks every one of them",
+        (await at("TR")).data && (await at("TR")).data.count === 4,
+        JSON.stringify((await at("TR")).data));
+
+  //! THE CHECK THAT MATTERS. A tag is an annotation: it is not among the bodies
+  //! a boolean, a mass property or an export sees. Were it geometry every one
+  //! of the tests above would still pass.
+  const bodies = kit.bodies({ notCategories: ["datum", "data"], sewMeshes: false })
+    .map(b => b.id);
+  check("and no tag is a body", !bodies.some(id => ["TAG", "TB", "TR"].includes(id)),
+        bodies.join(", "));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

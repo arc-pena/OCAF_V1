@@ -905,9 +905,60 @@ export function makeFactories(oc, kit) {
     //! dragged along, but one that BECOMES another on the way - a duct that
     //! starts round and ends square, a handrail that tapers. The same call
     //! either way; the second Add is the whole difference.
+    //! A SECOND PROFILE HAS TO BE WHERE IT IS GOING TO BE. OpenCascade places
+    //! each added profile by where it SITS, and works out the order along the
+    //! spine from that - so two sections drawn on the same plane are two
+    //! sections in the same place, and there is no morph between them to find.
+    //! Measured: square to bigger square, both at the origin, IsDone false;
+    //! the same pair with the second at the rail's far end, 10 faces and
+    //! 124.46 cm3. Square to circle, same story - 12 faces, 92.43 cm3.
     if (intoWire) shell.Add(intoWire, false, true);
     shell.Build(new oc.Message_ProgressRange());
-    if (!shell.IsDone()) throw new Error("that profile will not sweep along that rail");
+    /* ------------------------------------------- a sweep that will not build
+
+       THE SAME FRAGILITY THE BOOLEANS HAVE, and found the same way. A circular
+       section up a smooth rail builds at the origin, at 210 mm along, at 420,
+       at 510 across - and fails at (420, 1020). A SQUARE section up the same
+       rail builds at every one of them. Nothing about the geometry changes
+       between those placements; what changes is the arithmetic.
+
+       So the approximation is asked for again, more loosely, before the answer
+       is given up on. Each rung is a real setting on the pipe shell and the
+       ladder stops at the first one that builds.                            */
+    if (!shell.IsDone()) {
+      const rungs = [
+        sh => sh.SetTolerance(1e-4, 1e-4, 1e-2),
+        sh => sh.SetTolerance(1e-3, 1e-3, 1e-1),
+        sh => { sh.SetMaxSegments(80); sh.SetMaxDegree(5); },
+        sh => sh.SetForceApproxC1(true),
+        sh => sh.SetDiscreteMode(),
+      ];
+      for (const rung of rungs) {
+        const again = new oc.BRepOffsetAPI_MakePipeShell(spine);
+        if (guide) again.SetMode(guide, how.curvilinear !== false);
+        else if (how.hold === 1) again.SetMode(true);
+        else if (how.hold === 2) again.SetMode(dir([0, 0, 1]));
+        else again.SetMode(false);
+        again.SetTransitionMode(
+          corner === "Round corner" ? oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RoundCorner
+          : corner === "Transformed" ? oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_Transformed
+          : oc.BRepBuilderAPI_TransitionMode.BRepBuilderAPI_RightCorner);
+        try { rung(again); } catch (err) { continue; }
+        again.Add(profileWire, false, true);
+        if (intoWire) again.Add(intoWire, false, true);
+        again.Build(new oc.Message_ProgressRange());
+        if (!again.IsDone()) continue;
+        if (solid && !again.MakeSolid()) continue;
+        const rescued = again.Shape();
+        if (rescued && !rescued.IsNull()) return rescued;
+      }
+    }
+    if (!shell.IsDone())
+      throw new Error(intoWire
+        ? "those two sections will not sweep into one another along that rail - a "
+          + "section that BECOMES another has to be drawn where it ends up, on a "
+          + "plane at the far end of the rail, not beside the first one"
+        : "that profile will not sweep along that rail");
     if (solid && !shell.MakeSolid())
       throw new Error("that profile does not close, so it cannot sweep into a body");
     const made = shell.Shape();

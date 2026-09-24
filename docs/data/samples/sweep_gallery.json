@@ -1,0 +1,3561 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Sweep gallery",
+ "units": "mm",
+ "features": [
+  {
+   "id": "C1_P0",
+   "type": "Point",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C1_P1",
+   "type": "Point",
+   "args": {
+    "x": 23.7116544171704,
+    "y": 8.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C1_P2",
+   "type": "Point",
+   "args": {
+    "x": 44.619679282408285,
+    "y": 16.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C1_P3",
+   "type": "Point",
+   "args": {
+    "x": 60.25194189027606,
+    "y": 24.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C1_P4",
+   "type": "Point",
+   "args": {
+    "x": 68.7601075510082,
+    "y": 33,
+    "z": 60
+   }
+  },
+  {
+   "id": "C1_P5",
+   "type": "Point",
+   "args": {
+    "x": 69.13818384165964,
+    "y": 41.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C1_P6",
+   "type": "Point",
+   "args": {
+    "x": 61.34146760307044,
+    "y": 49.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C1_P7",
+   "type": "Point",
+   "args": {
+    "x": 46.29183057265563,
+    "y": 57.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C1_P8",
+   "type": "Point",
+   "args": {
+    "x": 25.768718687927443,
+    "y": 66,
+    "z": 120
+   }
+  },
+  {
+   "id": "C1_P9",
+   "type": "Point",
+   "args": {
+    "x": 2.1987531354689764,
+    "y": 74.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C1_P10",
+   "type": "Point",
+   "args": {
+    "x": -21.63118960624634,
+    "y": 82.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C1_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 1",
+   "args": {
+    "points": [
+     {
+      "ref": "C1_P0"
+     },
+     {
+      "ref": "C1_P1"
+     },
+     {
+      "ref": "C1_P2"
+     },
+     {
+      "ref": "C1_P3"
+     },
+     {
+      "ref": "C1_P4"
+     },
+     {
+      "ref": "C1_P5"
+     },
+     {
+      "ref": "C1_P6"
+     },
+     {
+      "ref": "C1_P7"
+     },
+     {
+      "ref": "C1_P8"
+     },
+     {
+      "ref": "C1_P9"
+     },
+     {
+      "ref": "C1_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C1_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 1",
+   "args": {
+    "curve": {
+     "ref": "C1_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C1_PL",
+   "type": "Plane",
+   "name": "Normal to rail 1",
+   "args": {
+    "origin": {
+     "ref": "C1_EV"
+    },
+    "normal": {
+     "ref": "C1_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C1_SEC",
+   "type": "Sketch",
+   "name": "Section 1",
+   "args": {
+    "plane": {
+     "ref": "C1_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C1_SW",
+   "type": "Sweep",
+   "name": "1 · Square to the rail",
+   "args": {
+    "profile": {
+     "ref": "C1_SEC"
+    },
+    "spine": {
+     "ref": "C1_RAIL"
+    },
+    "cap": "Solid"
+   }
+  },
+  {
+   "id": "T1_O",
+   "type": "Point",
+   "args": {
+    "x": 27.2945420660215,
+    "y": 39.076094100591455,
+    "z": 195.95836856459704
+   }
+  },
+  {
+   "id": "T1_TAG",
+   "type": "Tag",
+   "name": "Tag 1",
+   "args": {
+    "at": {
+     "ref": "T1_O"
+    },
+    "note": "1",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C2_P0",
+   "type": "Point",
+   "args": {
+    "x": 210,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C2_P1",
+   "type": "Point",
+   "args": {
+    "x": 233.7116544171704,
+    "y": 8.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C2_P2",
+   "type": "Point",
+   "args": {
+    "x": 254.6196792824083,
+    "y": 16.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C2_P3",
+   "type": "Point",
+   "args": {
+    "x": 270.25194189027604,
+    "y": 24.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C2_P4",
+   "type": "Point",
+   "args": {
+    "x": 278.7601075510082,
+    "y": 33,
+    "z": 60
+   }
+  },
+  {
+   "id": "C2_P5",
+   "type": "Point",
+   "args": {
+    "x": 279.1381838416596,
+    "y": 41.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C2_P6",
+   "type": "Point",
+   "args": {
+    "x": 271.34146760307044,
+    "y": 49.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C2_P7",
+   "type": "Point",
+   "args": {
+    "x": 256.2918305726556,
+    "y": 57.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C2_P8",
+   "type": "Point",
+   "args": {
+    "x": 235.76871868792745,
+    "y": 66,
+    "z": 120
+   }
+  },
+  {
+   "id": "C2_P9",
+   "type": "Point",
+   "args": {
+    "x": 212.19875313546896,
+    "y": 74.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C2_P10",
+   "type": "Point",
+   "args": {
+    "x": 188.36881039375365,
+    "y": 82.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C2_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 2",
+   "args": {
+    "points": [
+     {
+      "ref": "C2_P0"
+     },
+     {
+      "ref": "C2_P1"
+     },
+     {
+      "ref": "C2_P2"
+     },
+     {
+      "ref": "C2_P3"
+     },
+     {
+      "ref": "C2_P4"
+     },
+     {
+      "ref": "C2_P5"
+     },
+     {
+      "ref": "C2_P6"
+     },
+     {
+      "ref": "C2_P7"
+     },
+     {
+      "ref": "C2_P8"
+     },
+     {
+      "ref": "C2_P9"
+     },
+     {
+      "ref": "C2_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C2_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 2",
+   "args": {
+    "curve": {
+     "ref": "C2_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C2_PL",
+   "type": "Plane",
+   "name": "Normal to rail 2",
+   "args": {
+    "origin": {
+     "ref": "C2_EV"
+    },
+    "normal": {
+     "ref": "C2_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C2_SEC",
+   "type": "Sketch",
+   "name": "Section 2",
+   "args": {
+    "plane": {
+     "ref": "C2_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C2_SW",
+   "type": "Sweep",
+   "name": "2 · Frenet",
+   "args": {
+    "profile": {
+     "ref": "C2_SEC"
+    },
+    "spine": {
+     "ref": "C2_RAIL"
+    },
+    "cap": "Solid",
+    "hold": "Frenet"
+   }
+  },
+  {
+   "id": "T2_O",
+   "type": "Point",
+   "args": {
+    "x": 222.02981282775625,
+    "y": 32.47934694672994,
+    "z": 246.43739029523488
+   }
+  },
+  {
+   "id": "T2_TAG",
+   "type": "Tag",
+   "name": "Tag 2",
+   "args": {
+    "at": {
+     "ref": "T2_O"
+    },
+    "note": "2",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C3_P0",
+   "type": "Point",
+   "args": {
+    "x": 420,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C3_P1",
+   "type": "Point",
+   "args": {
+    "x": 443.7116544171704,
+    "y": 8.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C3_P2",
+   "type": "Point",
+   "args": {
+    "x": 464.6196792824083,
+    "y": 16.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C3_P3",
+   "type": "Point",
+   "args": {
+    "x": 480.25194189027604,
+    "y": 24.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C3_P4",
+   "type": "Point",
+   "args": {
+    "x": 488.7601075510082,
+    "y": 33,
+    "z": 60
+   }
+  },
+  {
+   "id": "C3_P5",
+   "type": "Point",
+   "args": {
+    "x": 489.1381838416596,
+    "y": 41.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C3_P6",
+   "type": "Point",
+   "args": {
+    "x": 481.34146760307044,
+    "y": 49.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C3_P7",
+   "type": "Point",
+   "args": {
+    "x": 466.2918305726556,
+    "y": 57.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C3_P8",
+   "type": "Point",
+   "args": {
+    "x": 445.76871868792745,
+    "y": 66,
+    "z": 120
+   }
+  },
+  {
+   "id": "C3_P9",
+   "type": "Point",
+   "args": {
+    "x": 422.19875313546896,
+    "y": 74.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C3_P10",
+   "type": "Point",
+   "args": {
+    "x": 398.3688103937537,
+    "y": 82.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C3_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 3",
+   "args": {
+    "points": [
+     {
+      "ref": "C3_P0"
+     },
+     {
+      "ref": "C3_P1"
+     },
+     {
+      "ref": "C3_P2"
+     },
+     {
+      "ref": "C3_P3"
+     },
+     {
+      "ref": "C3_P4"
+     },
+     {
+      "ref": "C3_P5"
+     },
+     {
+      "ref": "C3_P6"
+     },
+     {
+      "ref": "C3_P7"
+     },
+     {
+      "ref": "C3_P8"
+     },
+     {
+      "ref": "C3_P9"
+     },
+     {
+      "ref": "C3_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C3_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 3",
+   "args": {
+    "curve": {
+     "ref": "C3_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C3_PL",
+   "type": "Plane",
+   "name": "Normal to rail 3",
+   "args": {
+    "origin": {
+     "ref": "C3_EV"
+    },
+    "normal": {
+     "ref": "C3_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C3_SEC",
+   "type": "Sketch",
+   "name": "Section 3",
+   "args": {
+    "plane": {
+     "ref": "C3_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C3_SW",
+   "type": "Sweep",
+   "name": "3 · Upright",
+   "args": {
+    "profile": {
+     "ref": "C3_SEC"
+    },
+    "spine": {
+     "ref": "C3_RAIL"
+    },
+    "cap": "Solid",
+    "hold": "Upright"
+   }
+  },
+  {
+   "id": "T3_O",
+   "type": "Point",
+   "args": {
+    "x": 448.46912626157905,
+    "y": 41.2507999317301,
+    "z": 197.75003003266283
+   }
+  },
+  {
+   "id": "T3_TAG",
+   "type": "Tag",
+   "name": "Tag 3",
+   "args": {
+    "at": {
+     "ref": "T3_O"
+    },
+    "note": "3",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C4_P0",
+   "type": "Point",
+   "args": {
+    "x": 630,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C4_P1",
+   "type": "Point",
+   "args": {
+    "x": 653.7116544171704,
+    "y": 8.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C4_P2",
+   "type": "Point",
+   "args": {
+    "x": 674.6196792824082,
+    "y": 16.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C4_P3",
+   "type": "Point",
+   "args": {
+    "x": 690.251941890276,
+    "y": 24.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C4_P4",
+   "type": "Point",
+   "args": {
+    "x": 698.7601075510082,
+    "y": 33,
+    "z": 60
+   }
+  },
+  {
+   "id": "C4_P5",
+   "type": "Point",
+   "args": {
+    "x": 699.1381838416596,
+    "y": 41.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C4_P6",
+   "type": "Point",
+   "args": {
+    "x": 691.3414676030704,
+    "y": 49.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C4_P7",
+   "type": "Point",
+   "args": {
+    "x": 676.2918305726556,
+    "y": 57.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C4_P8",
+   "type": "Point",
+   "args": {
+    "x": 655.7687186879274,
+    "y": 66,
+    "z": 120
+   }
+  },
+  {
+   "id": "C4_P9",
+   "type": "Point",
+   "args": {
+    "x": 632.198753135469,
+    "y": 74.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C4_P10",
+   "type": "Point",
+   "args": {
+    "x": 608.3688103937536,
+    "y": 82.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C4_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 4",
+   "args": {
+    "points": [
+     {
+      "ref": "C4_P0"
+     },
+     {
+      "ref": "C4_P1"
+     },
+     {
+      "ref": "C4_P2"
+     },
+     {
+      "ref": "C4_P3"
+     },
+     {
+      "ref": "C4_P4"
+     },
+     {
+      "ref": "C4_P5"
+     },
+     {
+      "ref": "C4_P6"
+     },
+     {
+      "ref": "C4_P7"
+     },
+     {
+      "ref": "C4_P8"
+     },
+     {
+      "ref": "C4_P9"
+     },
+     {
+      "ref": "C4_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C4_G0",
+   "type": "Point",
+   "args": {
+    "x": 725,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C4_G1",
+   "type": "Point",
+   "args": {
+    "x": 748.7116544171704,
+    "y": 8.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C4_G2",
+   "type": "Point",
+   "args": {
+    "x": 769.6196792824082,
+    "y": 16.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C4_G3",
+   "type": "Point",
+   "args": {
+    "x": 785.251941890276,
+    "y": 24.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C4_G4",
+   "type": "Point",
+   "args": {
+    "x": 793.7601075510082,
+    "y": 33,
+    "z": 60
+   }
+  },
+  {
+   "id": "C4_G5",
+   "type": "Point",
+   "args": {
+    "x": 794.1381838416596,
+    "y": 41.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C4_G6",
+   "type": "Point",
+   "args": {
+    "x": 786.3414676030704,
+    "y": 49.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C4_G7",
+   "type": "Point",
+   "args": {
+    "x": 771.2918305726556,
+    "y": 57.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C4_G8",
+   "type": "Point",
+   "args": {
+    "x": 750.7687186879275,
+    "y": 66,
+    "z": 120
+   }
+  },
+  {
+   "id": "C4_G9",
+   "type": "Point",
+   "args": {
+    "x": 727.198753135469,
+    "y": 74.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C4_G10",
+   "type": "Point",
+   "args": {
+    "x": 703.3688103937536,
+    "y": 82.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C4_GUIDE",
+   "type": "Interpolate",
+   "name": "Guide 4",
+   "args": {
+    "points": [
+     {
+      "ref": "C4_G0"
+     },
+     {
+      "ref": "C4_G1"
+     },
+     {
+      "ref": "C4_G2"
+     },
+     {
+      "ref": "C4_G3"
+     },
+     {
+      "ref": "C4_G4"
+     },
+     {
+      "ref": "C4_G5"
+     },
+     {
+      "ref": "C4_G6"
+     },
+     {
+      "ref": "C4_G7"
+     },
+     {
+      "ref": "C4_G8"
+     },
+     {
+      "ref": "C4_G9"
+     },
+     {
+      "ref": "C4_G10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C4_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 4",
+   "args": {
+    "curve": {
+     "ref": "C4_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C4_PL",
+   "type": "Plane",
+   "name": "Normal to rail 4",
+   "args": {
+    "origin": {
+     "ref": "C4_EV"
+    },
+    "normal": {
+     "ref": "C4_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C4_SEC",
+   "type": "Sketch",
+   "name": "Section 4",
+   "args": {
+    "plane": {
+     "ref": "C4_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C4_SW",
+   "type": "Sweep",
+   "name": "4 · Facing the guide",
+   "args": {
+    "profile": {
+     "ref": "C4_SEC"
+    },
+    "spine": {
+     "ref": "C4_RAIL"
+    },
+    "cap": "Solid",
+    "guide": {
+     "ref": "C4_GUIDE"
+    },
+    "hold": "Facing the guide"
+   }
+  },
+  {
+   "id": "T4_O",
+   "type": "Point",
+   "args": {
+    "x": 654.2269981744681,
+    "y": 41.25000000000328,
+    "z": 192.00214033116467
+   }
+  },
+  {
+   "id": "T4_TAG",
+   "type": "Tag",
+   "name": "Tag 4",
+   "args": {
+    "at": {
+     "ref": "T4_O"
+    },
+    "note": "4",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C5_P0",
+   "type": "Point",
+   "args": {
+    "x": 840,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "C5_P1",
+   "type": "Point",
+   "args": {
+    "x": 840,
+    "y": 0,
+    "z": 70
+   }
+  },
+  {
+   "id": "C5_P2",
+   "type": "Point",
+   "args": {
+    "x": 895,
+    "y": 0,
+    "z": 70
+   }
+  },
+  {
+   "id": "C5_P3",
+   "type": "Point",
+   "args": {
+    "x": 895,
+    "y": 0,
+    "z": 150
+   }
+  },
+  {
+   "id": "C5_RAIL",
+   "type": "Polyline",
+   "name": "Rail 5",
+   "args": {
+    "points": [
+     {
+      "ref": "C5_P0"
+     },
+     {
+      "ref": "C5_P1"
+     },
+     {
+      "ref": "C5_P2"
+     },
+     {
+      "ref": "C5_P3"
+     }
+    ],
+    "closed": "Open"
+   }
+  },
+  {
+   "id": "C5_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 5",
+   "args": {
+    "curve": {
+     "ref": "C5_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C5_PL",
+   "type": "Plane",
+   "name": "Normal to rail 5",
+   "args": {
+    "origin": {
+     "ref": "C5_EV"
+    },
+    "normal": {
+     "ref": "C5_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C5_SEC",
+   "type": "Sketch",
+   "name": "Section 5",
+   "args": {
+    "plane": {
+     "ref": "C5_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C5_SW",
+   "type": "Sweep",
+   "name": "5 · Right corner",
+   "args": {
+    "profile": {
+     "ref": "C5_SEC"
+    },
+    "spine": {
+     "ref": "C5_RAIL"
+    },
+    "cap": "Solid",
+    "corner": "Right corner"
+   }
+  },
+  {
+   "id": "T5_O",
+   "type": "Point",
+   "args": {
+    "x": 867.5,
+    "y": 0,
+    "z": 185.00000015
+   }
+  },
+  {
+   "id": "T5_TAG",
+   "type": "Tag",
+   "name": "Tag 5",
+   "args": {
+    "at": {
+     "ref": "T5_O"
+    },
+    "note": "5",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C6_P0",
+   "type": "Point",
+   "args": {
+    "x": 0,
+    "y": 290,
+    "z": 0
+   }
+  },
+  {
+   "id": "C6_P1",
+   "type": "Point",
+   "args": {
+    "x": 0,
+    "y": 290,
+    "z": 70
+   }
+  },
+  {
+   "id": "C6_P2",
+   "type": "Point",
+   "args": {
+    "x": 55,
+    "y": 290,
+    "z": 70
+   }
+  },
+  {
+   "id": "C6_P3",
+   "type": "Point",
+   "args": {
+    "x": 55,
+    "y": 290,
+    "z": 150
+   }
+  },
+  {
+   "id": "C6_RAIL",
+   "type": "Polyline",
+   "name": "Rail 6",
+   "args": {
+    "points": [
+     {
+      "ref": "C6_P0"
+     },
+     {
+      "ref": "C6_P1"
+     },
+     {
+      "ref": "C6_P2"
+     },
+     {
+      "ref": "C6_P3"
+     }
+    ],
+    "closed": "Open"
+   }
+  },
+  {
+   "id": "C6_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 6",
+   "args": {
+    "curve": {
+     "ref": "C6_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C6_PL",
+   "type": "Plane",
+   "name": "Normal to rail 6",
+   "args": {
+    "origin": {
+     "ref": "C6_EV"
+    },
+    "normal": {
+     "ref": "C6_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C6_SEC",
+   "type": "Sketch",
+   "name": "Section 6",
+   "args": {
+    "plane": {
+     "ref": "C6_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C6_SW",
+   "type": "Sweep",
+   "name": "6 · Round corner",
+   "args": {
+    "profile": {
+     "ref": "C6_SEC"
+    },
+    "spine": {
+     "ref": "C6_RAIL"
+    },
+    "cap": "Solid",
+    "corner": "Round corner"
+   }
+  },
+  {
+   "id": "T6_O",
+   "type": "Point",
+   "args": {
+    "x": 27.500000000000004,
+    "y": 290,
+    "z": 185.00000015
+   }
+  },
+  {
+   "id": "T6_TAG",
+   "type": "Tag",
+   "name": "Tag 6",
+   "args": {
+    "at": {
+     "ref": "T6_O"
+    },
+    "note": "6",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C7_P0",
+   "type": "Point",
+   "args": {
+    "x": 210,
+    "y": 290,
+    "z": 0
+   }
+  },
+  {
+   "id": "C7_P1",
+   "type": "Point",
+   "args": {
+    "x": 210,
+    "y": 290,
+    "z": 70
+   }
+  },
+  {
+   "id": "C7_P2",
+   "type": "Point",
+   "args": {
+    "x": 265,
+    "y": 290,
+    "z": 70
+   }
+  },
+  {
+   "id": "C7_P3",
+   "type": "Point",
+   "args": {
+    "x": 265,
+    "y": 290,
+    "z": 150
+   }
+  },
+  {
+   "id": "C7_RAIL",
+   "type": "Polyline",
+   "name": "Rail 7",
+   "args": {
+    "points": [
+     {
+      "ref": "C7_P0"
+     },
+     {
+      "ref": "C7_P1"
+     },
+     {
+      "ref": "C7_P2"
+     },
+     {
+      "ref": "C7_P3"
+     }
+    ],
+    "closed": "Open"
+   }
+  },
+  {
+   "id": "C7_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 7",
+   "args": {
+    "curve": {
+     "ref": "C7_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C7_PL",
+   "type": "Plane",
+   "name": "Normal to rail 7",
+   "args": {
+    "origin": {
+     "ref": "C7_EV"
+    },
+    "normal": {
+     "ref": "C7_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C7_SEC",
+   "type": "Sketch",
+   "name": "Section 7",
+   "args": {
+    "plane": {
+     "ref": "C7_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C7_SW",
+   "type": "Sweep",
+   "name": "7 · Transformed",
+   "args": {
+    "profile": {
+     "ref": "C7_SEC"
+    },
+    "spine": {
+     "ref": "C7_RAIL"
+    },
+    "cap": "Solid",
+    "corner": "Transformed"
+   }
+  },
+  {
+   "id": "T7_O",
+   "type": "Point",
+   "args": {
+    "x": 237.5,
+    "y": 290,
+    "z": 185.0000001
+   }
+  },
+  {
+   "id": "T7_TAG",
+   "type": "Tag",
+   "name": "Tag 7",
+   "args": {
+    "at": {
+     "ref": "T7_O"
+    },
+    "note": "7",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C8_P0",
+   "type": "Point",
+   "args": {
+    "x": 420,
+    "y": 290,
+    "z": 0
+   }
+  },
+  {
+   "id": "C8_P1",
+   "type": "Point",
+   "args": {
+    "x": 443.7116544171704,
+    "y": 298.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C8_P2",
+   "type": "Point",
+   "args": {
+    "x": 464.6196792824083,
+    "y": 306.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C8_P3",
+   "type": "Point",
+   "args": {
+    "x": 480.25194189027604,
+    "y": 314.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C8_P4",
+   "type": "Point",
+   "args": {
+    "x": 488.7601075510082,
+    "y": 323,
+    "z": 60
+   }
+  },
+  {
+   "id": "C8_P5",
+   "type": "Point",
+   "args": {
+    "x": 489.1381838416596,
+    "y": 331.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C8_P6",
+   "type": "Point",
+   "args": {
+    "x": 481.34146760307044,
+    "y": 339.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C8_P7",
+   "type": "Point",
+   "args": {
+    "x": 466.2918305726556,
+    "y": 347.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C8_P8",
+   "type": "Point",
+   "args": {
+    "x": 445.76871868792745,
+    "y": 356,
+    "z": 120
+   }
+  },
+  {
+   "id": "C8_P9",
+   "type": "Point",
+   "args": {
+    "x": 422.19875313546896,
+    "y": 364.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C8_P10",
+   "type": "Point",
+   "args": {
+    "x": 398.3688103937537,
+    "y": 372.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C8_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 8",
+   "args": {
+    "points": [
+     {
+      "ref": "C8_P0"
+     },
+     {
+      "ref": "C8_P1"
+     },
+     {
+      "ref": "C8_P2"
+     },
+     {
+      "ref": "C8_P3"
+     },
+     {
+      "ref": "C8_P4"
+     },
+     {
+      "ref": "C8_P5"
+     },
+     {
+      "ref": "C8_P6"
+     },
+     {
+      "ref": "C8_P7"
+     },
+     {
+      "ref": "C8_P8"
+     },
+     {
+      "ref": "C8_P9"
+     },
+     {
+      "ref": "C8_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C8_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 8",
+   "args": {
+    "curve": {
+     "ref": "C8_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C8_PL",
+   "type": "Plane",
+   "name": "Normal to rail 8",
+   "args": {
+    "origin": {
+     "ref": "C8_EV"
+    },
+    "normal": {
+     "ref": "C8_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C8_SEC",
+   "type": "Sketch",
+   "name": "Section 8",
+   "args": {
+    "plane": {
+     "ref": "C8_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C8_SW",
+   "type": "Sweep",
+   "name": "8 · Scaled to 2.5",
+   "args": {
+    "profile": {
+     "ref": "C8_SEC"
+    },
+    "spine": {
+     "ref": "C8_RAIL"
+    },
+    "cap": "Solid",
+    "scale": 2.5
+   }
+  },
+  {
+   "id": "T8_O",
+   "type": "Point",
+   "args": {
+    "x": 445.83818003081694,
+    "y": 344.6057417518445,
+    "z": 217.5527100898088
+   }
+  },
+  {
+   "id": "T8_TAG",
+   "type": "Tag",
+   "name": "Tag 8",
+   "args": {
+    "at": {
+     "ref": "T8_O"
+    },
+    "note": "8",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C9_P0",
+   "type": "Point",
+   "args": {
+    "x": 630,
+    "y": 290,
+    "z": 0
+   }
+  },
+  {
+   "id": "C9_P1",
+   "type": "Point",
+   "args": {
+    "x": 653.7116544171704,
+    "y": 298.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C9_P2",
+   "type": "Point",
+   "args": {
+    "x": 674.6196792824082,
+    "y": 306.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C9_P3",
+   "type": "Point",
+   "args": {
+    "x": 690.251941890276,
+    "y": 314.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C9_P4",
+   "type": "Point",
+   "args": {
+    "x": 698.7601075510082,
+    "y": 323,
+    "z": 60
+   }
+  },
+  {
+   "id": "C9_P5",
+   "type": "Point",
+   "args": {
+    "x": 699.1381838416596,
+    "y": 331.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C9_P6",
+   "type": "Point",
+   "args": {
+    "x": 691.3414676030704,
+    "y": 339.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C9_P7",
+   "type": "Point",
+   "args": {
+    "x": 676.2918305726556,
+    "y": 347.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C9_P8",
+   "type": "Point",
+   "args": {
+    "x": 655.7687186879274,
+    "y": 356,
+    "z": 120
+   }
+  },
+  {
+   "id": "C9_P9",
+   "type": "Point",
+   "args": {
+    "x": 632.198753135469,
+    "y": 364.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C9_P10",
+   "type": "Point",
+   "args": {
+    "x": 608.3688103937536,
+    "y": 372.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C9_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 9",
+   "args": {
+    "points": [
+     {
+      "ref": "C9_P0"
+     },
+     {
+      "ref": "C9_P1"
+     },
+     {
+      "ref": "C9_P2"
+     },
+     {
+      "ref": "C9_P3"
+     },
+     {
+      "ref": "C9_P4"
+     },
+     {
+      "ref": "C9_P5"
+     },
+     {
+      "ref": "C9_P6"
+     },
+     {
+      "ref": "C9_P7"
+     },
+     {
+      "ref": "C9_P8"
+     },
+     {
+      "ref": "C9_P9"
+     },
+     {
+      "ref": "C9_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C9_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 9",
+   "args": {
+    "curve": {
+     "ref": "C9_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C9_PL",
+   "type": "Plane",
+   "name": "Normal to rail 9",
+   "args": {
+    "origin": {
+     "ref": "C9_EV"
+    },
+    "normal": {
+     "ref": "C9_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C9_SEC",
+   "type": "Sketch",
+   "name": "Section 9",
+   "args": {
+    "plane": {
+     "ref": "C9_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C9_SW",
+   "type": "Sweep",
+   "name": "9 · Scaled 2.5, eased",
+   "args": {
+    "profile": {
+     "ref": "C9_SEC"
+    },
+    "spine": {
+     "ref": "C9_RAIL"
+    },
+    "cap": "Solid",
+    "scale": 2.5,
+    "easing": "Eased"
+   }
+  },
+  {
+   "id": "T9_O",
+   "type": "Point",
+   "args": {
+    "x": 655.5878838683219,
+    "y": 344.6057417518445,
+    "z": 217.55271008980884
+   }
+  },
+  {
+   "id": "T9_TAG",
+   "type": "Tag",
+   "name": "Tag 9",
+   "args": {
+    "at": {
+     "ref": "T9_O"
+    },
+    "note": "9",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C10_P0",
+   "type": "Point",
+   "args": {
+    "x": 840,
+    "y": 290,
+    "z": 0
+   }
+  },
+  {
+   "id": "C10_P1",
+   "type": "Point",
+   "args": {
+    "x": 863.7116544171704,
+    "y": 298.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C10_P2",
+   "type": "Point",
+   "args": {
+    "x": 884.6196792824082,
+    "y": 306.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C10_P3",
+   "type": "Point",
+   "args": {
+    "x": 900.251941890276,
+    "y": 314.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C10_P4",
+   "type": "Point",
+   "args": {
+    "x": 908.7601075510082,
+    "y": 323,
+    "z": 60
+   }
+  },
+  {
+   "id": "C10_P5",
+   "type": "Point",
+   "args": {
+    "x": 909.1381838416596,
+    "y": 331.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C10_P6",
+   "type": "Point",
+   "args": {
+    "x": 901.3414676030704,
+    "y": 339.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C10_P7",
+   "type": "Point",
+   "args": {
+    "x": 886.2918305726556,
+    "y": 347.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C10_P8",
+   "type": "Point",
+   "args": {
+    "x": 865.7687186879274,
+    "y": 356,
+    "z": 120
+   }
+  },
+  {
+   "id": "C10_P9",
+   "type": "Point",
+   "args": {
+    "x": 842.198753135469,
+    "y": 364.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C10_P10",
+   "type": "Point",
+   "args": {
+    "x": 818.3688103937536,
+    "y": 372.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C10_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 10",
+   "args": {
+    "points": [
+     {
+      "ref": "C10_P0"
+     },
+     {
+      "ref": "C10_P1"
+     },
+     {
+      "ref": "C10_P2"
+     },
+     {
+      "ref": "C10_P3"
+     },
+     {
+      "ref": "C10_P4"
+     },
+     {
+      "ref": "C10_P5"
+     },
+     {
+      "ref": "C10_P6"
+     },
+     {
+      "ref": "C10_P7"
+     },
+     {
+      "ref": "C10_P8"
+     },
+     {
+      "ref": "C10_P9"
+     },
+     {
+      "ref": "C10_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C10_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 10",
+   "args": {
+    "curve": {
+     "ref": "C10_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C10_PL",
+   "type": "Plane",
+   "name": "Normal to rail 10",
+   "args": {
+    "origin": {
+     "ref": "C10_EV"
+    },
+    "normal": {
+     "ref": "C10_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C10_SEC",
+   "type": "Sketch",
+   "name": "Section 10",
+   "args": {
+    "plane": {
+     "ref": "C10_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C10_SW",
+   "type": "Sweep",
+   "name": "10 · Scaled to 0.4",
+   "args": {
+    "profile": {
+     "ref": "C10_SEC"
+    },
+    "spine": {
+     "ref": "C10_RAIL"
+    },
+    "cap": "Solid",
+    "scale": 0.4
+   }
+  },
+  {
+   "id": "T10_O",
+   "type": "Point",
+   "args": {
+    "x": 867.9116042402321,
+    "y": 328.9533558965,
+    "z": 190.20843369836942
+   }
+  },
+  {
+   "id": "T10_TAG",
+   "type": "Tag",
+   "name": "Tag 10",
+   "args": {
+    "at": {
+     "ref": "T10_O"
+    },
+    "note": "10",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C11_P0",
+   "type": "Point",
+   "args": {
+    "x": 0,
+    "y": 580,
+    "z": 0
+   }
+  },
+  {
+   "id": "C11_P1",
+   "type": "Point",
+   "args": {
+    "x": 23.7116544171704,
+    "y": 588.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C11_P2",
+   "type": "Point",
+   "args": {
+    "x": 44.619679282408285,
+    "y": 596.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C11_P3",
+   "type": "Point",
+   "args": {
+    "x": 60.25194189027606,
+    "y": 604.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C11_P4",
+   "type": "Point",
+   "args": {
+    "x": 68.7601075510082,
+    "y": 613,
+    "z": 60
+   }
+  },
+  {
+   "id": "C11_P5",
+   "type": "Point",
+   "args": {
+    "x": 69.13818384165964,
+    "y": 621.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C11_P6",
+   "type": "Point",
+   "args": {
+    "x": 61.34146760307044,
+    "y": 629.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C11_P7",
+   "type": "Point",
+   "args": {
+    "x": 46.29183057265563,
+    "y": 637.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C11_P8",
+   "type": "Point",
+   "args": {
+    "x": 25.768718687927443,
+    "y": 646,
+    "z": 120
+   }
+  },
+  {
+   "id": "C11_P9",
+   "type": "Point",
+   "args": {
+    "x": 2.1987531354689764,
+    "y": 654.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C11_P10",
+   "type": "Point",
+   "args": {
+    "x": -21.63118960624634,
+    "y": 662.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C11_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 11",
+   "args": {
+    "points": [
+     {
+      "ref": "C11_P0"
+     },
+     {
+      "ref": "C11_P1"
+     },
+     {
+      "ref": "C11_P2"
+     },
+     {
+      "ref": "C11_P3"
+     },
+     {
+      "ref": "C11_P4"
+     },
+     {
+      "ref": "C11_P5"
+     },
+     {
+      "ref": "C11_P6"
+     },
+     {
+      "ref": "C11_P7"
+     },
+     {
+      "ref": "C11_P8"
+     },
+     {
+      "ref": "C11_P9"
+     },
+     {
+      "ref": "C11_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C11_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 11",
+   "args": {
+    "curve": {
+     "ref": "C11_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C11_PL",
+   "type": "Plane",
+   "name": "Normal to rail 11",
+   "args": {
+    "origin": {
+     "ref": "C11_EV"
+    },
+    "normal": {
+     "ref": "C11_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C11_SEC",
+   "type": "Sketch",
+   "name": "Section 11",
+   "args": {
+    "plane": {
+     "ref": "C11_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C11_EV2",
+   "type": "EvaluateCurve",
+   "name": "End of rail 11",
+   "args": {
+    "curve": {
+     "ref": "C11_RAIL"
+    },
+    "t": 1,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C11_PL2",
+   "type": "Plane",
+   "name": "Normal at the end 11",
+   "args": {
+    "origin": {
+     "ref": "C11_EV2"
+    },
+    "normal": {
+     "ref": "C11_EV2"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C11_SEC2",
+   "type": "Sketch",
+   "name": "Becoming 11",
+   "args": {
+    "plane": {
+     "ref": "C11_PL2"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "c",
+       "type": "circle",
+       "c": [
+        0,
+        0
+       ],
+       "r": 18
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C11_SW",
+   "type": "Sweep",
+   "name": "11 · Becoming a circle",
+   "args": {
+    "profile": {
+     "ref": "C11_SEC"
+    },
+    "spine": {
+     "ref": "C11_RAIL"
+    },
+    "cap": "Solid",
+    "into": {
+     "ref": "C11_SEC2"
+    }
+   }
+  },
+  {
+   "id": "T11_O",
+   "type": "Point",
+   "args": {
+    "x": 26.73724695208048,
+    "y": 622.827035043517,
+    "z": 201.12549172848517
+   }
+  },
+  {
+   "id": "T11_TAG",
+   "type": "Tag",
+   "name": "Tag 11",
+   "args": {
+    "at": {
+     "ref": "T11_O"
+    },
+    "note": "11",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C12_P0",
+   "type": "Point",
+   "args": {
+    "x": 210,
+    "y": 580,
+    "z": 0
+   }
+  },
+  {
+   "id": "C12_P1",
+   "type": "Point",
+   "args": {
+    "x": 233.7116544171704,
+    "y": 588.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C12_P2",
+   "type": "Point",
+   "args": {
+    "x": 254.6196792824083,
+    "y": 596.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C12_P3",
+   "type": "Point",
+   "args": {
+    "x": 270.25194189027604,
+    "y": 604.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C12_P4",
+   "type": "Point",
+   "args": {
+    "x": 278.7601075510082,
+    "y": 613,
+    "z": 60
+   }
+  },
+  {
+   "id": "C12_P5",
+   "type": "Point",
+   "args": {
+    "x": 279.1381838416596,
+    "y": 621.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C12_P6",
+   "type": "Point",
+   "args": {
+    "x": 271.34146760307044,
+    "y": 629.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C12_P7",
+   "type": "Point",
+   "args": {
+    "x": 256.2918305726556,
+    "y": 637.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C12_P8",
+   "type": "Point",
+   "args": {
+    "x": 235.76871868792745,
+    "y": 646,
+    "z": 120
+   }
+  },
+  {
+   "id": "C12_P9",
+   "type": "Point",
+   "args": {
+    "x": 212.19875313546896,
+    "y": 654.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C12_P10",
+   "type": "Point",
+   "args": {
+    "x": 188.36881039375365,
+    "y": 662.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C12_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 12",
+   "args": {
+    "points": [
+     {
+      "ref": "C12_P0"
+     },
+     {
+      "ref": "C12_P1"
+     },
+     {
+      "ref": "C12_P2"
+     },
+     {
+      "ref": "C12_P3"
+     },
+     {
+      "ref": "C12_P4"
+     },
+     {
+      "ref": "C12_P5"
+     },
+     {
+      "ref": "C12_P6"
+     },
+     {
+      "ref": "C12_P7"
+     },
+     {
+      "ref": "C12_P8"
+     },
+     {
+      "ref": "C12_P9"
+     },
+     {
+      "ref": "C12_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C12_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 12",
+   "args": {
+    "curve": {
+     "ref": "C12_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C12_PL",
+   "type": "Plane",
+   "name": "Normal to rail 12",
+   "args": {
+    "origin": {
+     "ref": "C12_EV"
+    },
+    "normal": {
+     "ref": "C12_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C12_SEC",
+   "type": "Sketch",
+   "name": "Section 12",
+   "args": {
+    "plane": {
+     "ref": "C12_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C12_SW",
+   "type": "Sweep",
+   "name": "12 · As a surface",
+   "args": {
+    "profile": {
+     "ref": "C12_SEC"
+    },
+    "spine": {
+     "ref": "C12_RAIL"
+    },
+    "cap": "Surface"
+   }
+  },
+  {
+   "id": "T12_O",
+   "type": "Point",
+   "args": {
+    "x": 237.2945420660215,
+    "y": 619.0760941005915,
+    "z": 195.95836856459704
+   }
+  },
+  {
+   "id": "T12_TAG",
+   "type": "Tag",
+   "name": "Tag 12",
+   "args": {
+    "at": {
+     "ref": "T12_O"
+    },
+    "note": "12",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C13_P0",
+   "type": "Point",
+   "args": {
+    "x": 420,
+    "y": 580,
+    "z": 0
+   }
+  },
+  {
+   "id": "C13_P1",
+   "type": "Point",
+   "args": {
+    "x": 443.7116544171704,
+    "y": 588.25,
+    "z": 15
+   }
+  },
+  {
+   "id": "C13_P2",
+   "type": "Point",
+   "args": {
+    "x": 464.6196792824083,
+    "y": 596.5,
+    "z": 30
+   }
+  },
+  {
+   "id": "C13_P3",
+   "type": "Point",
+   "args": {
+    "x": 480.25194189027604,
+    "y": 604.75,
+    "z": 45
+   }
+  },
+  {
+   "id": "C13_P4",
+   "type": "Point",
+   "args": {
+    "x": 488.7601075510082,
+    "y": 613,
+    "z": 60
+   }
+  },
+  {
+   "id": "C13_P5",
+   "type": "Point",
+   "args": {
+    "x": 489.1381838416596,
+    "y": 621.25,
+    "z": 75
+   }
+  },
+  {
+   "id": "C13_P6",
+   "type": "Point",
+   "args": {
+    "x": 481.34146760307044,
+    "y": 629.5,
+    "z": 90
+   }
+  },
+  {
+   "id": "C13_P7",
+   "type": "Point",
+   "args": {
+    "x": 466.2918305726556,
+    "y": 637.75,
+    "z": 105
+   }
+  },
+  {
+   "id": "C13_P8",
+   "type": "Point",
+   "args": {
+    "x": 445.76871868792745,
+    "y": 646,
+    "z": 120
+   }
+  },
+  {
+   "id": "C13_P9",
+   "type": "Point",
+   "args": {
+    "x": 422.19875313546896,
+    "y": 654.25,
+    "z": 135
+   }
+  },
+  {
+   "id": "C13_P10",
+   "type": "Point",
+   "args": {
+    "x": 398.3688103937537,
+    "y": 662.5,
+    "z": 150
+   }
+  },
+  {
+   "id": "C13_RAIL",
+   "type": "Interpolate",
+   "name": "Rail 13",
+   "args": {
+    "points": [
+     {
+      "ref": "C13_P0"
+     },
+     {
+      "ref": "C13_P1"
+     },
+     {
+      "ref": "C13_P2"
+     },
+     {
+      "ref": "C13_P3"
+     },
+     {
+      "ref": "C13_P4"
+     },
+     {
+      "ref": "C13_P5"
+     },
+     {
+      "ref": "C13_P6"
+     },
+     {
+      "ref": "C13_P7"
+     },
+     {
+      "ref": "C13_P8"
+     },
+     {
+      "ref": "C13_P9"
+     },
+     {
+      "ref": "C13_P10"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   }
+  },
+  {
+   "id": "C13_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 13",
+   "args": {
+    "curve": {
+     "ref": "C13_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C13_PL",
+   "type": "Plane",
+   "name": "Normal to rail 13",
+   "args": {
+    "origin": {
+     "ref": "C13_EV"
+    },
+    "normal": {
+     "ref": "C13_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C13_SEC",
+   "type": "Sketch",
+   "name": "Section 13",
+   "args": {
+    "plane": {
+     "ref": "C13_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "c",
+       "type": "circle",
+       "c": [
+        0,
+        0
+       ],
+       "r": 11
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C13_SW",
+   "type": "Sweep",
+   "name": "13 · A round section",
+   "args": {
+    "profile": {
+     "ref": "C13_SEC"
+    },
+    "spine": {
+     "ref": "C13_RAIL"
+    },
+    "cap": "Solid"
+   }
+  },
+  {
+   "id": "T13_O",
+   "type": "Point",
+   "args": {
+    "x": 452.9748607365465,
+    "y": 622.0594336606274,
+    "z": 205.52458833350045
+   }
+  },
+  {
+   "id": "T13_TAG",
+   "type": "Tag",
+   "name": "Tag 13",
+   "args": {
+    "at": {
+     "ref": "T13_O"
+    },
+    "note": "13",
+    "size": "Large"
+   }
+  },
+  {
+   "id": "C14_P0",
+   "type": "Point",
+   "args": {
+    "x": 630,
+    "y": 580,
+    "z": 0
+   }
+  },
+  {
+   "id": "C14_P1",
+   "type": "Point",
+   "args": {
+    "x": 630,
+    "y": 580,
+    "z": 70
+   }
+  },
+  {
+   "id": "C14_P2",
+   "type": "Point",
+   "args": {
+    "x": 685,
+    "y": 580,
+    "z": 70
+   }
+  },
+  {
+   "id": "C14_P3",
+   "type": "Point",
+   "args": {
+    "x": 685,
+    "y": 580,
+    "z": 150
+   }
+  },
+  {
+   "id": "C14_RAIL",
+   "type": "Polyline",
+   "name": "Rail 14",
+   "args": {
+    "points": [
+     {
+      "ref": "C14_P0"
+     },
+     {
+      "ref": "C14_P1"
+     },
+     {
+      "ref": "C14_P2"
+     },
+     {
+      "ref": "C14_P3"
+     }
+    ],
+    "closed": "Open"
+   }
+  },
+  {
+   "id": "C14_EV",
+   "type": "EvaluateCurve",
+   "name": "Start of rail 14",
+   "args": {
+    "curve": {
+     "ref": "C14_RAIL"
+    },
+    "t": 0,
+    "tangent": 40
+   }
+  },
+  {
+   "id": "C14_PL",
+   "type": "Plane",
+   "name": "Normal to rail 14",
+   "args": {
+    "origin": {
+     "ref": "C14_EV"
+    },
+    "normal": {
+     "ref": "C14_EV"
+    },
+    "size": 90
+   }
+  },
+  {
+   "id": "C14_SEC",
+   "type": "Sketch",
+   "name": "Section 14",
+   "args": {
+    "plane": {
+     "ref": "C14_PL"
+    },
+    "drawing": {
+     "elements": [
+      {
+       "id": "q0",
+       "type": "line",
+       "a": [
+        -11,
+        -11
+       ],
+       "b": [
+        11,
+        -11
+       ]
+      },
+      {
+       "id": "q1",
+       "type": "line",
+       "a": [
+        11,
+        -11
+       ],
+       "b": [
+        11,
+        11
+       ]
+      },
+      {
+       "id": "q2",
+       "type": "line",
+       "a": [
+        11,
+        11
+       ],
+       "b": [
+        -11,
+        11
+       ]
+      },
+      {
+       "id": "q3",
+       "type": "line",
+       "a": [
+        -11,
+        11
+       ],
+       "b": [
+        -11,
+        -11
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "C14_SW",
+   "type": "Sweep",
+   "name": "14 · Square up a kink",
+   "args": {
+    "profile": {
+     "ref": "C14_SEC"
+    },
+    "spine": {
+     "ref": "C14_RAIL"
+    },
+    "cap": "Solid"
+   }
+  },
+  {
+   "id": "T14_O",
+   "type": "Point",
+   "args": {
+    "x": 657.5,
+    "y": 580,
+    "z": 185.00000015
+   }
+  },
+  {
+   "id": "T14_TAG",
+   "type": "Tag",
+   "name": "Tag 14",
+   "args": {
+    "at": {
+     "ref": "T14_O"
+    },
+    "note": "14",
+    "size": "Large"
+   }
+  }
+ ]
+}
