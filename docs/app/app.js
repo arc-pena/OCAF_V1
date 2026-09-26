@@ -2940,6 +2940,28 @@ async function enterMeshEdit(id) {
   return true;
 }
 
+//! WHAT IS PICKED, AS VERTEX NUMBERS. Every level comes back as vertices,
+//! because that is what a hold holds: pick four faces or a whole border and
+//! what is held is the vertices they are made of. vertsOf is the mesh
+//! editor's own answer to that question, so a hold made from a border and a
+//! hold made from the vertices of that border are the same hold.
+async function holdPicked() {
+  if (!meshEditor.on || !meshEditor.id) return;
+  const verts = meshEditor.heldVerts();
+  if (!verts.length) { say("nothing is picked to hold"); return; }
+  try {
+    const made = await edit({ op: "add", type: "Hold", refs: { mesh: meshEditor.id } });
+    if (!made) return;
+    await mdl.run({ op: "code", id: made.id, key: "verts", text: JSON.stringify(verts) });
+    //! OUT OF THE MESH EDITOR, because the next thing to do is pick a curve in
+    //! the model and the mesh editor is a mode where clicking picks vertices.
+    leaveMeshEdit();
+    select(made.id, true);
+    say(verts.length + (verts.length === 1 ? " vertex held" : " vertices held")
+        + " \u00b7 wire Onto to a curve, a surface or a point, then add a Relax under it");
+  } catch (error) { showError(error.message); }
+}
+
 function leaveMeshEdit() {
   if (!meshEditor.on) return;
   meshEditor.leave();
@@ -3472,6 +3494,16 @@ function refreshMeshBar() {
         + menu.label + "</button>").join("")
     + "</span>"
     + '<span class="mx-count">' + tally.picked + " of " + tally.all + "</span>"
+    //! HOLD. The one button in this bar that does not edit the mesh: it makes
+    //! a node below it that says where these vertices have to end up, and the
+    //! Relax under that finds the rest of the shape. Here rather than on the
+    //! rail because the picking IS the gesture - "these ones, on that curve" -
+    //! and the picking only exists in this mode.
+    + (tally.picked
+        ? '<button class="mx-chip" id="mx-hold" title="Hold these on something &#183; '
+          + 'makes a Hold node under this mesh. Wire it to a curve, a surface or a '
+          + 'point, add a Relax, and everything you have not held relaxes to its '
+          + 'neighbours.">Hold\u2026</button>' : "")
     + '<span class="mx-note">' + safeText(tally.says) + "</span>"
     + '<button class="btn" id="mx-done">Done</button></div>'
     + (meshEditor.ops.length ? '<div class="mx-row"><span class="mx-tag">'
@@ -3670,6 +3702,7 @@ meshBar.addEventListener("click", async event => {
     return;
   }
   if (event.target.closest("#mx-drop-step")) { await meshEditor.undoStep(); return; }
+  if (event.target.closest("#mx-hold")) { await holdPicked(); return; }
   if (event.target.closest("#mx-done")) leaveMeshEdit();
 });
 meshBar.addEventListener("input", async event => {

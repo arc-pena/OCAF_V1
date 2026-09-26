@@ -875,6 +875,19 @@ export function makeMeshEditor(kit) {
   editor.group = group;
   editor.widget = gizmo;
   editor.paint = paint;
+  //! WHAT IS PICKED, AS VERTEX NUMBERS, whatever level it was picked at. A
+  //! hold holds vertices: pick four faces or a whole border and what is held
+  //! is the vertices they are made of, so a hold made from a border and one
+  //! made from that border's vertices are the same hold. The editor already
+  //! answers this question for every operation that needs it - see the record
+  //! it writes - and this is the same answer, handed out.
+  editor.heldVerts = () => {
+    if (!editor.cage) return [];
+    const verts = editor.level === "vertex" ? editor.picked
+      : vertsOf(editor.cage, editor.level, editor.picked, editor.topo);
+    return [...new Set(verts.map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
+  };
+
   editor.dispose = () => { kit.world.remove(group); };
   return editor;
 }

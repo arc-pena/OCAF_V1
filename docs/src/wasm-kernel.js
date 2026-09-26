@@ -33,6 +33,8 @@ import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
 import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
+import { heldAt, heldOnCurve, heldOnPlane, heldOnSurface, heldWhereItIs,
+         relaxMesh } from "./relax.js";
 import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPoint,
          sketchChainEnds, sketchEnds, sketchLoops, sketchNesting, sketchOutline,
          solveSketch, splinePoints, wholeEllipse } from "./sketch.js";
@@ -4307,6 +4309,161 @@ function sprawl(face, edges) {
       const place = meshFrame(null, F.reference(f, "plane"));
       if (place) mesh = { ...mesh, points: mesh.points.map(p => place(p)) };
       return { data: packMesh(checkMesh(mesh, "mesh")) };
+    },
+  };
+
+  /* ------------------------------------------------- holding, and letting go */
+
+  //! The vertex numbers a Hold carries, read out of the text it stores them in.
+  //! Rubbish is dropped rather than refused: a list somebody has been editing
+  //! by hand is worth most of a list.
+  function heldVerts(f) {
+    let list = [];
+    try { list = JSON.parse(F.code(f, "verts", "[]") || "[]"); } catch (e) { list = []; }
+    if (!Array.isArray(list)) return [];
+    return [...new Set(list.map(v => Math.round(Number(v))).filter(Number.isInteger))]
+      .filter(v => v >= 0);
+  }
+
+  //! WHAT A HOLD HOLDS ONTO, as points. Nothing in relax.js knows what a curve
+  //! is - it asks a target where its nearest point is and that is the whole
+  //! interface - so this is the one place the kernel turns a wired feature into
+  //! something the solver can answer with.
+  //!
+  //! A PLANE IS NOT SAMPLED. The nearest point on an infinite plane has a
+  //! closed form, and a sampled one would hold a net inside the rectangle
+  //! somebody happened to draw - which is not what "on that plane" means.
+  function holdTarget(f) {
+    const onto = F.reference(f, "onto");
+    if (!onto) return heldWhereItIs();
+    //! ASKED OF THE CATALOGUE FIRST, not of the shape. A Point has a shape -
+    //! a vertex - and a vertex has no edges, so reading the shape first sent a
+    //! point down the curve road and refused it by name: "Point.3 has no
+    //! edges", which is true and useless. What a feature IS is a thing the
+    //! catalogue already knows.
+    const makes = (F.spec(onto) || {}).produces;
+    if (makes === "point") {
+      const point = readPoint(onto);
+      if (point) return heldAt(point);
+    }
+    if (makes === "plane") {
+      const frame = planeAxis(onto);
+      //! A plane is held to as the infinite plane it means, not as the
+      //! rectangle it is drawn as: sampling it would pen a net inside a
+      //! boundary nobody asked for.
+      if (frame) return heldOnPlane(frame.origin, frame.normal);
+    }
+    const quality = Math.max(8, Math.round(F.real(f, "quality", 200)));
+    if (isMesh(onto)) {
+      const mesh = meshFrom(onto, "mesh");
+      const tris = [];
+      for (const face of mesh.faces)
+        for (let i = 2; i < face.length; i++) tris.push(face[0], face[i - 1], face[i]);
+      return heldOnSurface(mesh.points, tris);
+    }
+    const shape = F.shape(onto);
+    if (!shape) throw new Error(F.name(onto) + " has not been built");
+    //! A shape with faces is a surface to lie on; one without is a curve to
+    //! slide along. Asked of the shape rather than of the feature's declared
+    //! kind, because a sketch that closes produces faces and one that does not
+    //! produces wires, and both arrive here as "curve".
+    if (countSubShapes(shape, FACE) > 0) {
+      const stream = tessellate(shape, deflectionFor(shape) / 2);
+      const pts = [];
+      for (let i = 0; i + 2 < stream.positions.length; i += 3)
+        pts.push([stream.positions[i], stream.positions[i + 1], stream.positions[i + 2]]);
+      return heldOnSurface(pts, Array.from(stream.index || []));
+    }
+    const run = sampleCurve(wireFrom(shape, F.name(onto)), quality);
+    const pts = [];
+    for (let i = 0; i <= quality; i++) pts.push(run.at(i / quality));
+    return heldOnCurve(pts);
+  }
+
+  builders.Hold = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to hold";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      if (!heldVerts(f).length)
+        return "no vertices picked - open the mesh, select some, and press Hold";
+      const onto = F.reference(f, "onto");
+      if (onto && !F.shape(onto) && !F.data(onto) && !readPoint(onto))
+        return F.name(onto) + " has not been built";
+      return null;
+    },
+    //! IT CHANGES NOTHING. A Hold is a promise the Relax below it keeps, and a
+    //! node that quietly moved the mesh as it passed would make a chain of
+    //! them impossible to reason about: the second one would be picking
+    //! vertices on a mesh the first had already pulled about.
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const most = mesh.points.length;
+      const over = heldVerts(f).filter(v => v >= most);
+      if (over.length)
+        throw new Error(over.length + (over.length === 1 ? " vertex" : " vertices")
+          + " held here " + (over.length === 1 ? "is" : "are") + " not on this mesh any more"
+          + " - it has " + most + ". Pick them again.");
+      return { data: packMesh(checkMesh(mesh, "mesh")) };
+    },
+  };
+
+  //! Every Hold between this Relax and the mesh it started from, oldest first -
+  //! so the newest one wins where two of them name the same vertex, which is
+  //! what "constrain some, then constrain some more" means to a person.
+  function holdsAbove(f) {
+    const found = [];
+    const seen = new Set();
+    let at = F.reference(f, "mesh");
+    //! Walked rather than collected from a list argument, and guarded against
+    //! a loop it cannot have but would never come back from if it did.
+    while (at && !seen.has(at)) {
+      const spec = F.spec(at);
+      if (!spec || spec.type !== "Hold") break;
+      seen.add(at);
+      found.push(at);
+      at = F.reference(at, "mesh");
+    }
+    return found.reverse();
+  }
+
+  builders.Relax = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to relax";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const holds = holdsAbove(f).map(one => ({
+        verts: heldVerts(one).filter(v => v < mesh.points.length),
+        target: holdTarget(one),
+      })).filter(one => one.verts.length);
+      const load = F.real(f, "load", 0);
+      const way = load > 0
+        ? (V.norm(readVector(F.reference(f, "along")) || [0, 0, -1]) || [0, 0, -1])
+        : null;
+      const got = relaxMesh(mesh, holds, {
+        steps: Math.max(1, Math.round(F.real(f, "steps", 300))),
+        stiffness: F.real(f, "stiffness", 0.5),
+        damping: F.real(f, "damping", 0.9),
+        rest: ["keep", "zero", "even"][Feature_choice(f, "rest")] || "keep",
+        gravity: way ? V.scale(way, load * 0.02) : null,
+      });
+      //! WHAT IT ACTUALLY DID, on the feature, because a relaxation that
+      //! stopped because it ran out of steps and one that stopped because it
+      //! had settled look exactly the same on screen - and the first one is
+      //! not an answer, it is a picture of a net on its way somewhere.
+      const note = got.steps.toLocaleString() + " steps \u00b7 "
+        + holds.length + (holds.length === 1 ? " hold" : " holds") + " \u00b7 "
+        + (got.moved < 1e-5 ? "settled"
+           : "still moving " + trim(got.moved) + " mm a step - give it more steps");
+      return { note, data: packMesh(checkMesh({ points: got.points, faces: mesh.faces,
+                                               creases: mesh.creases, corners: mesh.corners },
+                                              "relaxed mesh")) };
     },
   };
 

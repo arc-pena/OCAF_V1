@@ -2446,6 +2446,53 @@ export const CATALOGUE = [
            choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),
            real("tolerance", "Sewing tolerance", 0.01, 0.000001, 100, 0.001),
            choice("solid", "Make", ["A solid if it closes", "A shell"], 0)] },
+  /* ------------------------------------------------- holding, and letting go
+
+     A form-finder, as two nodes. Every other operation here answers a question
+     with an equation; these two let a net move under its own rules until it
+     stops, and where it stops IS the answer - which is how a cable net, a
+     gridshell, a tent, a soap film and a geodesic over a surface are found,
+     and none of them can be typed in.
+
+     TWO NODES RATHER THAN ONE, because a relaxation needs any number of
+     constraints and an argument list is a fixed shape. So a Hold carries one
+     constraint and hands the mesh on untouched; you chain as many as the
+     problem needs - the top row on that curve, the left edge on that surface,
+     these four corners pinned - and the Relax at the bottom gathers every one
+     above it. It reads in the tree as the sentence somebody would say.     */
+  { type: "Hold", guid: "9a1b2c30-008c-4c00-9e00-caf00000008c", category: "mesh",
+    produces: "mesh",
+    summary: "Holds some vertices of a mesh onto something else - a point, a curve, a "
+           + "surface or a solid - and hands the mesh on exactly as it arrived. It "
+           + "changes NOTHING by itself: it is a promise that a Relax further down "
+           + "keeps. Wire nothing into Onto and the vertices are pinned where they "
+           + "are. Pick the vertices in the mesh editor and press Hold; chain as many "
+           + "of these as the shape needs, and anything not named in one of them is "
+           + "free to relax to its neighbours.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           code("verts", "Vertices", "[]"),
+           ref("onto", "Onto", ["point", "curve", "plane", "solid", "mesh"]),
+           real("quality", "Sampling", 200, 8, 4000, 1, "")] },
+  { type: "Relax", guid: "9a1b2c30-008d-4c00-9e00-caf00000008d", category: "mesh",
+    produces: "mesh",
+    summary: "Dynamic relaxation. Every edge of the mesh is a spring and every Hold "
+           + "above it is a constraint the vertices are put back onto at every step; "
+           + "the rest of the mesh finds its own place between them. Rest length "
+           + "\"Pull to nothing\" is the one that finds minimal shapes - every edge "
+           + "pulling as hard as it can, held open only by what is held, which is a "
+           + "soap film. \"As drawn\" keeps the net the size it was built, which is "
+           + "what a cable net or a gridshell wants. Load hangs it under its own "
+           + "weight, for a catenary or a hanging-chain vault. A mesh with no faces "
+           + "is read as the chain through its points, which is the minimal-tension "
+           + "curve between whatever is holding its ends.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           choice("rest", "Edges want to be",
+                  ["As drawn", "Pull to nothing", "All the same length"], 0),
+           real("steps", "Steps", 300, 1, 20000, 1, ""),
+           real("stiffness", "Stiffness", 0.5, 0.01, 1, 0.01, ""),
+           real("damping", "Damping", 0.9, 0, 0.99, 0.01, ""),
+           real("load", "Load", 0, 0, 2, 0.005, ""),
+           ref("along", "Load direction", ["vector"])] },
   { type: "Subdivide", guid: "9a1b2c30-0084-4c00-9e00-caf000000084", category: "mesh",
     produces: "mesh",
     summary: "Catmull-Clark subdivision. Every face becomes quads and the mesh pulls "
