@@ -170,7 +170,10 @@ export const MDL_OPS = [
 
   modelOp("set", ["id", "key", "value"],
     "Set one number: a catalogue argument, or a parameter a script declared for itself. "
-    + "A choice takes the index of the option.",
+    + "A choice takes the index of the option. The catalogue's own min and max are the "
+    + "slider's travel and do not limit what may be set - a 9 m wall is fine on an "
+    + "argument whose slider stops at 4000 - but a range set with `range` on this "
+    + "argument does cap it, and a whole-number one rounds.",
     { op: "set", id: "CB1", key: "dx", value: 92 },
     (ctx, edit) => ctx.kernel.setParameter(
       needText(edit, "id"), needText(edit, "key"), needNumber(edit, "value"))),
@@ -178,9 +181,10 @@ export const MDL_OPS = [
   modelOp("range", ["id", "key", "min?", "max?", "step?", "whole?", "reset?"],
     "Say what a slider IS: how far it travels, what it moves in, and whether it holds "
     + "whole numbers. Per feature and per argument - the catalogue's range suits the "
-    + "thing in general, this one suits this one. min and max are how far the HANDLE "
-    + "goes and never a cap on the value; whole rounds it. reset true puts the "
-    + "argument back to what the catalogue declares.",
+    + "thing in general, this one suits this one. A range set here is a DECISION about "
+    + "this argument, so it caps: min and max bound the value from now on, any number "
+    + "already on it comes inside them, and whole rounds it. Only the catalogue's own "
+    + "range is a mere suggestion. reset true puts the argument back to it.",
     { op: "range", id: "CB1", key: "dx", min: 90, max: 300, step: 10, whole: true },
     (ctx, edit) => ctx.kernel.setArgRange(needText(edit, "id"), needText(edit, "key"),
       edit.reset ? null : {

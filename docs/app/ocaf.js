@@ -4252,20 +4252,26 @@ export class Doc {
       stored = Math.min(arg.options.length - 1, Math.max(0, Math.round(value)));
       label.attr.TDataStd_Integer = stored;
     } else {
-      // A number is not. What the catalogue declares is how far the SLIDER
-      // travels - a comfortable range for the thing at hand - and clamping to
-      // it meant a building could not be typed in at all: a 9 m wall silently
-      // became 4 m because a cube's slider stops there, and nothing said so.
-      // A wired number was never clamped, so this was inconsistent as well as
-      // wrong. The drivers guard themselves; that is what preconditions are for.
+      // A number is not bounded by the CATALOGUE. What the catalogue declares
+      // is how far the SLIDER travels - a comfortable range for the thing at
+      // hand - and clamping to it meant a building could not be typed in at
+      // all: a 9 m wall silently became 4 m because a cube's slider stops
+      // there, and nothing said so. A wired number was never clamped, so this
+      // was inconsistent as well as wrong. The drivers guard themselves; that
+      // is what preconditions are for.
+      //
+      // A range typed onto THIS argument is a different statement and does
+      // bound it - see cappedTo, just below setParameter's own rounding.
       if (!Number.isFinite(value)) throw new Error("'" + key + "' must be a number");
       stored = value;
-      //! A WHOLE-NUMBER SLIDER HOLDS WHOLE NUMBERS wherever the number came
+      //! A WHOLE-NUMBER SLIDER HOLDS WHOLE NUMBERS, and a slider given a
+      //! range of its own holds numbers inside it, wherever the number came
       //! from - the handle, the box, a script, the assistant. Said once, here,
       //! which is what stops "bays: 4" and "bays: 4.0000001" both existing in
-      //! a document that claims neither can.
-      const shape = F.range(f, key);
-      if (shape && shape.whole) stored = Math.round(stored);
+      //! a document that claims neither can, and what stops a slider capped at
+      //! 1000 quietly holding 1500 with its handle drawn at 1000. The rule for
+      //! which range caps and which does not is in cappedTo.
+      stored = cappedTo(F.range(f, key), stored);
       label.attr.TDataStd_Real = stored;
     }
     this.log.touch(label);
@@ -4290,18 +4296,17 @@ export class Doc {
     }
     const made = cleanRange(arg, range, F.range(f, key));
     F.setRange(f, key, made);
-    //! THE VALUE FOLLOWS THE KIND. Turning a slider to whole numbers and
-    //! leaving 4.37 sitting on it is a slider that lies about itself the
-    //! moment you look away, so the number goes with it. Nothing else is
-    //! touched: min and max are how far the HANDLE travels and never a cap on
-    //! what the value may be - see setParameter, where clamping was taken out
-    //! because a 9 m wall silently became 4 m.
-    if (made.whole) {
-      const label = F.argLabel(f, key, true);
-      if (typeof label.attr.TDataStd_Real === "number")
-        label.attr.TDataStd_Real = Math.round(label.attr.TDataStd_Real);
-    }
-    this.log.touch(F.argLabel(f, key, true));
+    //! THE VALUE FOLLOWS THE SLIDER. Turning a slider to whole numbers and
+    //! leaving 4.37 sitting on it is a slider that lies about itself the moment
+    //! you look away, and so is one that says "90 to 300" with 1500 on it and
+    //! its handle jammed at the far end. Both are the same fault, so the number
+    //! goes with the range - and because the range set here is a cap (cappedTo)
+    //! rather than the catalogue's suggestion, nothing that was typed into an
+    //! unrestricted slider is touched by this.
+    const label = F.argLabel(f, key, true);
+    if (typeof label.attr.TDataStd_Real === "number")
+      label.attr.TDataStd_Real = cappedTo(made, label.attr.TDataStd_Real);
+    this.log.touch(label);
     return made;
   }
 
@@ -5112,6 +5117,27 @@ export function cleanRange(arg, want, had) {
     if (min === max) max = min + 1;
   }
   return { min, max, step, whole };
+}
+
+//! WHAT A SLIDER KEEPS of a number handed to it, and the whole of the rule.
+//!
+//! The two ranges a slider can have are not the same kind of statement, and
+//! that is why one caps and the other does not:
+//!
+//!   · THE CATALOGUE'S range is about fillets in general - "a radius runs 0 to
+//!     200" - and capping to it is how a 9 m wall silently became 4 m. It never
+//!     caps. The track stretches instead; see sliderSpan.
+//!   · A RANGE SET HERE, typed into the slider editor on this argument of this
+//!     feature, is a decision about this thing: "this mullion is between 90 and
+//!     300". A decision that the next number typed can ignore is not a
+//!     decision, so it caps - which is also what Grasshopper does, and the
+//!     slider editor is Grasshopper's gesture.
+//!
+//! \p shape the feature's OWN range, or null for "only the catalogue's".
+export function cappedTo(shape, value) {
+  if (!shape || !Number.isFinite(value)) return value;
+  const kept = Math.min(shape.max, Math.max(shape.min, value));
+  return shape.whole ? Math.round(kept) : kept;
 }
 
 export function sliderSpan(arg, value) {

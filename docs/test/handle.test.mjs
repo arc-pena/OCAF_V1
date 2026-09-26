@@ -181,6 +181,23 @@ console.log("\n6. and the lead is the one you would reach for");
                         && Number.isFinite(l.min) && Number.isFinite(l.max)
                         && Number.isFinite(l.step) && l.value === 5; })(),
         JSON.stringify(lead("Fillet", { radius: 5 })));
+  //! THE SLIDER THIS FEATURE HAS. The heads-up bar is a second control over the
+  //! same number as the panel's slider, so it has to be the same slider: a wall
+  //! told once that it is 90 to 300 in tens must not come up under the cursor
+  //! as 1 to 4000 in 1s, where one drag would put it outside its own range.
+  {
+    const plain = leadFor({ type: "Cube", values: { dz: 80 } }, spec("Cube"));
+    const own = leadFor({ type: "Cube", values: { dz: 80 },
+                          ranges: { dz: { min: 90, max: 300, step: 10, whole: true } } },
+                        spec("Cube"));
+    check("with no range of its own the lead is what the catalogue declares",
+          plain.min === spec("Cube").args.find(a => a.key === "dz").min
+          && plain.custom === false, JSON.stringify(plain));
+    check("and with one, the lead is that", own.min === 90 && own.max === 300
+          && own.step === 10 && own.whole === true && own.custom === true,
+          JSON.stringify(own));
+  }
+
   check("a node with no number to lead with says so",
         leadFor({ type: "Boolean", values: {} }, spec("Boolean")) === null
         && leadFor({ type: "Sketch", values: {} }, spec("Sketch")) === null);

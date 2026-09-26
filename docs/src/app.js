@@ -12,9 +12,10 @@ import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGH
          findWeight, hardEdgeMaterial, hexOf, makeSky, materialOf,
          rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
-import { acceptsFrom, branchOf, branchesIn, dataLines, lightenModel, round, SAMPLES,
-         sliderRange, sliderSpan } from "./ocaf.js";
-import { armSliderEditor, closeSliderEditor, openSliderEditor } from "./slider.js";
+import { acceptsFrom, branchOf, branchesIn, cappedTo, dataLines, lightenModel, round,
+         SAMPLES, sliderRange, sliderSpan } from "./ocaf.js";
+import { armSliderEditor, closeSliderEditor, holdOnTrack,
+         openSliderEditor } from "./slider.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
 import { PluginHost, unpackResource } from "./plugin.js";
@@ -11086,9 +11087,11 @@ function realField(entry, arg) {
   const from = entry.driven ? entry.driven[arg.key] : null;
   const count = entry.lists ? entry.lists[arg.key] : null;
 
-  // The declared range is how far the slider travels, not a limit on the value:
-  // a number typed or wired may be anywhere. So the track stretches to hold
-  // whatever it is actually showing, and the handle never sits lying at one end.
+  // The CATALOGUE's range is how far the slider travels, not a limit on the
+  // value: a number typed or wired may be anywhere. So the track stretches to
+  // hold whatever it is actually showing, and the handle never sits lying at
+  // one end. A range set on THIS argument is a different statement and does cap
+  // the value - see cappedTo in ocaf.js, and holdOnTrack in slider.js.
   const shape = sliderRange(arg, entry.ranges);
   const span = sliderSpan(shape, value);
   field.innerHTML =
@@ -11165,23 +11168,33 @@ function realField(entry, arg) {
   const slider = field.querySelector('input[type="range"]');
   const number = field.querySelector(".value-box input");
   const send = (raw, live) => {
-    const v = Number(raw);
-    if (!Number.isFinite(v)) return;
-    slider.value = v; number.value = round(v);
+    const asked = Number(raw);
+    if (!Number.isFinite(asked)) return;
+    //! THE TRACK AND THE BOX BOTH SHOW WHAT WILL BE STORED, which is not always
+    //! what was asked for: a range set on this argument caps it. See
+    //! holdOnTrack - the panel is not rebuilt during a push, so nothing else
+    //! would correct the handle afterwards.
+    const v = holdOnTrack(slider, shape, asked);
+    number.value = round(v);
     pushParameter(entry.id, arg.key, v, false, live);
   };
   //! `input` while the hand is down, `change` when it comes up. Only the
   //! second means "that is the number" - see drainParameters.
   slider.addEventListener("input", () => send(slider.value, true));
   slider.addEventListener("change", () => restParameter());
-  number.addEventListener("change", () => typeValue(entry, arg, number, slider));
+  number.addEventListener("change", () => typeValue(entry, arg, number, slider, shape));
   number.addEventListener("input", () => sayValue(field, entry, arg, number.value));
   //! WHAT THE SLIDER IS, behind the one gesture dragging it cannot reach.
   //! Offered on a driven slider too: the wire says what the value is, not how
   //! far the handle would travel when the wire comes off.
   armSliderEditor(slider, {
     revert: was => send(was, true),
-    open: () => editSlider(document, slider, entry.id, arg, shape),
+    //! The number ON THE SLIDER NOW, not the one this field was built with.
+    //! The panel is not rebuilt while numbers are pushed, so the value the
+    //! editor is told about has to be read off the handle - which holdOnTrack
+    //! keeps true - or a window opened after typing would say what the field
+    //! held when it was drawn.
+    open: () => editSlider(document, slider, entry.id, arg, shape, Number(slider.value)),
   });
   return field;
 }
@@ -11195,10 +11208,10 @@ function sliderTitle(arg, shape) {
 
 //! Opened from both hosts, and both hand it the document they live in - the
 //! node graph may be a window of its own.
-function editSlider(doc, near, id, arg, shape) {
+function editSlider(doc, near, id, arg, shape, value) {
   openSliderEditor({
     doc, near, title: arg.label || arg.key, unit: arg.unit || "",
-    range: shape, base: { min: arg.min, max: arg.max, step: arg.step },
+    range: shape, base: { min: arg.min, max: arg.max, step: arg.step }, value,
     onApply: range => mdl.run({ op: "range", id, key: arg.key, ...range })
       .catch(error => showError(error.message)),
     onReset: () => mdl.run({ op: "range", id, key: arg.key, reset: true })
@@ -11281,14 +11294,17 @@ function sayValue(field, entry, arg, text) {
 
 //! And what happens when it is committed. One of three things, and which one
 //! is the reading's to say rather than this function's to guess.
-async function typeValue(entry, arg, box, slider) {
+async function typeValue(entry, arg, box, slider, shape = null) {
   const got = readTyped(arg, box.value, entry.id);
   if (got.kind === "blank") { box.value = round(entry.values[arg.key]); return; }
   if (got.kind === "error") { showError(got.message); return; }
   if (got.kind === "number") {
-    if (slider) slider.value = got.value;
-    box.value = round(got.value);
-    pushParameter(entry.id, arg.key, got.value);
+    //! What the model will hold, not what was typed - the two differ when the
+    //! slider has a range of its own, and the box has to say which one it is.
+    const v = slider && shape ? holdOnTrack(slider, shape, got.value) : got.value;
+    if (slider && !shape) slider.value = v;
+    box.value = round(v);
+    pushParameter(entry.id, arg.key, v);
     return;
   }
   if (got.kind === "wire") {
@@ -11363,10 +11379,16 @@ function scriptField(entry, param) {
 
   const slider = field.querySelector('input[type="range"]');
   const number = field.querySelector(".value-box input");
+  //! A script says how far its own slider travels and that is all it says -
+  //! there is no per-feature range on a declared parameter - so this one never
+  //! caps. The track still has to follow the number: see holdOnTrack.
+  const shape = { min: param.min, max: param.max, step: param.step,
+                  whole: false, custom: false };
   const send = (raw, live) => {
-    const v = Number(raw);
-    if (!Number.isFinite(v)) return;
-    slider.value = v; number.value = round(v);
+    const asked = Number(raw);
+    if (!Number.isFinite(asked)) return;
+    const v = holdOnTrack(slider, shape, asked);
+    number.value = round(v);
     pushParameter(entry.id, param.key, v, false, live);
   };
   slider.addEventListener("input", () => send(slider.value, true));
@@ -14645,6 +14667,20 @@ function openHeads(id, x, y, live = true) {
   return true;
 }
 
+//! THE SHAPE OF THE HEADS-UP SLIDER, read fresh every time it is about to
+//! move the number. leadFor ran when the pill opened; a range can be set on the
+//! argument after that, from the panel, the graph or the assistant, and a pill
+//! still counting 1 to 4000 against an argument the model now caps at 200 would
+//! show a number nobody holds.
+function headsShape(lead) {
+  const fallback = { min: lead.min, max: lead.max, step: lead.step,
+                     whole: !!lead.whole, custom: !!lead.custom };
+  const entry = feature(heads.id);
+  const spec = entry && schemaType(entry.type);
+  const arg = spec && (spec.args || []).find(a => a.key === lead.key && a.kind === "real");
+  return arg ? sliderRange(arg, entry.ranges) : fallback;
+}
+
 function drawHeads(x, y) {
   const lead = heads.lead;
   if (!lead) return;
@@ -14666,7 +14702,10 @@ function drawHeads(x, y) {
     return;
   }
   const value = entry.values[lead.key];
-  const span = sliderSpan({ min: lead.min, max: lead.max, step: lead.step }, value);
+  //! The slider this FEATURE has, custom range and all, so the bar caps where
+  //! the panel caps and stretches where the panel stretches.
+  const shape = headsShape(lead);
+  const span = sliderSpan(shape, value);
   headsBar.innerHTML = '<span class="hd-name"></span>'
     + '<input type="range" min="' + span.min + '" max="' + span.max
     + '" step="' + lead.step + '" value="' + value + '">'
@@ -14692,8 +14731,11 @@ function drawHeads(x, y) {
     heads.changed = true;
     heads.driving = false;
     headsBar.classList.remove("driving");
-    pushParameter(heads.id, lead.key, asked, false, live);
-    if (redraw) slider.value = String(asked); else box.value = String(round(asked));
+    //! Through holdOnTrack whichever end it came from, so the handle is never
+    //! left drawn at a number the model does not hold.
+    const kept = holdOnTrack(slider, shape, asked);
+    pushParameter(heads.id, lead.key, kept, false, live);
+    if (!redraw) box.value = String(round(kept));
   };
   headsBar.querySelector(".hd-done").addEventListener("click", () => closeHeads());
   slider.addEventListener("input", () => { nudgeHeads(); put(slider.value, false, true); });
@@ -14719,9 +14761,9 @@ function typeHeads(entry, lead, box, slider) {
     heads.changed = true;
     heads.driving = false;
     headsBar.classList.remove("driving");
-    slider.value = String(got.value);
-    box.value = String(round(got.value));
-    pushParameter(heads.id, lead.key, got.value);
+    const kept = holdOnTrack(slider, headsShape(lead), got.value);
+    box.value = String(round(kept));
+    pushParameter(heads.id, lead.key, kept);
     return;
   }
   // A wire or a formula ends the gesture: the number is not a number any
@@ -14752,11 +14794,19 @@ function driveHeads(event) {
          .finally(() => { headsBusy = false; drawHeads(); });
     }
   } else {
-    pushParameter(heads.id, asked.key, Math.round(asked.value * 1e3) / 1e3);
+    //! THE RULER IS NOT ABOVE THE SLIDER'S OWN RANGE. Dragging against the
+    //! model can ask for any number at all, and setParameter will cap it where
+    //! this argument has been given a range of its own - so the bar has to be
+    //! told the same thing, or the pill would count past a number the model
+    //! stopped at.
+    const shape = headsShape(heads.lead);
     const slider = headsBar.querySelector('input[type="range"]');
     const box = headsBar.querySelector('.hd-box input');
-    if (slider) slider.value = String(asked.value);
-    if (box) box.value = String(round(asked.value));
+    const kept = slider
+      ? holdOnTrack(slider, shape, Math.round(asked.value * 1e3) / 1e3)
+      : cappedTo(shape.custom ? shape : null, Math.round(asked.value * 1e3) / 1e3);
+    pushParameter(heads.id, asked.key, kept);
+    if (box) box.value = String(round(kept));
   }
   return true;
 }

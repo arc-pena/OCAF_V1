@@ -8,16 +8,20 @@
 // So a range is stored per feature and per argument, and the two things worth
 // checking are the two that would look right while being wrong:
 //
-//   IT IS A RANGE, NOT A CAP. Clamping was taken out of setParameter once
-//   already, because a 9 m wall silently became 4 m when a cube's slider
-//   stopped there. Giving sliders their own ranges is exactly the change that
-//   would put that back by accident.
+//   WHICH OF THE TWO RANGES CAPS. Clamping to the CATALOGUE was taken out of
+//   setParameter once already, because a 9 m wall silently became 4 m when a
+//   cube's slider stopped there, and that must stay out. A range typed onto one
+//   argument of one feature is the opposite case: it is a decision about this
+//   thing, so it caps - "I set a max of 1000 and the slider let me go past it"
+//   was a real report, and what made it bad was not the 1500 but the handle
+//   left drawn at 1000 with 1500 in the model, so the next drag wrote the 1000
+//   back. Both halves are checked here.
 //
 //   IT SURVIVES THE FILE. A range that lives only in the running page is a
 //   range that is gone tomorrow, and nothing on screen would say so.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
-import { Doc, cleanRange, sliderRange, sliderSpan } from "../src/ocaf.js";
+import { Doc, cappedTo, cleanRange, sliderRange, sliderSpan } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 
 const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
@@ -68,10 +72,25 @@ const at = async id => ((await kernel.tree()).tree.features).find(f => f.id === 
   check("and so is a step of zero", /more than zero/.test(refused), refused);
 
   //! The track still stretches past its declared ends to hold a value that is
-  //! outside them, which is what makes a range a range and not a cap.
+  //! outside them, because a value CAN be outside the catalogue's range.
   const span = sliderSpan({ min: 90, max: 300, step: 10 }, 9000);
   check("the track stretches to hold a value past the end of it",
         span.max >= 9000, JSON.stringify(span));
+
+  //! THE ONE RULE ABOUT WHICH RANGE CAPS, on its own.
+  check("with no range of its own, nothing is capped",
+        cappedTo(null, 9000) === 9000);
+  check("with a range of its own, above the max comes back to the max",
+        cappedTo({ min: 90, max: 300, step: 10, whole: false }, 1500) === 300);
+  check("and below the min comes back to the min",
+        cappedTo({ min: 90, max: 300, step: 10, whole: false }, 4) === 90);
+  check("a number already inside is untouched",
+        cappedTo({ min: 90, max: 300, step: 10, whole: false }, 137.5) === 137.5);
+  //! A whole-number slider caps AND rounds, in that order: 1500.6 on a 1 to 12
+  //! slider is 12, not 13.
+  check("a whole-number slider caps and then rounds",
+        cappedTo({ min: 1, max: 12, step: 1, whole: true }, 1500.6) === 12
+        && cappedTo({ min: 1, max: 12, step: 1, whole: true }, 4.37) === 4);
 }
 
 /* --------------------------------------------------- through the document */
@@ -88,12 +107,47 @@ const at = async id => ((await kernel.tree()).tree.features).find(f => f.id === 
         Object.keys((await at("BX")).ranges).join() === "dx",
         Object.keys((await at("BX")).ranges).join());
 
-  //! THE CHECK THAT MATTERS. min and max say how far the HANDLE goes. Typing a
-  //! number past the end of a slider is how a 9 m wall gets into a model whose
-  //! catalogue thinks walls are 300 mm, and it must keep working.
+  //! THE CHECK THAT MATTERS, both ways round.
+  //!
+  //! A range SET ON THIS ARGUMENT caps. dx was told 90 to 300 a moment ago, so
+  //! 9000 is not a number it may hold, and 300 is what comes back - the same
+  //! answer the handle can reach, which is the whole point: the slider and the
+  //! model say one thing.
   await mdl.run({ op: "set", id: "BX", key: "dx", value: 9000 });
-  check("a value past the end of its own range is kept, not clamped",
-        (await at("BX")).values.dx === 9000, String((await at("BX")).values.dx));
+  check("a value past the end of a range set here comes back inside it",
+        (await at("BX")).values.dx === 300, String((await at("BX")).values.dx));
+  await mdl.run({ op: "set", id: "BX", key: "dx", value: -400 });
+  check("and below the min comes back to the min the same way",
+        (await at("BX")).values.dx === 90, String((await at("BX")).values.dx));
+  await mdl.run({ op: "set", id: "BX", key: "dx", value: 300 });
+
+  //! AND THE CATALOGUE'S RANGE DOES NOT. dw has no range of its own, so it
+  //! holds a 9 m wall though a cube's slider stops at 4000. This is the check
+  //! that was there before any of this and must never start failing: clamping
+  //! to the catalogue is how a 9 m wall silently became 4 m.
+  await mdl.run({ op: "add", type: "Cube", id: "WL", name: "Wall" });
+  await mdl.run({ op: "set", id: "WL", key: "dx", value: 9000 });
+  check("a value past the end of the CATALOGUE's range is kept, not clamped",
+        (await at("WL")).values.dx === 9000, String((await at("WL")).values.dx));
+
+  //! NARROWING A SLIDER BRINGS THE NUMBER ON IT INSIDE. A slider that says
+  //! "0 to 1000" with 1500 standing on it is the state that was reported: the
+  //! handle at one end, the model somewhere else, and one drag from losing it.
+  await mdl.run({ op: "range", id: "WL", key: "dx", min: 0, max: 1000, step: 10 });
+  check("narrowing a slider brings the number already on it inside",
+        (await at("WL")).values.dx === 1000, String((await at("WL")).values.dx));
+  //! And taking the range off does not push it back out again.
+  await mdl.run({ op: "range", id: "WL", key: "dx", reset: true });
+  check("and going back to the catalogue leaves the number where it is",
+        (await at("WL")).values.dx === 1000, String((await at("WL")).values.dx));
+  //! Undo is what makes it an edit: the narrowing AND what it did to the value.
+  await mdl.run({ op: "undo" });
+  await mdl.run({ op: "undo" });
+  check("undo puts back both the range and the value it changed",
+        (await at("WL")).values.dx === 9000
+        && !((await at("WL")).ranges || {}).dx,
+        (await at("WL")).values.dx + ", " + JSON.stringify((await at("WL")).ranges));
+  await mdl.run({ op: "set", id: "WL", key: "dx", value: 9000 });
 
   //! Whole numbers ARE enforced, because that is a statement about the kind of
   //! number and not about its size.
@@ -138,7 +192,7 @@ const at = async id => ((await kernel.tree()).tree.features).find(f => f.id === 
   check("opening the file again gives the same sliders",
         JSON.stringify(back.ranges) === JSON.stringify(row.ranges),
         JSON.stringify(back.ranges));
-  check("and the same numbers on them", back.values.dy === 4 && back.values.dx === 9000,
+  check("and the same numbers on them", back.values.dy === 4 && back.values.dx === 300,
         back.values.dy + ", " + back.values.dx);
 
   //! A file may be written by hand or by something else. A range that is
@@ -152,6 +206,23 @@ const at = async id => ((await kernel.tree()).tree.features).find(f => f.id === 
   check("a nonsense range in a file is made sensible rather than refused",
         fixed.min === 10 && fixed.max === 400 && fixed.step === 1 && fixed.whole === true,
         JSON.stringify(fixed));
+
+  //! OPENING A FILE IS NOT AN EDIT. A document written before a range capped
+  //! anything may hold a value outside one, and a modeller that quietly moves
+  //! somebody's numbers as it opens their file is worse than one that shows
+  //! them a slider whose handle is at the end. The cap is on what is SET.
+  await kernel.loadModel({
+    format: "ocaf-parametric-model", version: 1, name: "S", units: "mm",
+    features: [{ id: "OLD", type: "Cube", name: "Old", args: { dx: 1500 },
+                 ranges: { dx: { min: 0, max: 1000, step: 10 } } }],
+  });
+  check("a value outside its range in a file opens as it was written",
+        (await at("OLD")).values.dx === 1500, String((await at("OLD")).values.dx));
+  //! And the first thing set on it after that is capped, so it cannot stay
+  //! outside once anybody touches it.
+  await mdl.run({ op: "set", id: "OLD", key: "dx", value: 1400 });
+  check("and the next number set on it is capped",
+        (await at("OLD")).values.dx === 1000, String((await at("OLD")).values.dx));
 }
 
 /* ------------------------------------------------------ what it is not for */

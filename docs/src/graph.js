@@ -16,7 +16,8 @@
 
 import { MDL_OPS, parseEdits } from "./mdl.js";
 import { acceptsFrom, sliderRange, sliderSpan } from "./ocaf.js";
-import { armSliderEditor, closeSliderEditor, openSliderEditor } from "./slider.js";
+import { armSliderEditor, closeSliderEditor, holdOnTrack,
+         openSliderEditor } from "./slider.js";
 import { membersOf, reachesOut, setInputGroups } from "./reuse.js";
 
 const GRAPH_CSS = `
@@ -1537,7 +1538,8 @@ export class GraphEditor {
     const row = doc.createElement("div");
     row.className = "g-row wired-row";
     row.style.display = "block";
-    // The declared range is how far the track travels, not a cap on the value.
+    // The CATALOGUE's range is how far the track travels, not a cap on the
+    // value; a range set on this argument is a cap - see cappedTo.
     //! And what it travels may have been said about THIS feature - see
     //! sliderRange. The graph and the definition panel read the same answer
     //! from the same place, which is the only way a slider dragged in one and
@@ -1578,9 +1580,13 @@ export class GraphEditor {
     const slider = row.querySelector(".g-rng"), number = row.querySelector(".g-num");
     slider.dataset.key = number.dataset.key = key;
     const send = raw => {
-      const v = Number(raw);
-      if (!Number.isFinite(v)) return;
-      slider.value = v; number.value = gnum(v);
+      const asked = Number(raw);
+      if (!Number.isFinite(asked)) return;
+      //! Both controls show what will be STORED, not what was asked: a range
+      //! set on this argument caps it, and the track grows for anything a
+      //! catalogue range merely fails to reach. See holdOnTrack.
+      const v = holdOnTrack(slider, shape, asked);
+      number.value = gnum(v);
       this.push(entry.id, key, v);
     };
     for (const input of [slider, number]) {
@@ -1598,6 +1604,9 @@ export class GraphEditor {
       open: () => openSliderEditor({
         doc, near: slider, title: arg.label || key, unit: arg.unit || "",
         range: shape, base: { min: arg.min, max: arg.max, step: arg.step },
+        //! Read off the handle, not off the row as it was built: the graph
+        //! does not rebuild its nodes while a number is being pushed either.
+        value: Number(slider.value),
         onApply: range => this.mdl.run({ op: "range", id: entry.id, key, ...range })
           .catch(() => { /* the log has it */ }),
         onReset: () => this.mdl.run({ op: "range", id: entry.id, key, reset: true })

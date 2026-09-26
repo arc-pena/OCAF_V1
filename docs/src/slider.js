@@ -18,6 +18,32 @@
 // nothing here reaches for `document`, everything is built in the document it
 // is handed, and the stylesheet is carried along and added once per document.
 
+import { cappedTo, sliderSpan } from "./ocaf.js";
+
+//! WHAT THE HANDLE SHOWS, kept true to what the model will hold. Both hosts
+//! push a number without rebuilding their own panel - a rebuild in the middle
+//! of a drag would take the slider out from under the hand - so whatever the
+//! handle is drawn at after a typed number is whatever this puts it at.
+//!
+//! Two things went wrong without it, and the second was the bad one:
+//!
+//!   · typing 1500 into a slider whose track ends at 1000 left the handle at
+//!     the end of the track. The model held 1500; the slider said 1000.
+//!   · the next drag then sent that 1000, so a number typed past the end of a
+//!     track was destroyed by touching the handle.
+//!
+//! So a value the slider may keep (see cappedTo: a range set on the feature is
+//! a cap, the catalogue's is not) stretches the track to hold it instead.
+export function holdOnTrack(slider, shape, value) {
+  const kept = cappedTo(shape && shape.custom ? shape : null, value);
+  if (!Number.isFinite(kept)) return kept;
+  const span = sliderSpan(shape, kept);
+  if (Number(slider.min) !== span.min) slider.min = String(span.min);
+  if (Number(slider.max) !== span.max) slider.max = String(span.max);
+  slider.value = String(kept);
+  return kept;
+}
+
 //! Scoped to .sl-pop and its own classes, so it cannot land on anything else
 //! in either host. The colours are read from whichever stylesheet is around it
 //! - the page and the graph both publish the same three - and fall back to
@@ -85,7 +111,8 @@ export function closeSliderEditor() {
 //! \p near is the slider itself: the window sits under it, pushed back onto the
 //! screen if it would hang off. \p base is what the catalogue declares, so the
 //! window can say what "reset" would go back to.
-export function openSliderEditor({ doc, near, title, unit, range, base, onApply, onReset }) {
+export function openSliderEditor({ doc, near, title, unit, range, base, value,
+                                   onApply, onReset }) {
   closeSliderEditor();
   if (!doc.getElementById("slider-css")) {
     const style = doc.createElement("style");
@@ -142,11 +169,17 @@ export function openSliderEditor({ doc, near, title, unit, range, base, onApply,
     if (bad.length) { note.textContent = bad[0]; return false; }
     const span = Math.abs(max - min);
     const stops = Math.floor(span / Math.min(step, span)) + 1;
+    //! AND WHAT IT WILL DO TO THE NUMBER ON IT. A range set here is a cap, so
+    //! a max below the value standing on the slider changes that value - which
+    //! is right, and must not be a surprise found afterwards.
+    const lo = Math.min(min, max), hi = Math.max(min, max);
+    const caught = Number.isFinite(value) && (value < lo || value > hi)
+      ? " · " + say(value) + " becomes " + say(value < lo ? lo : hi) : "";
     note.textContent = (whole ? "Whole numbers. " : "")
       + stops.toLocaleString() + (stops === 1 ? " position" : " positions")
-      + " · min and max are how far the handle travels, not a limit on the value"
+      + " · a number outside this is brought back to it" + caught
       + (range.custom || base ? " · catalogue: " + say(base.min) + " to " + say(base.max)
-                                 + " in " + say(base.step) : "");
+                                 + " in " + say(base.step) + " (no cap)" : "");
     return true;
   };
 

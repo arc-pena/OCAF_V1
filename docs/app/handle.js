@@ -24,7 +24,11 @@
 //! way it runs, in terms of the inputs it was given.
 //!
 //! Nothing in this file knows about three.js, the DOM or the kernel. It is
-//! arithmetic and a table, so both can be checked without a browser.
+//! arithmetic and a table, so both can be checked without a browser - the one
+//! import is sliderRange, which is arithmetic too, and is here so that the
+//! heads-up slider is the same slider as the panel's.
+
+import { sliderRange } from "./ocaf.js";
 
 /* --------------------------------------------------------------- geometry */
 
@@ -222,8 +226,14 @@ export function leadFor(entry, spec) {
     }
     const arg = (spec.args || []).find(a => a.key === row.key && a.kind === "real");
     if (!arg) continue;
+    //! THE SLIDER THIS FEATURE HAS, not the one its type declares. A wall told
+    //! once that it is 90 to 300 in tens is 90 to 300 in tens on the heads-up
+    //! bar too, or the bar is a second slider for the same number disagreeing
+    //! with the first.
+    const shape = sliderRange(arg, entry.ranges);
     return { key: row.key, drag: row.drag, label: arg.label,
-             unit: arg.unit, step: arg.step, min: arg.min, max: arg.max,
+             unit: arg.unit, step: shape.step, min: shape.min, max: shape.max,
+             whole: shape.whole, custom: shape.custom,
              value: values[row.key] };
   }
   return null;
