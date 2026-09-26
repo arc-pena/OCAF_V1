@@ -53,6 +53,21 @@ export const SKETCH_RELATIONS = [
   { key: "intersect",     label: "Intersection",  takes: 3, of: "point and two",
     hint: "a point sits where two curves cross" },
 
+  //! ANCHORED. Every other relation here moves what it names to satisfy itself;
+  //! this one says a thing does not move at all, and everything else relaxes
+  //! around it. Named on a whole element it holds the element; named on one end
+  //! it holds only that end, which is the difference between nailing a board
+  //! down and nailing one corner of it.
+  { key: "fix",           label: "Fix",           takes: 1, of: "any",
+    hint: "an element, or one end, does not move" },
+  //! MOUNTED ON A CURVE and free to slide along it. The point the sketcher was
+  //! missing: a coincidence welds two ends together, and this puts a point ON
+  //! something without saying where along it.
+  { key: "on",            label: "On a curve",    takes: 2, of: "point and one",
+    hint: "a point rides on a line or curve, free to slide" },
+  { key: "midpoint",      label: "Midpoint",      takes: 2, of: "point and one",
+    hint: "a point sits halfway along a line or curve" },
+
   //! DIMENSIONS. Every relation above says how two things RELATE; these say how
   //! big one of them is, and that is the difference between a sketch that holds
   //! its shape and a sketch that holds its size. A drawing with no dimension on
@@ -90,6 +105,7 @@ const len = a => Math.hypot(a[0], a[1]);
 const norm = a => { const l = len(a); return l < 1e-12 ? null : [a[0] / l, a[1] / l]; };
 const perp = a => [-a[1], a[0]];
 const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 export const sketchRound = p => [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4];
 
 /* --------------------------------------------------------------- elements */
@@ -1267,6 +1283,32 @@ export function solveSketch(drawing, passes = 24, pinned = []) {
   //! where they are wanted rather than stretching to reach, and the tangency
   //! is then satisfied by moving the centre - which is what a fillet does when
   //! the corner it sits in opens or closes.
+  //! ANCHORED. A fix is not a relation the solver can satisfy by nudging
+  //! something - it is the statement that one thing does NOT move while
+  //! everything else settles around it. Two halves, because an element and one
+  //! of its ends are different promises:
+  //!
+  //!   A WHOLE ELEMENT is put back after every pass. Relations mutate elements
+  //!   directly - parallel turns a line about its middle without consulting
+  //!   anything - so the only way to be sure is to let the pass run and then
+  //!   restore it. What it was pushed by is real information, and goes into the
+  //!   residual: a fixed element being shoved every pass IS the over-constraint.
+  //!
+  //!   ONE END is pinned the way a dragged handle is, which the solver already
+  //!   knows how to do, and which lets a line with one end fixed swing about it.
+  const anchored = new Map();
+  for (const relation of relations) {
+    if (relation.type !== "fix") continue;
+    for (const ref of relation.of || []) {
+      const [id, key] = String(ref || "").split(".");
+      if (key) { held.add(ref); continue; }
+      const el = index.get(id);
+      if (!el) continue;
+      if (!anchored.has(id)) anchored.set(id, JSON.stringify(el));
+      for (const [k] of sketchHandles(el)) held.add(id + "." + k);
+    }
+  }
+
   const rigid = new Set();
   for (const relation of relations) {
     if (relation.type !== "tangent") continue;
@@ -1293,6 +1335,20 @@ export function solveSketch(drawing, passes = 24, pinned = []) {
     ran = pass + 1;
     for (const relation of relations) {
       residual += applyRelation(relation, index, handle, moveTo, held);
+    }
+    for (const [id, was] of anchored) {
+      const el = index.get(id);
+      if (!el) continue;
+      const before = JSON.stringify(el);
+      if (before === was) continue;
+      //! How far it was shoved, so an over-constrained drawing says so in the
+      //! one number the solver already reports.
+      const back = JSON.parse(was);
+      for (const [k, p] of sketchHandles(el)) {
+        const to = (sketchHandles(back).find(([j]) => j === k) || [])[1];
+        if (to) { const gap = sub(to, p); residual += dot(gap, gap); }
+      }
+      Object.assign(el, back);
     }
     if (residual < 1e-7) break;
   }
@@ -1428,6 +1484,25 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
       second.b = sketchRound(add(centre, mul(spun, half)));
       return off * off;
     }
+
+    //! MOUNTED ON A CURVE, and free to slide along it. The point goes to the
+    //! nearest place on the other element and nothing says where along - which
+    //! is the whole difference between this and a coincidence.
+    case "on":
+    case "midpoint": {
+      const a = handle(of[0]);
+      const el = index.get(String(of[1] || "").split(".")[0]);
+      if (!a || !el) return 0;
+      const want = relation.type === "midpoint" ? sketchMidOn(el) : sketchNearestOn(el, a.p);
+      if (!want) return 0;
+      const gap = sub(want, a.p);
+      moveTo(a, want);
+      return dot(gap, gap);
+    }
+    //! FIX does nothing here. It is not satisfied by moving something; it is
+    //! satisfied by everything else moving instead, which is a fact about the
+    //! whole pass rather than about one relation - see solveSketch.
+    case "fix": return 0;
 
     case "coincident": {
       const a = handle(of[0]), b = handle(of[1]);
@@ -1715,6 +1790,179 @@ function awayFromSegment(p, a, b) {
 //! points it happens to have been sampled at. A line's outline is its two ends
 //! and nothing in between, so a cursor halfway along a two-metre line used to
 //! be a metre from the nearest sample and therefore nowhere near the line.
+//! THE NEAREST POINT ON AN ELEMENT, exactly where an exact answer exists and
+//! by walking the outline where it does not. This is what "a point rides on a
+//! curve" is made of: the point is moved here, and it is free to be anywhere
+//! along, which is what makes it a mount rather than a weld.
+//! A PARALLEL CURVE OF ANYTHING, at a signed distance - positive to the LEFT of
+//! the way the element runs, which is the only convention that means the same
+//! thing for a line as for a spline.
+//!
+//! Exact where an exact answer exists and is the same KIND of thing: a line
+//! offsets to a line, a circle and an arc to a concentric one, a rectangle and
+//! an oblong grow. Everything else - an ellipse, a spline, a B-spline - has no
+//! offset of its own kind at all (the offset of an ellipse is not an ellipse),
+//! so it is walked, pushed sideways along its own normals, and handed back as a
+//! spline through those points. Saying which of the two happened matters, so
+//! the answer carries `exact`.
+export function sketchOffset(el, distance, id = "o1") {
+  if (!el || !Number.isFinite(distance) || Math.abs(distance) < 1e-9) return null;
+  const keep = { layer: el.layer, construction: el.construction };
+  const dressed = made => {
+    const out = { ...made, id };
+    if (keep.layer) out.layer = keep.layer;
+    if (keep.construction) out.construction = true;
+    return out;
+  };
+  switch (el.type) {
+    case "point": return null;
+    case "line": {
+      const along = sub(el.b, el.a);
+      if (len(along) < 1e-9) return null;
+      const away = mul(perp(norm(along)), distance);
+      return { el: dressed({ type: "line", a: sketchRound(add(el.a, away)),
+                             b: sketchRound(add(el.b, away)) }), exact: true };
+    }
+    case "circle":
+    case "arc": {
+      //! OUTWARD IS ANTICLOCKWISE'S LEFT, which for a circle drawn the usual way
+      //! is INWARD - so a positive offset shrinks it. That is not a quirk to be
+      //! corrected: it is the same rule the line follows, and a caller that
+      //! wants the other side asks for a negative distance.
+      const r = el.r - distance;
+      if (!(r > 1e-6)) return null;
+      const made = el.type === "circle"
+        ? { type: "circle", c: el.c.slice(), r: round1(r) }
+        : { type: "arc", c: el.c.slice(), r: round1(r), a0: el.a0, a1: el.a1 };
+      return { el: dressed(made), exact: true };
+    }
+    case "rect": {
+      //! A rectangle stores two opposite corners, so it grows by moving both
+      //! outwards along each axis. Positive is outward here, because a
+      //! rectangle has no direction to be on the left of.
+      const x0 = Math.min(el.a[0], el.b[0]) - distance, x1 = Math.max(el.a[0], el.b[0]) + distance;
+      const y0 = Math.min(el.a[1], el.b[1]) - distance, y1 = Math.max(el.a[1], el.b[1]) + distance;
+      if (x1 - x0 < 1e-6 || y1 - y0 < 1e-6) return null;
+      return { el: dressed({ type: "rect", a: sketchRound([x0, y0]), b: sketchRound([x1, y1]) }),
+               exact: true };
+    }
+    case "oblong": {
+      const r = el.r + distance;
+      if (!(r > 1e-6)) return null;
+      return { el: dressed({ type: "oblong", a: el.a.slice(), b: el.b.slice(), r: round1(r) }),
+               exact: true };
+    }
+    default: {
+      const line = sketchOutline(el, 160);
+      if (line.length < 2) return null;
+      const closed = dist(line[0], line[line.length - 1]) < 1e-6;
+      const walk = closed ? line.slice(0, -1) : line;
+      const pts = [];
+      for (let i = 0; i < walk.length; i++) {
+        //! The normal from the run either side of the point, so a corner moves
+        //! along the bisector rather than along one of its two edges.
+        const before = walk[(i - 1 + walk.length) % walk.length];
+        const after = walk[(i + 1) % walk.length];
+        const back = (!closed && i === 0) ? sub(walk[1], walk[0]) : sub(walk[i], before);
+        const on = (!closed && i === walk.length - 1)
+          ? sub(walk[i], walk[i - 1]) : sub(after, walk[i]);
+        const way = norm(add(norm(back) || [1, 0], norm(on) || [1, 0])) || norm(on) || [1, 0];
+        pts.push(sketchRound(add(walk[i], mul(perp(way), distance))));
+      }
+      if (closed) pts.push(pts[0].slice());
+      return { el: dressed({ type: "spline", pts, closed }), exact: false };
+    }
+  }
+}
+
+//! WHAT IS ANCHORED, as references. The solver holds these still while
+//! everything relaxes around them - but it only ever sees the drawing it is
+//! given, so anything that MOVES a handle before solving has to ask first.
+//! Measured: dragging an end of a fixed line moved it, because the drag moved
+//! it and then the solver dutifully held it at its new place.
+export function sketchFixed(drawing) {
+  const out = new Set();
+  for (const c of (drawing && drawing.constraints) || [])
+    if (c.type === "fix") for (const ref of c.of || []) out.add(ref);
+  return out;
+}
+
+//! Whether a handle reference is held, either by its own name or by its
+//! element being fixed whole.
+export function sketchIsFixed(drawing, ref) {
+  const fixed = sketchFixed(drawing);
+  return fixed.has(ref) || fixed.has(String(ref || "").split(".")[0]);
+}
+
+export function sketchNearestOn(el, p, quality = 96) {
+  if (!el) return null;
+  if (el.type === "point") return el.p.slice();
+  if (el.type === "line") {
+    const along = sub(el.b, el.a), reach = dot(along, along);
+    if (reach < 1e-12) return el.a.slice();
+    const t = Math.max(0, Math.min(1, dot(sub(p, el.a), along) / reach));
+    return add(el.a, mul(along, t));
+  }
+  if ((el.type === "circle" || el.type === "arc") && el.r > 0) {
+    const away = sub(p, el.c), reach = len(away);
+    const angle = reach < 1e-12 ? (el.a0 === undefined ? 0 : el.a0)
+                                : Math.atan2(away[1], away[0]);
+    if (el.type === "circle") return arcEnd({ ...el, c: el.c }, angle);
+    //! AN ARC IS NOT ITS CIRCLE. Past either end the nearest point on the arc
+    //! is that end, and a point mounted on an arc has to stop there rather
+    //! than carrying on round the part of the circle that is not drawn.
+    let a = angle;
+    while (a < el.a0) a += Math.PI * 2;
+    while (a > el.a0 + Math.PI * 2) a -= Math.PI * 2;
+    if (a <= el.a1) return arcEnd(el, a);
+    const first = arcEnd(el, el.a0), last = arcEnd(el, el.a1);
+    return dist(p, first) <= dist(p, last) ? first : last;
+  }
+  const line = sketchOutline(el, quality);
+  if (!line.length) return null;
+  if (line.length === 1) return line[0].slice();
+  let best = line[0], away = Infinity;
+  for (let i = 0; i + 1 < line.length; i++) {
+    const on = nearestOnSegment(p, line[i], line[i + 1]);
+    const d = dist(p, on);
+    if (d < away) { away = d; best = on; }
+  }
+  return best;
+}
+
+//! Halfway ALONG an element rather than the middle of its box: exact on a line,
+//! the middle angle on an arc, and the middle of the walk on anything else.
+export function sketchMidOn(el, quality = 96) {
+  if (!el) return null;
+  if (el.type === "point") return el.p.slice();
+  if (el.type === "line") return mid(el.a, el.b);
+  if (el.type === "arc" && el.r > 0) return arcEnd(el, (el.a0 + el.a1) / 2);
+  const line = sketchOutline(el, quality);
+  if (!line.length) return null;
+  if (line.length === 1) return line[0].slice();
+  //! By length rather than by index: a sampled ellipse has its points bunched
+  //! where it is tight, so the middle of the LIST is not the middle of the run.
+  let total = 0;
+  for (let i = 0; i + 1 < line.length; i++) total += dist(line[i], line[i + 1]);
+  let walked = 0;
+  for (let i = 0; i + 1 < line.length; i++) {
+    const step = dist(line[i], line[i + 1]);
+    if (walked + step >= total / 2) {
+      const t = step < 1e-12 ? 0 : (total / 2 - walked) / step;
+      return add(line[i], mul(sub(line[i + 1], line[i]), t));
+    }
+    walked += step;
+  }
+  return line[line.length - 1].slice();
+}
+
+const nearestOnSegment = (p, a, b) => {
+  const along = sub(b, a), reach = dot(along, along);
+  if (reach < 1e-12) return a.slice();
+  const t = Math.max(0, Math.min(1, dot(sub(p, a), along) / reach));
+  return add(a, mul(along, t));
+};
+
 export function sketchDistanceTo(el, p, quality = 48) {
   const line = sketchOutline(el, quality);
   if (!line.length) return Infinity;

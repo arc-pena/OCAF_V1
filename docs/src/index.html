@@ -2666,6 +2666,15 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
     <button class="sk-exit" id="sketch-do-round"
             title="Round the corner between the two picked elements">Apply</button>
   </span>
+  <!-- The parallel curve of whatever is picked. Signed, because which side is
+       the whole question and a minus sign is the shortest way to say it. -->
+  <span class="sk-round" id="sketch-offsetbar" hidden>
+    <label for="sketch-offset">Offset</label>
+    <input id="sketch-offset" type="number" step="1" value="10"
+           aria-label="Offset distance">
+    <button class="sk-exit" id="sketch-do-offset"
+            title="Add the parallel curve of everything picked">Apply</button>
+  </span>
   <button class="sk-exit" id="sketch-done">Done</button>
 </div>
 

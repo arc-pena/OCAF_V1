@@ -2,7 +2,9 @@ import { acceptsFrom, isElided } from "./ocaf.js";
 import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, isDimension, measureDimension,
          nextSketchId, readSketch,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
-         sketchFillet, sketchMoveHandle, sketchOverlaps, sketchRelation, sketchTangentArc,
+         sketchFillet, sketchIsFixed, sketchMoveHandle, sketchOffset, sketchOverlaps,
+         sketchRelation,
+         sketchTangentArc,
          solveSketch } from "./sketch.js";
 
 // The model description language.
@@ -651,6 +653,36 @@ export const MDL_OPS = [
       const already = JSON.stringify(relation);
       if (!drawing.constraints.some(c => JSON.stringify(c) === already))
         drawing.constraints.push(relation);
+      //! SETTLED AND WRITTEN DOWN, like a drag and like a dimension. The
+      //! sketcher draws the drawing as STORED, so a point mounted on a curve
+      //! stayed visibly off it and a line told to be level stayed visibly
+      //! diagonal - right in the built geometry, wrong on the paper, until
+      //! something unrelated rebuilt it. Saying a thing is true is an edit, and
+      //! an edit shows.
+      //!
+      //! Once per relate, not once per rebuild: what the original comment warns
+      //! against is re-solving on every build, which would let the drawn
+      //! geometry drift away from what was drawn a little at a time.
+      const settled = solveSketch(drawing, 40);
+      return ctx.kernel.setSketch(edit.id, null, settled.drawing);
+    }),
+
+  modelOp("offset", ["id", "of", "distance"],
+    "Add the parallel curve of one element of a sketch, at a distance: positive to the "
+    + "LEFT of the way it runs. A line offsets to a line and a circle or arc to a "
+    + "concentric one; an ellipse, a spline or a B-spline has no offset of its own kind, "
+    + "so it comes back as a spline through the offset points and the note says so.",
+    { op: "offset", id: "SK1", of: "e1", distance: 12 },
+    async (ctx, edit) => {
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const of = needText(edit, "of");
+      const el = drawing.elements.find(e => e.id === of);
+      if (!el) throw new Error("that sketch has no element '" + of + "'");
+      const made = sketchOffset(el, needNumber(edit, "distance"), nextSketchId(drawing));
+      if (!made)
+        throw new Error("nothing to offset there: a " + el.type
+          + " offset by that much has no curve left, or has no length to be parallel to");
+      drawing.elements.push(made.el);
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 
@@ -695,6 +727,13 @@ export const MDL_OPS = [
       const drawing = await drawingOf(ctx, needText(edit, "id"));
       const found = sketchHandleAt(drawing, at);
       if (!found) throw new Error("there is no handle '" + at + "' on that sketch");
+      //! ANCHORED THINGS DO NOT MOVE, and this is the only place that can say
+      //! so. A drag moves the handle and THEN solves, so by the time the solver
+      //! sees the drawing the handle is already at its new place and holding it
+      //! there is exactly what a fix asks for - measured: a fixed line dragged
+      //! by an end went with the hand, every time.
+      if (sketchIsFixed(drawing, at))
+        throw new Error(at + " is fixed: take the Fix off it before moving it");
       sketchMoveHandle(found.el, found.key, to);
       // A drag is the one edit where the relations are settled and written down
       // rather than left to the build: the hand is on this handle, so it stays

@@ -4015,6 +4015,10 @@ function refreshSketch() {
   // are two. A radius field standing there with nothing to round is a field in
   // the way of the hint that would have told you to pick something.
   document.getElementById("sketch-fillet").hidden = roundable().length !== 2;
+  //! Offered whenever anything with a length is picked - one curve is enough,
+  //! unlike a fillet which needs two to round between.
+  document.getElementById("sketch-offsetbar").hidden =
+    !pickedElements().some(el => el.type !== "point");
   // Construction is a question about what is picked, so it is only asked while
   // something is. Pressed means everything picked is already construction, and
   // pressing it again makes all of it real.
@@ -4530,6 +4534,24 @@ function roundSketchCorner() {
   edit({ op: "fillet", id: sketcher.id, of: [two[0].id, two[1].id], radius });
 }
 
+//! THE PARALLEL CURVE OF EVERYTHING PICKED, which is one op per element rather
+//! than one for the lot: offsetting three curves is three new elements, and if
+//! one of them cannot be offset - a point, or a circle offset away to nothing -
+//! the other two should still appear. Which is the rule everywhere else here.
+function offsetSketchPicked() {
+  const picked = pickedElements();
+  if (!picked.length) { say("pick a line, arc, circle or curve to offset"); return; }
+  const field = document.getElementById("sketch-offset");
+  const distance = Number(field && field.value);
+  if (!Number.isFinite(distance) || Math.abs(distance) < 1e-9) {
+    say("the offset distance cannot be nothing"); return;
+  }
+  sketcher.picked = [];
+  sketcher.relation = -1;
+  mdl.runAll(picked.map(el => ({ op: "offset", id: sketcher.id, of: el.id, distance })))
+     .catch(error => showError(error.message));
+}
+
 //! Construction on or off over everything picked. All of it construction
 //! already means the button turns it back into geometry; anything else means
 //! make all of it construction - so one button reads the selection and does
@@ -4566,6 +4588,12 @@ function dropRelation() {
 //! the thing it makes rather than a thing you had to have already.
 const relationWants = spec =>
   spec.key === "intersect" ? { picks: 2, kind: "element", what: "curves" }
+  //! FIX takes whichever you picked: a whole element or one of its ends, and
+  //! they mean different things - see the relation's own comment.
+  : spec.of === "any" ? { picks: 1, kind: "either", what: "an element or one end" }
+  //! ON and MIDPOINT take one of each, in that order: the point that is mounted
+  //! and the curve it rides on.
+  : spec.of === "point and one" ? { picks: 2, kind: "mixed", what: "an end and a curve" }
   : spec.of === "handle" ? { picks: spec.takes, kind: "handle", what: "ends" }
   : { picks: spec.takes, kind: "element",
       what: spec.of === "line" ? "lines"
@@ -4573,6 +4601,15 @@ const relationWants = spec =>
 
 const usableFor = spec => {
   const wants = relationWants(spec);
+  if (wants.kind === "either") return sketcher.picked.slice();
+  //! The end first and the curve second, whichever order they were picked in -
+  //! "click the point then the line" and "click the line then the point" are
+  //! the same intention and only one of them should have to be learnt.
+  if (wants.kind === "mixed") {
+    const end = sketcher.picked.find(p => p.includes("."));
+    const on = sketcher.picked.find(p => !p.includes("."));
+    return end && on ? [end, on] : [];
+  }
   return sketcher.picked.filter(p => p.includes(".") === (wants.kind === "handle"));
 };
 
@@ -4687,6 +4724,16 @@ function buildSketchRail() {
   round.innerHTML = svg(SKETCH_ICONS.fillet);
   round.addEventListener("click", roundSketchCorner);
   changes.appendChild(round);
+
+  const off = document.createElement("button");
+  off.className = "tool";
+  off.dataset.change = "offset";
+  off.dataset.label = "Offset \u00b7 pick any curves, then a distance \u00b7 minus for the other side";
+  off.dataset.short = "Offset";
+  off.setAttribute("aria-label", "Offset");
+  off.innerHTML = svg(SKETCH_ICONS.offset);
+  off.addEventListener("click", offsetSketchPicked);
+  changes.appendChild(off);
   rail.appendChild(changes);
 }
 
@@ -6971,6 +7018,15 @@ const RELATION_GLYPH = {
                [0, 0.3], [0.5, -0.3], [0.5, -0.3], [0.5, -0.7]],
   // A cross: two strokes meeting where the point is.
   intersect:  [[-0.85, -0.85], [0.85, 0.85], [-0.85, 0.85], [0.85, -0.85]],
+  // A pin: a square with a cross through it, the way a fixed support is drawn.
+  fix:      [[-0.7, -0.7], [0.7, -0.7], [0.7, -0.7], [0.7, 0.7], [0.7, 0.7], [-0.7, 0.7],
+             [-0.7, 0.7], [-0.7, -0.7], [-0.7, -0.7], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7]],
+  // A dot riding on a line.
+  on:       [[-0.9, 0.45], [0.9, 0.45],
+             [-0.3, -0.15], [0.3, -0.15], [-0.3, -0.15], [0, 0.4], [0, 0.4], [0.3, -0.15]],
+  // A line with a tick at its middle.
+  midpoint: [[-0.9, 0.4], [0.9, 0.4], [0, 0.4], [0, -0.5],
+             [-0.25, -0.5], [0.25, -0.5]],
   //! A DIMENSION'S GLYPH IS AN ARROW PAIR, the way one is drawn on paper: a
   //! run with a head at each end. The NUMBER is not here - it is a DOM chip
   //! over the canvas, because a number you type into cannot be a line.
@@ -7013,6 +7069,17 @@ const SKETCH_ICONS = {
   line: '<path d="M2.6 13.4L13.4 2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="2.6" cy="13.4" r="1.5" fill="currentColor"/><circle cx="13.4" cy="2.6" r="1.5" fill="currentColor"/>',
   arc: '<path d="M2.4 12.4A9 9 0 0112.4 2.4" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="2.4" cy="12.4" r="1.4" fill="currentColor"/><circle cx="12.4" cy="2.4" r="1.4" fill="currentColor"/>',
   circle: '<circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/>',
+  fix: '<rect x="3" y="3" width="10" height="10" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+     + '<path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.1"/>',
+  on: '<path d="M1.8 11.4C5 11.4 6.6 4.6 14.2 4.6" fill="none" stroke="currentColor" stroke-width="1.3"/>'
+    + '<circle cx="7.4" cy="7.9" r="2.3" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+    + '<circle cx="7.4" cy="7.9" r=".9" fill="currentColor"/>',
+  midpoint: '<path d="M2 11.6h12" stroke="currentColor" stroke-width="1.3"/>'
+          + '<path d="M8 11.6V4.2" stroke="currentColor" stroke-width="1.1"/>'
+          + '<circle cx="8" cy="11.6" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<circle cx="8" cy="11.6" r=".8" fill="currentColor"/>',
+  offset: '<path d="M2 12.8C4.6 12.8 5.6 3.2 13.6 3.2" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+        + '<path d="M2 8.6C4.6 8.6 5.6 -1 13.6 -1" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="2 1.6" opacity=".6" transform="translate(0 4.2)"/>',
   //! The dimension tools, drawn as a drawing board draws them: witness lines,
   //! a run between them, and a head at each end.
   length: '<path d="M2.4 3v10M13.6 3v10" stroke="currentColor" stroke-width="1" opacity=".55"/>'
@@ -7783,7 +7850,58 @@ document.getElementById("tree-search").addEventListener("blur", () => {
   if (!search.text.trim()) openSearch(false);
 });
 
+//! THE TREE IS PAINTED ONCE A FRAME.
+//!
+//! Painting it empties the list and fills it again, and entering the sketcher
+//! did that EIGHT times in one gesture - measured, with a MutationObserver on
+//! the list counting batches of additions. Every one of those asks was right:
+//! the selection changed, the sketch opened, the elements became rows, the
+//! kernel answered. Doing the work eight times was not, and what it looks like
+//! is the tree flickering.
+//!
+//! So buildTree QUEUES a rebuild and rebuildTreeRows does it. Anything that
+//! must see the rows it just asked for calls buildTreeNow. Not called
+//! paintTree: that already exists and is the cheap one - it repaints the
+//! selection on rows that are already there, sixty times during a drag.
+let treePaint = 0;
 function buildTree() {
+  if (treePaint) return;
+  treePaint = requestAnimationFrame(() => { treePaint = 0; rebuildTreeRows(); });
+}
+//! For the caller that goes looking for a row the moment it has asked for one:
+//! revealing a feature scrolls to its row, and a row that will exist next frame
+//! cannot be scrolled to now.
+function buildTreeNow() {
+  if (treePaint) { cancelAnimationFrame(treePaint); treePaint = 0; }
+  //! Forced: the caller wants the rows NOW, which means it does not care
+  //! whether anything this side can tell has changed.
+  treeWas = { tree: null, key: "" };
+  rebuildTreeRows();
+}
+//! WHAT THE TREE IS A PICTURE OF. Coalescing took entering the sketcher from
+//! eight rebuilds to four, and the remaining four are in four different frames
+//! because the answers arrive in four different frames - each one asking for a
+//! rebuild that produces exactly the rows already on screen.
+//!
+//! state.tree by IDENTITY rather than by content: the kernel hands back a new
+//! object every time it answers, so a new object is the one reliable "something
+//! happened" there is, and comparing thousands of rows to save a rebuild would
+//! cost more than the rebuild. Everything else here is a thing rebuildTreeRows
+//! reads. Getting this list wrong in one direction costs a needless rebuild;
+//! wrong in the other it shows a stale tree - so anything not certain goes in.
+let treeWas = { tree: null, key: "" };
+function treeSignature() {
+  const box = document.getElementById("tree-search");
+  return [state.workingIn, sketcher.id, sketcher.relation, (sketcher.picked || []).join("+"),
+          state.selected, (state.picked || []).join("+"),
+          box ? box.value : "", [...shut].join("\u0001"),
+          (state.hidden ? [...state.hidden] : []).join("+")].join("\u0000");
+}
+
+function rebuildTreeRows() {
+  const key = treeSignature();
+  if (treeWas.tree === state.tree && treeWas.key === key) return;
+  treeWas = { tree: state.tree, key };
   //! Checked here rather than where it is set, because the document can change
   //! under it: opening another model, or deleting the set, leaves a remembered
   //! id pointing at nothing and everything new would be filed into a folder
@@ -7794,6 +7912,11 @@ function buildTree() {
     state.workingIn = null;
   closeMenu();
   const list = document.getElementById("tree");
+  //! WHERE THEY HAD SCROLLED TO. Emptying the list puts the scroller back to
+  //! the top, so a repaint while you are looking at row ninety threw you to row
+  //! one - which reads as the tree jumping about even when it is painted once.
+  const scroller = list.closest("[data-scroll], .scroll, .panel-body") || list.parentElement;
+  const wasAt = scroller ? scroller.scrollTop : 0;
   list.textContent = "";
   treeOrder.length = 0;
   if (!state.tree) return;
@@ -7887,6 +8010,7 @@ function buildTree() {
     none.textContent = "nothing in the tree is called that";
     list.appendChild(none);
   }
+  if (scroller && wasAt) scroller.scrollTop = wasAt;
 }
 
 //! One element of an open drawing, as a row. Picked here or picked in the
@@ -7984,7 +8108,8 @@ function revealInTree(id, { open = true } = {}) {
     }
     //! The headings are folded by their own keys, not by a feature id.
     for (const key of [...shut]) if (/^section:/.test(key)) { /* left alone */ }
-    if (moved) { rememberShut(); buildTree(); }
+    //! Now, not next frame: the row is looked for on the very next line.
+    if (moved) { rememberShut(); buildTreeNow(); }
   }
   const row = document.querySelector('#tree li.node[data-id="' + cssEscape(id) + '"]');
   if (!row) return false;
@@ -12038,6 +12163,7 @@ document.getElementById("sketch-tangent").addEventListener("click", () => {
   refreshSketch();
 });
 document.getElementById("sketch-do-round").addEventListener("click", roundSketchCorner);
+document.getElementById("sketch-do-offset").addEventListener("click", offsetSketchPicked);
 
 /* ----------------------------------------------------------------------- AI
 
