@@ -1679,6 +1679,24 @@ function anyBrepEdges() {
   return false;
 }
 
+//! PUT AWAY, AND HOW IT COMES BACK. The dial was up for exactly as long as
+//! Arctic was the style, which is right the first time and wrong every time
+//! after it: four sliders somebody set once stand over the view buttons for
+//! the rest of the session. So it closes, and pressing ARCTIC again - the
+//! button it belongs to, pressed when it is already the style - brings it
+//! back. Remembered, because how this window is laid out is a preference and
+//! not a property of the document; it is only ever reached by that one press,
+//! so a person who shuts it and comes back tomorrow should not find it open.
+let lookShut = false;
+try { lookShut = localStorage.getItem("ocafcad/arctic-dial") === "shut"; } catch (e) {}
+
+function showLook(on) {
+  lookShut = !on;
+  try { localStorage.setItem("ocafcad/arctic-dial", lookShut ? "shut" : "open"); } catch (e) {}
+  const look = document.getElementById("arctic-look");
+  if (look) look.hidden = lookShut || state.style !== "arctic";
+}
+
 function rememberedLook() {
   try {
     const kept = JSON.parse(localStorage.getItem("ocafcad/arctic-look") || "null");
@@ -1780,9 +1798,10 @@ function applyStyle(styleKey = state.style) {
   // The backdrop belongs to the style too: a white model wants a plain ground
   // behind it, not a blue-grey sky that its own silhouette disappears into.
   document.body.dataset.style = style.key;
-  //! The dial is up only when the style it is about is.
+  //! The dial is up only when the style it is about is - and only if it has
+  //! not been put away.
   const look = document.getElementById("arctic-look");
-  if (look) look.hidden = style.key !== "arctic";
+  if (look) look.hidden = lookShut || style.key !== "arctic";
   //! And the overlay exists only while Arctic does. Left standing, it would
   //! be five times the memory of the edge buffers for something on a layer
   //! nothing is rendering.
@@ -1801,9 +1820,18 @@ function applyStyle(styleKey = state.style) {
 }
 
 function setStyle(styleKey) {
+  //! PRESSED AGAIN, ON THE STYLE IT IS ALREADY IN. There is one button this
+  //! dial belongs to and pressing it a second time is the only gesture that
+  //! unambiguously asks for it - switching away and back does not, because
+  //! that is somebody comparing two styles rather than asking for four
+  //! sliders. This is read BEFORE applyStyle, which is what makes "again"
+  //! mean anything.
+  const again = styleKey === "arctic" && state.style === "arctic";
   applyStyle(styleKey);
+  if (again) showLook(lookShut);
   try { localStorage.setItem("ocafcad/view-style", state.style); } catch (e) {}
-  say(findStyle(state.style).label + " — " + findStyle(state.style).summary);
+  say(findStyle(state.style).label + " — " + findStyle(state.style).summary
+      + (again ? (lookShut ? " · dial put away" : " · dial back") : ""));
 }
 
 /* ==========================================================================
@@ -7738,6 +7766,7 @@ function buildToolbar() {
     if (head) head.remove();
   }
   document.getElementById("btn-def-close").innerHTML = svg(ICONS.close);
+  document.getElementById("look-close").innerHTML = svg(ICONS.close);
   document.getElementById("ai-close").innerHTML = svg(ICONS.close);
   document.getElementById("btn-undo").innerHTML = svg(ICONS.undo);
   document.getElementById("btn-redo").innerHTML = svg(ICONS.redo);
@@ -14327,6 +14356,10 @@ document.getElementById("btn-tree").addEventListener("click", () => {
   toggleTree();
 });
 document.getElementById("btn-def-close").addEventListener("click", () => stowPanel(false));
+document.getElementById("look-close").addEventListener("click", () => {
+  showLook(false);
+  say("Arctic dial put away \u00b7 press ARCTIC again to bring it back");
+});
 document.getElementById("btn-rail").addEventListener("click", () => stowRail());
 document.getElementById("btn-panel").addEventListener("click", () => stowPanel());
 document.getElementById("btn-log").addEventListener("click", () => {

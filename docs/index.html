@@ -1785,13 +1785,27 @@ body.barred #status { visibility: hidden; pointer-events: none; }
 /* The arctic sliders, stacked over the style buttons they belong to. Narrow
    on purpose: four numbers about how a white model looks are not a dialog. */
 #arctic-look {
-  right: var(--edge); bottom: calc(var(--edge) + 34px); z-index: 3;
+  /* IT DODGES THE PANEL, like every other float in this corner. It was pinned
+     to the window edge with a hard 34px above the bottom, so with the
+     definition panel open it stood ON it - four sliders over somebody's
+     material swatches - and a mode with a bar of its own put the bar under it.
+     --right-dock and --bar-h are what the page measured; the lens panel, the
+     other small dial in this corner, has always been written this way. */
+  right: calc(var(--edge) + var(--right-dock));
+  bottom: calc(var(--edge) + var(--corner) + var(--bar-h)); z-index: 3;
   width: 206px; padding: 8px 10px 9px;
   display: flex; flex-direction: column; gap: 5px;
 }
 #arctic-look .look-head {
   font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--ink-3);
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  /* The button is taller than the label it sits beside, so the row would grow
+     by six pixels and push the first slider down. It is pulled back into the
+     padding instead, which is where a close button belongs anyway. */
+  margin: -3px -4px -1px 0;
 }
+#arctic-look .look-head .icon-btn { width: 18px; height: 18px; border-radius: 4px; }
+#arctic-look .look-head .icon-btn svg { width: 11px; height: 11px; }
 #arctic-look label {
   display: grid; grid-template-columns: 4.6em 1fr 2.4em; align-items: center; gap: 6px;
   font-size: 11px; color: var(--ink-2);
@@ -2727,7 +2741,13 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 <!-- How white and how dark, for the one style where that is a question. It is
      up only when Arctic is, because it is meaningless anywhere else. -->
 <div class="float" id="arctic-look" hidden>
-  <div class="look-head">ARCTIC</div>
+  <!-- Four numbers about how a white model looks, and a way to put them away.
+       It stood over the view buttons for as long as Arctic was the style,
+       whether or not anybody was still adjusting it. -->
+  <div class="look-head"><span>ARCTIC</span>
+    <button class="icon-btn" id="look-close"
+            title="Put the dial away &#183; press ARCTIC again to bring it back"
+            aria-label="Close the Arctic dial"></button></div>
   <label><span>Shadows</span>
     <input type="range" id="look-shadow" min="0" max="2" step="0.05" value="1">
     <output id="look-shadow-out">1.00</output></label>
@@ -2758,7 +2778,8 @@ to find.">
        same kind of decision and neither is a property of the document. -->
   <button data-style="shaded">SHADED</button>
   <button data-style="rendered">RENDERED</button>
-  <button data-style="arctic">ARCTIC</button>
+  <button data-style="arctic"
+          title="White model, drawn shadows &#183; press it again for the dial">ARCTIC</button>
   <span class="tool-sep"></span>
   <button data-view="iso">ISO</button>
   <button data-view="top">TOP</button>
