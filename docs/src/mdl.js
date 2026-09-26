@@ -1,19 +1,13 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
-import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, currentLayer, isDimension,
+import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, SKETCH_SETTLE, currentLayer,
+         isDimension,
          measureDimension, nextSketchId, nextSketchIds, readSketch, sketchAssembly,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
-         sketchFillet, sketchIsFixed, sketchMoveHandle, sketchOffset, sketchOverlaps,
+         sketchFillet, sketchHandles, sketchIsFixed, sketchMoveHandle, sketchOffset,
+         sketchOverlaps,
          sketchRelation,
          sketchTangentArc,
          solveSketch } from "./sketch.js";
-
-//! HOW LONG AN EDIT INSIDE A SKETCH IS GIVEN TO SETTLE. Not a guess at how
-//! many passes are enough - solveSketch stops by itself the moment it is not
-//! improving - but a ceiling high enough that it is the drawing that decides
-//! and not the clock. It was forty, which on a rectangle given a length
-//! stopped four-fifths of the way there and left the opposite side 0.38 mm
-//! short of the one that had been dimensioned.
-const SETTLE = 400;
 
 // The model description language.
 //
@@ -589,7 +583,18 @@ export const MDL_OPS = [
       const found = drawing.elements.filter(el => wanted.has(el.id));
       if (!found.length) throw new Error("that sketch has none of those elements on it");
       for (const el of found) sketchMoveElement(el, by);
-      return ctx.kernel.setSketch(edit.id, null, drawing);
+      //! AND THEN IT SETTLES, which every other edit inside a sketch does and
+      //! this one did not. Moving three sides of a rectangle and leaving the
+      //! fourth where it was wrote a drawing whose coincidences were false:
+      //! the BUILD solved it, so the solid looked right, and the drawing you
+      //! were looking at and dragging next was the broken one. The elements
+      //! that were moved are pinned, so the rest of the drawing comes to them
+      //! rather than dragging them back to where they were.
+      const anchors = [];
+      for (const el of found)
+        for (const [key] of sketchHandles(el)) anchors.push(el.id + "." + key);
+      const settled = solveSketch(drawing, SKETCH_SETTLE, anchors);
+      return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
   modelOp("weld", ["id", "within?"],
@@ -698,7 +703,7 @@ export const MDL_OPS = [
       //! Once per relate, not once per rebuild: what the original comment warns
       //! against is re-solving on every build, which would let the drawn
       //! geometry drift away from what was drawn a little at a time.
-      const settled = solveSketch(drawing, SETTLE);
+      const settled = solveSketch(drawing, SKETCH_SETTLE);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
@@ -742,7 +747,7 @@ export const MDL_OPS = [
       //! what they come to at build time - but typing 62 onto a radius has to
       //! move the circle you are looking at, or the number on screen and the
       //! circle under it disagree until something else rebuilds them.
-      const settled = solveSketch(drawing, SETTLE);
+      const settled = solveSketch(drawing, SKETCH_SETTLE);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
@@ -775,7 +780,7 @@ export const MDL_OPS = [
       // exactly where it was put and everything held to it follows all the way.
       // Anywhere else the drawing keeps what was drawn and the relations are
       // what they come to - here, dragging a corner has to move the corner.
-      const settled = solveSketch(drawing, SETTLE, [at]);
+      const settled = solveSketch(drawing, SKETCH_SETTLE, [at]);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 

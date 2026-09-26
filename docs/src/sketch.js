@@ -82,8 +82,13 @@ export const SKETCH_RELATIONS = [
     hint: "a circle or arc is this radius" },
   { key: "diameter", label: "Diameter", takes: 1, of: "round",  value: true, unit: "mm",
     hint: "a circle or arc is this across" },
-  { key: "distance", label: "Distance", takes: 2, of: "handle", value: true, unit: "mm",
-    hint: "two ends are this far apart" },
+  //! TWO ENDS, OR AN END AND A LINE. The second is the one a drawing board
+  //! asks for constantly and this could not say: how far a point stands OFF a
+  //! line, measured square to it, which is what "50 from that face" means. A
+  //! relation that only took two ends made you draw a point on the line first,
+  //! and then the answer depended on where along the line you had put it.
+  { key: "distance", label: "Distance", takes: 2, of: "handle or one", value: true,
+    unit: "mm", hint: "two ends are this far apart, or an end stands this far off a line" },
   { key: "angle",    label: "Angle",    takes: 2, of: "line",   value: true, unit: "\u00b0",
     hint: "two lines meet at this angle" },
 ];
@@ -94,6 +99,14 @@ export const isDimension = type =>
   !!(SKETCH_RELATIONS.find(r => r.key === type) || {}).value;
 
 export const EMPTY_SKETCH = { elements: [], constraints: [] };
+
+//! HOW LONG A SOLVE IS GIVEN. Not a guess at how many passes are enough -
+//! solveSketch stops by itself the moment it is not improving - but a ceiling
+//! high enough that it is the drawing that decides and not the clock. Said
+//! here because the edit and the preview of that edit have to use the same
+//! one: a drag that is shown solved with twenty-four passes and written with
+//! four hundred is a drag that moves when you let go of it.
+export const SKETCH_SETTLE = 400;
 
 /* ------------------------------------------------------------------ maths */
 
@@ -293,8 +306,11 @@ export function sketchRelation(type, of, value) {
   if (!spec) throw new Error('there is no sketch relation called "' + type + '"');
   const list = (of || []).slice(0, spec.takes);
   if (list.length !== spec.takes)
-    throw new Error(spec.label + " takes " + spec.takes
-      + (spec.of === "handle" ? " ends" : " " + spec.of === "any" ? " elements" : " lines"));
+    throw new Error(spec.label + " takes " + spec.takes + " "
+      + (spec.of === "handle" ? "ends"
+       : spec.of === "handle or one" ? "of: two ends, or an end and a line"
+       : spec.of === "line" ? "lines"
+       : spec.of === "round" ? "circles or arcs" : "elements"));
   if (!spec.value) return { type, of: list };
   //! A DIMENSION WITH NO NUMBER IS NOT A DIMENSION. The caller measures it off
   //! the drawing when the user did not type one - see measureDimension - so a
@@ -317,6 +333,10 @@ export function measureDimension(drawing, type, of) {
   const map = byId(drawing || EMPTY_SKETCH);
   const list = Array.isArray(of) ? of : [of];
   const el = id => map.get(String(id || "").split(".")[0]) || null;
+  //! A POINT ELEMENT IS ITS OWN END. Picked in the drawing it comes back as
+  //! "p1.p"; named in a file or by the assistant it is as likely to be "p1",
+  //! and refusing the second would be refusing the obvious reading.
+  const pointIn = one => (one && one.type === "point" ? one.p : null);
   const spot = name => {
     const [id, key] = String(name || "").split(".");
     const one = map.get(id);
@@ -338,8 +358,23 @@ export function measureDimension(drawing, type, of) {
       return one && one.r > 0 ? one.r * 2 : null;
     }
     case "distance": {
-      const a = spot(list[0]), b = spot(list[1]);
-      return a && b ? len(sub(b, a)) : null;
+      const a = spot(list[0]) || pointIn(el(list[0]));
+      if (!a) return null;
+      //! An end and an ELEMENT is the perpendicular distance, because that is
+      //! what a drawing means by how far a point is from a line. To anything
+      //! that is not straight it is the distance to the nearest point on it,
+      //! which is the same sentence for a curve.
+      const other = String(list[1]).includes(".") ? null : el(list[1]);
+      if (other) {
+        if (other.type === "line") {
+          const along = norm(sub(other.b, other.a));
+          return along ? Math.abs(dot(sub(a, other.a), perp(along))) : null;
+        }
+        const near = sketchNearestOn(other, a, 96);
+        return near ? len(sub(a, near)) : null;
+      }
+      const b = spot(list[1]) || pointIn(el(list[1]));
+      return b ? len(sub(b, a)) : null;
     }
     case "angle": {
       const a = el(list[0]), b = el(list[1]);
@@ -1586,8 +1621,44 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
       return off * off;
     }
     case "distance": {
-      const a = handle(of[0]), b = handle(of[1]);
-      if (!a || !b) return 0;
+      const a = handle(of[0]) || handle(String(of[0]) + ".p");
+      if (!a) return 0;
+      const want0 = relation.value;
+      //! AN END AND A WHOLE ELEMENT: how far the point stands OFF it, square to
+      //! it. A different projection from two ends, because there is no line
+      //! between them to slide along - the point moves along the element's own
+      //! normal, and stays on the side of it that it is already on. Sign is
+      //! everything here: without it a point told to stand 50 off a line
+      //! crosses to the other side of it as soon as the line is dragged past.
+      const whole = String(of[1]).includes(".") ? null : index.get(String(of[1]));
+      if (whole && want0 > 0) {
+        if (whole.type === "line") {
+          const way = norm(sub(whole.b, whole.a));
+          if (!way) return 0;
+          const n = perp(way);
+          const across = dot(sub(a.p, whole.a), n);
+          const off = Math.abs(across) - want0;
+          const side = across < 0 ? -1 : 1;
+          const shift = mul(n, side * off);
+          //! Whichever is free takes it, and the point takes it when both are:
+          //! a dimension off a line is read as a statement about the point.
+          if (!a.held) moveTo(a, sub(a.p, shift));
+          else if (!(held.has(whole.id + ".a") && held.has(whole.id + ".b"))) {
+            whole.a = sketchRound(add(whole.a, shift));
+            whole.b = sketchRound(add(whole.b, shift));
+          }
+          return off * off;
+        }
+        const near = sketchNearestOn(whole, a.p, 96);
+        if (!near) return 0;
+        const away = sub(a.p, near), reach = len(away);
+        if (reach < 1e-9) return 0;
+        const off = reach - want0;
+        if (!a.held) moveTo(a, sub(a.p, mul(away, off / reach)));
+        return off * off;
+      }
+      const b = handle(of[1]) || handle(String(of[1]) + ".p");
+      if (!b) return 0;
       const along = sub(b.p, a.p), have = len(along);
       const want = relation.value;
       if (!(want > 0) || have < 1e-9) return 0;
@@ -1736,12 +1807,22 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
         //!
         //! Sign(across) is still what keeps a fillet sitting in the corner it
         //! was put in rather than flipping through the line to the other side.
-        const shift = mul(perp(along), Math.sign(across) * off * 0.5);
-        round.c = sketchRound(sub(round.c, shift));
-        //! A line held at both ends is not a line that may be slid, and the arc
-        //! has already taken its half: the rest is the drawing telling you it
-        //! is over-constrained, which is what the residual is for.
-        if (!(held.has(other.id + ".a") && held.has(other.id + ".b"))) {
+        //! WHAT IS HELD DOES NOT MOVE, and this is the one relation that wrote
+        //! straight into an element instead of going through moveTo - so a
+        //! dragged arc centre was shoved off the cursor by its own tangency
+        //! while every other handle in the sketcher stayed under the hand. A
+        //! slot dragged by the middle of one cap walked sideways out from
+        //! under the pointer. Whichever end of the tangency is pinned, the
+        //! other one takes the whole correction; with both pinned nothing
+        //! moves and the shove goes into the residual, which is how this
+        //! solver says over-constrained.
+        const arcHeld = held.has(round.id + ".c");
+        const lineHeld = held.has(other.id + ".a") && held.has(other.id + ".b");
+        const mine = arcHeld ? 0 : lineHeld ? 1 : 0.5;
+        const n = perp(along), dir = across < 0 ? -1 : 1;
+        if (mine) round.c = sketchRound(sub(round.c, mul(n, dir * off * mine)));
+        if (mine < 1) {
+          const shift = mul(n, dir * off * (1 - mine));
           other.a = sketchRound(add(other.a, shift));
           other.b = sketchRound(add(other.b, shift));
         }
@@ -2230,6 +2311,18 @@ export function builtDrawing(drawing) {
 //! Reads a drawing out of whatever was stored, dropping anything malformed
 //! rather than failing the feature. A sketch half-typed into the model file is
 //! still most of a sketch.
+//!
+//! AND IT IS A COPY. When the stored drawing is handed in as an object rather
+//! than as text - which is how the viewport reads the one the tree published -
+//! this used to pass the very same element objects back out, so anything that
+//! moved an element moved the DOCUMENT'S element. That is invisible until
+//! something applies an offset: the viewport re-reads the stored drawing every
+//! frame of a drag precisely so the offset is applied to the drawing as it was
+//! when the drag began, and it was reading back the drawing as its own last
+//! frame had left it. Measured: a line dragged 120 px ran 560 px away from the
+//! cursor and accelerated, while a dragged END - which is set to an absolute
+//! place rather than nudged by a delta - looked perfect. Two symptoms, one
+//! aliased object.
 export function readSketch(source) {
   const raw = typeof source === "string"
     ? (() => { try { return JSON.parse(source); } catch (e) { return null; } })()
@@ -2241,7 +2334,13 @@ export function readSketch(source) {
     if (seen.has(el.id)) return false;
     seen.add(el.id);
     return sketchHandles(el).every(([, p]) => Array.isArray(p) && p.every(Number.isFinite));
-  }).map(el => el.construction ? { ...el, construction: true } : el);
+  }).map(el => {
+    //! Deep, because an element's geometry is arrays: a shallow copy shares
+    //! the very points a drag moves.
+    const copy = JSON.parse(JSON.stringify(el));
+    if (el.construction) copy.construction = true;
+    return copy;
+  });
   const known = new Set(SKETCH_RELATIONS.map(r => r.key));
   const constraints = (Array.isArray(raw.constraints) ? raw.constraints : [])
     .filter(c => {

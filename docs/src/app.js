@@ -55,8 +55,8 @@ import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExcl
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
          readable, scanStep, sniffFormat, toBase64, whyNot } from "./exchange.js";
-import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TOOLS,
-         sketchAssembly, currentLayer,
+import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_SETTLE,
+         SKETCH_TOOLS, sketchAssembly, currentLayer,
          elementLocked, elementShown, isConstruction, nextSketchId, readSketch,
          sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
          sketchHandleAt, sketchHandles, sketchInBox, sketchLayers, sketchMoveElement,
@@ -3842,7 +3842,16 @@ function settled(drawing, pinned) {
   if (!entry || !drawing.constraints || !drawing.constraints.length) return drawing;
   const values = entry.values || {};
   if (values.solve) return drawing;                 // the node is set to ignore them
-  const passes = Math.max(1, Math.round(values.passes || 24));
+  //! THE SAME BUDGET THE EDIT ITSELF GETS. This ran the number on the Sketch
+  //! node - twenty-four by default, which is what the BUILD is given - so a
+  //! drag was shown half-solved and then written fully solved, and the drawing
+  //! jumped when the hand came off it. Worse, what you were looking at while
+  //! you dragged was a drawing whose coincidences had visibly come apart: ends
+  //! that are held together drawn a centimetre away from each other, which is
+  //! not a preview of anything. solveSketch stops as soon as it stops
+  //! improving, so asking for the ceiling costs nothing on a drawing that
+  //! settles quickly.
+  const passes = Math.max(SKETCH_SETTLE, Math.round(values.passes || 24));
   try { return solveSketch(drawing, passes, pinned || []).drawing; }
   catch (error) { return drawing; }
 }
@@ -4430,13 +4439,18 @@ function commitSketchElement(endSnap, smooth = null) {
   const clicks = sketcher.clicks.slice();
   const opening = sketcher.snapped;
   const carried = sketcher.from;
+  const tool = sketcher.tool;
   sketcher.clicks = [];
   sketcher.snapped = null;
-  if (clicks.length < 2) { refreshSketch(); return; }
+  //! A POINT IS ONE CLICK, and this asked every tool for two. The point tool
+  //! was on the rail, it armed, it took the click - and then this returned
+  //! before writing anything, so clicking with it did nothing at all and said
+  //! nothing about why. Everything else here wants two or more; what each tool
+  //! wants is in SKETCH_CLICKS and it is the only thing that should be asked.
+  if (clicks.length < (SKETCH_CLICKS[tool] || 2)) { refreshSketch(); return; }
 
   const drawing = sketchDrawing();
   const id = nextSketchId(drawing);
-  const tool = sketcher.tool;
 
   // Tangency is said, not computed here: the edit names the end to leave and
   // the point to reach, and the op works out the arc. So the line in the
@@ -4736,6 +4750,9 @@ const relationWants = spec =>
   //! ON and MIDPOINT take one of each, in that order: the point that is mounted
   //! and the curve it rides on.
   : spec.of === "point and one" ? { picks: 2, kind: "mixed", what: "an end and a curve" }
+  //! DISTANCE takes either: two ends, or an end and the line it stands off.
+  : spec.of === "handle or one"
+    ? { picks: 2, kind: "gap", what: "two ends, or an end and a line" }
   : spec.of === "handle" ? { picks: spec.takes, kind: "handle", what: "ends" }
   : { picks: spec.takes, kind: "element",
       what: spec.of === "line" ? "lines"
@@ -4751,6 +4768,16 @@ const usableFor = spec => {
     const end = sketcher.picked.find(p => p.includes("."));
     const on = sketcher.picked.find(p => !p.includes("."));
     return end && on ? [end, on] : [];
+  }
+  //! Two ends is the older reading and stays the first one; an end and an
+  //! element is the perpendicular distance, in whichever order they were
+  //! picked, because "the point then the line" and "the line then the point"
+  //! are one intention.
+  if (wants.kind === "gap") {
+    const ends = sketcher.picked.filter(p => p.includes("."));
+    if (ends.length >= 2) return ends.slice(0, 2);
+    const one = sketcher.picked.find(p => !p.includes("."));
+    return ends.length && one ? [ends[0], one] : [];
   }
   return sketcher.picked.filter(p => p.includes(".") === (wants.kind === "handle"));
 };
