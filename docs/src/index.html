@@ -839,6 +839,14 @@ li.holds > .branch { margin-left: 11px; border-left: 1px solid var(--line); }
 }
 .icon-btn:hover { background: var(--panel-2); color: var(--ink); }
 .icon-btn svg { width: 14px; height: 14px; }
+/* THE ONE CROSS. Every panel that floats over the model carries it, the same
+   size in the same corner - see closesWith. Smaller than a head button because
+   it is never the thing you came to the panel for. */
+.panel-shut { width: 19px; height: 19px; border-radius: 4px; flex: none; }
+.panel-shut svg { width: 11px; height: 11px; }
+/* A panel with no head of its own wears it over the top right of its content.
+   The floats are all position:fixed, so this is measured against the panel. */
+.panel-shut.loose { position: absolute; top: 4px; right: 4px; z-index: 3; }
 /* THE TREE HAS ITS OWN TEXT SIZE. A spec tree is read for hours and it is the
    one panel where a person wants it bigger - or smaller, to get more of a
    long model on screen at once. Its own variable rather than the page's zoom,
@@ -1801,8 +1809,7 @@ body.barred #status { visibility: hidden; pointer-events: none; }
      padding instead, which is where a close button belongs anyway. */
   margin: -3px -4px -1px 0;
 }
-#arctic-look .look-head .icon-btn { width: 18px; height: 18px; border-radius: 4px; }
-#arctic-look .look-head .icon-btn svg { width: 11px; height: 11px; }
+
 #arctic-look label {
   display: grid; grid-template-columns: 4.6em 1fr 2.4em; align-items: center; gap: 6px;
   font-size: 11px; color: var(--ink-2);
@@ -2695,7 +2702,7 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 <aside class="float fades" id="def-panel" hidden>
   <div class="panel-head">
     <h2>Definition</h2>
-    <button class="icon-btn" id="btn-def-close" title="Close (Esc)" aria-label="Close"></button>
+
   </div>
   <div id="def"></div>
 </aside>
@@ -2741,10 +2748,7 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
   <!-- Four numbers about how a white model looks, and a way to put them away.
        It stood over the view buttons for as long as Arctic was the style,
        whether or not anybody was still adjusting it. -->
-  <div class="look-head"><span>ARCTIC</span>
-    <button class="icon-btn" id="look-close"
-            title="Put the dial away &#183; press ARCTIC again to bring it back"
-            aria-label="Close the Arctic dial"></button></div>
+  <div class="look-head"><span>ARCTIC</span></div>
   <label><span>Shadows</span>
     <input type="range" id="look-shadow" min="0" max="2" step="0.05" value="1">
     <output id="look-shadow-out">1.00</output></label>

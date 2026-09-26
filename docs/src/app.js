@@ -6841,6 +6841,13 @@ function refreshLens() {
   });
   for (const button of lensPanel.querySelectorAll("[data-lens]"))
     button.addEventListener("click", () => setLens(Number(button.dataset.lens)));
+  //! AFTER the innerHTML above, which is what wipes it. The lens panel redraws
+  //! itself every time the number changes, so its cross has to be put back on
+  //! every redraw rather than once at startup.
+  closesWith(lensPanel, {
+    name: "the lens", title: "Put the lens away \u00b7 P brings it back",
+    close: () => toggleLens(false), open: () => toggleLens(true),
+  });
 }
 
 //! The wheel over the panel itself does the same thing as the wheel over the
@@ -7765,8 +7772,7 @@ function buildToolbar() {
     if (box) box.remove();
     if (head) head.remove();
   }
-  document.getElementById("btn-def-close").innerHTML = svg(ICONS.close);
-  document.getElementById("look-close").innerHTML = svg(ICONS.close);
+  dressPanels();
   document.getElementById("ai-close").innerHTML = svg(ICONS.close);
   document.getElementById("btn-undo").innerHTML = svg(ICONS.undo);
   document.getElementById("btn-redo").innerHTML = svg(ICONS.redo);
@@ -8908,6 +8914,14 @@ function openDocMenu() {
         ? "Alt and the left button tumbles, the middle tracks, the right dollies"
         : "drag to orbit · the widgets take the button where they are");
     }).classList.add("on");
+  //! THE ONE ANSWER TO "WHERE DID THE PANEL GO". Every cross says its own way
+  //! back on hover, and a person who shut three of them a week ago should not
+  //! have to remember three letters. Offered only when something is away, so
+  //! the menu does not carry a line about nothing.
+  const away = putAway();
+  if (away.length)
+    menuItem("Bring the panels back", away.map(one => one.name).join(" \u00b7 "),
+             () => { for (const one of away) one.open(); });
   menuItem("Lens…", "focal length, and what it does to the perspective",
     () => toggleLens(true));
   menuItem("Section… · X", "cut the model open, and say how the cut is drawn",
@@ -11710,6 +11724,12 @@ function buildLog() {
          + " off screen or under " + detail.vanish + " px"
          + (unmeshed.size ? " · " + unmeshed.size.toLocaleString() + " not fetched yet" : ""),
          "stream");
+  //! Its own contents are cleared and rewritten every regeneration, so the
+  //! cross goes back on afterwards - same reason as the lens panel's.
+  closesWith(host, {
+    title: "Close \u00b7 the regeneration chip in the status line brings it back",
+    close: () => { host.hidden = true; layout(); },
+  });
   // It just got taller or shorter, and the tree above it stands on it.
   if (!host.hidden) layout();
 }
@@ -14100,6 +14120,134 @@ function toggleTree(force) {
   layout();
 }
 
+/* ------------------------------------------------------ putting one away
+
+   ONE CROSS, MADE IN ONE PLACE.
+
+   "Anything that floats over the model must be able to go away" is one rule,
+   and it was being kept panel by panel and unevenly: the definition panel had
+   a cross, the Arctic dial had just been given one, the lens panel said
+   "P to put it away" in eight-point grey at the bottom of itself, and the
+   specification tree said nothing at all - you had to already know that the
+   document's own name, up in the bar, was also its switch.
+
+   So the cross is built here and every panel gets the same one, in the same
+   corner, doing the same thing. What differs is only what it calls.
+
+   AND EVERY ONE OF THEM HAS A WAY BACK, which is the half that is easy to
+   forget: a panel that can be shut and not reopened is a panel somebody has
+   lost. Each says its own on hover - T, P, press ARCTIC again - and the
+   document menu carries the one answer that covers all of them at once, so
+   "where did it go" never depends on remembering a letter.                 */
+
+const shutting = new WeakMap();
+const wasShut = new WeakSet();
+
+//! The status line is the one of these that is a row rather than a box, and
+//! the one whose state nothing else already keeps. Remembered like the rest of
+//! what this window looks like.
+let statusIsShut = recall("ocafcad/status-line") === "off";
+function statusShut(on) {
+  statusIsShut = !!on;
+  remember("ocafcad/status-line", statusIsShut ? "off" : "on");
+  const bar = document.getElementById("status");
+  if (bar) bar.hidden = statusIsShut;
+  layout();
+}
+
+//! What can be put away, and how each comes back. Filled by closesWith, read
+//! by the menu.
+const PUT_AWAY = [];
+
+//! \p into a selector for the row the cross belongs in - a panel with a head
+//!      puts it there, beside the title. Without one it sits in the corner,
+//!      over the panel's own content, which is where a small dial wants it.
+//! \p inline for a panel that is a row rather than a box: the cross is one
+//!      more thing in the row rather than something laid over it.
+function closesWith(panel, { title, name, close, open, isShut, into, inline } = {}) {
+  if (!panel) return null;
+  const head = into ? panel.querySelector(into) : panel.querySelector(".panel-head");
+  const host = head || panel;
+  let button = host.querySelector(".panel-shut");
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon-btn panel-shut" + (head || inline ? "" : " loose");
+    button.innerHTML = svg(ICONS.close);
+    //! Stopped here, because several of these panels sit inside something that
+    //! reads a press as "and not on me" - the packages shelf closes on any
+    //! pointerdown outside itself, and the tree reads presses to pick rows.
+    button.addEventListener("pointerdown", event => event.stopPropagation());
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      //! MARKED AS PUT AWAY BY A PERSON, which is not the same as being hidden.
+      //! The lens, the packages shelf and the definition panel are all shut
+      //! most of the time and nobody has lost them; offering to "bring back"
+      //! something that was never sent away is the menu telling you about a
+      //! problem you do not have. So the question the menu asks is "was this
+      //! one CROSSED, and is it still down".
+      wasShut.add(panel);
+      const shut = shutting.get(panel);
+      if (shut) shut();
+    });
+    host.appendChild(button);
+  }
+  shutting.set(panel, close);
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  if (name && open && !PUT_AWAY.some(one => one.name === name))
+    PUT_AWAY.push({
+      name,
+      open: () => { wasShut.delete(panel); open(); },
+      isShut: isShut || (() => wasShut.has(panel) && panel.hidden),
+    });
+  return button;
+}
+
+//! Everything that has been put away, right now. The menu asks; so does
+//! anything else that would rather offer one button than a list.
+const putAway = () => PUT_AWAY.filter(one => { try { return one.isShut(); } catch (e) { return false; } });
+
+function dressPanels() {
+  //! EVERY PANEL THAT FLOATS OVER THE MODEL, given the same cross. Written
+  //! out one to a line rather than looped over a list of ids, because what
+  //! each cross CALLS and what brings each panel back are different sentences
+  //! and there is nothing to be gained by hiding that behind a table.
+  closesWith(document.getElementById("def-panel"), {
+    name: "the definition panel", title: "Close \u00b7 Esc, or pick a feature",
+    close: () => stowPanel(false), open: () => stowPanel(true),
+  });
+  //! The tree is up unless somebody put it down, and that is remembered - so
+  //! hidden really does mean put away here, reload or no reload.
+  closesWith(document.getElementById("tree-panel"), {
+    name: "the specification tree",
+    title: "Put the tree away \u00b7 the document's name in the bar brings it back (T)",
+    close: () => toggleTree(false), open: () => toggleTree(true),
+    isShut: () => document.getElementById("tree-panel").hidden,
+  });
+  closesWith(document.getElementById("arctic-look"), {
+    into: ".look-head", name: "the Arctic dial",
+    title: "Put the dial away \u00b7 press ARCTIC again to bring it back",
+    close: () => { showLook(false); say("Arctic dial put away \u00b7 press ARCTIC again to bring it back"); },
+    open: () => showLook(true), isShut: () => lookShut,
+  });
+  closesWith(document.getElementById("packages"), {
+    name: "the packages shelf",
+    title: "Close \u00b7 the packages button brings it back",
+    close: () => togglePackages(false), open: () => togglePackages(true),
+  });
+  //! A ROW, NOT A BOX, so its cross is one more thing in the row. It is the
+  //! thinnest thing on screen and it is still over the drawing, and the rule
+  //! is that anything over the drawing can go.
+  closesWith(document.getElementById("status"), {
+    inline: true, name: "the status line",
+    title: "Put the status line away \u00b7 the document menu brings it back",
+    close: () => { statusShut(true); }, open: () => statusShut(false),
+    isShut: () => statusIsShut,
+  });
+}
+
 /* ======================================================================
    THE LAYOUT.
 
@@ -14355,11 +14503,7 @@ document.getElementById("btn-tree").addEventListener("click", () => {
   if (onPhone()) { openSheet("tree"); return; }
   toggleTree();
 });
-document.getElementById("btn-def-close").addEventListener("click", () => stowPanel(false));
-document.getElementById("look-close").addEventListener("click", () => {
-  showLook(false);
-  say("Arctic dial put away \u00b7 press ARCTIC again to bring it back");
-});
+
 document.getElementById("btn-rail").addEventListener("click", () => stowRail());
 document.getElementById("btn-panel").addEventListener("click", () => stowPanel());
 document.getElementById("btn-log").addEventListener("click", () => {
@@ -15262,6 +15406,7 @@ addEventListener("keyup", event => {
   // The hint that comes up with it is what stops that being a page with no
   // interface on it and no way of knowing why.
   if (recall("ocafcad/bare") === "on") setBare(true);
+  if (statusIsShut) statusShut(true);
   //! The set being worked in is remembered across a reload, but not trusted:
   //! it is only applied once a document is open and only if the set is still
   //! in it. A remembered id pointing at nothing would file everything new
