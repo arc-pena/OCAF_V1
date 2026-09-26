@@ -52,7 +52,31 @@ export const SKETCH_RELATIONS = [
   //! fact about the two curves rather than something to be negotiated with.
   { key: "intersect",     label: "Intersection",  takes: 3, of: "point and two",
     hint: "a point sits where two curves cross" },
+
+  //! DIMENSIONS. Every relation above says how two things RELATE; these say how
+  //! big one of them is, and that is the difference between a sketch that holds
+  //! its shape and a sketch that holds its size. A drawing with no dimension on
+  //! it has no number anybody can change.
+  //!
+  //! They carry a `value` on the constraint record, and that is the whole of
+  //! what makes them different: the solver drives the geometry to it instead of
+  //! to another element, and the value is a number somebody types.
+  { key: "length",   label: "Length",   takes: 1, of: "line",   value: true, unit: "mm",
+    hint: "a line is this long" },
+  { key: "radius",   label: "Radius",   takes: 1, of: "round",  value: true, unit: "mm",
+    hint: "a circle or arc is this radius" },
+  { key: "diameter", label: "Diameter", takes: 1, of: "round",  value: true, unit: "mm",
+    hint: "a circle or arc is this across" },
+  { key: "distance", label: "Distance", takes: 2, of: "handle", value: true, unit: "mm",
+    hint: "two ends are this far apart" },
+  { key: "angle",    label: "Angle",    takes: 2, of: "line",   value: true, unit: "\u00b0",
+    hint: "two lines meet at this angle" },
 ];
+
+//! Which relations carry a number, asked once so nothing has to keep a second
+//! list of them.
+export const isDimension = type =>
+  !!(SKETCH_RELATIONS.find(r => r.key === type) || {}).value;
 
 export const EMPTY_SKETCH = { elements: [], constraints: [] };
 
@@ -121,14 +145,70 @@ export function sketchElement(type, id, clicks) {
 //! in the order they were picked, and how many there must be is in
 //! SKETCH_RELATIONS - so a panel offering relations and a solver running them
 //! never disagree about what one is.
-export function sketchRelation(type, of) {
+export function sketchRelation(type, of, value) {
   const spec = SKETCH_RELATIONS.find(r => r.key === type);
   if (!spec) throw new Error('there is no sketch relation called "' + type + '"');
   const list = (of || []).slice(0, spec.takes);
   if (list.length !== spec.takes)
     throw new Error(spec.label + " takes " + spec.takes
       + (spec.of === "handle" ? " ends" : " " + spec.of === "any" ? " elements" : " lines"));
-  return { type, of: list };
+  if (!spec.value) return { type, of: list };
+  //! A DIMENSION WITH NO NUMBER IS NOT A DIMENSION. The caller measures it off
+  //! the drawing when the user did not type one - see measureDimension - so a
+  //! relation arriving here without one is a mistake worth a sentence.
+  if (!Number.isFinite(value))
+    throw new Error(spec.label + " needs a value: it is a dimension, not a relation");
+  //! A radius of nothing is a circle that is not there, and a length of nothing
+  //! is two points. Both send the solver looking for an answer that does not
+  //! exist; refusing is the only honest thing to do with either.
+  if (type !== "angle" && !(value > 0))
+    throw new Error(spec.label + " must be more than zero");
+  return { type, of: list, value: round4(value) };
+}
+
+//! WHAT A DIMENSION WOULD SAY IF IT WERE PUT ON NOW. Select a circle, ask for a
+//! radius, and the radius it is given is the one it already has - so putting a
+//! dimension on changes nothing until somebody types into it, which is what
+//! every sketcher does and the only behaviour that is not a surprise.
+export function measureDimension(drawing, type, of) {
+  const map = byId(drawing || EMPTY_SKETCH);
+  const list = Array.isArray(of) ? of : [of];
+  const el = id => map.get(String(id || "").split(".")[0]) || null;
+  const spot = name => {
+    const [id, key] = String(name || "").split(".");
+    const one = map.get(id);
+    if (!one) return null;
+    const found = sketchHandles(one).find(([k]) => k === key);
+    return found ? found[1] : null;
+  };
+  switch (type) {
+    case "length": {
+      const one = el(list[0]);
+      return one && one.type === "line" ? len(sub(one.b, one.a)) : null;
+    }
+    case "radius": {
+      const one = el(list[0]);
+      return one && one.r > 0 ? one.r : null;
+    }
+    case "diameter": {
+      const one = el(list[0]);
+      return one && one.r > 0 ? one.r * 2 : null;
+    }
+    case "distance": {
+      const a = spot(list[0]), b = spot(list[1]);
+      return a && b ? len(sub(b, a)) : null;
+    }
+    case "angle": {
+      const a = el(list[0]), b = el(list[1]);
+      if (!a || !b || a.type !== "line" || b.type !== "line") return null;
+      const u = norm(sub(a.b, a.a)), v = norm(sub(b.b, b.a));
+      if (!u || !v) return null;
+      //! The angle BETWEEN them, 0 to 180: a line has no front and no back, so
+      //! "at 60 degrees" and "at 300" are one answer and the smaller is it.
+      return (Math.acos(Math.max(-1, Math.min(1, dot(u, v)))) * 180) / Math.PI;
+    }
+    default: return null;
+  }
 }
 
 const round1 = v => Math.round(v * 1e4) / 1e4;
@@ -700,7 +780,16 @@ export function sketchRelationMarks(drawing) {
     const p = c.type === "intersect" ? points[0]
       : points.reduce((sum, q) => [sum[0] + q[0], sum[1] + q[1]], [0, 0])
               .map(v => v / points.length);
-    return { at, type: c.type, of: c.of, p, on: points };
+    //! A DIMENSION CARRIES ITS NUMBER TO THE SCREEN. Everything else here is a
+    //! glyph; a dimension is a glyph and a value somebody can type into, and
+    //! the value has to travel with the mark or the drawing would have to be
+    //! read twice to put it on screen.
+    const mark = { at, type: c.type, of: c.of, p, on: points };
+    if (Number.isFinite(c.value)) {
+      mark.value = c.value;
+      mark.unit = (SKETCH_RELATIONS.find(r => r.key === c.type) || {}).unit || "";
+    }
+    return mark;
   }).filter(Boolean);
 }
 
@@ -1247,7 +1336,99 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
     const el = index.get(id);
     return el && el.type === "line" ? el : null;
   };
+  const round = id => {
+    const el = index.get(id);
+    return el && (el.type === "circle" || el.type === "arc") ? el : null;
+  };
   switch (relation.type) {
+    /* ------------------------------------------------------- dimensions
+
+       A dimension drives the geometry to a NUMBER rather than to another
+       element. Each one moves the least it can: a circle keeps its centre, a
+       line keeps its middle unless an end is being dragged, and two ends walk
+       towards or away from each other along the line they already make. The
+       residual is the squared error in the same units as everything else, so
+       the solver's one convergence test still means what it says.            */
+    case "radius":
+    case "diameter": {
+      const el = round(of[0]);
+      if (!el) return 0;
+      const want = relation.type === "diameter" ? relation.value / 2 : relation.value;
+      if (!(want > 0)) return 0;
+      const off = el.r - want;
+      //! The centre stays. An arc keeps its two angles, so it opens about its
+      //! own centre exactly as a compass does - which is what makes a radius a
+      //! dimension rather than a move.
+      el.r = round1(want);
+      return off * off;
+    }
+    case "length": {
+      const el = line(of[0]);
+      if (!el) return 0;
+      const want = relation.value;
+      if (!(want > 0)) return 0;
+      const along = sub(el.b, el.a), have = len(along);
+      if (have < 1e-9) return 0;
+      const way = mul(along, 1 / have);
+      const off = have - want;
+      //! An end being dragged is the end that stays: pulling one end of a
+      //! dimensioned line slides the OTHER end to keep the length, which is
+      //! what a dimensioned line does. With both free it grows about its middle
+      //! so the line never walks across the drawing.
+      const holdA = held.has(of[0] + ".a"), holdB = held.has(of[0] + ".b");
+      if (holdA && !holdB) el.b = sketchRound(add(el.a, mul(way, want)));
+      else if (holdB && !holdA) el.a = sketchRound(sub(el.b, mul(way, want)));
+      else {
+        const centre = mid(el.a, el.b), half = mul(way, want / 2);
+        el.a = sketchRound(sub(centre, half));
+        el.b = sketchRound(add(centre, half));
+      }
+      return off * off;
+    }
+    case "distance": {
+      const a = handle(of[0]), b = handle(of[1]);
+      if (!a || !b) return 0;
+      const along = sub(b.p, a.p), have = len(along);
+      const want = relation.value;
+      if (!(want > 0) || have < 1e-9) return 0;
+      const way = mul(along, 1 / have);
+      const off = have - want;
+      if (a.held && b.held) return off * off;       // both pinned: report, move nothing
+      if (a.held) moveTo(b, add(a.p, mul(way, want)));
+      else if (b.held) moveTo(a, sub(b.p, mul(way, want)));
+      else {
+        //! Half each, so a distance between two free ends opens about the
+        //! middle of the gap rather than dragging one of them to the other.
+        const centre = mid(a.p, b.p), half = mul(way, want / 2);
+        moveTo(a, sub(centre, half));
+        moveTo(b, add(centre, half));
+      }
+      return off * off;
+    }
+    case "angle": {
+      const first = line(of[0]), second = line(of[1]);
+      if (!first || !second) return 0;
+      const base = norm(sub(first.b, first.a));
+      const have = sub(second.b, second.a);
+      const way = norm(have);
+      if (!base || !way) return 0;
+      const now = Math.acos(Math.max(-1, Math.min(1, dot(base, way))));
+      const want = (relation.value * Math.PI) / 180;
+      const off = (now - want) * 180 / Math.PI;
+      if (Math.abs(off) < 1e-9) return 0;
+      //! Turned the short way round, about its own middle - the same rule
+      //! parallel and perpendicular follow, and for the same reason: a relation
+      //! that walks the drawing across the plane is a relation nobody can use.
+      const side = base[0] * way[1] - base[1] * way[0] < 0 ? -1 : 1;
+      const turn = (want - now) * side;
+      const c = Math.cos(turn), sn = Math.sin(turn);
+      const centre = mid(second.a, second.b), half = len(have) / 2;
+      const spun = [way[0] * c - way[1] * sn, way[0] * sn + way[1] * c];
+      second.a = sketchRound(sub(centre, mul(spun, half)));
+      second.b = sketchRound(add(centre, mul(spun, half)));
+      return off * off;
+    }
+
     case "coincident": {
       const a = handle(of[0]), b = handle(of[1]);
       if (!a || !b) return 0;
@@ -1644,11 +1825,23 @@ export function readSketch(source) {
   const constraints = (Array.isArray(raw.constraints) ? raw.constraints : [])
     .filter(c => {
       if (!c || !known.has(c.type)) return false;
-      const takes = SKETCH_RELATIONS.find(r => r.key === c.type).takes;
-      return Array.isArray(c.of) && c.of.length === takes
+      const spec = SKETCH_RELATIONS.find(r => r.key === c.type);
+      //! A DIMENSION WITH NO NUMBER IS NOT A DIMENSION, and keeping one would
+      //! put a constraint in the drawing that the solver looks at and does
+      //! nothing about - invisible, permanent, and impossible to account for.
+      //! Dropped rather than thrown, like every other piece of rubbish in a
+      //! file: the rest of the drawing is worth more than this one relation.
+      if (spec.value && !Number.isFinite(c.value)) return false;
+      if (spec.value && c.type !== "angle" && !(c.value > 0)) return false;
+      return Array.isArray(c.of) && c.of.length === spec.takes
         && c.of.every(name => typeof name === "string" && name);
     })
-    .map(c => ({ type: c.type, of: c.of.slice() }));
+    .map(c => {
+      const kept = { type: c.type, of: c.of.slice() };
+      if ((SKETCH_RELATIONS.find(r => r.key === c.type) || {}).value)
+        kept.value = round4(c.value);
+      return kept;
+    });
 
   // Layers travel with the drawing. Only the three facts about one are kept,
   // and a layer nobody declared but something is drawn on is not written down

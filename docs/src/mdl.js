@@ -1,5 +1,6 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
-import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, nextSketchId, readSketch,
+import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, isDimension, measureDimension,
+         nextSketchId, readSketch,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
          sketchFillet, sketchMoveHandle, sketchOverlaps, sketchRelation, sketchTangentArc,
          solveSketch } from "./sketch.js";
@@ -628,18 +629,54 @@ export const MDL_OPS = [
       return ctx.kernel.setSketch(edit.id, null, drawing);
     }),
 
-  modelOp("relate", ["id", "type", "of"],
+  modelOp("relate", ["id", "type", "of", "value?"],
     "Put a relation on a sketch: horizontal, vertical, parallel, perpendicular, tangent "
-    + "or coincident. of names the elements it governs, or their ends as \"e1.b\".",
-    { op: "relate", id: "SK1", type: "perpendicular", of: ["e1", "e2"] },
+    + "or coincident. of names the elements it governs, or their ends as \"e1.b\". "
+    + "length, radius, diameter, distance and angle are DIMENSIONS and take a value; "
+    + "leave it out and the dimension is put on at whatever the drawing already "
+    + "measures, which is what selecting a circle and asking for a radius means.",
+    { op: "relate", id: "SK1", type: "radius", of: ["c1"], value: 40 },
     async (ctx, edit) => {
-      const relation = sketchRelation(needText(edit, "type"),
-        Array.isArray(edit.of) ? edit.of : [edit.of]);
+      const type = needText(edit, "type");
+      const of = Array.isArray(edit.of) ? edit.of : [edit.of];
       const drawing = await drawingOf(ctx, needText(edit, "id"));
+      //! MEASURED OFF THE DRAWING when nobody typed one. A dimension put on at
+      //! a number the geometry does not have would move the drawing the moment
+      //! it was added, which is the one thing a dimension must not do.
+      const value = edit.value === undefined || edit.value === null
+        ? measureDimension(drawing, type, of) : Number(edit.value);
+      if (isDimension(type) && !Number.isFinite(value))
+        throw new Error("nothing in that selection has a " + type + " to measure");
+      const relation = sketchRelation(type, of, value);
       const already = JSON.stringify(relation);
       if (!drawing.constraints.some(c => JSON.stringify(c) === already))
         drawing.constraints.push(relation);
       return ctx.kernel.setSketch(edit.id, null, drawing);
+    }),
+
+  modelOp("dimension", ["id", "at", "value"],
+    "Change what a dimension on a sketch says. at is its place in the relations list, "
+    + "the same number unrelate takes. This is what typing a new number onto a "
+    + "dimension in the sketcher writes.",
+    { op: "dimension", id: "SK1", at: 0, value: 65 },
+    async (ctx, edit) => {
+      const drawing = await drawingOf(ctx, needText(edit, "id"));
+      const at = needNumber(edit, "at");
+      const held = (drawing.constraints || [])[at];
+      if (!held) throw new Error("that sketch has no relation " + at);
+      if (!isDimension(held.type))
+        throw new Error(held.type + " is a relation, not a dimension: it has no value to set");
+      //! Rebuilt through sketchRelation rather than written into, so a value
+      //! that is not a number, or a radius of nothing, is refused here exactly
+      //! as it is when the dimension is first put on.
+      drawing.constraints[at] = sketchRelation(held.type, held.of, needNumber(edit, "value"));
+      //! SETTLED AND WRITTEN DOWN, the way a drag is and for the same reason.
+      //! Everywhere else the drawing keeps what was DRAWN and the relations are
+      //! what they come to at build time - but typing 62 onto a radius has to
+      //! move the circle you are looking at, or the number on screen and the
+      //! circle under it disagree until something else rebuilds them.
+      const settled = solveSketch(drawing, 40);
+      return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
   modelOp("drag", ["id", "handle", "to"],

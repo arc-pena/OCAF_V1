@@ -149,6 +149,29 @@ button, input, select { font: inherit; color: inherit; }
 #viewport { position: fixed; inset: 0; }
 #viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
+/* THE DIMENSIONS ON A SKETCH. Positioned every frame from where the drawing
+   says they are, so they ride the model as it turns. Pointer-events off on the
+   layer and on again for each chip, or the whole viewport would stop orbiting. */
+#sketch-dims { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+#sketch-dims[hidden] { display: none; }
+.sk-dim {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 20px; padding: 0 7px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel-solid); color: var(--ink);
+  font: 500 11.5px var(--mono); white-space: nowrap; cursor: text;
+  box-shadow: 0 1px 2px rgba(16, 28, 38, .14);
+}
+.sk-dim:hover { border-color: var(--accent); color: var(--accent); }
+.sk-dim.chosen { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.sk-dim .sk-what { opacity: .65; font-size: 10px; }
+.sk-dim input {
+  width: 68px; height: 16px; padding: 0 3px; border: 0; border-radius: 3px;
+  background: var(--ground); color: var(--ink);
+  font: 500 11.5px var(--mono); text-align: right;
+}
+.sk-dim input:focus { outline: 1px solid var(--accent); }
+
 /* The shared look of everything that floats over the model. */
 .float {
   position: fixed;
@@ -2481,6 +2504,10 @@ body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 </style>
 
 <div id="viewport"></div>
+<!-- A sketch's dimensions, over the drawing. Not drawn in the scene with
+     everything else in the sketcher: a dimension is a number you TYPE INTO,
+     and a canvas cannot be typed into. -->
+<div id="sketch-dims" hidden></div>
 <div id="pie-host"></div>
 <!-- A feature's one number, put under the cursor the moment the feature
      exists. The panel still has all of them; this has the one you came for. -->

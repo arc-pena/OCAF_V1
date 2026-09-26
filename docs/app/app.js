@@ -909,6 +909,9 @@ function draw() {
   requestAnimationFrame(() => {
     frameQueued = false;
     lookAtDetail();
+    //! The sketch's dimensions ride the model: they are DOM over the canvas, so
+    //! they are put where the camera now says, every frame that is drawn.
+    placeSketchDimensions();
     if (state.style !== "arctic") { renderer.render(scene, camera); return; }
     // How far the occlusion reaches is a length in the model's own units: a
     // twentieth of what is on screen darkens the inside of a corner and leaves
@@ -3758,6 +3761,128 @@ function relationMarks(drawing = sketchDrawing()) {
   });
 }
 
+/* ------------------------------------------------ the dimensions, on the glass
+
+   A relation is a glyph; a DIMENSION is a glyph and a number, and the number is
+   one somebody types. A canvas cannot be typed into, so the values are DOM
+   chips over the viewport, positioned every frame from where the drawing says
+   they are. Click one and it is an input; Enter writes it; Escape leaves it.  */
+
+const dimLayer = document.getElementById("sketch-dims");
+//! Which dimension is being typed into, so a redraw does not take the field out
+//! from under the hand - the same rule the panel follows while a slider is down.
+let dimTyping = -1;
+
+//! Where a point on the drawing lands on screen, in page pixels, or null when
+//! it is behind the camera. \p project is three.js's own, so this agrees with
+//! what is on the canvas by construction rather than by arithmetic that has to
+//! be kept in step.
+function screenOf(world) {
+  const ndc = world.clone().project(camera);
+  if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y) || ndc.z > 1) return null;
+  const box = viewportEl.getBoundingClientRect();
+  return [box.left + (ndc.x * 0.5 + 0.5) * box.width,
+          box.top + (-ndc.y * 0.5 + 0.5) * box.height];
+}
+
+const dimText = mark => (Math.round(mark.value * 100) / 100) + (mark.unit || "");
+
+//! Rebuilt when the drawing changes; MOVED every frame. Two jobs and one
+//! function would mean rebuilding every chip on every orbit, which throws away
+//! the field somebody is typing into sixty times a second.
+function refreshSketchDimensions() {
+  if (!dimLayer) return;
+  const entry = sketching();
+  if (!entry) { dimLayer.hidden = true; dimLayer.textContent = ""; dimTyping = -1; return; }
+  const marks = relationMarks().filter(m => Number.isFinite(m.value));
+  dimLayer.hidden = !marks.length;
+  //! Kept if it is the one being typed into, rebuilt otherwise. Compared by
+  //! what is on them, so a value that has not changed does not flicker.
+  const held = new Map([...dimLayer.children].map(el => [el.dataset.at, el]));
+  const want = new Set();
+  for (const mark of marks) {
+    const key = String(mark.at);
+    want.add(key);
+    let chip = held.get(key);
+    if (chip && Number(chip.dataset.at) === dimTyping) continue;
+    if (!chip) {
+      chip = document.createElement("div");
+      chip.className = "sk-dim";
+      chip.dataset.at = key;
+      chip.addEventListener("pointerdown", event => event.stopPropagation());
+      chip.addEventListener("click", event => { event.stopPropagation(); typeDimension(Number(key)); });
+      dimLayer.appendChild(chip);
+    }
+    chip.classList.toggle("chosen", mark.at === sketcher.relation);
+    //! THE CHIP CARRIES ITS OWN POINT. Moving them every frame used to ask
+    //! sketchRelationMarks for the whole drawing again - which walks every
+    //! element's outline - sixty times a second, to answer a question that only
+    //! changes when the drawing does. Now a frame is a project and two
+    //! divisions per chip.
+    chip.dataset.u = mark.draw[0];
+    chip.dataset.v = mark.draw[1];
+    chip.dataset.value = mark.value;
+    chip.title = mark.type + " \u00b7 " + (mark.of || []).join(", ") + " \u2014 click to type a new value";
+    chip.innerHTML = '<span class="sk-what">' + escapeHtml(mark.type.slice(0, 3)) + "</span>"
+      + "<span>" + escapeHtml(dimText(mark)) + "</span>";
+  }
+  for (const [key, chip] of held) if (!want.has(key)) chip.remove();
+  placeSketchDimensions();
+}
+
+//! Every frame, from the scene's own camera. Cheap: a project and two divisions
+//! per dimension, and a sketch with forty dimensions on it is a busy sketch.
+function placeSketchDimensions() {
+  if (!dimLayer || dimLayer.hidden) return;
+  const frame = sketchFrame();
+  if (!frame) return;
+  for (const chip of dimLayer.children) {
+    const u = Number(chip.dataset.u), v = Number(chip.dataset.v);
+    const spot = Number.isFinite(u) && Number.isFinite(v)
+      ? screenOf(sketchToWorld([u, v], frame)) : null;
+    if (!spot) { chip.style.visibility = "hidden"; continue; }
+    chip.style.visibility = "";
+    chip.style.left = Math.round(spot[0]) + "px";
+    chip.style.top = Math.round(spot[1]) + "px";
+  }
+}
+
+//! TYPED DIRECTLY ONTO THE DIMENSION, which is the whole point of it. The chip
+//! becomes a field with the number in it, selected, so typing replaces it.
+function typeDimension(at) {
+  const chip = [...dimLayer.children].find(el => Number(el.dataset.at) === at);
+  if (!chip) return;
+  const mark = { value: Number(chip.dataset.value) };
+  if (!Number.isFinite(mark.value)) return;
+  dimTyping = at;
+  sketcher.relation = at;
+  chip.classList.add("chosen");
+  chip.innerHTML = "";
+  const field = document.createElement("input");
+  field.type = "text";
+  field.inputMode = "decimal";
+  field.value = String(Math.round(mark.value * 1e4) / 1e4);
+  chip.appendChild(field);
+  field.focus();
+  field.select();
+  const done = () => { dimTyping = -1; refreshSketch(); };
+  const send = () => {
+    const want = Number(field.value);
+    if (!Number.isFinite(want)) { done(); return; }
+    //! Nothing to do is nothing to record: retyping the number that is already
+    //! there should not be an undo step.
+    if (Math.abs(want - mark.value) < 1e-9) { done(); return; }
+    dimTyping = -1;
+    edit({ op: "dimension", id: sketcher.id, at, value: want });
+  };
+  field.addEventListener("keydown", event => {
+    event.stopPropagation();
+    if (event.key === "Enter") { event.preventDefault(); send(); }
+    else if (event.key === "Escape") { event.preventDefault(); done(); }
+  });
+  field.addEventListener("blur", send);
+}
+
 function nearestRelation(uv, drawing = sketchDrawing()) {
   let best = -1, reach = snapReach();
   for (const mark of relationMarks(drawing)) {
@@ -3868,7 +3993,7 @@ function refreshSketch() {
   const entry = sketching();
   bar.hidden = rail.hidden = !entry;
   document.getElementById("rail").hidden = !!entry;
-  if (!entry) { draw(); return; }
+  if (!entry) { refreshSketchDimensions(); draw(); return; }
 
   document.getElementById("sketch-who").textContent = entry.name;
   document.getElementById("sketch-hint").textContent = sketchHint();
@@ -4043,6 +4168,9 @@ function refreshSketch() {
 
   world.add(group);
   sketcher.group = group;
+  //! After the group, because the chips are positioned from the same frame the
+  //! overlay was just built through.
+  refreshSketchDimensions();
   draw();
 }
 
@@ -4440,7 +4568,8 @@ const relationWants = spec =>
   spec.key === "intersect" ? { picks: 2, kind: "element", what: "curves" }
   : spec.of === "handle" ? { picks: spec.takes, kind: "handle", what: "ends" }
   : { picks: spec.takes, kind: "element",
-      what: spec.of === "line" ? "lines" : "elements" };
+      what: spec.of === "line" ? "lines"
+          : spec.of === "round" ? "circles or arcs" : "elements" };
 
 const usableFor = spec => {
   const wants = relationWants(spec);
@@ -6842,6 +6971,21 @@ const RELATION_GLYPH = {
                [0, 0.3], [0.5, -0.3], [0.5, -0.3], [0.5, -0.7]],
   // A cross: two strokes meeting where the point is.
   intersect:  [[-0.85, -0.85], [0.85, 0.85], [-0.85, 0.85], [0.85, -0.85]],
+  //! A DIMENSION'S GLYPH IS AN ARROW PAIR, the way one is drawn on paper: a
+  //! run with a head at each end. The NUMBER is not here - it is a DOM chip
+  //! over the canvas, because a number you type into cannot be a line.
+  length:   [[-0.9, 0], [0.9, 0], [-0.9, 0], [-0.5, 0.3], [-0.9, 0], [-0.5, -0.3],
+             [0.9, 0], [0.5, 0.3], [0.9, 0], [0.5, -0.3]],
+  distance: [[-0.9, 0], [0.9, 0], [-0.9, 0], [-0.5, 0.3], [-0.9, 0], [-0.5, -0.3],
+             [0.9, 0], [0.5, 0.3], [0.9, 0], [0.5, -0.3]],
+  // A radius: one arrow, from the centre out.
+  radius:   [[0, 0], [0.9, 0.5], [0.9, 0.5], [0.45, 0.45], [0.9, 0.5], [0.62, 0.1]],
+  // A diameter: right across, a head at each end.
+  diameter: [[-0.9, -0.5], [0.9, 0.5], [-0.9, -0.5], [-0.4, -0.5],
+             [-0.9, -0.5], [-0.62, -0.05], [0.9, 0.5], [0.4, 0.5], [0.9, 0.5], [0.62, 0.05]],
+  // Two arms and the sweep between them.
+  angle:    [[-0.9, -0.6], [0.9, -0.6], [-0.9, -0.6], [0.5, 0.8],
+             [-0.2, -0.6], [-0.1, -0.25], [-0.1, -0.25], [0.1, 0.0]],
 };
 
 // The layer panel's six small buttons. Drawn rather than lettered, because a
@@ -6869,6 +7013,21 @@ const SKETCH_ICONS = {
   line: '<path d="M2.6 13.4L13.4 2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="2.6" cy="13.4" r="1.5" fill="currentColor"/><circle cx="13.4" cy="2.6" r="1.5" fill="currentColor"/>',
   arc: '<path d="M2.4 12.4A9 9 0 0112.4 2.4" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="2.4" cy="12.4" r="1.4" fill="currentColor"/><circle cx="12.4" cy="2.4" r="1.4" fill="currentColor"/>',
   circle: '<circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/>',
+  //! The dimension tools, drawn as a drawing board draws them: witness lines,
+  //! a run between them, and a head at each end.
+  length: '<path d="M2.4 3v10M13.6 3v10" stroke="currentColor" stroke-width="1" opacity=".55"/>'
+        + '<path d="M2.4 8h11.2" stroke="currentColor" stroke-width="1.3"/>'
+        + '<path d="M2.4 8l2.4-1.5v3zM13.6 8l-2.4-1.5v3z" fill="currentColor"/>',
+  distance: '<circle cx="3" cy="12.4" r="1.5" fill="currentColor"/><circle cx="13" cy="3.6" r="1.5" fill="currentColor"/>'
+          + '<path d="M3.9 11.6l8.2-7.2" stroke="currentColor" stroke-width="1.3"/>',
+  radius: '<circle cx="7" cy="9" r="5.4" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>'
+        + '<path d="M7 9l4.6-3.4" stroke="currentColor" stroke-width="1.4"/>'
+        + '<path d="M11.6 5.6l-2.8.3 1.6 1.9z" fill="currentColor"/><circle cx="7" cy="9" r="1.1" fill="currentColor"/>',
+  diameter: '<circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>'
+          + '<path d="M3.8 4.6l8.4 6.8" stroke="currentColor" stroke-width="1.4"/>'
+          + '<path d="M3.8 4.6l.3 2.8 2-1.7zM12.2 11.4l-.3-2.8-2 1.7z" fill="currentColor"/>',
+  angle: '<path d="M2.6 12.6h10.8M2.6 12.6L11.4 3.4" stroke="currentColor" stroke-width="1.3"/>'
+       + '<path d="M8.2 12.6A5.6 5.6 0 006.6 8.7" fill="none" stroke="currentColor" stroke-width="1"/>',
   ellipse: '<ellipse cx="8" cy="8" rx="6.2" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/>',
   oblong: '<rect x="1.6" y="4.6" width="12.8" height="6.8" rx="3.4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
   rect: '<rect x="2.2" y="4" width="11.6" height="8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
