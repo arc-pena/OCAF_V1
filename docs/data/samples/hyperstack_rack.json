@@ -1,0 +1,989 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Hyperstack rack",
+ "units": "mm",
+ "features": [
+  {
+   "id": "R",
+   "type": "GeometricalSet",
+   "name": "Hyperstack rack"
+  },
+  {
+   "id": "P",
+   "type": "GeometricalSet",
+   "name": "00 Parameters",
+   "parent": "R"
+  },
+  {
+   "id": "N_UNITS",
+   "type": "Number",
+   "name": "Rack height",
+   "parent": "P",
+   "args": {
+    "value": 48
+   }
+  },
+  {
+   "id": "N_DEPTH",
+   "type": "Number",
+   "name": "Rack depth",
+   "parent": "P",
+   "args": {
+    "value": 1200
+   }
+  },
+  {
+   "id": "N_NODES",
+   "type": "Number",
+   "name": "Compute nodes",
+   "parent": "P",
+   "args": {
+    "value": 8
+   }
+  },
+  {
+   "id": "N_NODEU",
+   "type": "Number",
+   "name": "Node height",
+   "parent": "P",
+   "args": {
+    "value": 2
+   }
+  },
+  {
+   "id": "N_FIRST",
+   "type": "Number",
+   "name": "First node at",
+   "parent": "P",
+   "args": {
+    "value": 3
+   }
+  },
+  {
+   "id": "N_BOLTU",
+   "type": "Number",
+   "name": "Fixing every",
+   "parent": "P",
+   "args": {
+    "value": 4
+   }
+  },
+  {
+   "id": "N_TRAY",
+   "type": "Number",
+   "name": "Tray width",
+   "parent": "P",
+   "args": {
+    "value": 300
+   }
+  },
+  {
+   "id": "N_PLINTH",
+   "type": "Number",
+   "name": "Plinth",
+   "parent": "P",
+   "args": {
+    "value": 100
+   }
+  },
+  {
+   "id": "X_U",
+   "type": "Expression",
+   "name": "One unit (mm)",
+   "parent": "P",
+   "args": {
+    "formula": "44.45"
+   }
+  },
+  {
+   "id": "X_HEIGHT",
+   "type": "Expression",
+   "name": "Rack height (mm)",
+   "parent": "P",
+   "args": {
+    "formula": "a * 44.45",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "X_NODESPAN",
+   "type": "Expression",
+   "name": "Compute span (U)",
+   "parent": "P",
+   "args": {
+    "formula": "a * b",
+    "a": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "b": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "F",
+   "type": "GeometricalSet",
+   "name": "01 Frame",
+   "parent": "R"
+  },
+  {
+   "id": "PT0",
+   "type": "Point",
+   "name": "Origin",
+   "parent": "F",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "parent": "F",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   }
+  },
+  {
+   "id": "PL0",
+   "type": "Plane",
+   "name": "Floor",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VZ"
+    }
+   }
+  },
+  {
+   "id": "VX",
+   "type": "Vector",
+   "name": "Across",
+   "parent": "F",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   }
+  },
+  {
+   "id": "PLX",
+   "type": "Plane",
+   "name": "Across the rack",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VX"
+    }
+   }
+  },
+  {
+   "id": "VY",
+   "type": "Vector",
+   "name": "Into the rack",
+   "parent": "F",
+   "args": {
+    "dx": 0,
+    "dy": 1,
+    "dz": 0
+   }
+  },
+  {
+   "id": "PLY",
+   "type": "Plane",
+   "name": "Into the rack",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VY"
+    }
+   }
+  },
+  {
+   "id": "VYB",
+   "type": "Vector",
+   "name": "Out the front",
+   "parent": "F",
+   "args": {
+    "dx": 0,
+    "dy": -1,
+    "dz": 0
+   }
+  },
+  {
+   "id": "PLYB",
+   "type": "Plane",
+   "name": "Out the front",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VYB"
+    }
+   }
+  },
+  {
+   "id": "FRAME",
+   "type": "RackFrame",
+   "name": "Frame · 48U",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "profile": 2,
+    "rails": 3,
+    "posts": 0,
+    "postWidth": 50,
+    "supplier": "frame, welded",
+    "plane": {
+     "ref": "PL0"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    },
+    "depth": {
+     "value": 1200,
+     "from": "N_DEPTH"
+    }
+   }
+  },
+  {
+   "id": "PTP0",
+   "type": "Point",
+   "name": "Post 1 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "PF1",
+   "type": "RackPost",
+   "name": "Post 1 · EIA-310-E",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "supplier": "post, 2 mm ZP",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP0"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP1",
+   "type": "Point",
+   "name": "Post 2 at",
+   "parent": "F",
+   "args": {
+    "x": 505.1,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "PF2",
+   "type": "RackPost",
+   "name": "Post 2 · EIA-310-E",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "supplier": "post, 2 mm ZP",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP1"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP2",
+   "type": "Point",
+   "name": "Post 3 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 1140,
+    "z": 0
+   }
+  },
+  {
+   "id": "PB1",
+   "type": "RackPost",
+   "name": "Post 3 · EIA-310-E",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "supplier": "post, 2 mm ZP",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP2"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP3",
+   "type": "Point",
+   "name": "Post 4 at",
+   "parent": "F",
+   "args": {
+    "x": 505.1,
+    "y": 1140,
+    "z": 0
+   }
+  },
+  {
+   "id": "PB2",
+   "type": "RackPost",
+   "name": "Post 4 · EIA-310-E",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "supplier": "post, 2 mm ZP",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP3"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "B",
+   "type": "GeometricalSet",
+   "name": "02 Bracing",
+   "parent": "R"
+  },
+  {
+   "id": "X_BRACES",
+   "type": "Expression",
+   "name": "Braces",
+   "parent": "B",
+   "args": {
+    "formula": "Math.max(2, Math.round(a / 12))",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "X_BRACEZ",
+   "type": "Expression",
+   "name": "Brace pitch (mm)",
+   "parent": "B",
+   "args": {
+    "formula": "a * 44.45 / Math.max(2, Math.round(a / 12))",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "X_BRACE0",
+   "type": "Expression",
+   "name": "First brace at (mm)",
+   "parent": "B",
+   "args": {
+    "formula": "a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTB",
+   "type": "Point",
+   "name": "First brace at",
+   "parent": "B",
+   "args": {
+    "x": 90,
+    "y": 1165,
+    "z": {
+     "value": 266.70000000000005,
+     "from": "X_BRACE0"
+    }
+   }
+  },
+  {
+   "id": "BRACE",
+   "type": "Strut",
+   "name": "Brace · 40 T-slot, drilled",
+   "parent": "B",
+   "args": {
+    "profile": 2,
+    "length": 415.1,
+    "holes": 1,
+    "bore": 9,
+    "pitch": 60,
+    "setback": 30,
+    "supplier": "brace, cut to length",
+    "plane": {
+     "ref": "PLX"
+    },
+    "at": {
+     "ref": "PTB"
+    }
+   }
+  },
+  {
+   "id": "BRACES",
+   "type": "Array",
+   "name": "Braces · up the rack",
+   "parent": "B",
+   "args": {
+    "mode": 0,
+    "countX": 1,
+    "spacingX": 0,
+    "countY": 1,
+    "spacingY": 0,
+    "source": {
+     "ref": "BRACE"
+    },
+    "countZ": {
+     "value": 4,
+     "from": "X_BRACES"
+    },
+    "spacingZ": {
+     "value": 533.4000000000001,
+     "from": "X_BRACEZ"
+    }
+   }
+  },
+  {
+   "id": "C",
+   "type": "GeometricalSet",
+   "name": "03 Compute",
+   "parent": "R"
+  },
+  {
+   "id": "X_NODEMM",
+   "type": "Expression",
+   "name": "Node pitch (mm)",
+   "parent": "C",
+   "args": {
+    "formula": "a * 44.45",
+    "a": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "PTC",
+   "type": "Point",
+   "name": "First node at",
+   "parent": "C",
+   "args": {
+    "x": 56.25,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "NODE",
+   "type": "RackDevice",
+   "name": "AMD compute node · 2U",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "unit": 3,
+    "depth": 900,
+    "inset": 20,
+    "ears": 0,
+    "supplier": "2U dual-socket AMD EPYC compute node",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTC"
+    },
+    "units": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "NODES",
+   "type": "Array",
+   "name": "Compute stack · 8 nodes",
+   "parent": "C",
+   "args": {
+    "mode": 0,
+    "countX": 1,
+    "spacingX": 0,
+    "countY": 1,
+    "spacingY": 0,
+    "source": {
+     "ref": "NODE"
+    },
+    "countZ": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "spacingZ": {
+     "value": 88.9,
+     "from": "X_NODEMM"
+    }
+   }
+  },
+  {
+   "id": "X_TOPU",
+   "type": "Expression",
+   "name": "First free U",
+   "parent": "C",
+   "args": {
+    "formula": "a + b * c",
+    "a": {
+     "value": 3,
+     "from": "N_FIRST"
+    },
+    "b": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "c": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "PTS",
+   "type": "Point",
+   "name": "Switches at",
+   "parent": "C",
+   "args": {
+    "x": 56.25,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "SW1",
+   "type": "RackDevice",
+   "name": "Leaf switch · 1U",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "unit": 40,
+    "units": 1,
+    "depth": 550,
+    "inset": 20,
+    "ears": 0,
+    "supplier": "32 x 400G leaf switch",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS"
+    }
+   }
+  },
+  {
+   "id": "SW2",
+   "type": "RackDevice",
+   "name": "Leaf switch · 1U",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "unit": 42,
+    "units": 1,
+    "depth": 550,
+    "inset": 20,
+    "ears": 0,
+    "supplier": "32 x 400G leaf switch",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS"
+    }
+   }
+  },
+  {
+   "id": "PDU",
+   "type": "RackDevice",
+   "name": "PDU · 2U",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "unit": 45,
+    "units": 2,
+    "depth": 300,
+    "inset": 700,
+    "ears": 0,
+    "supplier": "3-phase 32 A rack PDU",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS"
+    }
+   }
+  },
+  {
+   "id": "X",
+   "type": "GeometricalSet",
+   "name": "04 Fastening",
+   "parent": "R"
+  },
+  {
+   "id": "X_BOLTS",
+   "type": "Expression",
+   "name": "Fixings a column",
+   "parent": "X",
+   "args": {
+    "formula": "Math.floor(a / b)",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    },
+    "b": {
+     "value": 4,
+     "from": "N_BOLTU"
+    }
+   }
+  },
+  {
+   "id": "X_BOLTZ",
+   "type": "Expression",
+   "name": "Fixing pitch (mm)",
+   "parent": "X",
+   "args": {
+    "formula": "a * 44.45",
+    "a": {
+     "value": 4,
+     "from": "N_BOLTU"
+    }
+   }
+  },
+  {
+   "id": "PTX",
+   "type": "Point",
+   "name": "First fixing at",
+   "parent": "X",
+   "args": {
+    "x": 65,
+    "y": 62,
+    "z": 6.35
+   }
+  },
+  {
+   "id": "CAGE",
+   "type": "Fastener",
+   "name": "Cage nut M6",
+   "parent": "X",
+   "args": {
+    "part": 10,
+    "supplier": "cage nut, M6, 9.5 mm square",
+    "plane": {
+     "ref": "PLY"
+    },
+    "at": {
+     "ref": "PTX"
+    }
+   }
+  },
+  {
+   "id": "CAGES",
+   "type": "Array",
+   "name": "Cage nuts · up the post",
+   "parent": "X",
+   "args": {
+    "mode": 0,
+    "countX": 2,
+    "spacingX": 465.1,
+    "countY": 1,
+    "spacingY": 0,
+    "source": {
+     "ref": "CAGE"
+    },
+    "countZ": {
+     "value": 12,
+     "from": "X_BOLTS"
+    },
+    "spacingZ": {
+     "value": 177.8,
+     "from": "X_BOLTZ"
+    }
+   }
+  },
+  {
+   "id": "PTX2",
+   "type": "Point",
+   "name": "First bolt at",
+   "parent": "X",
+   "args": {
+    "x": 65,
+    "y": 60,
+    "z": 6.35
+   }
+  },
+  {
+   "id": "BOLT",
+   "type": "Fastener",
+   "name": "Hex bolt M6 × 16",
+   "parent": "X",
+   "args": {
+    "part": 0,
+    "length": 16,
+    "supplier": "ISO 4017 M6 x 16 A2",
+    "plane": {
+     "ref": "PLYB"
+    },
+    "at": {
+     "ref": "PTX2"
+    }
+   }
+  },
+  {
+   "id": "BOLTS",
+   "type": "Array",
+   "name": "Bolts · up the post",
+   "parent": "X",
+   "args": {
+    "mode": 0,
+    "countX": 2,
+    "spacingX": 465.1,
+    "countY": 1,
+    "spacingY": 0,
+    "source": {
+     "ref": "BOLT"
+    },
+    "countZ": {
+     "value": 12,
+     "from": "X_BOLTS"
+    },
+    "spacingZ": {
+     "value": 177.8,
+     "from": "X_BOLTZ"
+    }
+   }
+  },
+  {
+   "id": "PTX3",
+   "type": "Point",
+   "name": "Bought part at",
+   "parent": "X",
+   "args": {
+    "x": 65,
+    "y": 46,
+    "z": 2100
+   }
+  },
+  {
+   "id": "STANDIN",
+   "type": "Cube",
+   "name": "(stand-in for a supplier STEP)",
+   "parent": "X",
+   "args": {
+    "dx": 10,
+    "dy": 14,
+    "dz": 10,
+    "origin": {
+     "ref": "PTX3"
+    },
+    "plane": {
+     "ref": "PL0"
+    }
+   }
+  },
+  {
+   "id": "BOLT_REAL",
+   "type": "Fastener",
+   "name": "M8 · the bought part",
+   "parent": "X",
+   "args": {
+    "part": 2,
+    "supplier": "your supplier's part number goes here",
+    "plane": {
+     "ref": "PLYB"
+    },
+    "at": {
+     "ref": "PTX3"
+    },
+    "bought": {
+     "ref": "STANDIN"
+    }
+   }
+  },
+  {
+   "id": "K",
+   "type": "GeometricalSet",
+   "name": "05 Cable management",
+   "parent": "R"
+  },
+  {
+   "id": "X_TRAYZ",
+   "type": "Expression",
+   "name": "Tray at (mm)",
+   "parent": "K",
+   "args": {
+    "formula": "a * 44.45 + 10.3",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTK",
+   "type": "Point",
+   "name": "Tray at",
+   "parent": "K",
+   "args": {
+    "x": 20,
+    "y": 380,
+    "z": {
+     "value": 2143.9000000000005,
+     "from": "X_TRAYZ"
+    }
+   }
+  },
+  {
+   "id": "TRAY",
+   "type": "CableTray",
+   "name": "Overhead tray · 300 wide",
+   "parent": "K",
+   "args": {
+    "length": 560,
+    "profile": 6,
+    "pitch": 140,
+    "rung": 20,
+    "supplier": "ladder tray, 300 mm",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTK"
+    },
+    "width": {
+     "value": 300,
+     "from": "N_TRAY"
+    }
+   }
+  },
+  {
+   "id": "PTK2",
+   "type": "Point",
+   "name": "Manager at",
+   "parent": "K",
+   "args": {
+    "x": 555,
+    "y": 1090,
+    "z": 100
+   }
+  },
+  {
+   "id": "MGR",
+   "type": "Strut",
+   "name": "Vertical manager · 41 channel",
+   "parent": "K",
+   "args": {
+    "profile": 6,
+    "length": 1900,
+    "holes": 2,
+    "bore2": 12,
+    "pitch2": 100,
+    "setback2": 50,
+    "supplier": "cable manager, 41 x 21 channel",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTK2"
+    }
+   }
+  },
+  {
+   "id": "Z",
+   "type": "GeometricalSet",
+   "name": "06 Bill of materials",
+   "parent": "R"
+  },
+  {
+   "id": "BOM",
+   "type": "Bill",
+   "name": "Bill of materials · the whole rack",
+   "parent": "Z",
+   "args": {
+    "show": 0,
+    "of": {
+     "ref": "R"
+    }
+   }
+  },
+  {
+   "id": "BOM_FIX",
+   "type": "Bill",
+   "name": "Fasteners to order",
+   "parent": "Z",
+   "args": {
+    "show": 1,
+    "of": {
+     "ref": "R"
+    }
+   }
+  }
+ ]
+}

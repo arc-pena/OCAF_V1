@@ -1053,6 +1053,29 @@ export const SAMPLES = [
            + "made that way with their dimensions wired; the two it cannot are sketches "
            + "carrying their tangencies instead. 243 nodes." },
 
+  { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
+    file: "samples/hyperstack_rack.json",
+    //! WHAT IT NEEDS BEFORE IT WILL OPEN. The first sample built out of a
+    //! package's nodes, and a document whose types are not in the catalogue
+    //! does not half-open - it refuses at the first one, by name, which reads
+    //! as a broken sample rather than as a package that is not switched on. So
+    //! the sample says, and whoever opens it switches it on first.
+    needs: ["rack"],
+    summary: "A data-centre rack modelled to the level of detail you build from. The "
+           + "frame, four posts drilled to EIA-310-E - three holes a unit at 5/8, 5/8 "
+           + "and 1/2 of an inch, which is the spacing everybody draws evenly and is "
+           + "not - strut bracing on a named section you can switch for another, eight "
+           + "2U AMD compute nodes, switches, a PDU, cage nuts and bolts at every "
+           + "fixing, a cable tray and a vertical manager. Every dimension is an "
+           + "Expression over eight numbers: change Compute nodes from 8 to 4 and the "
+           + "stack halves; change Rack height from 48U to 24U and the frame, the "
+           + "posts, the bracing and the fixings all follow. Needs the Racks package - "
+           + "load it from the packages menu. The bill of materials at the bottom is "
+           + "read off the model, counts what the patterns make, and carries the "
+           + "supplier reference on each part. Nothing here is anybody's part file: "
+           + "the fasteners are modelled to ISO 4017, 4032 and 7089, and every one has "
+           + "a Bought part input to wire the supplier's own STEP into." },
+
   { key: "3dspline", name: "3dspline", file: "samples/3dspline.json",
     summary: "A blend curve run between the ends of two sketched splines, with "
            + "its tangent direction and tension set at each end - so the join "

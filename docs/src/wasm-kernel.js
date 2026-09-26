@@ -7076,6 +7076,20 @@ function sprawl(face, edges) {
     toolkit() {
       return {
         oc, F, hybrid: HSF, shape: SF,
+        //! THE DOCUMENT, because some questions are about the model and not
+        //! about one feature's arguments. A bill of materials is the example:
+        //! it has to walk what is filed inside a set, and a driver handed only
+        //! its own label can read its inputs and nothing else. Everything
+        //! already in this list is enough to BUILD a shape; this is what is
+        //! needed to report on one.
+        //!
+        //! A FUNCTION, not the document. Opening a model REPLACES the document,
+        //! and a package takes its toolkit once when it loads - so handing over
+        //! the object hands over the one that was open at the time, and a bill
+        //! written against it counts the parts of a model nobody has had open
+        //! since. It came back "nothing in there" and looked like a walk that
+        //! was not finding anything.
+        doc: () => doc,
         readPoint, readVector, planeAxis, planeTrouble, axisOf, alongCurve,
         wireFrom, firstFace, verticesOf, compoundOf, subShapes, extents,
         deflectionFor, tessellationOf, countSubShapes, describeError,

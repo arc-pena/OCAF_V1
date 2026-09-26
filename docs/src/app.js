@@ -51,6 +51,7 @@ import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
+import { RACK } from "./rack-plugin.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
@@ -12389,7 +12390,17 @@ function buildSampleMenu() {
       // read first, and a read that fails says so where the click was rather
       // than leaving an empty document and no reason for it.
       let model;
-      try { model = await sampleModel(sample); }
+      try {
+        //! ITS PACKAGES FIRST. A sample built out of a package's nodes cannot
+        //! open until they are in the catalogue, and the refusal names the
+        //! first node rather than the package - which reads as a broken sample.
+        for (const id of sample.needs || []) {
+          if (packages.isLoaded(id)) continue;
+          say("switching on the " + id + " package\u2026");
+          await packages.load(id);
+        }
+        model = await sampleModel(sample);
+      }
       catch (error) { say("could not open " + sample.name + ": " + error.message); return; }
       if (await edit({ op: "model", model })) fitView();
     });

@@ -12,6 +12,10 @@
 // file nobody packs loads from the served site and not from the Artifact -
 // which is the kind of difference only somebody else ever finds.
 import { createWasmKernel } from "../src/wasm-kernel.js";
+import { PluginHost } from "../src/plugin.js";
+//! Imported for its side effect: a package puts itself on the shelf when its
+//! module loads, and a sample that needs one cannot switch it on otherwise.
+import "../src/rack-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 
@@ -28,6 +32,14 @@ const kernel = await createWasmKernel({
   initModule, wasmBinary: readFileSync(WASM_DIR + "/replicad_single.wasm"),
 });
 const tree = async () => (await kernel.tree()).tree;
+//! A sample may be built out of a package's nodes; this is what switches one
+//! on, exactly as the page does when the sample is opened there.
+const host = new PluginHost({
+  toolkit: () => kernel.toolkit(),
+  installDrivers: (specs, builders) => kernel.installDrivers(specs, builders),
+  removeDrivers: specs => kernel.removeDrivers(specs),
+  typesInUse: types => kernel.typesInUse(types),
+});
 
 const kept = SAMPLES.filter(one => one.file);
 
@@ -63,6 +75,12 @@ for (const sample of kept) {
     Array.isArray(model.features) && model.features.length > 0,
     String(model.features && model.features.length));
 
+  //! A SAMPLE MAY NEED A PACKAGE, and one built out of a package's nodes does
+  //! not half-open: it refuses at the first one it does not know, by name,
+  //! which reads as a broken sample rather than as a package that is off. The
+  //! sample says what it needs; this switches it on, exactly as the page does.
+  for (const id of sample.needs || [])
+    if (!host.isLoaded(id)) await host.load(id);
   const built = await kernel.loadModel(model);
   const bad = (await tree()).features.filter(f => f.error);
   const said = bad.map(f => f.name + ": " + f.error).join(" | ");

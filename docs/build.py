@@ -86,6 +86,7 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "slider.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
+           "rack.js", "rack-plugin.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",
@@ -146,6 +147,7 @@ SAMPLES = [
     ("sample-cap", "Sample_Cap.json"),
     ("samplecap-one", "samplecap_onecaponly.json"),
     ("sweep-gallery", "sweep_gallery.json"),
+    ("hyperstack-rack", "hyperstack_rack.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

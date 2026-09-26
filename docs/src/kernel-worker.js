@@ -35,6 +35,7 @@ import { CROWD } from "./crowd-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { PACKING } from "./packing-plugin.js";
+import { RACK } from "./rack-plugin.js";
 
 let kernel = null;
 
@@ -54,7 +55,8 @@ let kernel = null;
 //! this said "crowd" - and what that looks like from the outside is a package
 //! that will not load with no reason given.
 const SHELF = {};
-for (const plugin of [CLIMATE, CROWD, DRAWINGS, IFC, PACKING]) SHELF[plugin.id] = plugin;
+for (const plugin of [CLIMATE, CROWD, DRAWINGS, IFC, PACKING, RACK])
+  SHELF[plugin.id] = plugin;
 
 //! What a driver builder is handed here: the factories and the document, and
 //! nothing that belongs to a window. `kit.THREE` is undefined on purpose - a
