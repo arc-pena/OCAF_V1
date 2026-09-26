@@ -439,10 +439,20 @@ console.log("\n10c. and somebody opening it for the first time with nobody besid
 console.log("\n11. and a document too big to put in one turn");
 {
   const agent = readFileSync(new URL("../src/agent.js", import.meta.url), "utf8");
-  check("the briefing has a budget", /const DOC_BUDGET = /.test(agent)
-        && /\$\{documentBrief\(model\)\}/.test(agent));
+  //! THE BUDGET IS NOW WHAT IS LEFT, not a number written down in advance. It
+  //! was 40,000 characters while the catalogue grew past 31 KiB on its own, and
+  //! the opening turn reached 60 KiB against a 64 KiB limit - so the document's
+  //! share is computed from the rest of the briefing. Checked by measuring
+  //! rather than by reading the source: see turnsize.test.mjs for the numbers.
+  check("the briefing's budget is worked out from what is left",
+        /TURN_BYTES - bytesOf\(head\) - TURN_HEADROOM/.test(agent)
+        && /export const TURN_BYTES/.test(agent));
   check("  under it the document still goes whole",
-        /if \(whole\.length <= DOC_BUDGET\) return whole;/.test(agent));
+        /if \(bytesOf\(whole\) <= budget\) return whole;/.test(agent));
+  //! And the thing that was NOT budgeted, which is what actually failed.
+  check("  every tool result is cut, and the conversation is fitted each round",
+        /cutTo\(typeof output === "string"/.test(agent)
+        && /fitMessages\(messages\);/.test(agent));
   check("  over it, its shape goes instead", /export function documentDigest\(/.test(agent));
   check("look can read one part of it by id", /export function featureBrief\(/.test(agent)
         && /if \(id\) return \{ \.\.\.featureBrief\(model, id\), errors \}/.test(agent));

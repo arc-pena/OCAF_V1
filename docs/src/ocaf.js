@@ -1805,7 +1805,18 @@ export const CATALOGUE = [
            //! Appended, because an argument's place in this list is its tag in
            //! the document. Left empty it changes nothing, which is what every
            //! file written before it says.
-           when(spare("xdir", "X direction", ["vector", "curve"]), "kind", 0)] },
+           when(spare("xdir", "X direction", ["vector", "curve"]), "kind", 0),
+           //! A PLANE SQUARE ACROSS A CURVE, POSITIONED BY A POINT. Along it
+           //! was a fraction from 0 to 1, which is a number nobody knows: you
+           //! know where you want the plane because something is THERE - the
+           //! end of a rail, a node of a truss, a point you dropped. Wire that
+           //! point in and the plane finds the nearest place on the curve to it
+           //! and stands square there; the fraction it found is published, so
+           //! the number is still visible and still the thing that drives it.
+           //!
+           //! Appended, and it does not replace Along it: with nothing wired
+           //! the fraction is what it always was, so every file opens the same.
+           when(spare("through", "At a point", ["point"]), "kind", 1)] },
   //! An axis system is a placement: an origin and three directions, the thing
   //! CATIA puts under every part and every transform. Wire one into a Move or a
   //! Rotate and the shape follows it; wire two into Axis to axis and the shape

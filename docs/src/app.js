@@ -810,6 +810,12 @@ function measureScene() {
     // went nowhere, and holding shift should not stop you choosing things.
     else if (mode === "pan" && moved < 4 && event.shiftKey && !handEditing() && !sketching())
       pick(event);
+    //! A CLICK ON A CURVE MOUNTS THE POINT ON IT rather than dropping one on the
+    //! plane behind it. Two modes are armed at once after the Point button -
+    //! keep dropping points, and let the next click say what this point is on -
+    //! and they only disagree about curves: clicking a plane means the same
+    //! thing to both of them, which is why only this one case is taken.
+    else if (mode === "orbit" && moved < 4 && placingOn() && mountedOnCurve(event)) { /* wired */ }
     else if (mode === "orbit" && moved < 4 && placingOn()) dropPoint(event);
     else if (mode === "orbit" && moved < 4 && !pickVertex(event)) {
       // While a mesh is being edited by hand, the viewport belongs to its
@@ -3155,7 +3161,104 @@ async function clickPicking(event, whole) {
    nothing is a click you make three more times.
    ========================================================================== */
 
-const waiting = { on: false, id: null, key: null, accepts: [], many: false, label: "" };
+const waiting = { on: false, id: null, key: null, accepts: [], many: false, label: "",
+                  //! Set when the picker has not been told WHICH argument it is
+                  //! filling: what gets clicked decides the kind and the
+                  //! argument together. See DECIDES.
+                  decides: null };
+
+//! WHAT YOU CLICKED DECIDES WHAT IT IS.
+//!
+//! A point is three coordinates, or a place on a curve, or a place on a plane,
+//! or the centre of something - and the old way round was to choose which from
+//! a list and THEN go and find the thing. That is asking somebody to describe
+//! what they are about to point at. Point at it first: a curve makes it a point
+//! on a curve, a plane makes it a point on a plane, and the slider that says
+//! where along appears already wired.
+//!
+//! Written as option LABELS rather than as indices. An index here would be a
+//! second copy of the catalogue's order, kept in step by hand, and would fail
+//! silently the first time an option was inserted - see append-only-model.
+const DECIDES = {
+  Point: [["curve", "On a curve", "curve"],
+          ["plane", "On a plane", "plane"],
+          ["solid", "Centre of", "of"],
+          ["mesh", "Centre of", "of"]],
+  Plane: [["plane", "Offset from a plane", "from"],
+          ["curve", "Normal to a curve", "curve"],
+          ["point", "Origin and normal", "origin"]],
+  Sketch: [["plane", null, "plane"]],
+};
+
+//! The index of an option by its name, or -1. Asked of the SCHEMA, so the
+//! catalogue is the only place the order is written down.
+function optionIndex(type, key, label) {
+  const spec = schemaType(type);
+  const arg = spec && spec.args.find(a => a.key === key);
+  return arg && arg.options ? arg.options.indexOf(label) : -1;
+}
+
+//! Arm a picker that has not been told which argument it is for: whatever is
+//! clicked decides both the kind and the argument. Nothing to arm if the type
+//! has no such table.
+function waitToDecide(entry) {
+  const table = DECIDES[entry.type];
+  if (!table) return false;
+  //! NOT IF THERE IS NOTHING TO CLICK. An armed picker in a document with no
+  //! curve and no plane in it is a prompt to do something impossible, and the
+  //! way out of it is a key nobody has been told about.
+  const kinds = new Set(table.map(row => row[0]));
+  const any = (state.tree.features || []).some(f => kinds.has(f.produces) && f.built);
+  if (!any) return false;
+  waiting.on = true;
+  waiting.id = entry.id;
+  waiting.key = null;
+  waiting.accepts = [...new Set(table.map(row => row[0]))];
+  waiting.many = false;
+  waiting.label = entry.type === "Point" ? "this point" : "this plane";
+  waiting.decides = table;
+  document.body.classList.add("waiting");
+  say("click what it goes on — " + waiting.accepts.join(", ")
+      + " — in the model or in the tree");
+  buildPanel();
+  return true;
+}
+
+//! THE FIRST THING A KIND NEEDS AND HAS NOT GOT. Switching a plane to "Offset
+//! from a plane" leaves every field the other kind was using behind and asks
+//! for none of the one you just chose; this finds the argument that kind shows,
+//! that takes a wire, and that is empty, and arms the picker on it.
+//! After the kind has been set and the tree has come back with it. The entry in
+//! hand is the one from BEFORE the edit - its values are stale by exactly the
+//! number that was just changed - so the fresh one is read back and asked.
+function afterKind(id, want) {
+  const soon = () => {
+    const now = feature(id);
+    if (!now || now.values.kind !== want) return false;
+    askForWhatKindNeeds(now, "kind");
+    return true;
+  };
+  if (soon()) return;
+  //! The edit is on its way to the kernel; try again when it lands. Twice, and
+  //! then give up quietly: an armed picker nobody asked for is worse than none.
+  let tries = 0;
+  const again = () => { if (soon() || ++tries > 20) return; setTimeout(again, 50); };
+  setTimeout(again, 50);
+}
+
+function askForWhatKindNeeds(entry, key) {
+  const spec = schemaType(entry.type);
+  if (!spec) return false;
+  const now = entry.values[key];
+  const wanted = spec.args.find(arg =>
+    (arg.kind === "ref" || arg.kind === "refs")
+    && arg.showWhen && arg.showWhen.key === key
+    && (arg.showWhen.any ? arg.showWhen.any.includes(now) : arg.showWhen.equals === now)
+    && !(entry.refs && entry.refs[arg.key]));
+  if (!wanted) return false;
+  waitForPick(entry, wanted);
+  return true;
+}
 
 function waitForPick(entry, arg) {
   waiting.on = true;
@@ -3164,6 +3267,7 @@ function waitForPick(entry, arg) {
   waiting.accepts = arg.accepts.split(",");
   waiting.many = arg.kind === "refs";
   waiting.label = arg.label;
+  waiting.decides = null;
   document.body.classList.add("waiting");
   say("pick the " + waiting.accepts.join(" or ") + " for " + arg.label
       + " — in the model or in the tree");
@@ -3174,10 +3278,25 @@ function stopWaiting(quiet = false) {
   if (!waiting.on) return false;
   waiting.on = false;
   waiting.id = waiting.key = null;
+  waiting.decides = null;
   document.body.classList.remove("waiting");
   if (!quiet) say("");
   buildPanel();
   return true;
+}
+
+//! The curve under the pointer, offered to a picker that is waiting to be told
+//! what a point goes on. False unless all three are true - a picker is waiting,
+//! it is one that decides, and what was hit is a curve - so the ordinary case
+//! costs one property read.
+function mountedOnCurve(event) {
+  if (!waiting.on || !waiting.decides) return false;
+  //! idUnder through rayFrom, so this agrees with an ordinary click about what
+  //! is under the pointer rather than having its own idea.
+  const hit = idUnder(rayFrom(event));
+  const target = hit && feature(hit);
+  if (!target || target.produces !== "curve") return false;
+  return offerWire(target.id);
 }
 
 //! A feature offered as the answer. Comes from the viewport and from the tree,
@@ -3198,7 +3317,21 @@ function offerWire(id) {
     say(target.name + " already reads from " + holder.name + ", so wiring it would be a loop");
     return true;
   }
-  const key = waiting.key, into = waiting.id, again = waiting.many;
+  //! THE PICK CHOOSES THE KIND. Clicking a curve for a point means "on a
+  //! curve", and the argument to wire it into follows from that - so the kind
+  //! is set first and the wire goes into the argument that kind uses.
+  let key = waiting.key;
+  if (waiting.decides) {
+    const row = waiting.decides.find(one => one[0] === target.produces);
+    if (!row) { say(target.name + " is a " + (target.produces || "feature")
+                    + "; " + waiting.label + " cannot be put on one"); return true; }
+    key = row[2];
+    if (row[1]) {
+      const index = optionIndex(holder.type, "kind", row[1]);
+      if (index >= 0) pushParameter(holder.id, "kind", index, true);
+    }
+  }
+  const into = waiting.id, again = waiting.many;
   if (!again) stopWaiting(true);
   // ONE INPUT, HOWEVER MANY READ IT. A set's panel lists an input once even
   // when three things inside it read the same thing, so setting it has to set
@@ -10081,8 +10214,14 @@ function choiceField(entry, arg) {
       escapeHtml(option) + "</option>").join("");
     // Switching the pattern changes which arguments apply, so the panel is
     // rebuilt rather than refreshed in place.
-    pick.addEventListener("change", () =>
-      pushParameter(entry.id, arg.key, Number(pick.value), true));
+    //! AND THEN ASKS FOR WHAT THAT KIND NEEDS. Switching a plane to "Offset
+    //! from a plane" used to leave you looking at an empty field with no
+    //! indication that the thing to do next was go and find a plane. The picker
+    //! arms itself; Escape stops it, and the field is still there to click.
+    pick.addEventListener("change", () => {
+      pushParameter(entry.id, arg.key, Number(pick.value), true);
+      if (arg.key === "kind") afterKind(entry.id, Number(pick.value));
+    });
     field.appendChild(pick);
   } else {
     const group = document.createElement("div");
@@ -10094,7 +10233,12 @@ function choiceField(entry, arg) {
       button.type = "button";
       button.textContent = option;
       button.setAttribute("aria-pressed", index === current ? "true" : "false");
-      button.addEventListener("click", () => pushParameter(entry.id, arg.key, index, true));
+      //! The same as the dropdown above: choosing a kind then asks for what
+      //! that kind needs. Two controls over one choice, one behaviour.
+      button.addEventListener("click", () => {
+        pushParameter(entry.id, arg.key, index, true);
+        if (arg.key === "kind") afterKind(entry.id, index);
+      });
       group.appendChild(button);
     });
     field.appendChild(group);
@@ -11599,6 +11743,24 @@ async function addFeature(type) {
   if (state.workingIn && feature(state.workingIn) && payload.id !== state.workingIn)
     await mdl.run({ op: "group", id: payload.id, into: state.workingIn });
   select(payload.id, true);
+  //! AND IF IT STILL NEEDS SOMETHING, ASK FOR IT BY POINTING. A node that came
+  //! out of the toolbar with nothing wired into it is a node waiting to be told
+  //! what it is about, and the answer is a thing on screen - so the picker arms
+  //! itself and what gets clicked decides both the kind and the argument.
+  //! Only when NOTHING was wired: defaultRefs is usually right, and asking
+  //! again for something already answered is worse than not asking.
+  //! A POINT AND A PLANE ALWAYS ASK, even though both have just been given a
+  //! sensible default. The default is a GUESS - the first plane in the document,
+  //! or the one that was selected - and the guess is worth keeping as the
+  //! answer you get by pressing Escape. But "what is this point on" is a
+  //! question only the person pressing the button can answer, and the answer is
+  //! a thing on screen: click a curve and it is a point on that curve, click a
+  //! plane and it is a point on that plane. Anything else asks only when
+  //! nothing at all was wired, because there the default IS the answer.
+  const born = feature(payload.id);
+  if (born && spec.type !== "Sketch"
+      && (DECIDES[spec.type] || !Object.values(born.refs || {}).some(Boolean)))
+    waitToDecide(born);
   //! A SKETCH OPENS. Making one and then having to say "now let me draw on
   //! it" is a step that exists for no reason: nobody makes an empty sketch on
   //! purpose, and a sketch with nothing on it is the one thing in the document

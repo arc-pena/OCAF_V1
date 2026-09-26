@@ -157,7 +157,17 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       case 1: {                                   // square across a curve
         const curve = F.reference(f, "curve");
         if (!F.shape(curve)) return no("no curve to stand across");
-        const on = alongCurve(curve, F.real(f, "at", 0.5));
+        //! A POINT SAYS WHERE, when one is wired in. The nearest place on the
+        //! curve to it, and the fraction that place is at - which is the number
+        //! the field would otherwise be asking somebody to guess.
+        const through = readPoint(F.reference(f, "through"));
+        let on;
+        if (through) {
+          try { on = HSF.curveAtPoint(F.shape(curve), through); }
+          catch (e) { return no(describeError(e)); }
+        } else {
+          on = alongCurve(curve, F.real(f, "at", 0.5));
+        }
         if (!on || !on.tangent) return no("that curve cannot be walked along");
         return frame(on.at, on.tangent);
       }
@@ -714,7 +724,22 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           y: [y.X(), y.Y(), y.Z()].map(round4),
           normal: [n.X(), n.Y(), n.Z()].map(round4),
         });
-        return HSF.planeFace(axis, F.real(f, "size", 160));
+        //! WHICH t IT FOUND, said out loud. A plane positioned by a point is a
+        //! plane whose fraction along the curve is a RESULT, and a result
+        //! nobody can see is a result nobody can check.
+        const shape = HSF.planeFace(axis, F.real(f, "size", 160));
+        if (Feature_choice(f, "kind") === 1) {
+          const through = readPoint(F.reference(f, "through"));
+          const curve = F.reference(f, "curve");
+          if (through && curve && F.shape(curve)) {
+            try {
+              const found = HSF.curveAtPoint(F.shape(curve), through);
+              return { shape, note: "at " + round4(found.ratio) + " along "
+                + F.name(curve) + ", the nearest place on it to " + F.name(F.reference(f, "through")) };
+            } catch (e) { /* the frame is built; the sentence is a bonus */ }
+          }
+        }
+        return shape;
       },
     },
 

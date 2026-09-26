@@ -251,5 +251,55 @@ const drawingOf = async id => (await tree(id)).sketch.drawing;
         /no element 'nope'/.test(refused), refused);
 }
 
+/* ------------------------------- a plane square across a curve, put there by a point
+
+   "Along it" was a fraction from 0 to 1, which is a number nobody knows. You
+   know where you want the plane because something is THERE: the end of a rail,
+   a node of a truss, a point you already dropped. So the plane takes a point,
+   finds the nearest place on the curve to it, and stands square there.        */
+{
+  await kernel.loadModel({
+    format: "ocaf-parametric-model", version: 1, name: "P", units: "mm",
+    features: [
+      { id: "A", type: "Point", args: { kind: "Coordinates", x: 0, y: 0, z: 0 } },
+      { id: "B", type: "Point", args: { kind: "Coordinates", x: 1000, y: 0, z: 0 } },
+      { id: "RAIL", type: "Line", name: "Rail",
+        args: { kind: "Between two points", from: { ref: "A" }, to: { ref: "B" } } },
+      //! OFF THE CURVE ON PURPOSE. 700 along it and 250 to the side: the plane
+      //! has to land at 700 and not at the point, and not at the midpoint.
+      { id: "P", type: "Point", name: "Somewhere",
+        args: { kind: "Coordinates", x: 700, y: 250, z: 0 } },
+      { id: "PL", type: "Plane", name: "By a point",
+        args: { kind: "Normal to a curve", curve: { ref: "RAIL" }, at: 0.5, size: 300,
+                through: { ref: "P" } } },
+      { id: "PL2", type: "Plane", name: "By the fraction",
+        args: { kind: "Normal to a curve", curve: { ref: "RAIL" }, at: 0.5, size: 300 } },
+    ],
+  });
+  const plane = async id => (await tree(id)).frame;
+  check("a plane given a point stands at the nearest place on the curve to it",
+        near((await plane("PL")).origin[0], 700, 0.01)
+        && near((await plane("PL")).origin[1], 0, 1e-6),
+        String((await plane("PL")).origin));
+  check("and its normal is still along the curve",
+        near(Math.abs((await plane("PL")).normal[0]), 1, 1e-6),
+        String((await plane("PL")).normal));
+  //! WITH NOTHING WIRED IT IS WHAT IT ALWAYS WAS, which is what lets every file
+  //! written before this open unchanged.
+  check("with no point wired, the fraction still decides",
+        near((await plane("PL2")).origin[0], 500, 1e-6),
+        String((await plane("PL2")).origin));
+  check("and the plane says which t it found, because that is now a result",
+        /at 0\.7 along Rail/.test((await tree("PL")).note || ""),
+        String((await tree("PL")).note));
+
+  //! Move the point and the plane follows it - which is the whole reason for
+  //! wiring a point in rather than typing a fraction.
+  await mdl.run({ op: "set", id: "P", key: "x", value: 250 });
+  check("move the point and the plane goes with it",
+        near((await plane("PL")).origin[0], 250, 0.01),
+        String((await plane("PL")).origin));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
