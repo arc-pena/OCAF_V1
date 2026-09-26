@@ -55,7 +55,8 @@ import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExcl
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
          readable, scanStep, sniffFormat, toBase64, whyNot } from "./exchange.js";
-import { SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TYPES, currentLayer,
+import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, SKETCH_RELATIONS, SKETCH_TOOLS,
+         sketchAssembly, currentLayer,
          elementLocked, elementShown, isConstruction, nextSketchId, readSketch,
          sketchBox, sketchCrossings, sketchDirectionAt, sketchDistanceTo, sketchElement,
          sketchHandleAt, sketchHandles, sketchInBox, sketchLayers, sketchMoveElement,
@@ -3771,7 +3772,8 @@ function pickSketchTool(type) {
 //! What the buttons are called. The type names are lower case because they are
 //! what the model file says; these are for people.
 const SKETCH_LABELS = {
-  select: "Select", point: "Point", line: "Polyline", rect: "Rectangle", arc: "Arc",
+  select: "Select", point: "Point", line: "Polyline", rect: "Rectangle",
+  rotrect: "Rectangle at an angle", arc: "Arc",
   circle: "Circle", ellipse: "Ellipse", oblong: "Oblong", spline: "Spline",
   bspline: "Control curve",
 };
@@ -4290,18 +4292,19 @@ function refreshSketch() {
 
   // The element being drawn, following the cursor. Made the same way the real
   // one will be, so what is shown is what will be written.
-  const band = sketchBand(drawing);
-  if (band) {
+  //! SEVERAL, because one gesture can be several elements: a rectangle is four
+  //! lines before the mouse comes up as well as after, and a band that showed
+  //! one shape and wrote another would be the wrong promise.
+  for (const band of sketchBand(drawing)) {
     const line = sketchOutline(band, 48).map(p => sketchToWorld(p, frame));
-    if (line.length >= 2) {
-      const rubber = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(line),
-        new THREE.LineDashedMaterial({ color: THEME.accent, dashSize: 6, gapSize: 4,
-                                       depthTest: false }));
-      rubber.computeLineDistances();
-      rubber.renderOrder = 7;
-      group.add(rubber);
-    }
+    if (line.length < 2) continue;
+    const rubber = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(line),
+      new THREE.LineDashedMaterial({ color: THEME.accent, dashSize: 6, gapSize: 4,
+                                     depthTest: false }));
+    rubber.computeLineDistances();
+    rubber.renderOrder = 7;
+    group.add(rubber);
   }
 
   world.add(group);
@@ -4317,16 +4320,21 @@ function refreshSketch() {
 //! written - including a tangent arc, which is worth seeing before you commit
 //! to it.
 function sketchBand(drawing) {
-  if (!sketcher.hover || !sketcher.clicks.length) return null;
+  if (!sketcher.hover || !sketcher.clicks.length) return [];
   const wanted = SKETCH_CLICKS[sketcher.tool];
   const clicks = [...sketcher.clicks, sketcher.hover];
   const smooth = tangentHere(drawing);
   if (smooth && sketcher.tool === "arc")
-    return sketchTangentArc(sketcher.clicks[0], smooth, sketcher.hover, "band");
+    return [sketchTangentArc(sketcher.clicks[0], smooth, sketcher.hover, "band")];
   if (wanted && clicks.length < wanted)
     // Not enough yet to be what it will be; show the straight run of clicks.
-    return { id: "band", type: "spline", pts: clicks, closed: false };
-  try { return sketchElement(sketcher.tool, "band", clicks); } catch (e) { return null; }
+    return [{ id: "band", type: "spline", pts: clicks, closed: false }];
+  try {
+    if (SKETCH_ASSEMBLIES.includes(sketcher.tool))
+      return sketchAssembly(sketcher.tool, clicks,
+                            ["band1", "band2", "band3", "band4"]).elements;
+    return [sketchElement(sketcher.tool, "band", clicks)];
+  } catch (e) { return []; }
 }
 
 //! The direction the chain is travelling, when there is a chain and tangency is
@@ -4803,14 +4811,17 @@ function buildSketchRail() {
   // Select comes first and is where the sketcher starts, because opening a
   // sketch should not arm a tool: the first thing you want to do to a drawing
   // is usually look at it and push something.
-  for (const type of ["select", ...SKETCH_TYPES]) {
+  for (const type of ["select", ...SKETCH_TOOLS]) {
     const button = document.createElement("button");
     button.className = "tool";
     button.dataset.sketch = type;
     button.dataset.label =
       type === "select" ? "Select · drag an end, or pick things to relate"
       : type === "line" ? "Polyline · click corner after corner"
-      : type === "rect" ? "Rectangle · two opposite corners"
+      : type === "rect" ? "Rectangle · two opposite corners · drawn as four lines"
+      : type === "rotrect"
+        ? "Rectangle at an angle · corner, then which way and how wide, then how deep"
+      : type === "oblong" ? "Oblong · two centres and a radius · drawn as two arcs and two lines"
       : type === "arc" ? "Arc · 3 clicks, or tangent to what you just drew"
       : type === "spline" ? "Spline · click points it goes THROUGH, Enter to finish"
       : type === "bspline" ? "Control curve · click points that PULL it, Enter to finish"
@@ -7233,6 +7244,11 @@ const SKETCH_ICONS = {
   oblong: '<rect x="1.6" y="4.6" width="12.8" height="6.8" rx="3.4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
   rect: '<rect x="2.2" y="4" width="11.6" height="8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
       + '<circle cx="2.2" cy="12" r="1.3" fill="currentColor"/><circle cx="13.8" cy="4" r="1.3" fill="currentColor"/>',
+  // The same rectangle, leaning. The dot is the corner it is placed from, and
+  // the arrow the direction the second click gives it.
+  rotrect: '<path d="M2.4 9.6l7.2-6.2 4.1 4.8-7.2 6.2z" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+         + '<circle cx="2.4" cy="9.6" r="1.3" fill="currentColor"/>'
+         + '<path d="M4.4 7.9l4.4-3.8" stroke="currentColor" stroke-width=".9" opacity=".55"/>',
   // Two straight runs and the arc that replaces the corner they made.
   fillet: '<path d="M2.6 13.4V8.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
         + '<path d="M7.4 3.6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>'
@@ -14929,7 +14945,7 @@ function setBare(on) {
 
 //! What can be done to the drawing, in the order the rail draws it - so a flick
 //! into the Draw ring lands on the tool the same button would.
-const sketchToolList = () => ["select", ...SKETCH_TYPES].map(key => ({
+const sketchToolList = () => ["select", ...SKETCH_TOOLS].map(key => ({
   key,
   label: key === "select" ? "Select" : key === "line" ? "Polyline" : SKETCH_LABELS[key] || key,
   hint: key === "select" ? "drag an end, or pick things to relate"

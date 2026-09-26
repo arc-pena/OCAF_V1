@@ -1,11 +1,19 @@
 import { acceptsFrom, isElided } from "./ocaf.js";
-import { SKETCH_CLICKS, SKETCH_LAYER, currentLayer, isDimension, measureDimension,
-         nextSketchId, readSketch,
+import { SKETCH_ASSEMBLIES, SKETCH_CLICKS, SKETCH_LAYER, currentLayer, isDimension,
+         measureDimension, nextSketchId, nextSketchIds, readSketch, sketchAssembly,
          sketchDirectionAt, sketchElement, sketchHandleAt, sketchLayers, sketchMoveElement,
          sketchFillet, sketchIsFixed, sketchMoveHandle, sketchOffset, sketchOverlaps,
          sketchRelation,
          sketchTangentArc,
          solveSketch } from "./sketch.js";
+
+//! HOW LONG AN EDIT INSIDE A SKETCH IS GIVEN TO SETTLE. Not a guess at how
+//! many passes are enough - solveSketch stops by itself the moment it is not
+//! improving - but a ceiling high enough that it is the drawing that decides
+//! and not the clock. It was forty, which on a rectangle given a length
+//! stopped four-fifths of the way there and left the opposite side 0.38 mm
+//! short of the one that had been dimensioned.
+const SETTLE = 400;
 
 // The model description language.
 //
@@ -387,7 +395,12 @@ export const MDL_OPS = [
     + "far round. from names an end of another element, as \"e1.b\": the new element "
     + "starts there and leaves it smoothly, so an arc off the end of a line is tangent "
     + "to it and at needs only where the arc ends. This is what clicking in the "
-    + "sketcher writes.",
+    + "sketcher writes. Three of the types are gestures that leave SEVERAL elements "
+    + "and the relations between them: rect is four lines, coincident at the corners "
+    + "and each horizontal or vertical; rotrect (corner, then width, then depth) is "
+    + "four lines held square by right angles, so it may stand at any angle; oblong is "
+    + "two lines and two arcs, coincident and tangent. Every side is then an element "
+    + "of its own to put a length or a radius on.",
     { op: "draw", id: "SK1", type: "arc", at: [[100, 0], [200, 100]], from: "e1.b" },
     async (ctx, edit) => {
       const type = needText(edit, "type");
@@ -396,6 +409,24 @@ export const MDL_OPS = [
       if (wanted === undefined) throw new Error('there is no sketch element called "' + type + '"');
       const drawing = await drawingOf(ctx, needText(edit, "id"));
       const id = typeof edit.as === "string" && edit.as ? edit.as : nextSketchId(drawing);
+
+      //! A RECTANGLE IS FOUR LINES. One gesture, several elements and the
+      //! relations that hold them together - see sketchAssembly, which is
+      //! where the shapes and their definitions are. It goes through the
+      //! drawing op rather than being expanded by the sketcher, so a
+      //! rectangle typed into the console is the same rectangle as a
+      //! rectangle dragged out with the mouse.
+      if (SKETCH_ASSEMBLIES.includes(type)) {
+        if (clicks.length < wanted)
+          throw new Error(type + " needs " + wanted + ' points in "at"');
+        const names = nextSketchIds(drawing, 4, edit.as || null);
+        const made = sketchAssembly(type, clicks, names);
+        const on = Array.isArray(drawing.layers) && drawing.layers.length
+          ? currentLayer(drawing) : null;
+        for (const el of made.elements) drawing.elements.push(on ? { ...el, layer: on } : el);
+        drawing.constraints = (drawing.constraints || []).concat(made.constraints);
+        return ctx.kernel.setSketch(edit.id, null, drawing);
+      }
 
       // Leaving another element smoothly settles where this one starts and
       // which way it goes, so all it still needs is where it ends.
@@ -667,7 +698,7 @@ export const MDL_OPS = [
       //! Once per relate, not once per rebuild: what the original comment warns
       //! against is re-solving on every build, which would let the drawn
       //! geometry drift away from what was drawn a little at a time.
-      const settled = solveSketch(drawing, 40);
+      const settled = solveSketch(drawing, SETTLE);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
@@ -711,7 +742,7 @@ export const MDL_OPS = [
       //! what they come to at build time - but typing 62 onto a radius has to
       //! move the circle you are looking at, or the number on screen and the
       //! circle under it disagree until something else rebuilds them.
-      const settled = solveSketch(drawing, 40);
+      const settled = solveSketch(drawing, SETTLE);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 
@@ -744,7 +775,7 @@ export const MDL_OPS = [
       // exactly where it was put and everything held to it follows all the way.
       // Anywhere else the drawing keeps what was drawn and the relations are
       // what they come to - here, dragging a corner has to move the corner.
-      const settled = solveSketch(drawing, 40, [at]);
+      const settled = solveSketch(drawing, SETTLE, [at]);
       return ctx.kernel.setSketch(edit.id, null, settled.drawing);
     }),
 

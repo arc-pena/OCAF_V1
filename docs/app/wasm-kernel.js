@@ -4963,6 +4963,17 @@ function sprawl(face, edges) {
   //! geometry, which costs nothing and is safe to release.
   const asItWas = shape => shape.Moved(new oc.TopLoc_Location(new oc.gp_Trsf()));
 
+  //! THE SAME SHAPE, STARTED SOMEWHERE ELSE. A location rather than a rebuild,
+  //! for the same reason every rigid move here is one: it is the same geometry
+  //! in another place. An extrude that goes both ways out of its profile is
+  //! this and then one sweep - not two sweeps fused, which would leave a seam
+  //! down the middle of a pad that has no seam in it.
+  const shapeMovedBy = (shape, by) => {
+    const trsf = new oc.gp_Trsf();
+    trsf.SetTranslation(new oc.gp_Vec(by[0], by[1], by[2]));
+    return shape.Moved(new oc.TopLoc_Location(trsf));
+  };
+
   function transformed(shape, trsf, { rebuild = false, keep = false } = {}) {
     const moved = rebuild
       ? new oc.BRepBuilderAPI_Transform(shape, trsf, true).Shape()
@@ -5297,7 +5308,25 @@ function sprawl(face, edges) {
       const over = stop
         ? Math.sign(reach) * (Math.abs(reach) + HSF.extentsOf(source) * 2 + 1)
         : reach;
-      const along = V.scale(v, over);
+
+      //! BOTH WAYS OUT OF THE PAPER. A pad that can only go one way meant
+      //! drawing on a plane and then moving the result back by half of the
+      //! distance - a number that is right until the distance changes, and
+      //! nothing in the model says the two belong together.
+      //!
+      //! So the profile is started BEHIND itself and the prism is made in one
+      //! piece: nothing is fused, there is no seam down the middle, and the
+      //! faces at the two ends are the two ends. Symmetric asks for no second
+      //! number, because there is only one - which is what makes the profile
+      //! stay in the middle when it changes. Up to a plane takes a back
+      //! distance too: "from 200 below the sketch up to that face" is a real
+      //! thing to say, and the trim still decides the far end.
+      const sides = Feature_choice(f, "sides");
+      const behind = sides === 2 ? Math.abs(reach)
+                   : sides === 1 ? Math.abs(F.real(f, "back", 60)) : 0;
+      const back = Math.sign(reach) * behind;
+      const from = behind > CONFUSION ? shapeMovedBy(source, V.scale(v, -back)) : source;
+      const along = V.scale(v, over + back);
 
       // Solid or surface is a real choice, not a hint, and the two factories
       // are where it is made. A pad is swept from the faces of the profile -
@@ -5309,11 +5338,11 @@ function sprawl(face, edges) {
       //! anybody means by "up to".
       const cut = made => stop ? HSF.trimAtPlane(made, stop, middle) : made;
       if (Feature_choice(f, "cap") === 0) {
-        const faces = capped(f, source);
+        const faces = capped(f, from);
         if (!faces.length) throw new Error("the profile has nothing to extrude");
         return cut(SF.pad(HSF.join(faces), along));
       }
-      const wires = outlines(f, source);
+      const wires = outlines(f, from);
       if (!wires.length) throw new Error("the profile has nothing to extrude");
       return cut(HSF.extrude(HSF.join(wires), along));
     },

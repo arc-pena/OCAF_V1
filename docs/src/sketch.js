@@ -157,6 +157,133 @@ export function sketchElement(type, id, clicks) {
   }
 }
 
+//! WHAT THE RAIL OFFERS, which is not the same list as SKETCH_TYPES. Two of
+//! these are GESTURES rather than kinds of element: a rectangle at an angle is
+//! three clicks and four lines, and there is no "rotrect" in any drawing.
+export const SKETCH_TOOLS = ["point", "line", "rect", "rotrect", "arc", "circle",
+                             "ellipse", "oblong", "spline", "bspline"];
+
+//! The gestures that are drawn as one thing and written as several. See
+//! sketchAssembly for why.
+export const SKETCH_ASSEMBLIES = ["rect", "rotrect", "oblong"];
+
+//! WHAT A RECTANGLE IS ONCE IT HAS BEEN DRAWN.
+//!
+//! A rectangle and a slot were two KINDS of element: one indivisible thing
+//! with two corners, or two corners and a radius. That is convenient for
+//! drawing them and useless for everything afterwards. There is no top edge to
+//! put a length on, no left edge to make coincident with somebody else's line,
+//! no end cap to give a radius to - you could dimension "the rectangle" and
+//! nothing else, and a drawing whose parts cannot be named is a drawing you
+//! cannot constrain.
+//!
+//! So the gesture stays and what it leaves behind is a drawing. Four lines and
+//! four coincidences; or two lines, two arcs, four coincidences and four
+//! tangencies. Every piece is then an element like any other - pick one side,
+//! give it a length; pick one cap, give it a radius - and what keeps the shape
+//! a rectangle is written down in the sketch where anybody can read it, rather
+//! than being a fact about a word in a file that only the solver knows.
+//!
+//! The relations are each shape's own definition, and the three differ:
+//!
+//!   rect     four coincidences, and every side horizontal or vertical. Square
+//!            to the paper for good: drag a corner and it is still a rectangle,
+//!            still square to u and v.
+//!   rotrect  four coincidences and four right angles. It may stand at any
+//!            angle and still be a rectangle, which is the one thing
+//!            horizontal and vertical cannot say.
+//!   oblong   four coincidences and four tangencies: each cap meets each side
+//!            smoothly, so a slot stays a slot when either is moved.
+//!
+//! \p ids one per element, in the order the elements come back in.
+export function sketchAssembly(type, clicks, ids) {
+  const name = i => (ids && ids[i]) || "e" + (i + 1);
+  const line = (i, a, b) => ({ id: name(i), type: "line", a: sketchRound(a), b: sketchRound(b) });
+  const joined = ends => ends.map(([one, two]) =>
+    ({ type: "coincident", of: [one, two] }));
+
+  switch (type) {
+    //! TWO OPPOSITE CORNERS, square to the sheet.
+    case "rect": {
+      const box = sketchElement("rect", "x", clicks);
+      const [ax, ay] = box.a, [bx, by] = box.b;
+      if (Math.abs(bx - ax) < 1e-9 || Math.abs(by - ay) < 1e-9)
+        throw new Error("a rectangle needs two corners that are not on top of each other");
+      const elements = [line(0, [ax, ay], [bx, ay]), line(1, [bx, ay], [bx, by]),
+                        line(2, [bx, by], [ax, by]), line(3, [ax, by], [ax, ay])];
+      const id = elements.map(el => el.id);
+      return { elements, constraints: [
+        ...joined([[id[0] + ".b", id[1] + ".a"], [id[1] + ".b", id[2] + ".a"],
+                   [id[2] + ".b", id[3] + ".a"], [id[3] + ".b", id[0] + ".a"]]),
+        { type: "horizontal", of: [id[0]] }, { type: "vertical",   of: [id[1]] },
+        { type: "horizontal", of: [id[2]] }, { type: "vertical",   of: [id[3]] },
+      ] };
+    }
+
+    //! ORIGIN, THEN WHICH WAY AND HOW WIDE, THEN HOW DEEP. The rectangle that
+    //! is not square to the paper, and the reason it needs relations of its
+    //! own: horizontal and vertical would nail it to the sheet, and the whole
+    //! point of it is that it stands where it was put.
+    case "rotrect": {
+      const o = clicks[0] || [0, 0], w = clicks[1] || [0, 0], h = clicks[2] || [0, 0];
+      const along = norm(sub(w, o));
+      if (!along) throw new Error("a rectangle needs a width: the first two clicks are the same");
+      const across = perp(along);
+      const deep = dot(sub(h, w), across);
+      if (Math.abs(deep) < 1e-9)
+        throw new Error("a rectangle needs a depth: the third click is on the width");
+      const up = mul(across, deep);
+      const elements = [line(0, o, w), line(1, w, add(w, up)),
+                        line(2, add(w, up), add(o, up)), line(3, add(o, up), o)];
+      const id = elements.map(el => el.id);
+      return { elements, constraints: [
+        ...joined([[id[0] + ".b", id[1] + ".a"], [id[1] + ".b", id[2] + ".a"],
+                   [id[2] + ".b", id[3] + ".a"], [id[3] + ".b", id[0] + ".a"]]),
+        //! Every consecutive pair, round the whole way. The fourth is implied
+        //! by the other three and is here anyway: a relation that is only true
+        //! by deduction is one the drawing does not say, and a person reading
+        //! the list should see a rectangle rather than have to prove one.
+        { type: "perpendicular", of: [id[0], id[1]] },
+        { type: "perpendicular", of: [id[1], id[2]] },
+        { type: "perpendicular", of: [id[2], id[3]] },
+        { type: "perpendicular", of: [id[3], id[0]] },
+      ] };
+    }
+
+    //! A SLOT: two sides and two caps. The arcs run anticlockwise, so each cap
+    //! starts on one side of the axis and ends on the other, and which is
+    //! which is what decides that the caps bulge outwards rather than folding
+    //! back through the slot.
+    case "oblong": {
+      const slot = sketchElement("oblong", "x", clicks);
+      const along = norm(sub(slot.b, slot.a));
+      if (!along || !(slot.r > 1e-9))
+        throw new Error("a slot needs a length and a radius");
+      const n = perp(along);
+      const angle = Math.atan2(n[1], n[0]);
+      const off = mul(n, slot.r);
+      const cap = (i, at, a0) => ({ id: name(i), type: "arc", c: sketchRound(at),
+                                    r: round1(slot.r), a0: round4(a0),
+                                    a1: round4(a0 + Math.PI) });
+      const elements = [
+        line(0, add(slot.a, off), add(slot.b, off)),      // the side on +n
+        cap(1, slot.b, angle - Math.PI),                  // the far cap
+        line(2, sub(slot.b, off), sub(slot.a, off)),      // the side on -n
+        cap(3, slot.a, angle),                            // the near cap
+      ];
+      const id = elements.map(el => el.id);
+      return { elements, constraints: [
+        ...joined([[id[0] + ".b", id[1] + ".end"], [id[1] + ".start", id[2] + ".a"],
+                   [id[2] + ".b", id[3] + ".end"], [id[3] + ".start", id[0] + ".a"]]),
+        { type: "tangent", of: [id[0], id[1]] }, { type: "tangent", of: [id[2], id[1]] },
+        { type: "tangent", of: [id[2], id[3]] }, { type: "tangent", of: [id[0], id[3]] },
+      ] };
+    }
+
+    default: return null;
+  }
+}
+
 //! A relation over what is selected. \p of is the elements or the handles,
 //! in the order they were picked, and how many there must be is in
 //! SKETCH_RELATIONS - so a panel offering relations and a solver running them
@@ -232,8 +359,8 @@ const round4 = v => Math.round(v * 1e6) / 1e6;
 
 //! How many clicks each kind wants before it is a thing. A spline is however
 //! many you give it.
-export const SKETCH_CLICKS = { point: 1, line: 2, rect: 2, circle: 2, arc: 3, ellipse: 3,
-                               oblong: 3, spline: 0, bspline: 0 };
+export const SKETCH_CLICKS = { point: 1, line: 2, rect: 2, rotrect: 3, circle: 2, arc: 3,
+                               ellipse: 3, oblong: 3, spline: 0, bspline: 0 };
 
 //! The points on an element that can be taken hold of - by the solver, by a
 //! coincidence, or by a cursor. Named, because a constraint says "e1.b".
@@ -1329,7 +1456,7 @@ export function solveSketch(drawing, passes = 24, pinned = []) {
     sketchMoveHandle(h.el, h.key, p);
   };
 
-  let residual = 0, ran = 0;
+  let residual = 0, ran = 0, was = Infinity, stuck = 0;
   for (let pass = 0; pass < Math.max(1, passes); pass++) {
     residual = 0;
     ran = pass + 1;
@@ -1351,6 +1478,23 @@ export function solveSketch(drawing, passes = 24, pinned = []) {
       Object.assign(el, back);
     }
     if (residual < 1e-7) break;
+    //! AND WHEN IT STOPS GETTING BETTER, which is not the same thing.
+    //!
+    //! A relaxation converges geometrically - a dimensioned rectangle comes
+    //! down by about 15% a pass - and then it hits a floor: the handles are
+    //! stored rounded to a ten-thousandth, so below that the pass moves
+    //! nothing and every further pass is spent finding that out again.
+    //! Measured on one rectangle given a length: it reached the floor at pass
+    //! 85 and the next three hundred changed nothing.
+    //!
+    //! So a budget of forty was not "forty passes of work", it was "stop
+    //! four-fifths of the way there" - the opposite side of that rectangle
+    //! came back 0.38 mm short of the one that was dimensioned, on a drawing
+    //! whose corners all say they are coincident. Three passes with no
+    //! improvement at all is the floor; anything still improving, however
+    //! slowly, keeps its budget.
+    if (residual >= was) { if (++stuck >= 3) break; } else stuck = 0;
+    was = residual;
   }
   return { drawing: work, passes: ran, residual: Math.sqrt(Math.max(0, residual)) };
 }
@@ -1568,10 +1712,39 @@ function applyRelation(relation, index, handle, moveTo, held = new Set()) {
         const away = sub(round.c, other.a);
         const across = dot(away, perp(along));
         const off = Math.abs(across) - round.r;
-        //! Slid along the line's normal, and along the SIDE IT IS ALREADY ON.
-        //! Sign(across) is what keeps a fillet sitting in the corner it was put
-        //! in rather than flipping through the line to the other one.
-        round.c = sketchRound(sub(round.c, mul(perp(along), Math.sign(across) * off)));
+        //! THEY MEET IN THE MIDDLE, the way two tangent circles already did.
+        //!
+        //! This moved the ARC alone, which is right when one arc answers to one
+        //! line - a fillet, sitting in a corner. It is wrong the moment an arc
+        //! answers to two, because the relations are applied in turn: the
+        //! second tangency put the arc exactly where it wanted it and undid the
+        //! first, so the LAST one written won and the other was left short.
+        //!
+        //! A slot is exactly that shape - two caps, two sides, each cap tangent
+        //! to both sides - and it showed: grow one cap of a 100 x 40 slot to
+        //! r30 and one side came back 0.45 mm off the cap it was supposed to be
+        //! touching, every pass, for ever. It is a fixed point of the old rule
+        //! rather than a slow convergence; four thousand passes gave the same
+        //! answer as forty.
+        //!
+        //! So half the correction goes on the arc and half on the line, and
+        //! competing tangencies average instead of taking turns. The slot comes
+        //! back inside five thousandths of a millimetre, and every fillet in
+        //! the suite is unchanged: a fillet's arms are held at their far ends
+        //! by everything else in the drawing, so half a correction on a line
+        //! that cannot go anywhere is a correction the next pass gives back.
+        //!
+        //! Sign(across) is still what keeps a fillet sitting in the corner it
+        //! was put in rather than flipping through the line to the other side.
+        const shift = mul(perp(along), Math.sign(across) * off * 0.5);
+        round.c = sketchRound(sub(round.c, shift));
+        //! A line held at both ends is not a line that may be slid, and the arc
+        //! has already taken its half: the rest is the drawing telling you it
+        //! is over-constrained, which is what the residual is for.
+        if (!(held.has(other.id + ".a") && held.has(other.id + ".b"))) {
+          other.a = sketchRound(add(other.a, shift));
+          other.b = sketchRound(add(other.b, shift));
+        }
         return off * off;
       }
       if (isRound(other)) {
@@ -2109,6 +2282,19 @@ export function readSketch(source) {
 export function nextSketchId(drawing, prefix = "e") {
   const used = new Set((drawing.elements || []).map(el => el.id));
   for (let i = 1; ; i++) if (!used.has(prefix + i)) return prefix + i;
+}
+
+//! SEVERAL AT ONCE, because one gesture can leave four elements behind and
+//! they have to be named before any of them is pushed - the constraints
+//! between them are written in the same breath. \p first is the id the caller
+//! was given for the gesture, when it was given one.
+export function nextSketchIds(drawing, count, first = null, prefix = "e") {
+  const used = new Set((drawing.elements || []).map(el => el.id));
+  const out = [];
+  if (first) { out.push(first); used.add(first); }
+  for (let i = 1; out.length < count; i++)
+    if (!used.has(prefix + i)) { out.push(prefix + i); used.add(prefix + i); }
+  return out;
 }
 
 //! One line describing a drawing, for the tree and the node.

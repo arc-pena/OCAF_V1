@@ -2592,7 +2592,10 @@ export const CATALOGUE = [
     summary: "Drags a profile along a direction. On Solid every closed loop in the "
            + "profile is capped and padded - a sketch of six loops pads into six "
            + "bodies. On Surface the wires are swept open instead, which is what to "
-           + "use when the profile is a rib, a wall or a skin rather than a body.",
+           + "use when the profile is a rib, a wall or a skin rather than a body. "
+           + "Extent says which way out of the profile it goes: one side, two sides "
+           + "with a second distance behind, or symmetric - the same distance each "
+           + "way, so the profile stays in the middle of what it made.",
     args: [ref("profile", "Profile", ["curve", "plane"], true),
            //! Only asked for when the direction is not the profile's own. A
            //! `when` here is what stops it being auto-wired as well as what
@@ -2610,7 +2613,22 @@ export const CATALOGUE = [
            //! for a fact the profile already knows, and getting it wrong is
            //! how you extrude a plan sideways.
            choice("way", "Direction from",
-                  ["Normal to the profile", "A direction"], 0)] },
+                  ["Normal to the profile", "A direction"], 0),
+           //! APPENDED, both of them: an argument's place in this list IS its
+           //! tag in the document, so a file written before today reads back
+           //! with no sides and no second distance, which is One side - what
+           //! it was.
+           //!
+           //! WHICH WAY OUT OF THE PAPER. A pad drawn on a plane through the
+           //! middle of a thing goes both ways from it, and there was no way
+           //! to say so: you extruded one way and moved the result back by
+           //! half, which is a number that stops being right the moment the
+           //! distance changes. Two sides takes a second distance; Symmetric
+           //! is the same distance each way, so one number moves both faces
+           //! and the profile stays in the middle of what it made.
+           choice("sides", "Extent",
+                  ["One side", "Two sides", "Symmetric"], 0),
+           when(real("back", "Distance back", 60, -4000, 4000, 1), "sides", 1)] },
   { type: "Loft", guid: "9a1b2c30-0071-4c00-9e00-caf000000071", category: "operation",
     produces: "solid",
     summary: "A skin through section curves, in the order they are wired. Two or more "
