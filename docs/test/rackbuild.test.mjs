@@ -351,6 +351,124 @@ console.log("\n7. one section drives every member wired to it");
         /T-slot 45/.test(said) && !/T-slot 40/.test(said), said.slice(0, 120));
 }
 
+console.log("\n9. the hall around the rack: floor, hanger, manager, figure");
+{
+  //! THE PANEL'S TOP IS THE FINISHED FLOOR. Everything else in a hall is
+  //! dimensioned off that level, so a panel placed by its underside puts every
+  //! rack above it a panel's thickness out - which nothing on screen shows and
+  //! every section does.
+  const T = await add("FloorTile", { refs: { plane: PL } });
+  check("a solid panel builds", !(await at(T)).error, (await at(T)).error);
+  check("and its top is the level it was placed at",
+        near(await sizeOf(T, 11), 0, 0.01), String(await sizeOf(T, 11)));
+  //! And the understructure reaches the finished floor height and no further:
+  //! a pedestal dropped by the panel's thickness instead sits 4 mm below the
+  //! slab, which is invisible on screen and wrong in every section.
+  await set(T, "height", 600);
+  const low = await sizeOf(T, 10);
+  check("and its pedestal stands exactly on the slab", near(low, -600, 0.01), String(low));
+
+  //! A GRATE OPENS WHAT IT IS SOLD AS, computed off the openings it cut rather
+  //! than repeated off the table it came from.
+  await set(T, "tile", 2);
+  const said = String(((await at(T)).data || {}).preview || "");
+  const open = /([\d.]+)% of the panel/.exec(said);
+  check("a directional grate opens about 56% of the panel",
+        !!open && Math.abs(Number(open[1]) - 56) < 2, open ? open[1] + "%" : said.slice(0, 60));
+  //! AND IT SAYS WHAT WILL GO THROUGH IT, which is the number a hall is laid
+  //! out against - and it is named as a correlation rather than passed off as
+  //! a result.
+  check("and says what will pass it, and that it is a correlation",
+        /m\u00b3\/h at/.test(said) && /correlation, not a CFD result/.test(said));
+  //! THE FAILURE THAT WOULD LOOK LIKE SUCCESS: a finished floor shallower than
+  //! the panel itself. The pedestal is then of negative length, which draws as
+  //! nothing at all - so the floor would simply appear to sit on the slab.
+  await set(T, "height", 30);
+  check("a floor too shallow for a pedestal is refused in words",
+        /no pedestal/.test(String((await at(T)).error || "")),
+        String((await at(T)).error || "it built"));
+  await set(T, "height", 600);
+
+  //! THE HANGER'S DROP IS TO THE FACE THE TRAY BEARS ON. Measured to the
+  //! centreline instead, half a section's depth of error rides on whichever
+  //! section the hanger happens to be made of.
+  const PH = await add("Point"); await set(PH, "z", 3000);
+  const HG = await add("CeilingHanger", { refs: { plane: PL, at: PH } });
+  await set(HG, "drop", 400);
+  check("a trapeze builds", !(await at(HG)).error, (await at(HG)).error);
+  check("its rods reach the soffit", near(await sizeOf(HG, 11), 3000, 0.01),
+        String(await sizeOf(HG, 11)));
+  const TR = await add("CableTray", { refs: { plane: PL, at: PH } });
+  await set(TR, "profile", 6);
+  await set(TR, "rung", 25);
+  //! AND A TRAY SITS ON ITS UNDERSIDE. A rung deeper than its rail hung below
+  //! the tray and the tray then floated that far above the hanger holding it
+  //! up - which looks like contact from any distance.
+  check("a tray's underside is where it is placed, whatever its rung",
+        near(await sizeOf(TR, 10), 3000, 0.01), String(await sizeOf(TR, 10)));
+  await set(TR, "profile", 2);
+  check("and it stays there when the section changes",
+        near(await sizeOf(TR, 10), 3000, 0.01), String(await sizeOf(TR, 10)));
+
+  //! THE MANAGER REPORTS WHAT IT WILL HOLD, which is the only question anybody
+  //! asks of one - and it names the fill figure as the trade's rather than
+  //! passing it off as geometry.
+  const MG = await add("CableManager", { refs: { plane: PL } });
+  check("a manager builds", !(await at(MG)).error, (await at(MG)).error);
+  const mgr = String(((await at(MG)).data || {}).preview || "");
+  check("and says how many cables it will take, at a named fill",
+        /cables at 60% fill/.test(mgr) && /not a geometric packing/.test(mgr),
+        mgr.split("\n")[2] || mgr.slice(0, 60));
+
+  //! AND THE PERSON IS THE HEIGHT ASKED FOR, measured off the built mesh.
+  const FG = await add("ScaleFigure", { refs: { plane: PL } });
+  await set(FG, "height", 1800);
+  check("a scale figure builds", !(await at(FG)).error, (await at(FG)).error);
+  check("and is exactly the height asked for",
+        near(await sizeOf(FG, 5), 1800, 0.01), String(await sizeOf(FG, 5)));
+  await set(FG, "height", 1500);
+  check("and follows when that changes", near(await sizeOf(FG, 5), 1500, 0.01),
+        String(await sizeOf(FG, 5)));
+}
+
+console.log("\n10. a bill of a hall counts the instances, not the geometry");
+{
+  //! THE FAILURE THAT LOOKS MOST LIKE SUCCESS IN THIS PACKAGE. Eight racks
+  //! where seven are instances is ONE piece of geometry, so a bill that walks
+  //! the shapes sees one rack; and the seven instances are features the bill
+  //! did not recognise, so a bill that walks the tree also sees one rack. Both
+  //! produce a neatly formatted bill with every line right and a total wrong by
+  //! seven racks - and a bill is the one thing in a model somebody spends money
+  //! against.
+  const HALL = await add("GeometricalSet");
+  const PART = await add("Part", { into: HALL });
+  const BOLT = await add("Fastener", { refs: { plane: PL }, into: PART });
+  await set(BOLT, "part", 0);
+  const P2 = await add("Point", { into: HALL }); await set(P2, "x", 900);
+  const I1 = await add("Instance", { refs: { part: PART, at: P2 }, into: HALL });
+  //! And a PATTERN of an instance, which is how a row is built - so the count
+  //! has to follow through both at once.
+  const P3 = await add("Point", { into: HALL }); await set(P3, "x", 1800);
+  const I2 = await add("Instance", { refs: { part: PART, at: P3 }, into: HALL });
+  const ROW = await add("Array", { refs: { source: I2 }, into: HALL });
+  await set(ROW, "mode", 0);
+  await set(ROW, "countX", 3);
+  await set(ROW, "spacingX", 700);
+  await set(ROW, "countY", 1);
+  await set(ROW, "countZ", 1);
+  const BILL = await add("Bill", { refs: { of: HALL }, into: HALL });
+  const said = String(((await at(BILL)).data || {}).preview || "");
+  const got = /(\d+) \u00d7 Hex bolt/.exec(said);
+  //! One in the part itself, one instance of it, three from the pattern: five.
+  check("the part, the instance and the pattern of instances are all counted",
+        !!got && Number(got[1]) === 5, got ? got[1] + " bolts" : said.slice(0, 80));
+  //! AND THE INSTANCE THE PATTERN ATE IS NOT ALSO A BOLT. An Array consumes its
+  //! source, so counting the source as well gives six where there are five -
+  //! the same off-by-one that gave 25 bolts for a pattern of 24.
+  check("and the instance the pattern consumed is not counted twice",
+        !/6 \u00d7 Hex bolt/.test(said));
+}
+
 /* ================================== and the file says what it cannot open without
 
    Opening the sample from the samples menu worked and dropping the same file

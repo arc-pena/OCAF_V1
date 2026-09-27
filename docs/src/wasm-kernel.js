@@ -3793,6 +3793,13 @@ function sprawl(face, edges) {
       // HOW MANY OF SOMETHING, which is a measurement like any other and the
       // one a model needs before it can take the pieces apart: you cannot ask
       // for face 5 of a skin until you know there are nine.
+      //! WHERE IT IS, rather than how big it is. Answered off the same
+      //! bounding box as the sizes, and answered before the counting branch
+      //! because that one is "everything from 7 up".
+      if (quantity === 10 || quantity === 11) {
+        const box = extents(shape);
+        return { data: numbers([box ? (quantity === 10 ? box.low[2] : box.high[2]) : 0]) };
+      }
       if (quantity >= 7) {
         const kind = quantity === 7 ? FACE : quantity === 8 ? EDGE : VERTEX;
         const cast = quantity === 7 ? oc.TopoDS.Face
@@ -4905,6 +4912,8 @@ function sprawl(face, edges) {
     const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (const p of mesh.points)
       for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i]); hi[i] = Math.max(hi[i], p[i]); }
+    if (quantity === 10) return Number.isFinite(lo[2]) ? lo[2] : 0;
+    if (quantity === 11) return Number.isFinite(hi[2]) ? hi[2] : 0;
     const size = [0, 1, 2].map(i => (Number.isFinite(hi[i] - lo[i]) ? hi[i] - lo[i] : 0));
     return quantity === 6 ? Math.hypot(...size) : size[quantity - 3];
   }
@@ -7311,6 +7320,16 @@ function sprawl(face, edges) {
         points, numbers, vectors, text, pointsOf, zip,
         tessellate, sampleCurve, capped, outlines,
         bodies, FACE, EDGE, SOLID, ANY,
+        //! THE MESH SIDE OF THE DOCUMENT, so a package can produce one. Every
+        //! other entry here hands back a B-Rep; a scale figure, a terrain, a
+        //! scanned part are polymeshes, and without these two a package could
+        //! only get one into the document by sewing a few thousand planar
+        //! faces into a shell - which is minutes of work for something whose
+        //! whole point is that it is cheap. checkMesh comes with packMesh and
+        //! not instead of it: a face pointing at a vertex that is not there
+        //! takes the renderer down two features later, where nothing explains
+        //! it, and a driver outside this file is exactly as able to write one.
+        packMesh, checkMesh, meshFrom, isMesh,
       };
     },
 

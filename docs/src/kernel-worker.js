@@ -135,6 +135,18 @@ self.onmessage = async event => {
     if (!kernel) throw new Error("the modeller has not started yet");
     if (call === "usePackage") { post({ id, ok: true, value: usePackage(args[0]) }); return; }
     if (call === "dropPackage") { post({ id, ok: true, value: dropPackage(args[0]) }); return; }
+    //! THE ONE CALL THAT CANNOT CROSS, refused by name rather than attempted.
+    //! A toolkit is the WebAssembly module itself - `oc` is in it - so posting
+    //! one back throws a DataCloneError INSIDE this worker, where nothing on
+    //! the page is listening: the answer never comes, the caller's promise
+    //! never settles, and what that looks like from outside is a package that
+    //! switches on for ever. It cost an afternoon to find once. An error is an
+    //! answer; a silence is not.
+    if (call === "toolkit")
+      throw new Error("the toolkit cannot cross a message port - it is the "
+        + "WebAssembly itself. A package whose start() builds drivers has to "
+        + "declare them as `drivers` on its manifest instead, so the thread "
+        + "doing the modelling builds them where the kernel actually is.");
     const method = kernel[call];
     if (typeof method !== "function") throw new Error("no such call: " + call);
     post({ id, ok: true, value: await method.apply(kernel, args || []) });

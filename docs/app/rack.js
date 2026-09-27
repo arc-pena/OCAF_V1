@@ -527,6 +527,14 @@ export function holeArea(kind, size, slot = 0) {
   //! A slot is a rectangle with a half-circle on each end - its area is the
   //! rectangle plus one whole circle, not the rectangle plus two half-guesses.
   if (kind === "oblong") return size * Math.max(0, slot - size) + Math.PI * (size / 2) * (size / 2);
+  //! AND A CAST GRATE'S OPENING IS NOT AN OBLONG. A punched slot is a stadium
+  //! because a punch is a stadium; the gap between the vanes of a cast grate is
+  //! a rectangle with a radius on it you would need a magnifier to find. The
+  //! difference matters twice over: the area is 4% out either way, and the
+  //! geometry built from a stadium is a box tangent to two cylinders, which is
+  //! the worst case a boolean has - 125 of them took 41 seconds and then came
+  //! back as an open shell. As rectangles the same panel is under a second.
+  if (kind === "slot") return size * Math.max(0, slot);
   //! A regular hexagon across the flats: 2/sqrt(3) times the square on them.
   if (kind === "hex") return size * size * Math.sqrt(3) / 2 * (2 / Math.sqrt(3)) * 0.8660254;
   return 0;
@@ -585,3 +593,132 @@ export function threadProfile(spec) {
            //! How deep the groove is cut into the stud, crest to root.
            depth: (one.d - (one.d - 2 * (17 / 24) * H)) / 2 };
 }
+
+/* =========================================================== the room it is in
+
+   A RACK IS NOT A BUILDING. Everything above this line is the rack itself; what
+   follows is the hall around it, because a rack on its own answers none of the
+   questions a data hall is actually designed against. How wide is the aisle.
+   Does the cold air get out of the floor in front of the equipment that wants
+   it. Is the runway high enough to get a body under it. Those are answered by
+   the floor, the overhead containment and a person standing in the aisle, so
+   those are here.
+
+   AND THE SOURCING IS DIFFERENT HERE, which is worth saying plainly. EIA-310-E
+   and Open Rack publish their dimensions; a raised access floor does not have
+   one document of that kind. EN 12825 classifies panels by the load they carry
+   and says nothing about their size, and the 600 mm module, the 32 to 40 mm
+   panel and the 25% and 56% open figures are what the trade builds to rather
+   than what a standard fixes. So each row says which of the two it is, and
+   the node prints it.                                                       */
+
+//! A RAISED ACCESS FLOOR PANEL. `grid` is the module - the pedestal centres -
+//! and the panel is that less a joint. `open` is what the panel is SOLD as;
+//! the node computes what it actually cut and reports both, because those two
+//! are not always the same number and the difference is the point of modelling
+//! it at all.
+export const FLOOR_TILES = [
+  { key: "solid", name: "Solid panel \u00b7 600 grid", grid: 600, thick: 32,
+    kind: "none", open: 0,
+    from: "the 600 mm module the trade builds to; EN 12825 classifies the panel "
+        + "by load and does not fix its size" },
+  //! THE PITCH IS DERIVED FROM THE OPEN AREA, not typed beside it. A panel is
+  //! bought against a percentage and the hole size is what the tooling is; the
+  //! pitch is whatever makes the two agree. Writing all three down means one of
+  //! them is wrong - the first version had 12 mm on a 22 pitch labelled "25%"
+  //! and the model cut 23.4%, which is the kind of discrepancy that looks like
+  //! a rounding and is actually a different panel.
+  { key: "perf25", name: "Perforated panel \u00b7 25% open", grid: 600, thick: 32,
+    kind: "round", hole: 12, open: 0.25,
+    from: "the common punched panel: round holes on a square pitch, sold at 25% - "
+        + "the hole is the tooling, the pitch is what makes it 25%" },
+  //! A cast grate is not a punched panel: the openings are long slots between
+  //! vanes, the casting is thicker, and it opens two to three times the area.
+  //! This is the part that decides whether a 15 kW cabinet gets its air.
+  { key: "grate56", name: "Directional grate \u00b7 56% open", grid: 600, thick: 38,
+    kind: "slot", hole: 14, open: 0.56,
+    from: "cast aluminium grate, slotted between vanes, sold at 56%" },
+  { key: "grate68", name: "Directional grate \u00b7 68% open", grid: 600, thick: 38,
+    kind: "slot", hole: 17, open: 0.68,
+    from: "high-flow cast grate, sold at 68%" },
+];
+
+//! THE PITCH THAT MAKES A PANEL THE PANEL IT IS SOLD AS. One opening takes
+//! \ref holeArea out of one cell of the pattern, so the cell is that area over
+//! the fraction wanted - and the pattern is then its published figure by
+//! construction rather than by a number somebody rounded.
+//!
+//! AND IT AIMS AT THE PANEL, NOT AT THE PATTERN, which is the part worth
+//! getting right. A data sheet's "56% open" is 56% of the 600 x 600 panel; the
+//! unpunched border round the edge is inside that figure, so the PATTERN has to
+//! be more open than 56% for the PANEL to be 56%. Deriving the pitch from the
+//! headline figure and then punching only the middle gave 43%, which is a fifth
+//! less air than the panel was chosen for, and every number downstream of it -
+//! the flow, the cabinets a floor tile can cool - was that fifth out.
+export function tilePitch(spec, field, side) {
+  const one = typeof spec === "string" ? floorTile(spec) : spec;
+  const blank = { x: 0, y: 0, slot: 0 };
+  if (one.kind === "none" || !(one.open > 0) || !(field > 0) || !(side > 0)) return blank;
+  //! What the punched field has to be, for the panel to be what it is sold as.
+  //! Capped: a border wide enough to make this impossible is a panel that
+  //! cannot be what it claims, and the node reports the shortfall rather than
+  //! punching until there is nothing left.
+  const want = Math.min(0.9, one.open * (side * side) / (field * field));
+  if (one.kind === "slot") {
+    //! A DIRECTIONAL GRATE IS VANES, not a field of short slots. The openings
+    //! run the length of the panel between cast vanes, so there is one row of
+    //! them and the pitch across is the only thing to solve for. Modelled as
+    //! short slots on a 104 pitch instead, the same panel came out 51% where it
+    //! should have been 56 - the waste was the gaps between rows that a real
+    //! grate does not have.
+    return { x: one.hole / want, y: field, slot: field };
+  }
+  const cell = Math.sqrt(holeArea(one.kind, one.hole, one.slot || 0) / want);
+  return { x: cell, y: cell, slot: one.slot || 0 };
+}
+
+export const floorTile = key => FLOOR_TILES.find(one => one.key === key) || FLOOR_TILES[0];
+
+//! THE UNDERSTRUCTURE, which is the half of a raised floor nobody draws and the
+//! half that decides whether the panel above it takes the load. A pedestal is a
+//! base plate, a tube and a head; stringers bolt head to head and make the grid
+//! a frame rather than four points.
+export const FLOOR_PEDESTAL = {
+  head: 75, headPlate: 4,       // the square head plate under the panel corners
+  tube: 25, base: 100, basePlate: 5,
+  stringer: { w: 25, h: 32, t: 1.5 },
+  from: "a bolted-stringer understructure on the panel module; sizes are the "
+      + "common commercial ones, not a published standard",
+};
+
+//! HOW MUCH AIR A PANEL CAN PASS, which is the number a hall is laid out
+//! against and the reason a grate exists. \p open is the fraction actually cut.
+//! The correlation is deliberately the simple one and is named as such: it is
+//! the orifice equation with a discharge coefficient, not a CFD result, and it
+//! is valid for the plenum pressures a data hall runs at - 10 to 40 Pa.
+//!
+//!     v = Cd * sqrt(2 * dp / rho)   through the open fraction
+//!
+//! Cd = 0.62 is the textbook sharp-edged orifice figure. A real panel with a
+//! damper under it passes less; a panel is never specified to three figures.
+export function tileFlow(open, grid, pressurePa = 25, rho = 1.2, cd = 0.62) {
+  if (!(open > 0) || !(grid > 0) || !(pressurePa > 0)) return 0;
+  const area = (grid / 1000) * (grid / 1000) * open;          // m2
+  return cd * Math.sqrt(2 * pressurePa / rho) * area;          // m3/s
+}
+
+//! THE TRAPEZE THAT HOLDS THE RUNWAY UP. Threaded rod to the slab, a channel
+//! across it, and the tray sits on the channel - which is how every cable
+//! runway in every hall is actually carried, and is the difference between a
+//! tray drawn floating at 2.6 m and a tray that something holds there.
+export const HANGER_RODS = ["M8", "M10", "M12", "M16"];
+
+//! WHAT A DROP CARRIES. The rod is the weak part and it fails in tension, so
+//! this is the tensile stress area from ISO 724 against a working stress - and
+//! the working stress is stated rather than buried: 4.6 rod at a safety factor
+//! of 5 on its 240 MPa yield is 48 MPa, which is the figure the trade's own
+//! load tables are built on.
+export const ROD_STRESS_AREA = { M8: 36.6, M10: 58.0, M12: 84.3, M16: 157 };
+export const ROD_WORKING_MPA = 48;
+export const rodCapacity = name =>
+  (ROD_STRESS_AREA[name] || 0) * ROD_WORKING_MPA / 9.81;      // kg a rod holds

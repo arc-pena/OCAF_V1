@@ -86,6 +86,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "slider.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
+           # figure is the scale figure's mesh and nothing else - no kernel, no
+           # DOM - and the rack package's ScaleFigure driver is what reads it.
+           "figure.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its
@@ -153,6 +156,7 @@ SAMPLES = [
     ("rack-metav3", "rack_metav3.json"),
     ("rack-orw", "rack_orw.json"),
     ("hyperstack-rack", "hyperstack_rack.json"),
+    ("datahall-corridor", "datahall_corridor.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

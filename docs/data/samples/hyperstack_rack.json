@@ -752,6 +752,72 @@
    }
   },
   {
+   "id": "X_TOPU3",
+   "type": "Expression",
+   "name": "Third free U",
+   "parent": "C",
+   "args": {
+    "formula": "a + b * c + 2",
+    "a": {
+     "value": 3,
+     "from": "N_FIRST"
+    },
+    "b": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "c": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "PP1",
+   "type": "RackDevice",
+   "name": "Patch panel · 1U",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "units": 1,
+    "depth": 120,
+    "inset": 20,
+    "ears": 0,
+    "supplier": "24-way LC duplex patch panel",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS"
+    },
+    "unit": {
+     "value": 21,
+     "from": "X_TOPU3"
+    }
+   }
+  },
+  {
+   "id": "BLK",
+   "type": "RackDevice",
+   "name": "Blanking · 2U at the foot",
+   "parent": "C",
+   "args": {
+    "standard": 0,
+    "unit": 1,
+    "units": 2,
+    "depth": 30,
+    "inset": 20,
+    "ears": 0,
+    "supplier": "blanking panel, snap-in",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS"
+    }
+   }
+  },
+  {
    "id": "X",
    "type": "GeometricalSet",
    "name": "04 Fastening",
@@ -965,7 +1031,7 @@
    "name": "Tray at (mm)",
    "parent": "K",
    "args": {
-    "formula": "a * 44.45 + 10.3",
+    "formula": "a * 44.45",
     "a": {
      "value": 48,
      "from": "N_UNITS"
@@ -981,7 +1047,7 @@
     "x": 20,
     "y": 380,
     "z": {
-     "value": 2143.9000000000005,
+     "value": 2133.6000000000004,
      "from": "X_TRAYZ"
     }
    }
@@ -1015,45 +1081,33 @@
    "name": "Manager at",
    "parent": "K",
    "args": {
-    "x": 555,
-    "y": 1090,
-    "z": 100
-   }
-  },
-  {
-   "id": "X_MGR",
-   "type": "Expression",
-   "name": "Manager length (mm)",
-   "parent": "K",
-   "args": {
-    "formula": "a * 44.45 - 200",
-    "a": {
-     "value": 48,
-     "from": "N_UNITS"
-    }
+    "x": 445,
+    "y": 970,
+    "z": 0
    }
   },
   {
    "id": "MGR",
-   "type": "Strut",
-   "name": "Vertical manager · 41 channel",
+   "type": "CableManager",
+   "name": "Vertical manager · fingered",
    "parent": "K",
    "args": {
-    "profile": 6,
-    "holes": 2,
-    "bore2": 12,
-    "pitch2": 100,
-    "setback2": 50,
-    "supplier": "cable manager, 41 x 21 channel",
+    "width": 150,
+    "depth": 200,
+    "sheet": 1.5,
+    "pitch": 88.9,
+    "finger": 45,
+    "cable": 6.2,
+    "supplier": "vertical manager, 150 mm, fingered",
     "plane": {
      "ref": "PL0"
     },
     "at": {
      "ref": "PTK2"
     },
-    "length": {
-     "value": 1933.6000000000004,
-     "from": "X_MGR"
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
     }
    }
   },
@@ -1254,7 +1308,7 @@
    "parent": "O",
    "args": {
     "x": -200,
-    "y": 480,
+    "y": 380,
     "z": 2600
    }
   },
@@ -1275,64 +1329,77 @@
     },
     "at": {
      "ref": "PTO"
+    },
+    "section": {
+     "ref": "SECTION"
     }
    }
   },
   {
    "id": "PTO0",
    "type": "Point",
-   "name": "Drop 1 at",
+   "name": "Trapeze 1 at",
    "parent": "O",
    "args": {
-    "x": -120,
-    "y": 520,
-    "z": 2630
+    "x": -180,
+    "y": 380,
+    "z": 3000
    }
   },
   {
    "id": "DROP0",
-   "type": "Strut",
-   "name": "Drop 1 · M12 rod",
+   "type": "CeilingHanger",
+   "name": "Trapeze 1 · M12",
    "parent": "O",
    "args": {
-    "profile": 8,
-    "length": 400,
-    "holes": 0,
-    "supplier": "M12 threaded rod drop",
+    "span": 500,
+    "drop": 400,
+    "rod": 2,
+    "profile": 6,
+    "load": 120,
+    "supplier": "M12 trapeze, 500 centres",
     "plane": {
      "ref": "PL0"
     },
     "at": {
      "ref": "PTO0"
+    },
+    "section": {
+     "ref": "SECTION"
     }
    }
   },
   {
    "id": "PTO1",
    "type": "Point",
-   "name": "Drop 2 at",
+   "name": "Trapeze 2 at",
    "parent": "O",
    "args": {
-    "x": 1080,
-    "y": 520,
-    "z": 2630
+    "x": 1020,
+    "y": 380,
+    "z": 3000
    }
   },
   {
    "id": "DROP1",
-   "type": "Strut",
-   "name": "Drop 2 · M12 rod",
+   "type": "CeilingHanger",
+   "name": "Trapeze 2 · M12",
    "parent": "O",
    "args": {
-    "profile": 8,
-    "length": 400,
-    "holes": 0,
-    "supplier": "M12 threaded rod drop",
+    "span": 500,
+    "drop": 400,
+    "rod": 2,
+    "profile": 6,
+    "load": 120,
+    "supplier": "M12 trapeze, 500 centres",
     "plane": {
      "ref": "PL0"
     },
     "at": {
      "ref": "PTO1"
+    },
+    "section": {
+     "ref": "SECTION"
     }
    }
   },
@@ -1865,6 +1932,147 @@
     "supplier": "C14-C13 1.5 m",
     "route": {
      "ref": "QRT1"
+    }
+   }
+  },
+  {
+   "id": "FL",
+   "type": "GeometricalSet",
+   "name": "10 Raised floor",
+   "parent": "R"
+  },
+  {
+   "id": "PTFL",
+   "type": "Point",
+   "name": "Solid field at",
+   "parent": "FL",
+   "args": {
+    "x": -600,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "TFL",
+   "type": "FloorTile",
+   "name": "Solid panel · under the rack",
+   "parent": "FL",
+   "args": {
+    "tile": 0,
+    "grid": 600,
+    "thick": 0,
+    "joint": 1,
+    "under": 0,
+    "height": 600,
+    "plenum": 25,
+    "supplier": "600 steel panel, encapsulated",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTFL"
+    }
+   }
+  },
+  {
+   "id": "FFL",
+   "type": "Array",
+   "name": "Solid field",
+   "parent": "FL",
+   "args": {
+    "mode": 0,
+    "countX": 3,
+    "spacingX": 600,
+    "countY": 2,
+    "spacingY": 600,
+    "countZ": 1,
+    "spacingZ": 0,
+    "source": {
+     "ref": "TFL"
+    }
+   }
+  },
+  {
+   "id": "PTFG",
+   "type": "Point",
+   "name": "Grate at",
+   "parent": "FL",
+   "args": {
+    "x": -600,
+    "y": -1200,
+    "z": 0
+   }
+  },
+  {
+   "id": "TFG",
+   "type": "FloorTile",
+   "name": "Directional grate · in the cold aisle",
+   "parent": "FL",
+   "args": {
+    "tile": 2,
+    "grid": 600,
+    "thick": 0,
+    "joint": 1,
+    "under": 0,
+    "height": 600,
+    "plenum": 25,
+    "supplier": "600 cast aluminium directional grate",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTFG"
+    }
+   }
+  },
+  {
+   "id": "FFG",
+   "type": "Array",
+   "name": "Grate field",
+   "parent": "FL",
+   "args": {
+    "mode": 0,
+    "countX": 3,
+    "spacingX": 600,
+    "countY": 2,
+    "spacingY": 600,
+    "countZ": 1,
+    "spacingZ": 0,
+    "source": {
+     "ref": "TFG"
+    }
+   }
+  },
+  {
+   "id": "SC",
+   "type": "GeometricalSet",
+   "name": "11 Scale",
+   "parent": "R"
+  },
+  {
+   "id": "PTSC",
+   "type": "Point",
+   "name": "Person at",
+   "parent": "SC",
+   "args": {
+    "x": 1100,
+    "y": -900,
+    "z": 0
+   }
+  },
+  {
+   "id": "PERSON",
+   "type": "ScaleFigure",
+   "name": "Scale figure · 1.8 m",
+   "parent": "SC",
+   "args": {
+    "height": 1800,
+    "turn": 180,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTSC"
     }
    }
   },

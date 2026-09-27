@@ -13,6 +13,13 @@ import { CLIMATE, CLIMATE_NODES, exposeAt, patchesOf, rampColour, sunRun,
 import { clearSky, dayLength, findSites, incidence, psychrometrics, readCoordinates,
          readEpw, saturationPressure, skyVector, sunPosition, surfaceIrradiance }
   from "../src/climate.js";
+//! EVERY PACKAGE ON THE SHELF, imported for the side effect - a package puts
+//! itself there when its module loads. Section 11 asks its question of all of
+//! them, and a package that is not imported is a package that is not asked.
+import "../src/crowd-plugin.js";
+import "../src/drawings-plugin.js";
+import "../src/ifc-plugin.js";
+import "../src/packing-plugin.js";
 import { CATALOGUE, registerTypes, typeSpec } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 import { gzipSync } from "zlib";
@@ -402,6 +409,46 @@ console.log("\nB. and a file that never said what it needs can still be opened")
   check("and a type nobody provides asks for nothing",
         packagesProviding(["Cube"]).length === 0,
         packagesProviding(["Cube"]).join(","));
+}
+
+console.log("\n11. no package builds its drivers while it is loading");
+{
+  //! THE SILENT HANG. A driver builder's first line is `kit.toolkit()`, and a
+  //! toolkit is the WebAssembly module itself - `oc` is in it. On a served page
+  //! the modelling is on a worker and the page's kernel is a proxy, so a
+  //! package whose start() builds drivers asks the worker to post a compiled
+  //! module down a message port. That throws a DataCloneError INSIDE the
+  //! worker, where nothing is listening: the answer never comes, the load never
+  //! returns, and the status line reads "switching on the harness package..."
+  //! for ever. Every model that needed that package silently failed to open -
+  //! in the built page only, with nothing reported anywhere, while every test
+  //! here passed because a test kernel is in the same thread as its packages.
+  //!
+  //! PluginHost already knows to let the far side build them, from `drivers` on
+  //! the manifest. This is the check that no package goes round it, asked of
+  //! every package on the shelf - because the one that did was not the one
+  //! anybody would have guessed.
+  for (const plugin of availablePlugins()) {
+    const asked = [];
+    const kit = { toolkit: () => { asked.push("toolkit"); return {}; },
+                  THREE: null, kernel: null, mdl: null,
+                  tree: () => ({ features: [] }), hidden: () => new Set(),
+                  streams: () => new Map(), draw: () => {}, fitView: () => {},
+                  setModelVisible: () => {}, theme: () => ({}) };
+    let live = {};
+    //! It may well fail for want of a DOM or a payload - that is not what is
+    //! being asked. What is being asked is whether it reached for a toolkit.
+    try { live = (await plugin.start(kit)) || {}; } catch (err) { live = {}; }
+    check(plugin.id + " does not ask for a toolkit while it loads",
+          !asked.length, asked.join(", "));
+    //! And if it brings nodes at all, its drivers are on the MANIFEST, where
+    //! the thread doing the modelling can find them - not on what start() hands
+    //! back, which never crosses.
+    if (plugin.nodes && plugin.nodes.length)
+      check("  and " + plugin.id + " declares its drivers on the manifest",
+            typeof plugin.drivers === "function",
+            typeof plugin.drivers);
+  }
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

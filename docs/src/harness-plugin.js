@@ -243,7 +243,19 @@ export const HARNESS = offerPlugin({
   //! therefore loads on the page and refuses in the worker, by node name:
   //! "no driver for Route, Cable".
   drivers: harnessDrivers,
-  async start(kit) {
-    return { drivers: harnessDrivers(kit) };
+  //! IT BUILDS NOTHING ON LOAD, and that is not an optimisation - it is the
+  //! only thing that works. This used to be `{ drivers: harnessDrivers(kit) }`,
+  //! and a driver builder's first line is `kit.toolkit()`. When the modelling
+  //! is on a worker - which is every served page - the page's kernel is a proxy
+  //! and that call asks the worker to send a compiled WebAssembly module down a
+  //! message port. It cannot be cloned, the post throws inside the worker, the
+  //! promise on this side never settles, and the package's load never returns:
+  //! the status line reads "switching on the harness package..." for ever and
+  //! every model that needs it silently fails to open. Nothing in the page
+  //! reported anything. PluginHost already knows to build drivers on the far
+  //! side from `drivers` on the manifest - see the note there - so this hands
+  //! back a description and lets it.
+  async start() {
+    return { cables: CABLE_TYPES, connectors: CONNECTORS };
   },
 });

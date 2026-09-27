@@ -10,6 +10,9 @@ import { FASTENERS, ORV3_FASTENERS, ORV3_FOOT, RACK_STANDARDS, STRUT_PROFILES,
          bomLines, bomOf, fastener, hexOutline, holeCentres, holeName, orv3Screw,
          rackHeight, rackStandard, strutHoles, strutProfile,
          unitBottom } from "../src/rack.js";
+import { FLOOR_PEDESTAL, FLOOR_TILES, ROD_STRESS_AREA, floorTile, holeArea, openArea,
+         rodCapacity, tileFlow, tilePitch } from "../src/rack.js";
+import { FIGURE_FROM, FIGURE_HEIGHT, figureAt, figureMesh } from "../src/figure.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -277,6 +280,113 @@ console.log("\n7. the bill of materials, read off the parts");
   check("the same part from two suppliers is two rows",
         bomOf([{ name: "Hex nut M6", supplier: "A" }, { name: "Hex nut M6", supplier: "B" }])
           .length === 2);
+}
+
+console.log("\n8. the raised access floor, against what a panel is sold as");
+{
+  //! A PANEL IS BOUGHT AGAINST ITS OPEN AREA, so the check is that the pitch
+  //! the table derives really produces that figure over the WHOLE panel - which
+  //! is what the percentage on a data sheet means and is not what the pattern
+  //! on its own gives, because the unpunched border is inside the figure.
+  const side = 599, margin = 25;
+  for (const spec of FLOOR_TILES) {
+    if (spec.kind === "none") continue;
+    const border = spec.kind === "slot" ? 12 : margin;
+    const field = side - 2 * border;
+    const pitch = tilePitch(spec, field, side);
+    //! One cell of the pattern, and how much of it the opening takes.
+    const cell = spec.kind === "slot" ? pitch.x * field : pitch.x * pitch.y;
+    const open = holeArea(spec.kind, spec.hole, pitch.slot || spec.slot || 0) / cell;
+    //! Over the panel: the field is smaller than the panel by the border.
+    const panel = open * (field * field) / (side * side);
+    check(spec.name + " opens what it is sold as, over the panel",
+          near(panel, spec.open, 0.002), (panel * 100).toFixed(2) + "% vs "
+            + (spec.open * 100).toFixed(0) + "%");
+  }
+  //! AND A GRATE'S OPENING IS A RECTANGLE, not a stadium. Modelled as a stadium
+  //! it is a box tangent to two cylinders, which is the worst case a boolean
+  //! has: 125 of them took 41 seconds and came back as an open shell. The two
+  //! shapes also differ in area by about 4%, so the kinds are not interchangeable.
+  const rect = holeArea("slot", 14, 96);
+  const stadium = holeArea("oblong", 14, 96);
+  check("a slot is its rectangle exactly", near(rect, 14 * 96), String(rect));
+  check("and an oblong of the same size is not the same area",
+        Math.abs(rect - stadium) / rect > 0.03,
+        rect.toFixed(0) + " vs " + stadium.toFixed(0));
+  //! THE FAILURE THAT WOULD LOOK LIKE SUCCESS. A panel whose finished floor is
+  //! shallower than the panel itself has no pedestal under it - and a pedestal
+  //! of negative length draws as nothing at all, so the floor would simply
+  //! appear to be laid straight on the slab.
+  const least = FLOOR_TILES[0].thick + FLOOR_PEDESTAL.headPlate + FLOOR_PEDESTAL.basePlate;
+  check("a pedestal needs more than the panel and its two plates",
+        least > FLOOR_TILES[0].thick && least < 60, String(least));
+}
+
+console.log("\n9. what a floor panel will pass, and what a hanger will carry");
+{
+  //! THE ORIFICE EQUATION, checked against itself at a pressure where it can be
+  //! done on paper: v = Cd sqrt(2 dp / rho). At 25 Pa in air at 1.2 kg/m3 that
+  //! is 0.62 * sqrt(41.667) = 4.002 m/s through the open part of the panel.
+  const v = 0.62 * Math.sqrt(2 * 25 / 1.2);
+  const area = 0.6 * 0.6 * 0.56;
+  check("a 56% grate on a 600 module passes area times the orifice velocity",
+        near(tileFlow(0.56, 600, 25), v * area, 1e-9),
+        (tileFlow(0.56, 600, 25) * 3600).toFixed(0) + " m3/h");
+  //! AND FLOW GOES AS THE SQUARE ROOT OF PRESSURE, not linearly with it -
+  //! which is the thing everybody gets wrong about a plenum: four times the
+  //! pressure is twice the air, not four times.
+  check("four times the pressure is twice the air",
+        near(tileFlow(0.5, 600, 100), tileFlow(0.5, 600, 25) * 2, 1e-9));
+  check("a solid panel passes nothing", tileFlow(0, 600, 25) === 0);
+
+  //! THE ROD, from its tensile stress area at a stated working stress. ISO 724
+  //! gives M12 as 84.3 mm2; at 48 MPa that is 4046 N, which is 412 kg.
+  check("M12 stress area is the ISO 724 figure", ROD_STRESS_AREA.M12 === 84.3);
+  check("and an M12 drop holds about 412 kg",
+        near(rodCapacity("M12"), 84.3 * 48 / 9.81, 1e-9),
+        rodCapacity("M12").toFixed(0) + " kg");
+  //! Bigger rod, more load, and by the area rather than by the diameter.
+  check("M16 holds more than M12 by the ratio of their stress areas",
+        near(rodCapacity("M16") / rodCapacity("M12"), 157 / 84.3, 1e-9));
+}
+
+console.log("\n10. the scale figure is a ruler, not a decoration");
+{
+  //! THE WHOLE VALUE OF A SCALE FIGURE IS THAT ITS HEIGHT IS EXACT. One that is
+  //! 1795 when 1800 was asked for is a decoration, and nothing on screen would
+  //! ever say so.
+  const mesh = figureMesh();
+  check("the mesh is there", mesh.points.length > 500 && mesh.faces.length > 500,
+        mesh.points.length + " vertices, " + mesh.faces.length + " faces");
+  check("normalised to a height of exactly one", FIGURE_HEIGHT === 1);
+  for (const want of [1800, 1500, 2000]) {
+    const at = figureAt(want, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+    const z = at.points.map(p => p[2]);
+    const tall = Math.max(...z) - Math.min(...z);
+    check("asked for " + want + " it is " + want, near(tall, want, 1e-6), tall.toFixed(6));
+    check("and standing on the floor", near(Math.min(...z), 0, 1e-9));
+  }
+  //! AND IT IS A PERSON RATHER THAN A POST. A figure that had lost its arms to
+  //! the decimation, or kept them out in the base mesh's A-pose, would pass
+  //! every height check above - so the proportions are checked against a
+  //! person's: about a third as wide as tall, and a sixth as deep.
+  const at = figureAt(1800, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+  const span = k => {
+    const v = at.points.map(p => p[k]);
+    return Math.max(...v) - Math.min(...v);
+  };
+  check("about a third as wide as it is tall", span(0) / 1800 > 0.25 && span(0) / 1800 < 0.40,
+        (span(0)).toFixed(0) + " mm across");
+  check("and about a sixth as deep", span(1) / 1800 > 0.12 && span(1) / 1800 < 0.25,
+        (span(1)).toFixed(0) + " mm deep");
+  //! IT FACES +Y, and that is what makes Turn read the same way round on a
+  //! figure as on a rack. Checked by where the mass is: a person is deeper
+  //! behind the middle of their feet than in front of it.
+  check("it stands where it is put", near(span(2), 1800, 1e-6));
+  //! WHERE IT CAME FROM TRAVELS WITH IT. This is somebody else's work under
+  //! CC0, and the one thing that must never be lost is which work.
+  check("and it says where it is from", /CC0/.test(FIGURE_FROM) && /MakeHuman/.test(FIGURE_FROM),
+        FIGURE_FROM);
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

@@ -1085,6 +1085,26 @@ export const SAMPLES = [
            + "one is in the appendix - so the width here is a number somebody set, and "
            + "the frame says so on its own face rather than in a footnote." },
 
+  { key: "datahall-corridor", name: "Data hall \u2014 a double-loaded corridor",
+    file: "samples/datahall_corridor.json", needs: ["rack", "harness"],
+    summary: "Eight racks in two rows, back to back across a hot aisle - and ONE of "
+           + "them is a model. The other seven are instances of the first: the same "
+           + "geometry at another location, built once and meshed once, so editing the "
+           + "rack edits eight racks and the file is the size of one. Row A is three "
+           + "instances placed one by one; row B is a single instance turned 180 with a "
+           + "pattern of THAT, which is how a row becomes a hall. Under them, a 600 mm "
+           + "raised access floor with its pedestals and stringers - cast directional "
+           + "grate in the two cold aisles where the air has to come up, solid under "
+           + "the racks and down the hot aisle where a grate would short the cold air "
+           + "straight back - and each panel reports the open area it actually cut and "
+           + "the air that will pass it at plenum pressure. Over them, a 450 ladder "
+           + "runway on M12 trapeze hangers that say what their rods will carry, with "
+           + "fibre trunk routed across the aisle on it. And a person, 1.8 m, standing "
+           + "in the corridor, because a hall drawn without one has nothing in it to "
+           + "measure a 2.1 m rack or a 1.2 m aisle against. Drag Hot aisle, Rack "
+           + "height or Racks a row and the whole hall follows. Needs the Racks and "
+           + "Harness packages. 158 nodes." },
+
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
     //! WHAT IT NEEDS BEFORE IT WILL OPEN. The first sample built out of a
@@ -1097,8 +1117,12 @@ export const SAMPLES = [
            + "frame, four posts drilled to EIA-310-E - three holes a unit at 5/8, 5/8 "
            + "and 1/2 of an inch, which is the spacing everybody draws evenly and is "
            + "not - strut bracing on a named section you can switch for another, eight "
-           + "2U AMD compute nodes, switches, a PDU, cage nuts and bolts at every "
-           + "fixing, a cable tray and a vertical manager. Every dimension is an "
+           + "2U AMD compute nodes, switches, a PDU, a patch panel, blanking at the "
+           + "foot, cage nuts and bolts at every fixing, a fingered vertical manager "
+           + "that says how much cable it will take, a runway on a trapeze hanger that "
+           + "says what its rods will carry, the raised access floor it stands on with "
+           + "its pedestals and stringers - grate in front of the door, solid under the "
+           + "rack - and a person beside it for scale. Every dimension is an "
            + "Expression over eight numbers: change Compute nodes from 8 to 4 and the "
            + "stack halves; change Rack height from 48U to 24U and the frame, the "
            + "posts, the bracing and the fixings all follow. Needs the Racks package - "
@@ -2365,9 +2389,20 @@ export const CATALOGUE = [
     summary: "A number taken off a shape - its length, its area, its volume, or the "
            + "size of its bounding box - to be wired back into the model.",
     args: [ref("shape", "Shape", ["curve", "plane", "solid", "point", "mesh"]),
+           //! APPENDED, and only appended. A choice is stored as its index, so
+           //! inserting one in the middle silently turns every saved "Volume"
+           //! into an "Area".
+           //!
+           //! LOWEST AND HIGHEST ARE NOT A SIZE. A size says how tall something
+           //! is; a level says where it is, and everything in a building is
+           //! dimensioned off a level rather than off a height. "Is the floor
+           //! panel's top at the finished floor" and "is the tray sitting on
+           //! its hanger" are both that question, and neither can be asked with
+           //! a bounding box's size alone.
            choice("quantity", "Quantity",
                   ["Length", "Area", "Volume", "Size X", "Size Y", "Size Z", "Diagonal",
-                   "How many faces", "How many edges", "How many vertices"], 0)] },
+                   "How many faces", "How many edges", "How many vertices",
+                   "Lowest Z", "Highest Z"], 0)] },
 
   /* ------------------------------------------------------------- solids */
   { type: "Cube", guid: "9a1b2c30-0010-4c00-9e00-caf000000010", category: "body",

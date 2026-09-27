@@ -24,8 +24,14 @@
 //   04 Fastening    cage nuts and bolts at the mounting points, patterned up
 //                   the post - the thing nobody models, which is exactly what
 //                   LOD 400 means.
-//   05 Cable        the tray at the top and the vertical manager down the side.
-//   06 Bill         the bill of materials, read off the model.
+//   05 Cable        the tray at the top and the fingered manager down the side.
+//   06 Legs         levelling feet, two of them with a real cut thread.
+//   07 Door         the perforated front door, which reports what it opens.
+//   08 Overhead     the runway, on a trapeze hung off the soffit.
+//   09 Cabling      real routed cable with connectors on the ends.
+//   10 Floor        the raised access floor it stands on, grate and solid.
+//   11 Scale        a person, 1.8 m, so the rest of it has a size.
+//   12 Bill         the bill of materials, read off the model.
 //
 // AND WHAT IT DOES NOT CLAIM. Nothing here is anybody's part file. The
 // fasteners are modelled to the standard each conforms to - ISO 4017, ISO 4032,
@@ -274,6 +280,27 @@ add("PDU", "RackDevice", { name: "PDU · 2U", parent: "C",
   refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU4", FREE_U + 3] },
   args: { standard: 0, units: 2, depth: 300, inset: 700, ears: 0,
           supplier: "3-phase 32 A rack PDU" } });
+//! THE PATCH PANEL AND THE BLANKING, which are the two things a real rack is
+//! full of and a modelled one never has. Blanking is not decoration: an open U
+//! in a hot aisle is cold air going straight back to the coolers, and a rack
+//! whose blanking is in the model is a rack whose airflow can be asked about.
+//! Both ride on the same computed unit as everything else above the stack.
+expr("X_TOPU3", "Third free U", TOP_U + " + 2",
+     { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "C");
+add("PP1", "RackDevice", { name: "Patch panel · 1U", parent: "C",
+  refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU3", FREE_U + 2] },
+  args: { standard: 0, units: 1, depth: 120, inset: 20, ears: 0,
+          supplier: "24-way LC duplex patch panel" } });
+//! THE BLANKING GOES BELOW THE STACK, at U1, and that is not an arbitrary
+//! choice. Put above everything else it lands at U24 of a 48U rack and hangs
+//! out of the top of a 24U one - which the halving check caught, and which is
+//! the same fault this sample exists to demonstrate is impossible. Below the
+//! first node there is always room for it, and the bottom two U of a rack is
+//! where the blanking actually goes.
+add("BLK", "RackDevice", { name: "Blanking · 2U at the foot", parent: "C",
+  refs: { plane: "PL0", at: "PTS" },
+  args: { standard: 0, unit: 1, units: 2, depth: 30, inset: 20, ears: 0,
+          supplier: "blanking panel, snap-in" } });
 
 /* ------------------------------------------------------------- 04 Fastening */
 
@@ -327,28 +354,30 @@ add("BOLT_REAL", "Fastener", { name: "M8 · the bought part", parent: "X",
 /* ----------------------------------------------------------------- 05 Cable */
 
 set("K", "05 Cable management");
-//! ON TOP OF THE FRAME, not floating above it: the tray is 20.6 deep about its
-//! own centreline, so its underside lands on the frame when the point is half
-//! that up from the top. WIRED to the height, so it rises with the rack.
-expr("X_TRAYZ", "Tray at (mm)", "a * 44.45 + 10.3", { a: ["N_UNITS", UNITS] }, "K");
+//! ON TOP OF THE FRAME, not floating above it - and the tray is placed by its
+//! own UNDERSIDE, so "on top of the frame" is the frame's height and nothing
+//! added to it. WIRED to that height, so it rises with the rack.
+expr("X_TRAYZ", "Tray at (mm)", "a * 44.45", { a: ["N_UNITS", UNITS] }, "K");
 add("PTK", "Point", { name: "Tray at", parent: "K",
-  wire: { z: ["X_TRAYZ", UNITS * U + 10.3] },
+  wire: { z: ["X_TRAYZ", UNITS * U] },
   args: { x: 20, y: 380 } });
 add("TRAY", "CableTray", { name: "Overhead tray · 300 wide", parent: "K",
   refs: { plane: "PL0", at: "PTK" }, wire: { width: ["N_TRAY", 300] },
   args: { length: 560, profile: 6, pitch: 140, rung: 20,
           supplier: "ladder tray, 300 mm" } });
 add("PTK2", "Point", { name: "Manager at", parent: "K",
-  args: { x: 555, y: DEPTH - 110, z: 100 } });
-//! The vertical cable manager is a strut on the same section family, drilled
-//! for tie points on a 100 pitch - so it is the same kit of parts.
-//! AND ITS LENGTH IS THE RACK'S. A fixed 1900 is right for a 48U rack and
-//! stands most of a metre out of the top of a 24U one.
-expr("X_MGR", "Manager length (mm)", "a * 44.45 - 200", { a: ["N_UNITS", UNITS] }, "K");
-add("MGR", "Strut", { name: "Vertical manager · 41 channel", parent: "K",
-  refs: { plane: "PL0", at: "PTK2" }, wire: { length: ["X_MGR", UNITS * U - 200] },
-  args: { profile: 6, holes: 2, bore2: 12, pitch2: 100, setback2: 50,
-          supplier: "cable manager, 41 x 21 channel" } });
+  args: { x: 445, y: DEPTH - 230, z: 0 } });
+//! THE VERTICAL MANAGER AS THE PART IT IS, and not as a length of drilled
+//! channel standing in for one. A manager is a channel with pairs of fingers up
+//! it and the tie slots between them, and the only question anybody asks of one
+//! is how much cable it will take - which the node computes from the window the
+//! fingers leave, and prints, instead of leaving it to be guessed off a box.
+//! ITS HEIGHT IS THE RACK'S, in units rather than in millimetres, so it cannot
+//! stand out of the top of a rack somebody has shortened.
+add("MGR", "CableManager", { name: "Vertical manager · fingered", parent: "K",
+  refs: { plane: "PL0", at: "PTK2" }, wire: { units: ["N_UNITS", UNITS] },
+  args: { width: 150, depth: 200, sheet: 1.5, pitch: 2 * U, finger: 45, cable: 6.2,
+          supplier: "vertical manager, 150 mm, fingered" } });
 
 /* ------------------------------------------------------------- 06 Legs */
 
@@ -395,23 +424,27 @@ add("DOOR", "RackDoor", { name: "Front door \u00b7 perforated", parent: "D",
 
 set("O", "08 Overhead cable management");
 //! TOP-HUNG, which is how a hall is actually wired: the runway is carried off
-//! the ceiling on threaded drops and the rack hangs its runs from it, so the
-//! tray is not sitting on the rack at all. Two drops and a ladder section, on
-//! the same kit of parts as the frame.
+//! the ceiling on trapeze hangers and the rack hangs its runs from it, so the
+//! tray is not sitting on the rack at all.
 add("PTO", "Point", { name: "Runway at", parent: "O",
-  args: { x: -200, y: 480, z: 2600 } });
-add("RUNWAY", "CableTray", { name: "Overhead runway \u00b7 450 ladder", parent: "O",
-  refs: { plane: "PL0", at: "PTO" },
+  args: { x: -200, y: 380, z: 2600 } });
+add("RUNWAY", "CableTray", { name: "Overhead runway · 450 ladder", parent: "O",
+  refs: { plane: "PL0", at: "PTO", section: "SECTION" },
   args: { length: 1400, width: 450, profile: 6, pitch: 300, rung: 25,
           supplier: "runway, 450 mm ladder" } });
-//! The drops that hold it up: threaded rod on the same M12 the trade uses.
-[[-120, 520], [1080, 520]].forEach(([x, y], i) => {
-  add("PTO" + i, "Point", { name: "Drop " + (i + 1) + " at", parent: "O",
-    args: { x, y, z: 2630 } });
-  add("DROP" + i, "Strut", { name: "Drop " + (i + 1) + " \u00b7 M12 rod", parent: "O",
-    refs: { plane: "PL0", at: "PTO" + i },
-    args: { profile: 8, length: 400, holes: 0,
-            supplier: "M12 threaded rod drop" } });
+//! WHAT HOLDS IT UP, and it is a trapeze rather than two sticks of rod leaning
+//! on nothing. The drop is measured to the face the tray BEARS ON, so the
+//! runway sits at the height it is set to and stays there when the section
+//! changes - and the hanger says what its two rods will carry, so a ladder full
+//! of copper on the wrong rod is something the model objects to rather than
+//! something site finds out.
+[-180, 1020].forEach((x, i) => {
+  add("PTO" + i, "Point", { name: "Trapeze " + (i + 1) + " at", parent: "O",
+    args: { x, y: 380, z: 3000 } });
+  add("DROP" + i, "CeilingHanger", { name: "Trapeze " + (i + 1) + " · M12", parent: "O",
+    refs: { plane: "PL0", at: "PTO" + i, section: "SECTION" },
+    args: { span: 500, drop: 400, rod: 2, profile: 6, load: 120,
+            supplier: "M12 trapeze, 500 centres" } });
 });
 
 /* ------------------------------------------------------------ 09 Cabling */
@@ -461,6 +494,47 @@ const MGR_X = 555;
     refs: { route: "QRT" + i },
     args: { cable: 6, startEnd: 7, endEnd: 7, supplier: "C14-C13 1.5 m" } });
 });
+
+/* ------------------------------------------------- 10 Raised floor, 11 Scale */
+
+//! THE FLOOR THE RACK STANDS ON, because a rack drawn on nothing is a rack
+//! nobody can tell the height of and because the floor is half of whether the
+//! rack gets its air. Four panels on the 600 module: a cast directional grate
+//! in front of the door where the cold air comes up, solid under the rack
+//! itself. Each panel reports the open area it actually cut and what will pass
+//! through it at plenum pressure.
+set("FL", "10 Raised floor");
+add("PTFL", "Point", { name: "Solid field at", parent: "FL",
+  args: { x: -600, y: 0, z: 0 } });
+add("TFL", "FloorTile", { name: "Solid panel · under the rack", parent: "FL",
+  refs: { plane: "PL0", at: "PTFL" },
+  args: { tile: 0, grid: 600, thick: 0, joint: 1, under: 0, height: 600, plenum: 25,
+          supplier: "600 steel panel, encapsulated" } });
+add("FFL", "Array", { name: "Solid field", parent: "FL",
+  refs: { source: "TFL" },
+  args: { mode: 0, countX: 3, spacingX: 600, countY: 2, spacingY: 600,
+          countZ: 1, spacingZ: 0 } });
+add("PTFG", "Point", { name: "Grate at", parent: "FL",
+  args: { x: -600, y: -1200, z: 0 } });
+add("TFG", "FloorTile", { name: "Directional grate · in the cold aisle", parent: "FL",
+  refs: { plane: "PL0", at: "PTFG" },
+  args: { tile: 2, grid: 600, thick: 0, joint: 1, under: 0, height: 600, plenum: 25,
+          supplier: "600 cast aluminium directional grate" } });
+add("FFG", "Array", { name: "Grate field", parent: "FL",
+  refs: { source: "TFG" },
+  args: { mode: 0, countX: 3, spacingX: 600, countY: 2, spacingY: 600,
+          countZ: 1, spacingZ: 0 } });
+
+//! AND SOMEBODY TO STAND NEXT TO IT. Everything above this line is a number
+//! that can be checked against a document; this is the one thing in the file
+//! that cannot, and it is the thing that makes the rest of it readable at a
+//! glance. 1.8 m, in the cold aisle, facing the door.
+set("SC", "11 Scale");
+add("PTSC", "Point", { name: "Person at", parent: "SC",
+  args: { x: 1100, y: -900, z: 0 } });
+add("PERSON", "ScaleFigure", { name: "Scale figure · 1.8 m", parent: "SC",
+  refs: { plane: "PL0", at: "PTSC" },
+  args: { height: 1800, turn: 180 } });
 
 /* ------------------------------------------------------------------ 06 Bill */
 
@@ -533,8 +607,8 @@ if (wantHoles !== 144) { console.log("the hole pattern is wrong"); process.exit(
 
 //! WHAT LIVES INSIDE THE FRAME and must stay there at any height. The tray is
 //! not in it: the tray sits ON the frame, and is checked for that instead.
-const INSIDE = ["BRACES", "NODES", "SW1", "SW2", "PDU", "CAGES", "BOLTS", "MGR",
-                "STANDIN", "BOLT_REAL"];
+const INSIDE = ["BRACES", "NODES", "SW1", "SW2", "PDU", "PP1", "BLK", "CAGES", "BOLTS",
+                "MGR", "STANDIN", "BOLT_REAL"];
 
 //! AND EVERYTHING IS WHERE IT SAYS IT IS. This is the check that would have
 //! caught the bracing standing up beside a post instead of lying across the

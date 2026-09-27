@@ -34,6 +34,9 @@ import { ARG, F } from "./ocaf.js";
 import { offerPlugin } from "./plugin.js";
 import { PERFORATIONS, THREADS, openArea, perforation, perforationCentres,
          threadProfile } from "./rack.js";
+import { FLOOR_PEDESTAL, FLOOR_TILES, HANGER_RODS, ROD_STRESS_AREA, rodCapacity,
+         tileFlow, tilePitch } from "./rack.js";
+import { FIGURE_FROM, figureAt } from "./figure.js";
 import { FASTENERS, RACK_STANDARDS, STRUT_PROFILES, bomLines, fastener, hexOutline,
          holeCentres, rackHeight, rackStandard, strutHoles, strutProfile } from "./rack.js";
 
@@ -42,6 +45,7 @@ const profileNames = STRUT_PROFILES.map(one => one.name);
 const fastenerNames = FASTENERS.map(one => one.name);
 const perforationNames = PERFORATIONS.map(one => one.name);
 const threadNames = THREADS.map(one => one.name);
+const tileNames = FLOOR_TILES.map(one => one.name);
 
 /* -------------------------------------------------------------- the nodes */
 
@@ -222,6 +226,87 @@ export const RACK_NODES = [
            //! APPENDED - an argument's place in this list is its tag.
            ARG.when(ARG.real("threaded", "Threaded length", 60, 5, 200, 5), "cut", 1)] },
 
+  //! ------------------------------------------------------------- the hall
+
+  { type: "FloorTile", guid: "9a1b2c30-00de-4c00-9e00-caf0000000de", category: "body",
+    produces: "solid",
+    summary: "One raised access floor panel, on the 600 module, with the pedestal and "
+           + "the stringers that carry it. Solid, punched or a cast directional grate - "
+           + "and what it REPORTS is the open area it actually cut and the air that will "
+           + "pass through it at plenum pressure, which is what a hall is laid out "
+           + "against: a cabinet drawing 15 kW in front of a solid panel is a cabinet "
+           + "that overheats, and the model is where that should be visible.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.choice("tile", "Panel", tileNames, 0),
+           ARG.real("grid", "Module", 600, 300, 1200, 5),
+           //! ZERO MEANS THE PANEL'S OWN, which is 32 for a steel panel and 38
+           //! for a casting. Two thicknesses for one panel - one in the table
+           //! and one as a default here - is two ideas of the same thing, and
+           //! the one that wins is whichever the driver happens to read.
+           ARG.real("thick", "Panel", 0, 0, 80, 1),
+           //! The panel is the module less the joint between panels, so two
+           //! panels on adjacent modules do not share a face.
+           ARG.real("joint", "Joint", 1, 0, 10, 0.5),
+           ARG.choice("under", "Understructure",
+                      ["Pedestal and stringers", "Pedestal only", "None"], 0),
+           ARG.real("height", "Finished floor", 600, 100, 1800, 10),
+           ARG.real("plenum", "Plenum pressure", 25, 0, 100, 1, "Pa"),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+
+  { type: "CeilingHanger", guid: "9a1b2c30-00df-4c00-9e00-caf0000000df", category: "body",
+    produces: "solid",
+    summary: "The trapeze a cable runway hangs from: two threaded rods to the slab, a "
+           + "channel across them and the nuts that hold it. A runway drawn floating at "
+           + "2.6 m is a drawing; this is what holds it there, and it says what the rods "
+           + "will carry - so a 450 ladder full of copper on M8 drops is something the "
+           + "model objects to rather than something site finds out.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("span", "Rod centres", 700, 100, 3000, 10),
+           ARG.real("drop", "Drop", 500, 50, 3000, 10),
+           ARG.choice("rod", "Rod", HANGER_RODS, 2),
+           ARG.choice("profile", "Cross member", profileNames, 6),
+           ARG.real("load", "Load carried", 60, 0, 2000, 5, "kg"),
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           ARG.spare("section", "Section from", ["StrutSection"])] },
+
+  { type: "CableManager", guid: "9a1b2c30-00f3-4c00-9e00-caf0000000f3", category: "body",
+    produces: "solid",
+    summary: "A vertical cable manager: the channel down the side of the rack and the "
+           + "pairs of fingers that hold the bundles off it, on a pitch, with the tie "
+           + "slots between them. Modelled rather than drawn as a box, because the whole "
+           + "question a manager answers is how much cable fits - so it reports the "
+           + "cross-section it leaves and how many of a given cable that is.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("units", "Height", 48, 1, 60, 1, "U"),
+           ARG.real("width", "Width", 150, 50, 600, 5),
+           ARG.real("depth", "Depth", 200, 50, 800, 5),
+           ARG.real("sheet", "Sheet", 1.5, 0.8, 5, 0.1),
+           ARG.real("pitch", "Finger pitch", 88.9, 20, 400, 0.05),
+           ARG.real("finger", "Finger", 40, 10, 200, 5),
+           ARG.real("cable", "Cable", 6.2, 1, 40, 0.1),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+
+  //! A MESH AND NOT A SOLID, which is the one node in this package that is. A
+  //! person is not a machined part - nothing downstream will fillet one or
+  //! section it or write it to STEP as a solid - and 3,830 triangles placed
+  //! six times in a hall is nothing, where the same figure sewn into a B-Rep
+  //! shell is minutes of booleans for a decoration.
+  { type: "ScaleFigure", guid: "9a1b2c30-00f4-4c00-9e00-caf0000000f4", category: "mesh",
+    produces: "mesh",
+    summary: "A person, to the height you set, for scale. A hall drawn without one is a "
+           + "picture of a rack: there is nothing in the frame to measure a 2.1 m frame "
+           + "or a 1.2 m aisle against, and a corridor reads the same whether it is 900 "
+           + "wide or 1800. The mesh is the MakeHuman base figure, which its copyright "
+           + "holders released as CC0 - it is the one thing in this package that is "
+           + "somebody else's work, and it may be used by anybody for anything.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           //! 1755 mm is the mean height of an adult man in Europe and 1800 is
+           //! the round number people ask for. The default is the round number,
+           //! because a scale figure is a ruler and a ruler should be a number
+           //! somebody can check at a glance.
+           ARG.real("height", "Height", 1800, 300, 2500, 10),
+           ARG.real("turn", "Facing", 0, -360, 360, 15, "\u00b0")] },
+
   { type: "Bill", guid: "9a1b2c30-00da-4c00-9e00-caf0000000da", category: "analysis",
     produces: "text",
     summary: "The bill of materials, read off the model. Wire a set into it and it walks "
@@ -375,6 +460,37 @@ function rackDrivers(kit) {
         return { name: "Rack frame " + Math.round(KF.real(one, "units", 42)) + std.unitName
                    + " \u00b7 " + it.name, kind: "section", from: std.name, supplier };
       }
+      case "RackDoor": {
+        const units = Math.round(KF.real(one, "units", 48));
+        const perf = PERFORATIONS[KF.choice(one, "perf", 1)] || PERFORATIONS[1];
+        return { name: "Rack door " + units + "U \u00b7 " + Math.round(KF.real(one, "width", 600))
+                   + " wide \u00b7 " + perf.name, kind: "part",
+                 from: perf.from || "sheet door", supplier };
+      }
+      case "LevellingFoot": {
+        const it = THREADS[KF.choice(one, "thread", 4)] || THREADS[4];
+        return { name: "Levelling foot " + it.name + " \u00b7 "
+                   + round(KF.real(one, "base", 80)) + " base", kind: "part",
+                 from: "ISO 261 " + it.name + " \u00d7 " + it.pitch, supplier };
+      }
+      case "ScaleFigure":
+        //! NOT A PART. A person is in the model to be looked at, and a bill
+        //! that orders one is a bill nobody will read the rest of.
+        return null;
+      case "FloorTile": {
+        const it = FLOOR_TILES[KF.choice(one, "tile", 0)] || FLOOR_TILES[0];
+        return { name: it.name, kind: "section", from: it.from, supplier };
+      }
+      case "CeilingHanger": {
+        const rod = HANGER_RODS[KF.choice(one, "rod", 2)] || "M12";
+        return { name: "Trapeze hanger \u00b7 " + rod + " rods, "
+                   + round(KF.real(one, "span", 700)) + " centres",
+                 kind: "section", from: "threaded rod and channel", supplier };
+      }
+      case "CableManager":
+        return { name: "Vertical manager " + Math.round(KF.real(one, "units", 48))
+                   + "U \u00b7 " + round(KF.real(one, "width", 150)) + " wide",
+                 kind: "section", from: "cable manager", supplier };
       case "CableTray":
         return { name: "Cable tray " + round(KF.real(one, "width", 300)) + " \u00d7 "
                    + round(KF.real(one, "length", 1000)) + " mm",
@@ -632,16 +748,34 @@ function rackDrivers(kit) {
         const width = KF.real(f, "width", 300);
         const pitch = KF.real(f, "pitch", 250);
         const rung = KF.real(f, "rung", 20);
+        //! A TRAY IS PLACED BY WHAT IT SITS ON, which is its UNDERSIDE and not
+        //! its centreline. Placed by the centreline it was, every height in a
+        //! hall carried a correction of half whatever section the tray happened
+        //! to be made of - and the correction was written into the model file
+        //! as a number, so switching the section from a 41 channel to a 40
+        //! T-slot moved the tray 10 mm off the hanger holding it up. The
+        //! hanger's drop is to the face the tray bears on for the same reason;
+        //! between them there is now no offset anywhere in a runway.
         const parts = [
-          extrudeOutline(frame, section.outline(), [0, 0, 0], length, "u"),
-          extrudeOutline(frame, section.outline(), [0, width, 0], length, "u"),
+          extrudeOutline(frame, section.outline(), [0, 0, section.h / 2], length, "u"),
+          extrudeOutline(frame, section.outline(), [0, width, section.h / 2], length, "u"),
         ];
         //! THE RUNGS ARE PATTERNED FROM THE LENGTH, which is the difference
         //! between a tray that is modelled and a tray that is drawn: make it
         //! longer and there are more of them, still on the pitch.
         const at = strutHoles(length, pitch, pitch / 2);
+        //! THE RUNGS ARE WELDED BETWEEN THE RAILS, flush with their undersides -
+        //! not centred on the rails' centreline, which is what this did and
+        //! which hangs a rung deeper than its rail below the tray. A tray is
+        //! placed by what it SITS ON, so its underside has to be one surface
+        //! and it has to be the rails: a 25 mm rung in a 20.6 channel put the
+        //! lowest point of the tray 2.2 mm under its own rails, and the tray
+        //! then floated that far over the hanger holding it up.
+        //! And the rungs are welded between the rails from the same underside,
+        //! rather than centred on the rails' centreline - a rung deeper than
+        //! its rail hung below the tray and was the lowest thing on it.
         for (const x of at)
-          parts.push(slab(frame, [x - rung / 2, 0, -rung / 2], rung, width, rung));
+          parts.push(slab(frame, [x - rung / 2, 0, 0], rung, width, rung));
         return { shape: K.compoundOf(parts),
                  data: K.text([section.name,
                                at.length + " rungs at " + pitch + " mm"]) };
@@ -870,6 +1004,298 @@ function rackDrivers(kit) {
       },
     },
 
+    /* --------------------------------------------------------- the hall */
+
+    FloorTile: {
+      precondition: f => {
+        if (KF.real(f, "grid", 600) <= KF.real(f, "joint", 1) * 2)
+          return "the joint is wider than the module";
+        if (K.F.choice(f, "under", 0) !== 2) {
+          const spec = FLOOR_TILES[K.F.choice(f, "tile", 0)] || FLOOR_TILES[0];
+          const told = KF.real(f, "thick", 0);
+          const deep = told > 0 ? told : (spec.thick || 32);
+          const least = deep + FLOOR_PEDESTAL.headPlate + FLOOR_PEDESTAL.basePlate;
+          if (KF.real(f, "height", 600) <= least)
+            return "a finished floor of " + Math.round(KF.real(f, "height", 600))
+              + " leaves no pedestal under a " + Math.round(deep) + " panel";
+        }
+        return null;
+      },
+      build: f => {
+        const frame = frameOf(f);
+        const spec = FLOOR_TILES[K.F.choice(f, "tile", 0)] || FLOOR_TILES[0];
+        const grid = KF.real(f, "grid", 600);
+        const joint = KF.real(f, "joint", 1);
+        const told = KF.real(f, "thick", 0);
+        const thick = told > 0 ? told : (spec.thick || 32);
+        const under = K.F.choice(f, "under", 0);
+        const ffh = KF.real(f, "height", 600);
+        const side = grid - joint;
+
+        //! THE PANEL sits under z = 0 with its TOP at z = 0, so the point a
+        //! tile is placed at is a point on the finished floor - which is the
+        //! level everything else in a hall is dimensioned from. A panel placed
+        //! by its underside means every rack above it is 32 mm out, and it is
+        //! the kind of 32 mm that is only found by sectioning.
+        const parts = [slab(frame, [joint / 2, joint / 2, -thick], side, side, thick)];
+
+        //! THE PUNCH. Same two functions as the rack door - the centres that
+        //! are cut and the area that is reported come from one place, so the
+        //! percentage on the feature is about the holes in the model.
+        const hole = spec.hole || 0;
+        const slot = spec.slot || 0;
+        //! How much LONGER than its centre an opening reaches, which is nothing
+        //! for a round hole and the whole slot for a grate.
+        const run = 0;
+        //! The border a panel is not punched through, which is where it sits on
+        //! the stringer and where the lifter's suction cup goes.
+        //! A PUNCHED PANEL HAS A WIDER BORDER THAN A CASTING, because the
+        //! border is what it is stiff on: a steel panel needs 25 mm of unbroken
+        //! sheet round the edge, a cast grate has its own frame in the casting
+        //! and runs its vanes almost out to it.
+        const margin = spec.kind === "slot" ? 12 : 25;
+        const field = side - 2 * margin;
+        const pitch = tilePitch(spec, field, side);
+        const long = pitch.slot || 0;
+        let centres = [];
+        //! THE FIELD IS SHORT BY THE LENGTH OF A SLOT, and this is not a
+        //! refinement - a grate whose last row of slots ran off the edge cut
+        //! the panel in two along its own boundary, and OpenCascade returned
+        //! "the result came back open", which is true and unhelpful. A round
+        //! hole is its own length; a slot is 82 mm longer than its centre.
+        if (spec.kind === "slot" && pitch.x > 0) {
+          //! ONE ROW, the length of the field. perforationCentres lays out a
+          //! grid of centres and a vane is not one - asked for a row of
+          //! openings as long as the field it is in, it computed a height of
+          //! nothing and returned none at all, and the panel came out solid
+          //! with "0.0% open" printed on it.
+          const usable = field - hole;
+          const cols = Math.max(1, Math.floor(usable / pitch.x) + 1);
+          const spread = hole / 2 + (usable - (cols - 1) * pitch.x) / 2;
+          for (let c = 0; c < cols; c++) centres.push([spread + c * pitch.x, 0]);
+        } else if (spec.kind !== "none" && hole > 0 && pitch.x > 0) {
+          //! HALF A HOLE OF MARGIN, not a whole one. The field is already
+          //! inset by the border; asking for another hole's width inside that
+          //! threw away 24 mm of a 549 field and cost the panel two points of
+          //! open area it had been sized for. Half a hole is what keeps the
+          //! outermost hole inside the field, and is all that is needed.
+          centres = perforationCentres(field, field, pitch.x, pitch.y,
+                                       !!spec.stagger, hole / 2);
+        }
+        const tools = [];
+        for (const [x, y] of centres) {
+          const at = [joint / 2 + margin + x, joint / 2 + margin + y, -thick - 1];
+          if (spec.kind === "round") tools.push(drill(frame, at, "z", hole / 2, thick + 2));
+          //! ONE BOX PER OPENING and not a box between two bores. See holeArea:
+          //! the gap between a cast grate's vanes is a rectangle, the stadium
+          //! belongs to a punched sheet, and the three-piece version was both
+          //! wrong by 4% and forty seconds of tangent booleans that failed.
+          else tools.push(slab(frame, [at[0] - hole / 2, at[1], -thick - 1],
+                               hole, long, thick + 2));
+        }
+        let panel = cutAll(parts[0], tools);
+
+        //! THE UNDERSTRUCTURE. One pedestal at the tile's own corner, so a
+        //! field of tiles on the module gets a pedestal at every intersection
+        //! and not four at every tile.
+        const extra = [];
+        const ped = FLOOR_PEDESTAL;
+        if (under !== 2) {
+          //! THE FINISHED FLOOR HEIGHT IS SLAB TO FINISHED FLOOR, which is what
+          //! the number means everywhere it is used: it is the depth of plenum
+          //! the air has to get down. So the pedestal's base plate sits on
+          //! z = -ffh exactly, and the tube is what is left after the panel,
+          //! the head and the base are taken off it. Dropping the tube by
+          //! ffh - thick instead puts the base 4 mm below the slab, which
+          //! nothing on screen shows and every section does.
+          const drop = ffh - thick - ped.headPlate;
+          extra.push(slab(frame, [-ped.head / 2, -ped.head / 2, -thick - ped.headPlate],
+                          ped.head, ped.head, ped.headPlate));
+          const at = world(frame, 0, 0, -ffh + ped.basePlate);
+          extra.push(S.cylinder(new K.oc.gp_Ax2(new K.oc.gp_Pnt(at[0], at[1], at[2]),
+                                                new K.oc.gp_Dir(frame.z[0], frame.z[1], frame.z[2])),
+                                ped.tube / 2, drop - ped.basePlate));
+          extra.push(slab(frame, [-ped.base / 2, -ped.base / 2, -ffh],
+                          ped.base, ped.base, ped.basePlate));
+        }
+        if (under === 0) {
+          //! Stringers along the two edges the tile owns, so a field of them
+          //! makes a grid with no member laid twice.
+          const s = ped.stringer;
+          const top = -thick - ped.headPlate;
+          extra.push(slab(frame, [ped.head / 2, -s.w / 2, top - s.h], grid - ped.head, s.w, s.h));
+          extra.push(slab(frame, [-s.w / 2, ped.head / 2, top - s.h], s.w, grid - ped.head, s.h));
+        }
+        if (extra.length) panel = S.add(panel, K.compoundOf(extra));
+
+        //! TWO OPEN AREAS AND THEY ARE BOTH TRUE, which is the trap in a floor
+        //! panel and the reason both are printed. A panel is SOLD on the open
+        //! area of its PATTERN - the hole against the cell it sits in - and that
+        //! is the 25 or the 56 on the data sheet. What passes air is the pattern
+        //! over the WHOLE PANEL, and the unpunched border round the edge takes
+        //! four or five points off it. Quoting the first and computing the air
+        //! from it overstates a hall's floor by about a fifth.
+        const cut = spec.kind === "none" ? 0
+          : openArea(centres.length, spec.kind, hole, long, field, field);
+        const whole = spec.kind === "none" ? 0
+          : openArea(centres.length, spec.kind, hole, long, side, side);
+        const pressure = KF.real(f, "plenum", 25);
+        const flow = tileFlow(whole, grid, pressure);
+        const said = [spec.name, spec.from,
+                      Math.round(side) + " \u00d7 " + Math.round(side) + " \u00d7 "
+                        + Math.round(thick) + " on a " + Math.round(grid) + " module"];
+        if (spec.kind !== "none") {
+          said.push(centres.length.toLocaleString() + " openings \u00b7 "
+            + (cut * 100).toFixed(1) + "% of the punched field, "
+            + (whole * 100).toFixed(1) + "% of the panel (sold at "
+            + Math.round((spec.open || 0) * 100) + "%)");
+          said.push((flow * 3600).toFixed(0) + " m\u00b3/h at " + Math.round(pressure)
+            + " Pa \u00b7 sharp-edged orifice, Cd 0.62 - a correlation, not a CFD result");
+        }
+        if (under !== 2) said.push("finished floor " + Math.round(ffh) + " mm");
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        return { shape: panel, data: K.text(said) };
+      },
+    },
+
+    CeilingHanger: {
+      precondition: f => {
+        if (KF.real(f, "drop", 500) <= 0) return "a hanger needs a drop";
+        return null;
+      },
+      build: f => {
+        const frame = frameOf(f);
+        const section = sectionOf(f, 6);
+        const span = KF.real(f, "span", 700);
+        const drop = KF.real(f, "drop", 500);
+        const rod = HANGER_RODS[K.F.choice(f, "rod", 2)] || "M12";
+        const dia = Number(rod.slice(1)) || 12;
+
+        //! THE POINT IS THE SLAB, and the trapeze hangs BELOW it - so a hanger
+        //! placed at the soffit puts its channel at soffit less the drop, which
+        //! is where the tray goes. Placing it by the channel instead means
+        //! every drop length change moves the tray, which is backwards: the
+        //! slab does not move and the tray is what you are setting.
+        //! THE DROP IS TO THE SURFACE THE TRAY SITS ON - the TOP of the cross
+        //! member - and not to its centreline. That is the number somebody sets
+        //! when they set a runway height, so it is the number the argument
+        //! means; measured to the centreline instead, half a section's depth
+        //! of error rides on whichever section the hanger happens to be made
+        //! of, which is the worst kind of hidden offset there is.
+        //! IT CROSSES WHAT IT CARRIES. A cable tray runs along its frame's X and
+        //! is `width` across its Y - so a trapeze holding one up runs across
+        //! its Y too, with a rod each side of the tray. Built along X, as this
+        //! was, the cross member lies ALONG the tray between two rods in line
+        //! with it, which from above is a second tray beside the first and
+        //! holds nothing up at all.
+        const parts = [];
+        const below = drop + section.h + 8;
+        for (const across of [0, span]) {
+          const at = world(frame, 0, across, -below);
+          parts.push(S.cylinder(new K.oc.gp_Ax2(new K.oc.gp_Pnt(at[0], at[1], at[2]),
+                                                new K.oc.gp_Dir(frame.z[0], frame.z[1], frame.z[2])),
+                                dia / 2, below));
+          //! A nut under the channel and one over it, which is how a trapeze is
+          //! levelled and is the only reason the channel stays where it is put.
+          for (const z of [-drop - section.h - 8, -drop]) {
+            const outline = hexOutline(dia * 1.6);
+            parts.push(extrudeOutline(frame, outline, [0, across, z], 8, "z"));
+          }
+        }
+        //! The cross member, on the frame's own section family, with its top
+        //! face exactly at the drop and a little of it past each rod.
+        parts.push(extrudeOutline(frame, section.outline(), [0, -40, -drop - section.h / 2],
+                                  span + 80, "v"));
+
+        const holds = rodCapacity(rod) * 2;
+        const load = KF.real(f, "load", 60);
+        const note = load > holds
+          ? "two " + rod + " rods carry about " + Math.round(holds) + " kg and this "
+            + "trapeze is carrying " + Math.round(load) + " - go up a rod size or "
+            + "halve the spacing"
+          : null;
+        const said = [rod + " trapeze \u00b7 " + Math.round(span) + " centres, "
+                        + Math.round(drop) + " to the bearing face",
+                      section.name,
+                      "two rods hold about " + Math.round(holds) + " kg \u00b7 "
+                        + ROD_STRESS_AREA[rod] + " mm\u00b2 stress area at 48 MPa working",
+                      "carrying " + Math.round(load) + " kg"];
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        if (note) said.push(note);
+        return { shape: K.compoundOf(parts), data: K.text(said), ...(note ? { note } : {}) };
+      },
+    },
+
+    CableManager: {
+      precondition: f => null,
+      build: f => {
+        const frame = frameOf(f);
+        const units = Math.max(1, Math.round(KF.real(f, "units", 48)));
+        const high = rackHeight("eia310", units);
+        const wide = KF.real(f, "width", 150);
+        const deep = KF.real(f, "depth", 200);
+        const sheet = KF.real(f, "sheet", 1.5);
+        const pitch = Math.max(20, KF.real(f, "pitch", 88.9));
+        const finger = KF.real(f, "finger", 40);
+
+        //! THE CHANNEL: a back and two returns, which is a manager rather than
+        //! a box. The fingers stand off the back in pairs with the tie slot
+        //! between them - the slot is what a cable tie goes through and is the
+        //! reason a manager is not a shelf.
+        const parts = [slab(frame, [0, 0, 0], wide, sheet, high),
+                       slab(frame, [0, 0, 0], sheet, deep, high),
+                       slab(frame, [wide - sheet, 0, 0], sheet, deep, high)];
+        const at = strutHoles(high, pitch, pitch / 2);
+        for (const z of at) {
+          parts.push(slab(frame, [sheet, sheet, z - sheet], wide - 2 * sheet, finger, sheet * 2));
+          //! The tie slot, as a gap in the middle of the finger rather than a
+          //! hole cut afterwards: two stubs with daylight between them.
+          parts.push(slab(frame, [sheet, sheet + finger, z - sheet], 25, 12, sheet * 2));
+          parts.push(slab(frame, [wide - sheet - 25, sheet + finger, z - sheet], 25, 12, sheet * 2));
+        }
+
+        //! WHAT IT WILL HOLD, which is the whole question a manager answers.
+        //! The usable window is between the returns and out to the end of the
+        //! fingers, and the packing figure is the honest one: round cables in a
+        //! rectangular duct fill about 60% of it, not 100%, and the trade's own
+        //! fill tables are built on 40 to 60.
+        const cable = KF.real(f, "cable", 6.2);
+        const window = (wide - 2 * sheet) * finger;
+        const fill = 0.6;
+        const many = cable > 0 ? Math.floor(window * fill / (Math.PI * cable * cable / 4)) : 0;
+        const said = ["Vertical manager \u00b7 " + units + "U, " + Math.round(wide)
+                        + " \u00d7 " + Math.round(deep),
+                      at.length + " finger pairs at " + pitch.toFixed(1) + " mm",
+                      "window " + Math.round(window) + " mm\u00b2 \u00b7 about " + many
+                        + " \u00d7 \u00d8" + cable + " cables at 60% fill",
+                      "60% fill is the trade's own figure for round cable in a duct, "
+                        + "not a geometric packing"];
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        return { shape: K.compoundOf(parts), data: K.text(said) };
+      },
+    },
+
+    ScaleFigure: {
+      precondition: f => (KF.real(f, "height", 1800) > 0 ? null : "a person needs a height"),
+      build: f => {
+        const frame = frameOf(f);
+        const height = KF.real(f, "height", 1800);
+        //! TURNED IN THE FRAME'S OWN PLANE, so a figure on the floor plane
+        //! turns about the vertical the way everything else in a hall does.
+        const turn = KF.real(f, "turn", 0) * Math.PI / 180;
+        const c = Math.cos(turn), s = Math.sin(turn);
+        const across = [frame.x[0] * c + frame.y[0] * s, frame.x[1] * c + frame.y[1] * s,
+                        frame.x[2] * c + frame.y[2] * s];
+        const facing = [-frame.x[0] * s + frame.y[0] * c, -frame.x[1] * s + frame.y[1] * c,
+                        -frame.x[2] * s + frame.y[2] * c];
+        const mesh = figureAt(height, frame.origin, across, facing, frame.z);
+        return { data: K.packMesh(K.checkMesh(mesh, "scale figure")) };
+      },
+    },
+
     Bill: {
       precondition: f => (KF.reference(f, "of") ? null : "nothing wired in to count"),
       build: f => {
@@ -882,44 +1308,75 @@ function rackDrivers(kit) {
         //! thing it is a bill of, which is the only property a bill needs.
         const doc = K.doc ? K.doc() : null;
         const found = [of, ...(doc && doc.isContainer(of) ? doc.within(of) : [])];
-        //! A PATTERN IS AS MANY PARTS AS IT MAKES. An Array of twelve bolts is
-        //! one feature in the tree and twelve bolts in the van, and a bill that
-        //! counts the feature is a bill that orders one. So a pattern is
-        //! followed to what it repeats and that part is counted its own number
-        //! of times - which is the only reason patterning parts is safe.
-        //! AND WHAT HAS BEEN CONSUMED IS NOT A PART. An Array takes its source
-        //! - the catalogue says so, with `consumes` on the argument - so the
-        //! one bolt the pattern was made from is not a bolt in the van beside
-        //! the twenty-four it made. Counting it gave 25 where there are 24,
-        //! which is exactly the kind of quietly-wrong number a bill must not
-        //! have. Asked of the catalogue rather than special-cased for Array,
-        //! so an extrude that eats its profile is handled by the same line.
+        //! WHAT HAS BEEN CONSUMED IS NOT A PART. An Array takes its source - the
+        //! catalogue says so, with `consumes` on the argument - so the one bolt
+        //! the pattern was made from is not a bolt in the van beside the
+        //! twenty-four it made. Counting it gave 25 where there are 24, which is
+        //! exactly the quietly-wrong number a bill must not have. Asked of the
+        //! catalogue rather than special-cased for Array, so an extrude that
+        //! eats its profile is handled by the same line.
+        //!
+        //! AND ASKED OF THE WHOLE DOCUMENT, not of what is being counted. A
+        //! part's source can be eaten by a pattern filed somewhere else
+        //! entirely, and a bill of one set could not see it.
         const eaten = new Set();
-        for (const one of found) {
+        for (const one of (doc ? doc.features() : found)) {
           const spec = KF.spec(one);
           for (const arg of (spec && spec.args) || []) {
             if (arg.kind !== "ref" || !arg.consumes) continue;
             const source = KF.reference(one, arg.key);
-            if (source) eaten.add(source);
+            if (source) eaten.add(KF.id(source));
           }
         }
-        const parts = [];
-        for (const one of found) {
-          if (eaten.has(one)) continue;
+
+        //! WHAT ONE FEATURE IS WORTH, and the three cases are different things.
+        //!
+        //!   A PATTERN is as many of what it repeats as it makes. An Array of
+        //!   twelve bolts is one feature in the tree and twelve bolts in the
+        //!   van, and a bill that counts the feature orders one.
+        //!
+        //!   AN INSTANCE is a whole part again. Eight racks where seven are
+        //!   instances is eight racks to buy - and the first version of this
+        //!   counted the one it could see and quoted a hall at an eighth of its
+        //!   cost. That is the failure that looks most like success here: the
+        //!   bill was neatly formatted, every line was right, and the total was
+        //!   wrong by seven racks.
+        //!
+        //!   ANYTHING ELSE is itself, once, times however many of it there are.
+        //!
+        //! Recursive, because a pattern of instances is both at once - which is
+        //! exactly how a row of racks is built.
+        const partsOf = (one, times, out, guard) => {
+          if (guard > 12 || !one) return;
           const spec = KF.spec(one);
-          if (spec && spec.type === "Array") {
-            const source = partOf(KF.reference(one, "source"));
-            if (!source) continue;
+          if (!spec) return;
+          if (spec.type === "Array") {
             const many = KF.choice(one, "mode", 0) === 1
               ? Math.max(1, Math.round(KF.real(one, "count", 6)))
               : Math.max(1, Math.round(KF.real(one, "countX", 3)))
                 * Math.max(1, Math.round(KF.real(one, "countY", 1)))
                 * Math.max(1, Math.round(KF.real(one, "countZ", 1)));
-            for (let i = 0; i < many; i++) parts.push(source);
-            continue;
+            partsOf(KF.reference(one, "source"), times * many, out, guard + 1);
+            return;
+          }
+          if (spec.type === "Instance") {
+            const part = KF.reference(one, "part");
+            if (!part || !doc) return;
+            const inside = doc.isContainer(part) ? doc.within(part) : [part];
+            for (const each of inside) {
+              if (eaten.has(KF.id(each))) continue;
+              partsOf(each, times, out, guard + 1);
+            }
+            return;
           }
           const part = partOf(one);
-          if (part) parts.push(part);
+          if (part) for (let i = 0; i < times; i++) out.push(part);
+        };
+
+        const parts = [];
+        for (const one of found) {
+          if (eaten.has(KF.id(one))) continue;
+          partsOf(one, 1, parts, 0);
         }
         const kept = parts.filter(one => want === 0
           || (want === 1 && one.kind === "fastener")
