@@ -1029,11 +1029,31 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       const sx = F.real(f, "spacingX", 120);
       const sy = F.real(f, "spacingY", 120);
       const sz = F.real(f, "spacingZ", 120);
+      //! ALONG A PLANE'S OWN DIRECTIONS, if one is wired in. Without it X, Y
+      //! and Z are the world's, which is right for most patterns and useless
+      //! for the one somebody has when a row does not happen to run along an
+      //! axis: a row of racks down a hall, bolts along a face that is turned.
+      //! Wire a plane in and the three counts step along ITS x, y and normal.
+      const on = F.reference(f, "plane");
+      const ax = on ? planeAxis(on) : null;
+      const across = ax ? ax.XDirection() : null;
+      const up = ax ? ax.Direction() : null;
+      const X = across ? [across.X(), across.Y(), across.Z()] : [1, 0, 0];
+      const Z = up ? [up.X(), up.Y(), up.Z()] : [0, 0, 1];
+      //! The third is the other two crossed, so the frame is right-handed
+      //! whatever the plane was built from.
+      const Y = [Z[1] * X[2] - Z[2] * X[1], Z[2] * X[0] - Z[0] * X[2], Z[0] * X[1] - Z[1] * X[0]];
       for (let i = 0; i < nx; i++)
         for (let j = 0; j < ny; j++)
           for (let k = 0; k < nz; k++) {
             const trsf = new oc.gp_Trsf();
-            if (i || j || k) trsf.SetTranslation(new oc.gp_Vec(i * sx, j * sy, k * sz));
+            if (i || j || k) {
+              const a = i * sx, b = j * sy, c = k * sz;
+              trsf.SetTranslation(new oc.gp_Vec(
+                X[0] * a + Y[0] * b + Z[0] * c,
+                X[1] * a + Y[1] * b + Z[1] * c,
+                X[2] * a + Y[2] * b + Z[2] * c));
+            }
             placements.push(trsf);
           }
       return placements;
@@ -6911,13 +6931,20 @@ function sprawl(face, edges) {
       if (options.notTypes && options.notTypes.includes(spec.type)) continue;
       if (options.notCategories && options.notCategories.includes(spec.category)) continue;
       if (options.visible !== false && !F.visible(f)) continue;
-      //! WHAT A PART HAS ALREADY DRAWN IS NOT DRAWN AGAIN. A Part produces the
-      //! compound of everything inside it, so without this every solid in an
-      //! assembly would be handed over twice - once as itself and once inside
-      //! its part - which draws correctly, exports double, and doubles every
-      //! measured area and volume without anything looking wrong on screen.
-      //! The part is the body; its contents are how the part is defined.
-      if (!ASSEMBLIES.includes(spec.type) && partAbove(f)) continue;
+      //! A PART IS A CONTAINER, AND WHAT IS DRAWN IS WHAT IS IN IT. The compound
+      //! a Part produces is for the things that READ it - an Instance placing
+      //! it, an Array patterning it, a boolean cutting against it - and handing
+      //! it over here as well would draw every solid in an assembly twice: once
+      //! as itself and once inside its part. That looks right on screen, and
+      //! exports double, and doubles every measured area and volume.
+      //!
+      //! IT IS THE PART THAT STANDS ASIDE, not its contents, and that is the
+      //! way round it has to be. A container whose children are not drawn has
+      //! no children to switch on and off: hiding one bolt inside a rack did
+      //! nothing at all, because the bolt was not what was on screen. Drawing
+      //! the contents is also what every folder in this program has always
+      //! done, so a Part behaves like the set somebody made it from.
+      if (ASSEMBLIES.includes(spec.type)) continue;
       let shape = F.shape(f);
       //! A POLYMESH HAS NO B-REP, and half the IFC in the world arrives as
       //! one: tessellated in the file, so what came in is triangles and

@@ -292,10 +292,21 @@ console.log("\n8b. an eye is not an edit");
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   const body = (app.match(/function showFeature\([\s\S]*?\n\}/) || [""])[0];
   check("showFeature keeps what was clicked apart from what it contains",
-        /const named = Array\.isArray\(id\)/.test(body)
-        && /const ids = withContents\(named\)/.test(body));
-  check("the hidden list takes the contents, because hiding a set hides it all",
-        /for \(const one of ids\) \{ if \(on\) state\.hidden\.delete/.test(body));
+        /const named = Array\.isArray\(id\)/.test(body));
+  //! AND THE HIDDEN LIST HOLDS ONLY WHAT WAS CLICKED. It used to take the
+  //! contents too - hiding a set wrote every descendant onto the list and
+  //! showing it took every descendant off - which cascaded correctly and
+  //! DESTROYED each child's own state on the way: a set with three bodies on
+  //! and one off came back with all four on, and there was nothing left to
+  //! restore the fourth from. Inheritance is now worked out when something is
+  //! drawn, by hiddenHere walking up the parents, so a child's own switch
+  //! survives its parent being switched off and on again.
+  check("the hidden list holds only the rows somebody clicked",
+        /for \(const one of ids\) \{ if \(on\) state\.hidden\.delete/.test(body)
+        && /const ids = named;/.test(body));
+  check("and what is inherited is worked out at drawing time instead",
+        /const hiddenHere = id =>/.test(app)
+        && /state\.hidden\.has\(parent\)/.test(app));
   check("but the document edit is only for the rows somebody named",
         /const swallowed = on \? named\.filter\(/.test(body));
   check("and it is never sent when hiding, which needs no edit at all",

@@ -236,6 +236,13 @@ export const HARNESS = offerPlugin({
          + "corner.",
   needs: [],
   nodes: HARNESS_NODES,
+  //! ON THE MANIFEST, not only inside start. The page builds its drivers by
+  //! running start; the WORKER never runs start - what crosses a message port
+  //! is the package's name, and the far side builds the drivers itself from
+  //! the declaration. A package that hands its drivers back only from start
+  //! therefore loads on the page and refuses in the worker, by node name:
+  //! "no driver for Route, Cable".
+  drivers: harnessDrivers,
   async start(kit) {
     return { drivers: harnessDrivers(kit) };
   },

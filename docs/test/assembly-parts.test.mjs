@@ -46,13 +46,21 @@ const set = (id, key, value) => mdl.run({ op: "set", id, key, value });
 const at = async id => (await kernel.tree()).tree.features.find(f => f.id === id);
 const K = kernel.toolkit();
 const drawn = () => K.bodies({ notCategories: ["datum", "data"], sewMeshes: false });
+//! WHAT A FEATURE BUILT, whether or not it is drawn. A Part is a container:
+//! what goes on screen is what is IN it, so the part itself is not in the
+//! drawn list - but it still produces the compound that an Instance places,
+//! and that compound is what most of this file is about.
+const shapeOf = id => {
+  const f = K.doc().find(id);
+  return f ? K.F.shape(f) : null;
+};
 const boxOf = id => {
-  const b = drawn().find(one => one.id === id);
-  return b ? K.extents(b.shape) : null;
+  const shape = shapeOf(id);
+  return shape && !shape.IsNull() ? K.extents(shape) : null;
 };
 const solidsIn = id => {
-  const b = drawn().find(one => one.id === id);
-  return b ? K.countSubShapes(b.shape, K.SOLID) : 0;
+  const shape = shapeOf(id);
+  return shape && !shape.IsNull() ? K.countSubShapes(shape, K.SOLID) : 0;
 };
 
 //! The datums the primitives are placed on. They sit OUTSIDE the parts, which
@@ -78,11 +86,16 @@ await set(SHANK, "dx", 6); await set(SHANK, "dy", 6); await set(SHANK, "dz", 20)
   const e = boxOf(BOLT);
   check("it builds a shape, which a set never did", !!e, JSON.stringify(e && e.size));
   check("and the shape is everything in it", solidsIn(BOLT) === 2, solidsIn(BOLT) + " solids");
-  //! THE CONTENTS ARE NOT DRAWN BESIDE IT. If they were, this model would have
-  //! four solids in it and every area and volume would be twice what it is.
+  //! AND IT IS THE PART THAT STANDS ASIDE, not its contents. The compound is
+  //! for whatever READS the part; what goes on screen is the bodies in it, so
+  //! they stay selectable and can be switched on and off one at a time. Handing
+  //! over both would draw every solid twice - which looks right, exports
+  //! double, and doubles every measured area and volume.
   const ids = drawn().map(one => one.id);
-  check("and its contents are not handed over a second time",
-        !ids.includes(HEAD) && !ids.includes(SHANK), ids.join(","));
+  check("its contents are what is drawn",
+        ids.includes(HEAD) && ids.includes(SHANK), ids.join(","));
+  check("and the part itself is not drawn beside them",
+        !ids.includes(BOLT), ids.join(","));
 }
 
 /* ------------------------------------------------------ placed, not rebuilt */
@@ -105,8 +118,8 @@ const I2 = await add("Instance", { refs: { part: BOLT, at: P2 } });
   //! SHARED, MEASURED. Moved keeps the TShape, so the instance's shape and the
   //! part's shape are the same underlying geometry. IsPartner is OpenCascade's
   //! own word for "same TShape, any location" - which is exactly the claim.
-  const partShape = drawn().find(one => one.id === BOLT).shape;
-  const instShape = drawn().find(one => one.id === I1).shape;
+  const partShape = shapeOf(BOLT);
+  const instShape = shapeOf(I1);
   check("the instance shares the part's geometry rather than copying it",
         instShape.IsPartner(partShape), "IsPartner");
   check("while sitting at its own location",
@@ -175,8 +188,8 @@ await mdl.run({ op: "group", id: ROW, into: PROD });
   check("and holds everything filed in it",
         solidsIn(PROD) === 7, solidsIn(PROD) + " solids (2 + 5)");
   const ids = drawn().map(one => one.id);
-  check("its contents are not drawn beside it",
-        !ids.includes(I1) && !ids.includes(ROW), ids.join(","));
+  check("and what is drawn is the instances in it, not the product",
+        ids.includes(I1) && !ids.includes(PROD), ids.join(","));
   //! AND A PRODUCT IS INSTANCEABLE, which is what makes a row of racks and
   //! then a hall of rows possible without the model growing by the hall.
   const P3 = await add("Point"); await set(P3, "y", 2000);
@@ -197,10 +210,14 @@ console.log("\n7. a colour on a part is worn by everything in it");
   //! back empty for every body in every document and the cascade had never once
   //! run. Nothing looked wrong - an uncoloured model is a grey model.
   await kernel.setAppearance(BOLT, { colour: "#b87333" });
-  const inside = K.bodies({ notCategories: ["datum", "data"], sewMeshes: false,
-                            except: [] }).find(one => one.id === BOLT);
-  check("the part carries the colour", !!(inside && inside.appearance),
-        JSON.stringify(inside && inside.appearance));
+  //! Read off a body INSIDE the part, because the part is not drawn - which is
+  //! exactly the path that matters: the bolt's own solids are what is on
+  //! screen, so the part's colour has to reach them or colouring a part does
+  //! nothing anybody can see.
+  const inside = drawn().find(one => one.id === HEAD);
+  check("a body in the part is told about the part's colour",
+        !!(inside && inside.above && inside.above.length),
+        JSON.stringify(inside && inside.above));
   //! And a feature filed inside a plain set sees the set's colour above it,
   //! which is the general rule the part is one case of.
   const SHELF = await add("GeometricalSet");

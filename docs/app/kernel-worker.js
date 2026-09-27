@@ -55,8 +55,18 @@ let kernel = null;
 //! here, one of them was wrong - the Flow package is declared as "flow" and
 //! this said "crowd" - and what that looks like from the outside is a package
 //! that will not load with no reason given.
+//! EVERY PACKAGE THE WORKER CAN BUILD DRIVERS FOR, named one by one.
+//!
+//! IMPORTING A PACKAGE IS NOT ENOUGH, and the two look identical at the top of
+//! this file. A package puts itself on the PAGE's shelf when its module loads,
+//! so on that side the import is the registration - but the worker keeps its
+//! own list, because what crosses a message port is a package's NAME and the
+//! far side has to find the thing that name refers to. A package imported here
+//! and left out of this list is on the shelf the page reads, missing from the
+//! one the worker reads, and the failure lands on the page as "there is no
+//! package called 'harness'" - naming the page's own shelf, which has it.
 const SHELF = {};
-for (const plugin of [CLIMATE, CROWD, DRAWINGS, IFC, PACKING, RACK])
+for (const plugin of [CLIMATE, CROWD, DRAWINGS, HARNESS, IFC, PACKING, RACK])
   SHELF[plugin.id] = plugin;
 
 //! What a driver builder is handed here: the factories and the document, and

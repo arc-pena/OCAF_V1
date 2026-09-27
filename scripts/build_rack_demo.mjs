@@ -38,6 +38,7 @@ import { createWasmKernel } from "../docs/src/wasm-kernel.js";
 import { Mdl } from "../docs/src/mdl.js";
 import { PluginHost } from "../docs/src/plugin.js";
 import { RACK } from "../docs/src/rack-plugin.js";
+import { HARNESS } from "../docs/src/harness-plugin.js";
 import { holeCentres, rackHeight } from "../docs/src/rack.js";
 import { readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -57,6 +58,11 @@ const FIRST_U = 3;             // the first compute node sits at U3
 const BOLT_PITCH = 4;          // a fixing every 4U up the post
 const U = 44.45;
 
+//! WHERE A UNIT STARTS, in millimetres up the rack. Written here rather than
+//! typed into the cable points, so a run that leaves a node's face leaves the
+//! face of the node that is actually there.
+const unitBottomAt = u => (u - 1) * U;
+
 const features = [];
 //! A MODEL FILE SAYS A REFERENCE INSIDE args, as { ref: "ID" } - the `refs`
 //! shorthand is the ADD OP's, and a file that uses it is a file whose wires
@@ -71,7 +77,12 @@ const add = (id, type, more = {}) => {
   //! for two different things, and the `refs` shorthand on the add OP is
   //! neither - a file that uses it has its wires silently dropped and comes
   //! back as "origin point is missing" on a node that was given an origin.
-  for (const [key, from] of Object.entries(refs || {})) made[key] = { ref: from };
+  //! A SINGLE WIRE IS { ref: "ID" }; A MULTI-WIRE INPUT IS A LIST OF THEM.
+  //! Route's "through" takes as many points as you give it, and writing that
+  //! as { ref: [...] } produces an argument the reader cannot resolve - it
+  //! comes back as "references an unknown feature" naming the whole list.
+  for (const [key, from] of Object.entries(refs || {}))
+    made[key] = Array.isArray(from) ? from.map(one => ({ ref: one })) : { ref: from };
   for (const [key, [from, value]] of Object.entries(wire || {}))
     made[key] = { value, from };
   features.push({ id, type, ...rest, ...(Object.keys(made).length ? { args: made } : {}) });
@@ -339,9 +350,121 @@ add("MGR", "Strut", { name: "Vertical manager · 41 channel", parent: "K",
   args: { profile: 6, holes: 2, bore2: 12, pitch2: 100, setback2: 50,
           supplier: "cable manager, 41 x 21 channel" } });
 
+/* ------------------------------------------------------------- 06 Legs */
+
+set("L", "06 Legs");
+//! THE PART THAT CARRIES THE RACK. A loaded 48U rack is comfortably over a
+//! tonne standing on four of these, so the thread is geometry: a true helix
+//! cut to ISO 68-1. It is the expensive thing in this file - a helical sweep
+//! and a boolean per foot - which is why the node offers a plain stud as well
+//! and why this sample turns the real thread on for TWO of the four. Both are
+//! in the model, side by side, so the difference is something to look at
+//! rather than something to take on trust.
+const FOOT_IN = 60;
+const FOOT_AT = [[FOOT_IN, FOOT_IN], [595.1 - FOOT_IN, FOOT_IN],
+                 [FOOT_IN, DEPTH - FOOT_IN], [595.1 - FOOT_IN, DEPTH - FOOT_IN]];
+FOOT_AT.forEach(([x, y], i) => {
+  add("PTL" + i, "Point", { name: "Foot " + (i + 1) + " at", parent: "L",
+    args: { x, y, z: -110 } });
+  add("FOOT" + i, "LevellingFoot", {
+    name: "Levelling foot " + (i + 1) + (i < 2 ? " \u00b7 thread cut" : " \u00b7 plain stud"),
+    parent: "L", refs: { plane: "PL0", at: "PTL" + i },
+    args: { thread: 4, stud: 110, travel: 55, base: 90, plate: 12,
+            cut: i < 2 ? 1 : 0, threaded: 60,
+            supplier: "M20 levelling foot, 1200 kg" } });
+});
+
+/* ------------------------------------------------------------- 07 Door */
+
+set("D", "07 Door");
+//! LOD 400 MEANS THE OPEN AREA IS A NUMBER, not a hatch pattern. A perforated
+//! door is bought against that percentage, and the node computes it off the
+//! holes it actually punched rather than off the pattern it was asked for - so
+//! a door that misses says so. 5.5 mm on a 6 mm 60-degree pitch is about 74%,
+//! which is what a modern high-density front door is.
+add("PTD", "Point", { name: "Door at", parent: "D",
+  args: { x: 0, y: -30, z: 0 } });
+add("DOOR", "RackDoor", { name: "Front door \u00b7 perforated", parent: "D",
+  refs: { plane: "PL0", at: "PTD" },
+  wire: { units: ["N_UNITS", UNITS] },
+  args: { width: 595.1, sheet: 1.5, frame: 40, perf: 1, hole: 5.5,
+          pitchX: 6, pitchY: 5.196, wantOpen: 70, lock: 1, hinge: 0,
+          supplier: "front door, perforated, swing handle" } });
+
+/* -------------------------------------------------- 08 Overhead management */
+
+set("O", "08 Overhead cable management");
+//! TOP-HUNG, which is how a hall is actually wired: the runway is carried off
+//! the ceiling on threaded drops and the rack hangs its runs from it, so the
+//! tray is not sitting on the rack at all. Two drops and a ladder section, on
+//! the same kit of parts as the frame.
+add("PTO", "Point", { name: "Runway at", parent: "O",
+  args: { x: -200, y: 480, z: 2600 } });
+add("RUNWAY", "CableTray", { name: "Overhead runway \u00b7 450 ladder", parent: "O",
+  refs: { plane: "PL0", at: "PTO" },
+  args: { length: 1400, width: 450, profile: 6, pitch: 300, rung: 25,
+          supplier: "runway, 450 mm ladder" } });
+//! The drops that hold it up: threaded rod on the same M12 the trade uses.
+[[-120, 520], [1080, 520]].forEach(([x, y], i) => {
+  add("PTO" + i, "Point", { name: "Drop " + (i + 1) + " at", parent: "O",
+    args: { x, y, z: 2630 } });
+  add("DROP" + i, "Strut", { name: "Drop " + (i + 1) + " \u00b7 M12 rod", parent: "O",
+    refs: { plane: "PL0", at: "PTO" + i },
+    args: { profile: 8, length: 400, holes: 0,
+            supplier: "M12 threaded rod drop" } });
+});
+
+/* ------------------------------------------------------------ 09 Cabling */
+
+set("W", "09 Cabling");
+//! CABLES THAT ARE ACTUALLY ROUTED, with the connector on the end that goes in
+//! the port. Each run starts at a node's face, goes back and up the manager,
+//! and lands on the leaf switch above the stack - which is what a patch lead
+//! in a rack does, and is why the corner radius matters: OM4 will not turn
+//! tighter than ten times its own diameter and the node says so if it has to.
+const PANEL_FACE = PANEL_X + 40;
+const MGR_X = 555;
+[0, 1, 2, 3].forEach(i => {
+  const fromZ = unitBottomAt(FIRST_U + i * 2) + 40;
+  add("WA" + i, "Point", { name: "Node " + (i + 1) + " port", parent: "W",
+    args: { x: PANEL_FACE, y: 40, z: fromZ } });
+  add("WB" + i, "Point", { name: "Node " + (i + 1) + " out", parent: "W",
+    args: { x: PANEL_FACE, y: -60, z: fromZ } });
+  add("WC" + i, "Point", { name: "Node " + (i + 1) + " across", parent: "W",
+    args: { x: MGR_X, y: -60, z: fromZ } });
+  add("WD" + i, "Point", { name: "Node " + (i + 1) + " up", parent: "W",
+    args: { x: MGR_X, y: -60, z: 1755 } });
+  add("WE" + i, "Point", { name: "Node " + (i + 1) + " to switch", parent: "W",
+    args: { x: PANEL_FACE + 60 + i * 20, y: 40, z: 1755 } });
+  add("RT" + i, "Route", { name: "Node " + (i + 1) + " uplink route", parent: "W",
+    refs: { through: ["WA" + i, "WB" + i, "WC" + i, "WD" + i, "WE" + i] },
+    args: { kind: 0, radius: 45 } });
+  add("CB" + i, "Cable", { name: "Node " + (i + 1) + " uplink \u00b7 OM4", parent: "W",
+    refs: { route: "RT" + i },
+    args: { cable: 2, startEnd: 2, endEnd: 2,
+            supplier: "OM4 LC-LC duplex patch" } });
+});
+//! And the power side, which is the other half of a rack and is the reason the
+//! rear manager is there at all.
+[0, 1].forEach(i => {
+  const fromZ = unitBottomAt(FIRST_U + i * 2) + 20;
+  add("QA" + i, "Point", { name: "PSU " + (i + 1), parent: "W",
+    args: { x: PANEL_FACE + 300, y: 980, z: fromZ } });
+  add("QB" + i, "Point", { name: "PSU " + (i + 1) + " out", parent: "W",
+    args: { x: PANEL_FACE + 300, y: 1080, z: fromZ } });
+  add("QC" + i, "Point", { name: "PSU " + (i + 1) + " up", parent: "W",
+    args: { x: MGR_X, y: 1080, z: 1990 } });
+  add("QRT" + i, "Route", { name: "PSU " + (i + 1) + " power route", parent: "W",
+    refs: { through: ["QA" + i, "QB" + i, "QC" + i] },
+    args: { kind: 0, radius: 60 } });
+  add("QCB" + i, "Cable", { name: "PSU " + (i + 1) + " cord \u00b7 C13", parent: "W",
+    refs: { route: "QRT" + i },
+    args: { cable: 6, startEnd: 7, endEnd: 7, supplier: "C14-C13 1.5 m" } });
+});
+
 /* ------------------------------------------------------------------ 06 Bill */
 
-set("Z", "06 Bill of materials");
+set("Z", "10 Bill of materials");
 add("BOM", "Bill", { name: "Bill of materials · the whole rack", parent: "Z",
   refs: { of: "R" }, args: { show: 0 } });
 add("BOM_FIX", "Bill", { name: "Fasteners to order", parent: "Z",
@@ -354,7 +477,7 @@ add("BOM_FIX", "Bill", { name: "Fasteners to order", parent: "Z",
 //! model asks for before opening it, so this is the whole of what is needed to
 //! make the file openable by dropping it on the page.
 const model = { format: "ocaf-parametric-model", version: 1,
-                name: "Hyperstack rack", units: "mm", needs: ["rack"], features };
+                name: "Hyperstack rack", units: "mm", needs: ["rack", "harness"], features };
 
 /* =================================================== built, then questioned */
 
@@ -368,6 +491,7 @@ const host = new PluginHost({
   typesInUse: types => kernel.typesInUse(types),
 });
 await host.load("rack");
+await host.load("harness");
 const mdl = new Mdl({ kernel, setNode: () => {}, readLayout: () => ({}),
                       select: () => {}, selected: () => null, picked: () => [] });
 const kit = kernel.toolkit();

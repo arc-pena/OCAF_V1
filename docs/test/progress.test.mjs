@@ -26,6 +26,8 @@ import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
 import { PluginHost } from "../src/plugin.js";
 import "../src/rack-plugin.js";
+//! The rack sample routes real cables, so it needs this one on the shelf too.
+import "../src/harness-plugin.js";
 import { readFileSync } from "fs";
 
 const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
@@ -45,6 +47,8 @@ const host = new PluginHost({
   typesInUse: types => kernel.typesInUse(types),
 });
 await host.load("rack");
+//! The sample routes cables as well as building a frame.
+await host.load("harness");
 const mdl = new Mdl({ kernel, setNode: () => {}, readLayout: () => ({}),
                       select: () => {}, selected: () => null, picked: () => [] });
 

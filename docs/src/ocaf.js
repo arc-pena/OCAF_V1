@@ -1060,7 +1060,7 @@ export const SAMPLES = [
     //! does not half-open - it refuses at the first one, by name, which reads
     //! as a broken sample rather than as a package that is not switched on. So
     //! the sample says, and whoever opens it switches it on first.
-    needs: ["rack"],
+    needs: ["rack", "harness"],
     summary: "A data-centre rack modelled to the level of detail you build from. The "
            + "frame, four posts drilled to EIA-310-E - three holes a unit at 5/8, 5/8 "
            + "and 1/2 of an inch, which is the spacing everybody draws evenly and is "
@@ -3144,7 +3144,11 @@ export const CATALOGUE = [
            when(ref("center", "Centre", ["point"]), "mode", 1),
            when(ref("axis", "Axis", ["vector"]), "mode", 1),
            when(real("count", "Count", 6, 1, 120, 1, ""), "mode", 1),
-           when(real("angle", "Sweep", 360, -360, 360, 5, "°"), "mode", 1)] },
+           when(real("angle", "Sweep", 360, -360, 360, 5, "°"), "mode", 1),
+           //! APPENDED, because an argument's place in this list is its tag in
+           //! the document. Optional: with nothing wired in a rectangular
+           //! pattern steps along the world's axes, exactly as it always has.
+           when(spare("plane", "Along", ["plane"]), "mode", 0)] },
   { type: "Fillet", guid: "9a1b2c30-0020-4c00-9e00-caf000000020", category: "operation",
     produces: "solid",
     summary: "Rounds the edges of a body. Every edge unless you pick some: press Pick "

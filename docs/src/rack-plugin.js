@@ -215,7 +215,9 @@ export const RACK_NODES = [
            ARG.real("base", "Base", 80, 20, 300, 5),
            ARG.real("plate", "Base thickness", 10, 2, 50, 1),
            ARG.choice("cut", "Thread", ["Plain stud", "Cut thread"], 0),
-           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           //! APPENDED - an argument's place in this list is its tag.
+           ARG.when(ARG.real("threaded", "Threaded length", 60, 5, 200, 5), "cut", 1)] },
 
   { type: "Bill", guid: "9a1b2c30-00da-4c00-9e00-caf0000000da", category: "analysis",
     produces: "text",
@@ -762,6 +764,7 @@ function rackDrivers(kit) {
         const plate = KF.real(f, "plate", 10);
         const travel = KF.real(f, "travel", 40);
         const cut = K.F.choice(f, "cut", 0) === 1;
+        let short = null;
 
         const axisAt = w => new K.oc.gp_Ax2(
           new K.oc.gp_Pnt(...world(frame, 0, 0, w)),
@@ -776,17 +779,38 @@ function rackDrivers(kit) {
           //! taken out of the stud. It is the expensive option and it is
           //! offered rather than assumed, because a rack with four of these on
           //! it is four helical sweeps every time anything upstream moves.
-          const turns = Math.max(1, Math.floor(studLong / spec.pitch) - 1);
-          const spine = H.helix(axisAt(plate + spec.pitch / 2), spec.d / 2, spec.pitch, turns);
+          //! HOW MANY TURNS THIS WILL ACTUALLY CUT, and it is not "all of them".
+          //! Measured at M20 x 2.5, cutting a swept helical vee out of the
+          //! major cylinder: 3 turns 0.51 s, 6 turns 0.69 s, 12 turns 1.35 s,
+          //! 24 turns 3.25 s - linear and cheap - and then 42 turns takes 40
+          //! seconds and FAILS, "the result came back open". The sweep gets
+          //! long enough that the boolean gives up on it.
+          //!
+          //! So the threaded length is a parameter with a working default
+          //! rather than the whole stud, which is also how a real one is drawn:
+          //! what matters is the length the nut runs on. Asked for more than
+          //! the cut will take, it threads what it can AND SAYS SO on the
+          //! feature - a stud that is quietly threaded for a third of what the
+          //! panel says is worse than one that admits it.
+          const TURNS_THAT_CUT = 24;
+          const from = plate + spec.pitch;
+          const room = Math.max(0, studLong - 2 * spec.pitch);
+          const asked = Math.min(KF.real(f, "threaded", 60), room);
+          const wanted = Math.max(1, Math.floor(asked / spec.pitch));
+          const turns = Math.min(wanted, TURNS_THAT_CUT);
+          if (turns < wanted)
+            short = Math.round(turns * spec.pitch) + " mm of thread cut, of the "
+              + Math.round(asked) + " asked for - past about " + TURNS_THAT_CUT
+              + " turns the helical cut stops being reliable";
+          const spine = H.helix(axisAt(from), spec.d / 2, spec.pitch, turns);
           //! The cutter's section, in the plane through the axis: a vee from
           //! the crest down to the root, which is where d3 rather than D1 is
           //! the number that matters - they differ by a quarter of a
           //! millimetre at M12 and that is a stud that does not fit its nut.
           const r = spec.d / 2, root = iso.boltMinor / 2;
-          const on = world(frame, r, 0, plate + spec.pitch / 2);
-          const inward = world(frame, root, 0, plate + spec.pitch / 2);
-          const up = world(frame, r + 0.2, 0, plate + spec.pitch);
-          const down = world(frame, r + 0.2, 0, plate);
+          const inward = world(frame, root, 0, from);
+          const up = world(frame, r + 0.2, 0, from + spec.pitch / 2);
+          const down = world(frame, r + 0.2, 0, from - spec.pitch / 2);
           const vee = H.polyline([down, up, inward], true);
           stud = S.remove(stud, S.rib(vee, spine));
         }
@@ -807,7 +831,9 @@ function rackDrivers(kit) {
                                cut ? "thread cut as a true helix"
                                    : "plain stud - switch Thread to Cut for the real groove",
                                Math.round(baseDia) + " mm base",
-                               ...(supplier ? [supplier] : [])]) };
+                               ...(short ? [short] : []),
+                               ...(supplier ? [supplier] : [])]),
+                 ...(short ? { note: short } : {}) };
       },
     },
 

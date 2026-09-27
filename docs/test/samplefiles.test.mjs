@@ -16,6 +16,8 @@ import { PluginHost } from "../src/plugin.js";
 //! Imported for its side effect: a package puts itself on the shelf when its
 //! module loads, and a sample that needs one cannot switch it on otherwise.
 import "../src/rack-plugin.js";
+//! The rack sample routes real cables, so it needs this one on the shelf too.
+import "../src/harness-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 
@@ -79,8 +81,16 @@ for (const sample of kept) {
   //! not half-open: it refuses at the first one it does not know, by name,
   //! which reads as a broken sample rather than as a package that is off. The
   //! sample says what it needs; this switches it on, exactly as the page does.
-  for (const id of sample.needs || [])
+  //! FROM THE MENU'S LIST AND FROM THE FILE'S OWN. The menu entry says what a
+  //! sample needs and so does the file, and the two can drift - a sample that
+  //! gains a package in the file and not in the menu opens from disk and
+  //! refuses from the menu, which is the confusing way round. Both are
+  //! honoured here, and they are checked against each other below.
+  for (const id of [...(sample.needs || []), ...(model.needs || [])])
     if (!host.isLoaded(id)) await host.load(id);
+  check("the menu asks for the same packages the file does",
+        (model.needs || []).every(id => (sample.needs || []).includes(id)),
+        JSON.stringify(sample.needs) + " vs " + JSON.stringify(model.needs));
   const built = await kernel.loadModel(model);
   const bad = (await tree()).features.filter(f => f.error);
   const said = bad.map(f => f.name + ": " + f.error).join(" | ");

@@ -4,7 +4,8 @@
  "name": "Hyperstack rack",
  "units": "mm",
  "needs": [
-  "rack"
+  "rack",
+  "harness"
  ],
  "features": [
   {
@@ -1057,9 +1058,820 @@
    }
   },
   {
+   "id": "L",
+   "type": "GeometricalSet",
+   "name": "06 Legs",
+   "parent": "R"
+  },
+  {
+   "id": "PTL0",
+   "type": "Point",
+   "name": "Foot 1 at",
+   "parent": "L",
+   "args": {
+    "x": 60,
+    "y": 60,
+    "z": -110
+   }
+  },
+  {
+   "id": "FOOT0",
+   "type": "LevellingFoot",
+   "name": "Levelling foot 1 · thread cut",
+   "parent": "L",
+   "args": {
+    "thread": 4,
+    "stud": 110,
+    "travel": 55,
+    "base": 90,
+    "plate": 12,
+    "cut": 1,
+    "threaded": 60,
+    "supplier": "M20 levelling foot, 1200 kg",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL0"
+    }
+   }
+  },
+  {
+   "id": "PTL1",
+   "type": "Point",
+   "name": "Foot 2 at",
+   "parent": "L",
+   "args": {
+    "x": 535.1,
+    "y": 60,
+    "z": -110
+   }
+  },
+  {
+   "id": "FOOT1",
+   "type": "LevellingFoot",
+   "name": "Levelling foot 2 · thread cut",
+   "parent": "L",
+   "args": {
+    "thread": 4,
+    "stud": 110,
+    "travel": 55,
+    "base": 90,
+    "plate": 12,
+    "cut": 1,
+    "threaded": 60,
+    "supplier": "M20 levelling foot, 1200 kg",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL1"
+    }
+   }
+  },
+  {
+   "id": "PTL2",
+   "type": "Point",
+   "name": "Foot 3 at",
+   "parent": "L",
+   "args": {
+    "x": 60,
+    "y": 1140,
+    "z": -110
+   }
+  },
+  {
+   "id": "FOOT2",
+   "type": "LevellingFoot",
+   "name": "Levelling foot 3 · plain stud",
+   "parent": "L",
+   "args": {
+    "thread": 4,
+    "stud": 110,
+    "travel": 55,
+    "base": 90,
+    "plate": 12,
+    "cut": 0,
+    "threaded": 60,
+    "supplier": "M20 levelling foot, 1200 kg",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL2"
+    }
+   }
+  },
+  {
+   "id": "PTL3",
+   "type": "Point",
+   "name": "Foot 4 at",
+   "parent": "L",
+   "args": {
+    "x": 535.1,
+    "y": 1140,
+    "z": -110
+   }
+  },
+  {
+   "id": "FOOT3",
+   "type": "LevellingFoot",
+   "name": "Levelling foot 4 · plain stud",
+   "parent": "L",
+   "args": {
+    "thread": 4,
+    "stud": 110,
+    "travel": 55,
+    "base": 90,
+    "plate": 12,
+    "cut": 0,
+    "threaded": 60,
+    "supplier": "M20 levelling foot, 1200 kg",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL3"
+    }
+   }
+  },
+  {
+   "id": "D",
+   "type": "GeometricalSet",
+   "name": "07 Door",
+   "parent": "R"
+  },
+  {
+   "id": "PTD",
+   "type": "Point",
+   "name": "Door at",
+   "parent": "D",
+   "args": {
+    "x": 0,
+    "y": -30,
+    "z": 0
+   }
+  },
+  {
+   "id": "DOOR",
+   "type": "RackDoor",
+   "name": "Front door · perforated",
+   "parent": "D",
+   "args": {
+    "width": 595.1,
+    "sheet": 1.5,
+    "frame": 40,
+    "perf": 1,
+    "hole": 5.5,
+    "pitchX": 6,
+    "pitchY": 5.196,
+    "wantOpen": 70,
+    "lock": 1,
+    "hinge": 0,
+    "supplier": "front door, perforated, swing handle",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTD"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "O",
+   "type": "GeometricalSet",
+   "name": "08 Overhead cable management",
+   "parent": "R"
+  },
+  {
+   "id": "PTO",
+   "type": "Point",
+   "name": "Runway at",
+   "parent": "O",
+   "args": {
+    "x": -200,
+    "y": 480,
+    "z": 2600
+   }
+  },
+  {
+   "id": "RUNWAY",
+   "type": "CableTray",
+   "name": "Overhead runway · 450 ladder",
+   "parent": "O",
+   "args": {
+    "length": 1400,
+    "width": 450,
+    "profile": 6,
+    "pitch": 300,
+    "rung": 25,
+    "supplier": "runway, 450 mm ladder",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTO"
+    }
+   }
+  },
+  {
+   "id": "PTO0",
+   "type": "Point",
+   "name": "Drop 1 at",
+   "parent": "O",
+   "args": {
+    "x": -120,
+    "y": 520,
+    "z": 2630
+   }
+  },
+  {
+   "id": "DROP0",
+   "type": "Strut",
+   "name": "Drop 1 · M12 rod",
+   "parent": "O",
+   "args": {
+    "profile": 8,
+    "length": 400,
+    "holes": 0,
+    "supplier": "M12 threaded rod drop",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTO0"
+    }
+   }
+  },
+  {
+   "id": "PTO1",
+   "type": "Point",
+   "name": "Drop 2 at",
+   "parent": "O",
+   "args": {
+    "x": 1080,
+    "y": 520,
+    "z": 2630
+   }
+  },
+  {
+   "id": "DROP1",
+   "type": "Strut",
+   "name": "Drop 2 · M12 rod",
+   "parent": "O",
+   "args": {
+    "profile": 8,
+    "length": 400,
+    "holes": 0,
+    "supplier": "M12 threaded rod drop",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTO1"
+    }
+   }
+  },
+  {
+   "id": "W",
+   "type": "GeometricalSet",
+   "name": "09 Cabling",
+   "parent": "R"
+  },
+  {
+   "id": "WA0",
+   "type": "Point",
+   "name": "Node 1 port",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": 40,
+    "z": 128.9
+   }
+  },
+  {
+   "id": "WB0",
+   "type": "Point",
+   "name": "Node 1 out",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": -60,
+    "z": 128.9
+   }
+  },
+  {
+   "id": "WC0",
+   "type": "Point",
+   "name": "Node 1 across",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 128.9
+   }
+  },
+  {
+   "id": "WD0",
+   "type": "Point",
+   "name": "Node 1 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 1755
+   }
+  },
+  {
+   "id": "WE0",
+   "type": "Point",
+   "name": "Node 1 to switch",
+   "parent": "W",
+   "args": {
+    "x": 156.25,
+    "y": 40,
+    "z": 1755
+   }
+  },
+  {
+   "id": "RT0",
+   "type": "Route",
+   "name": "Node 1 uplink route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 45,
+    "through": [
+     {
+      "ref": "WA0"
+     },
+     {
+      "ref": "WB0"
+     },
+     {
+      "ref": "WC0"
+     },
+     {
+      "ref": "WD0"
+     },
+     {
+      "ref": "WE0"
+     }
+    ]
+   }
+  },
+  {
+   "id": "CB0",
+   "type": "Cable",
+   "name": "Node 1 uplink · OM4",
+   "parent": "W",
+   "args": {
+    "cable": 2,
+    "startEnd": 2,
+    "endEnd": 2,
+    "supplier": "OM4 LC-LC duplex patch",
+    "route": {
+     "ref": "RT0"
+    }
+   }
+  },
+  {
+   "id": "WA1",
+   "type": "Point",
+   "name": "Node 2 port",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": 40,
+    "z": 217.8
+   }
+  },
+  {
+   "id": "WB1",
+   "type": "Point",
+   "name": "Node 2 out",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": -60,
+    "z": 217.8
+   }
+  },
+  {
+   "id": "WC1",
+   "type": "Point",
+   "name": "Node 2 across",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 217.8
+   }
+  },
+  {
+   "id": "WD1",
+   "type": "Point",
+   "name": "Node 2 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 1755
+   }
+  },
+  {
+   "id": "WE1",
+   "type": "Point",
+   "name": "Node 2 to switch",
+   "parent": "W",
+   "args": {
+    "x": 176.25,
+    "y": 40,
+    "z": 1755
+   }
+  },
+  {
+   "id": "RT1",
+   "type": "Route",
+   "name": "Node 2 uplink route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 45,
+    "through": [
+     {
+      "ref": "WA1"
+     },
+     {
+      "ref": "WB1"
+     },
+     {
+      "ref": "WC1"
+     },
+     {
+      "ref": "WD1"
+     },
+     {
+      "ref": "WE1"
+     }
+    ]
+   }
+  },
+  {
+   "id": "CB1",
+   "type": "Cable",
+   "name": "Node 2 uplink · OM4",
+   "parent": "W",
+   "args": {
+    "cable": 2,
+    "startEnd": 2,
+    "endEnd": 2,
+    "supplier": "OM4 LC-LC duplex patch",
+    "route": {
+     "ref": "RT1"
+    }
+   }
+  },
+  {
+   "id": "WA2",
+   "type": "Point",
+   "name": "Node 3 port",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": 40,
+    "z": 306.70000000000005
+   }
+  },
+  {
+   "id": "WB2",
+   "type": "Point",
+   "name": "Node 3 out",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": -60,
+    "z": 306.70000000000005
+   }
+  },
+  {
+   "id": "WC2",
+   "type": "Point",
+   "name": "Node 3 across",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 306.70000000000005
+   }
+  },
+  {
+   "id": "WD2",
+   "type": "Point",
+   "name": "Node 3 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 1755
+   }
+  },
+  {
+   "id": "WE2",
+   "type": "Point",
+   "name": "Node 3 to switch",
+   "parent": "W",
+   "args": {
+    "x": 196.25,
+    "y": 40,
+    "z": 1755
+   }
+  },
+  {
+   "id": "RT2",
+   "type": "Route",
+   "name": "Node 3 uplink route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 45,
+    "through": [
+     {
+      "ref": "WA2"
+     },
+     {
+      "ref": "WB2"
+     },
+     {
+      "ref": "WC2"
+     },
+     {
+      "ref": "WD2"
+     },
+     {
+      "ref": "WE2"
+     }
+    ]
+   }
+  },
+  {
+   "id": "CB2",
+   "type": "Cable",
+   "name": "Node 3 uplink · OM4",
+   "parent": "W",
+   "args": {
+    "cable": 2,
+    "startEnd": 2,
+    "endEnd": 2,
+    "supplier": "OM4 LC-LC duplex patch",
+    "route": {
+     "ref": "RT2"
+    }
+   }
+  },
+  {
+   "id": "WA3",
+   "type": "Point",
+   "name": "Node 4 port",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": 40,
+    "z": 395.6
+   }
+  },
+  {
+   "id": "WB3",
+   "type": "Point",
+   "name": "Node 4 out",
+   "parent": "W",
+   "args": {
+    "x": 96.25,
+    "y": -60,
+    "z": 395.6
+   }
+  },
+  {
+   "id": "WC3",
+   "type": "Point",
+   "name": "Node 4 across",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 395.6
+   }
+  },
+  {
+   "id": "WD3",
+   "type": "Point",
+   "name": "Node 4 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": -60,
+    "z": 1755
+   }
+  },
+  {
+   "id": "WE3",
+   "type": "Point",
+   "name": "Node 4 to switch",
+   "parent": "W",
+   "args": {
+    "x": 216.25,
+    "y": 40,
+    "z": 1755
+   }
+  },
+  {
+   "id": "RT3",
+   "type": "Route",
+   "name": "Node 4 uplink route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 45,
+    "through": [
+     {
+      "ref": "WA3"
+     },
+     {
+      "ref": "WB3"
+     },
+     {
+      "ref": "WC3"
+     },
+     {
+      "ref": "WD3"
+     },
+     {
+      "ref": "WE3"
+     }
+    ]
+   }
+  },
+  {
+   "id": "CB3",
+   "type": "Cable",
+   "name": "Node 4 uplink · OM4",
+   "parent": "W",
+   "args": {
+    "cable": 2,
+    "startEnd": 2,
+    "endEnd": 2,
+    "supplier": "OM4 LC-LC duplex patch",
+    "route": {
+     "ref": "RT3"
+    }
+   }
+  },
+  {
+   "id": "QA0",
+   "type": "Point",
+   "name": "PSU 1",
+   "parent": "W",
+   "args": {
+    "x": 396.25,
+    "y": 980,
+    "z": 108.9
+   }
+  },
+  {
+   "id": "QB0",
+   "type": "Point",
+   "name": "PSU 1 out",
+   "parent": "W",
+   "args": {
+    "x": 396.25,
+    "y": 1080,
+    "z": 108.9
+   }
+  },
+  {
+   "id": "QC0",
+   "type": "Point",
+   "name": "PSU 1 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": 1080,
+    "z": 1990
+   }
+  },
+  {
+   "id": "QRT0",
+   "type": "Route",
+   "name": "PSU 1 power route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 60,
+    "through": [
+     {
+      "ref": "QA0"
+     },
+     {
+      "ref": "QB0"
+     },
+     {
+      "ref": "QC0"
+     }
+    ]
+   }
+  },
+  {
+   "id": "QCB0",
+   "type": "Cable",
+   "name": "PSU 1 cord · C13",
+   "parent": "W",
+   "args": {
+    "cable": 6,
+    "startEnd": 7,
+    "endEnd": 7,
+    "supplier": "C14-C13 1.5 m",
+    "route": {
+     "ref": "QRT0"
+    }
+   }
+  },
+  {
+   "id": "QA1",
+   "type": "Point",
+   "name": "PSU 2",
+   "parent": "W",
+   "args": {
+    "x": 396.25,
+    "y": 980,
+    "z": 197.8
+   }
+  },
+  {
+   "id": "QB1",
+   "type": "Point",
+   "name": "PSU 2 out",
+   "parent": "W",
+   "args": {
+    "x": 396.25,
+    "y": 1080,
+    "z": 197.8
+   }
+  },
+  {
+   "id": "QC1",
+   "type": "Point",
+   "name": "PSU 2 up",
+   "parent": "W",
+   "args": {
+    "x": 555,
+    "y": 1080,
+    "z": 1990
+   }
+  },
+  {
+   "id": "QRT1",
+   "type": "Route",
+   "name": "PSU 2 power route",
+   "parent": "W",
+   "args": {
+    "kind": 0,
+    "radius": 60,
+    "through": [
+     {
+      "ref": "QA1"
+     },
+     {
+      "ref": "QB1"
+     },
+     {
+      "ref": "QC1"
+     }
+    ]
+   }
+  },
+  {
+   "id": "QCB1",
+   "type": "Cable",
+   "name": "PSU 2 cord · C13",
+   "parent": "W",
+   "args": {
+    "cable": 6,
+    "startEnd": 7,
+    "endEnd": 7,
+    "supplier": "C14-C13 1.5 m",
+    "route": {
+     "ref": "QRT1"
+    }
+   }
+  },
+  {
    "id": "Z",
    "type": "GeometricalSet",
-   "name": "06 Bill of materials",
+   "name": "10 Bill of materials",
    "parent": "R"
   },
   {

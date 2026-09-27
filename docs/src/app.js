@@ -426,7 +426,7 @@ function boxOfShape(id) {
 
 const showsInModel = (id, group) => {
   const entry = feature(id);
-  if (entry) return entry.visible !== false && !state.hidden.has(id);
+  if (entry) return entry.visible !== false && !hiddenHere(id);
   return group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
 };
 
@@ -2449,7 +2449,7 @@ function weighModel() {
     rebuildBoxes();
     for (const [id, { group }] of shapes) {
       const entry = feature(id);
-      group.visible = !!entry && entry.visible && !state.hidden.has(id);
+      group.visible = !!entry && entry.visible && !hiddenHere(id);
     }
   }
   say(wants
@@ -2682,6 +2682,36 @@ function kidsOf(id) {
 //! How many, without building the list - which is all the tree row wants.
 const kidCount = id => kidsOf(id).length;
 
+//! WHETHER A ROW IS SWITCHED OFF, ITSELF OR BY SOMETHING ABOVE IT.
+//!
+//! Visibility is two facts and they have to stay two facts. A feature has its
+//! OWN state - somebody clicked its eye - and it has an inherited one, because
+//! a set that is off takes what is in it off with it. Effective visibility is
+//! the AND of the two, worked out when something is drawn rather than written
+//! down, and that is the whole of the fix.
+//!
+//! It used to be written down. Hiding a set put every descendant on the hidden
+//! list and showing it again took every descendant OFF - so a set with three
+//! bodies on and one off came back with all four on. The child's own state was
+//! not being overridden, it was being destroyed, and there was nothing left to
+//! restore it from. Nobody notices until they switch a set off and on, by
+//! which time the thing they had carefully hidden is back.
+const hiddenHere = id => {
+  if (state.hidden.has(id)) return true;
+  for (let up = feature(id), guard = 0; up && guard < 200; guard++) {
+    const parent = up.parent;
+    if (!parent) return false;
+    if (state.hidden.has(parent)) return true;
+    up = feature(parent);
+  }
+  return false;
+};
+
+//! And whether it is off BY ITSELF, which is what the eye on its own row shows:
+//! a body inside a set that is off is dimmed rather than crossed out, because
+//! clicking its own eye is not what will bring it back.
+const hiddenItself = id => state.hidden.has(id);
+
 function withContents(ids) {
   const out = new Set();
   const take = id => {
@@ -2699,7 +2729,10 @@ function showFeature(id, on) {
   //! document edit below must NOT, and conflating the two quietly rewrote the
   //! model every time somebody clicked the eye on a set.
   const named = Array.isArray(id) ? id : [id];
-  const ids = withContents(named);
+  //! ONLY WHAT WAS CLICKED. What is inside it follows through hiddenHere,
+  //! which asks the question at drawing time instead of answering it here and
+  //! throwing away every child's own answer in the process.
+  const ids = named;
   for (const one of ids) { if (on) state.hidden.delete(one); else state.hidden.add(one); }
   //! TWO REASONS A THING IS NOT DRAWN, and one switch over both.
   //!
@@ -2748,7 +2781,7 @@ function showFeature(id, on) {
 function applyVisibility() {
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
-    const shown = !!entry && entry.visible && !state.hidden.has(id);
+    const shown = !!entry && entry.visible && !hiddenHere(id);
     //! WHAT THE DOCUMENT SAYS, kept apart from what the CAMERA says. The two
     //! both end up at group.visible and they are different facts: one is "you
     //! put this away", the other is "it is a pixel wide from here". Written
@@ -8465,7 +8498,7 @@ function allHidden(id) {
     for (const child of kidsOf(set)) {
       if (child.category === "container") { if (walk(child.id)) return true; continue; }
       any = true;
-      if (!(state.hidden.has(child.id) || child.visible === false)) return true;
+      if (!(hiddenHere(child.id) || child.visible === false)) return true;
     }
     return false;
   };
@@ -8498,7 +8531,7 @@ function treeNode(entry, keep = null, hit = null) {
     //! `visible === false` is the document saying so - a body something
     //! swallowed - and it reads the same way to the eye as this view's own
     //! hidden list, because to the person looking at it, it is the same fact.
-    : state.hidden.has(entry.id) || entry.visible === false;
+    : hiddenHere(entry.id) || entry.visible === false;
   treeOrder.push(entry.id);
 
   const li = document.createElement("li");
@@ -9175,7 +9208,7 @@ function openMenu(event, entry) {
   // Hiding is a per-row eye in the tree and there is only one hand: hiding
   // eleven things one eye at a time is the same complaint as deleting them one
   // at a time, so it is here too.
-  const dark = many.filter(id => state.hidden.has(id));
+  const dark = many.filter(id => hiddenHere(id));
   item(dark.length === many.length ? "Show " + about("it") : "Hide " + about("it"),
     "in the 3D view, and in the file", () => showFeature(many, dark.length === many.length));
 
@@ -9357,7 +9390,7 @@ function openSetMenu(event, entry, many, containers) {
 function placeField(entry) {
   const field = document.createElement("div");
   field.className = "field def-place";
-  const hidden = state.hidden.has(entry.id);
+  const hidden = hiddenItself(entry.id);
   const sets = ((state.tree && state.tree.features) || []).filter(f =>
     f.category === "container" && f.id !== entry.id && !within(entry.id, f.id));
   const part = (state.tree && state.tree.name) || "Part";
@@ -9386,7 +9419,7 @@ function placeField(entry) {
         + (story.id === entry.id ? "Close the story" : "Open the story") + "</button>" : "");
 
   field.querySelector("#place-eye").addEventListener("click", () =>
-    showFeature(entry.id, state.hidden.has(entry.id)));
+    showFeature(entry.id, hiddenItself(entry.id)));
   field.querySelector("#place-set").addEventListener("change", event =>
     edit({ op: "group", id: entry.id, into: event.target.value || undefined }));
   const enter = field.querySelector("#place-edit");
@@ -14896,7 +14929,7 @@ function placeAt(event) {
   // curve belongs ON it, not on whatever is behind it.
   let best = null;
   for (const entry of state.tree.features) {
-    if (entry.produces !== "curve" || state.hidden.has(entry.id)) continue;
+    if (entry.produces !== "curve" || hiddenHere(entry.id)) continue;
     const drawn = drawnOf(entry.id);
     const near = drawn && nearestOnEdges(drawn.edges, from, way);
     if (near && (!best || near.gap < best.gap)) best = { ...near, id: entry.id };
