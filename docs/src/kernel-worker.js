@@ -36,6 +36,7 @@ import { DRAWINGS } from "./drawings-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { RACK } from "./rack-plugin.js";
+import { HARNESS } from "./harness-plugin.js";
 
 let kernel = null;
 

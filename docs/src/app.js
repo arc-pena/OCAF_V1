@@ -52,6 +52,7 @@ import { CROWD } from "./crowd-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
 import { RACK } from "./rack-plugin.js";
+import { HARNESS } from "./harness-plugin.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,

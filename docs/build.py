@@ -87,6 +87,7 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
            "rack.js", "rack-plugin.js",
+           "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",

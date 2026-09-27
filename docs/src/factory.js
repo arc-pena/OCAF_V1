@@ -1389,6 +1389,47 @@ export function makeFactories(oc, kit) {
       summary: "Straight segments through a list of points, open or closed.",
       run: (points, closed) => polylineOf(points, closed) },
 
+    { name: "arc", takes: "from, through, to", gives: "shape",
+      summary: "A circular arc through three points, as one edge in a wire. Three "
+             + "points is the form to have because it is the form a rounded corner "
+             + "arrives in: the two tangent points and one point on the turn between "
+             + "them. It stays a genuine circle - GC_MakeArcOfCircle, not a fitted "
+             + "spline - so anything swept along it comes out round rather than "
+             + "faceted, and anything measuring it gets the radius back.",
+      run: (from, through, to) => {
+        const made = new oc.GC_MakeArcOfCircle(pnt(from), pnt(through), pnt(to));
+        if (!made.IsDone()) throw new Error("those three points do not make an arc");
+        return new oc.BRepBuilderAPI_MakeWire(
+          new oc.BRepBuilderAPI_MakeEdge(made.Value()).Edge()).Wire();
+      } },
+
+    { name: "chain", takes: "runs", gives: "shape",
+      summary: "Several runs welded end to end into ONE wire, in the order given. A "
+             + "path made of straights and arcs is several wires until something "
+             + "says it is one, and nothing downstream can sweep along several: a "
+             + "sweep picks one of them and the rest are silently not there. So this "
+             + "is what turns a route into a spine. It refuses a set of runs that do "
+             + "not actually meet rather than handing back whichever it could join.",
+      run: runs => {
+        const maker = new oc.BRepBuilderAPI_MakeWire();
+        let added = 0;
+        for (const run of runs || []) {
+          if (!run || run.IsNull()) continue;
+          const explorer = new oc.TopExp_Explorer(run, oc.TopAbs_ShapeEnum.TopAbs_EDGE,
+                                                  oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+          while (explorer.More()) {
+            maker.Add(oc.TopoDS.Edge(explorer.Current()));
+            added++;
+            explorer.Next();
+          }
+          explorer.delete();
+        }
+        if (!added) throw new Error("there is nothing to chain together");
+        if (!maker.IsDone())
+          throw new Error("those runs do not meet end to end, so they are not one wire");
+        return maker.Wire();
+      } },
+
     { name: "fitCurve", takes: "points, closed, tolerance", gives: "shape",
       summary: "One smooth B-spline curve through a run of points, passing through "
              + "the first and last exactly and within the tolerance of the rest. "
