@@ -2708,7 +2708,7 @@ export const CATALOGUE = [
     //! pattern and the original is no longer a part in its own right; a part
     //! instanced five times is still one part, and eating it would leave the
     //! second instance with nothing to read.
-    args: [ref("part", "Part", ["Part", "Product", "solid"]),
+    args: [ref("part", "Part", ["Part", "Product", "GeometricalSet", "Body", "solid"]),
            spare("at", "At", ["point"]),
            spare("plane", "Onto", ["plane"]),
            real("turn", "Turn", 0, -360, 360, 5, "\u00b0"),
@@ -4644,20 +4644,33 @@ export class Doc {
         if (from && from !== f) { incoming.get(f).add(from); outgoing.get(from).add(f); }
       }
 
-    //! AND A CONTAINER THAT BUILDS COMES AFTER WHAT IS IN IT. Being filed in a
-    //! set is not a wire - a folder drives no geometry, which is why the parent
-    //! has never ordered a rebuild and should not start now for folders. A Part
-    //! is not a folder: it produces the compound of its contents, so it depends
-    //! on every one of them, and without this edge it is built FIRST and hands
-    //! back an empty compound. That failure is a quiet one - the part builds,
-    //! reports no error, and is simply empty - so it is worth the edge being
-    //! explicit rather than relying on the order features happen to be in.
-    for (const f of features) {
-      if (!BUILDS_ITS_CONTENTS.includes(F.spec(f).type)) continue;
-      for (const inside of this.within(f)) {
+    //! AND ANYTHING THAT READS A CONTAINER COMES AFTER WHAT IS IN IT. Being
+    //! filed in a set is not a wire - a folder drives no geometry, which is why
+    //! the parent has never ordered a rebuild and should not start now for
+    //! folders. But a feature that READS a folder is reading everything in it,
+    //! and there are now two kinds that do: a Part, which produces the compound
+    //! of its own contents, and anything wired to a container - an Instance
+    //! placing a set, a Bill counting one.
+    //!
+    //! Without the edge they are built FIRST and read an empty folder. That
+    //! failure is a quiet one: the feature builds, reports no error, and is
+    //! simply empty, which looks exactly like a set somebody forgot to fill.
+    const dependOnContents = (f, holder) => {
+      for (const inside of this.within(holder)) {
         if (inside === f) continue;
         incoming.get(f).add(inside);
         outgoing.get(inside).add(f);
+      }
+    };
+    for (const f of features) {
+      const spec = F.spec(f);
+      if (BUILDS_ITS_CONTENTS.includes(spec.type)) dependOnContents(f, f);
+      for (const arg of spec.args || []) {
+        if (arg.kind !== "ref" && arg.kind !== "refs") continue;
+        const wired = arg.kind === "refs" ? F.references(f, arg.key)
+                                          : [F.reference(f, arg.key)];
+        for (const target of wired)
+          if (target && this.isContainer(target)) dependOnContents(f, target);
       }
     }
 
@@ -5014,6 +5027,30 @@ export class Doc {
   static fromModel(drivers, model) {
     if (!model || !Array.isArray(model.features)) throw new Error('no "features" array');
     const doc = new Doc(drivers, model.name || "Part1", model.units || "mm");
+    doc.graft(model.features);
+    return doc;
+  }
+
+  //! A RUN OF FEATURES, READ IN AS THEY STAND. This is the whole of what
+  //! opening a file does, and it is a method rather than part of the static
+  //! because opening a file is not the only thing that wants it: PASTING A
+  //! SUBTREE is the same job into a document that already exists.
+  //!
+  //! WHY THAT MATTERS ENOUGH TO SPLIT IT OUT. Duplicating a set used to go out
+  //! as a stream of ordinary edits - an `add` per feature, a `group` per
+  //! feature, a `set` per ARGUMENT, a `connect` per wire. For a 75-feature rack
+  //! that is about a thousand edits, and every one of them is a round trip that
+  //! settles the whole document on the way back: copying a rack rebuilt it a
+  //! thousand times. Read in as a run, the copy is built exactly once, which is
+  //! what somebody who pressed Duplicate was expecting in the first place.
+  //!
+  //! \p under files everything that has no parent of its own inside the run
+  //! under that container, which is what pasting somewhere means.
+  graft(features, under = null) {
+    if (!Array.isArray(features)) throw new Error('no "features" array');
+    const doc = this;
+    const model = { features };
+    const mine = new Set(features.map(entry => entry.id));
     for (const entry of model.features) {
       const f = doc.addFeature(entry.type, entry.id, entry.name);
       if (entry.appearance && typeof entry.appearance === "object")
@@ -5103,13 +5140,18 @@ export class Doc {
     // Filed away last, once every feature exists: a set may be written after
     // the things it holds, or before them, and neither should matter.
     for (const entry of model.features) {
-      if (!entry.parent) continue;
-      const holder = doc.find(String(entry.parent));
-      if (!holder) throw new Error(entry.id + " is filed under an unknown set '"
+      //! A FEATURE WHOSE PARENT IS NOT IN THE RUN goes where the paste says,
+      //! which for opening a file is nowhere and for pasting is the container
+      //! somebody dropped it on. Its own parent still wins when that parent
+      //! came along with it.
+      const named = entry.parent ? String(entry.parent) : null;
+      const holder = named && (mine.has(named) || doc.find(named))
+        ? doc.find(named) : (named ? null : under);
+      if (named && !holder) throw new Error(entry.id + " is filed under an unknown set '"
         + entry.parent + "'");
-      doc.setParent(doc.find(entry.id), holder);
+      if (holder) doc.setParent(doc.find(entry.id), holder);
     }
-    return doc;
+    return features.map(entry => entry.id);
   }
 }
 

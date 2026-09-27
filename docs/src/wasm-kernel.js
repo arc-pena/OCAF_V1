@@ -6187,7 +6187,15 @@ function sprawl(face, edges) {
     precondition: f => {
       const part = F.reference(f, "part");
       if (!part) return "nothing wired in to place";
-      if (!F.shape(part)) return F.name(part) + " has not been built";
+      //! A PLAIN FOLDER IS INSTANCEABLE TOO, and this is the case somebody
+      //! actually hits: every sample and every model anybody has already built
+      //! groups its work in a GeometricalSet, not in a Part - so "place another
+      //! one of these" refused on the very thing people have. A folder has no
+      //! shape of its own, so the compound is taken from what is in it.
+      if (!F.shape(part) && !doc.isContainer(part))
+        return F.name(part) + " has not been built";
+      if (!F.shape(part) && !doc.within(part).some(one => F.shape(one)))
+        return F.name(part) + " has nothing built in it to place";
       //! A PART CANNOT CONTAIN AN INSTANCE OF ITSELF. The document refuses a
       //! wire that would make a cycle, but this is a cycle through the TREE
       //! rather than through the wires: an instance filed inside the very part
@@ -6199,7 +6207,23 @@ function sprawl(face, edges) {
     },
     build: f => {
       const part = F.reference(f, "part");
-      const shape = F.shape(part);
+      //! THE PART'S OWN SHAPE if it has one - a Part, a Product, or any single
+      //! body. A plain folder has none, so what is in it is compounded here,
+      //! which is the same thing a Part does and is why instancing a set and
+      //! instancing a part behave identically from the outside.
+      let shape = F.shape(part);
+      if (!shape && doc.isContainer(part)) {
+        const builder = new oc.TopoDS_Builder();
+        const gathered = new oc.TopoDS_Compound();
+        builder.MakeCompound(gathered);
+        for (const one of doc.within(part)) {
+          if (doc.consumedBy(one)) continue;
+          if (ASSEMBLIES.includes(F.spec(one).type)) { /* it brought its own */ }
+          const inside = F.shape(one);
+          if (inside && !inside.IsNull()) builder.Add(gathered, inside);
+        }
+        shape = gathered;
+      }
       const at = readPoint(F.reference(f, "at")) || [0, 0, 0];
       const turn = F.real(f, "turn", 0);
       const grow = F.real(f, "scale", 1);
@@ -7294,6 +7318,23 @@ function sprawl(face, edges) {
     //! which is why this is a property and not an argument: the ones that can
     //! do, and the ones that cannot are not asked to.
     onBuild: null,
+
+    //! A RUN OF FEATURES INTO THE DOCUMENT THAT IS ALREADY OPEN, read in the
+    //! same way a file is and settled once at the end. Copying a set used to go
+    //! through the ordinary edit vocabulary - an add, a group, a set per
+    //! argument, a connect per wire - and every one of those settles the whole
+    //! document on its way back, so duplicating a 75-feature rack rebuilt it
+    //! about a thousand times over.
+    async graftFeatures(features, into = null) {
+      if (!Array.isArray(features)) throw new Error('"features" must be a list');
+      const holder = into ? doc.find(String(into)) : null;
+      if (into && !holder) throw new Error("there is no set '" + into + "' to paste into");
+      const made = doc.graft(features, holder);
+      const tell = this.onBuild
+        ? step => this.onBuild({ stage: "building", ...step }) : null;
+      const settled = state(await settleAsync(false, tell));
+      return { ...settled, made };
+    },
 
     async loadModel(model) {
       const parsed = typeof model === "string" ? JSON.parse(model) : model;

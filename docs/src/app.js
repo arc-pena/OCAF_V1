@@ -44,7 +44,7 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
          lensFromFov, reachAlong, saysWhat, shortestTurn, sizeFrom, stepped, transformNow,
          transformTarget } from "./gizmo.js";
 import { readValue, saysFormula } from "./formula.js";
-import { duplicateEdits, instantiateEdits, reachesOut, saysReuse, setInputGroups,
+import { duplicateEdits, duplicateModel, instantiateEdits, reachesOut, saysReuse, setInputGroups,
          setsIn } from "./reuse.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { IFC } from "./ifc-plugin.js";
@@ -9288,13 +9288,16 @@ async function duplicate(ids) {
   const here = state.tree.features;
   let plan;
   try {
-    plan = duplicateEdits(model, Array.isArray(ids) ? ids : [ids], {
+    //! AS A SUBTREE, not as a thousand edits. The same pass decides what a copy
+    //! is; this asks for it in the shape the document can read in one go, so
+    //! the copy is BUILT once instead of once per argument that was set on it.
+    plan = duplicateModel(model, Array.isArray(ids) ? ids : [ids], {
       taken: new Set(here.map(f => f.id)),
       takenNames: new Set(here.map(f => f.name)),
       spec: schemaType,
     });
   } catch (error) { showError(error.message); return; }
-  try { await mdl.runAll(plan.edits); }
+  try { await edit({ op: "graft", features: plan.features }); }
   catch (error) { showError(error.message); return; }
   //! The copies are what is selected afterwards, because the next thing
   //! anybody does to a copy is move it.

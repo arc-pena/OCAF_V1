@@ -221,5 +221,107 @@ console.log("\n8. and it refuses what would be nonsense");
         /cannot also place it/.test(said), said || "it built");
 }
 
+/* ================================ and a plain folder is instanceable too
+
+   THE CASE SOMEBODY ACTUALLY HITS. Every model anybody has already built
+   groups its work in a GeometricalSet, not in a Part - the samples included -
+   so an Instance that only took a Part refused on the very thing people have
+   in front of them. A folder has no shape of its own, so the instance
+   compounds what is in it, and from the outside the two behave identically.  */
+
+console.log("\n9. a geometrical set can be placed as readily as a part");
+{
+  const SHELF2 = await add("GeometricalSet");
+  await mdl.run({ op: "rename", id: SHELF2, name: "Bracket" });
+  const A = await add("Cube", { into: SHELF2, refs: { origin: ORIGIN, plane: FLOOR } });
+  await set(A, "dx", 20); await set(A, "dy", 20); await set(A, "dz", 5);
+  const B = await add("Cube", { into: SHELF2, refs: { origin: ORIGIN, plane: FLOOR } });
+  await set(B, "dx", 5); await set(B, "dy", 20); await set(B, "dz", 20);
+
+  const WHERE = await add("Point"); await set(WHERE, "x", 600);
+  const PLACED = await add("Instance", { refs: { part: SHELF2, at: WHERE } });
+  check("an instance of a plain set builds",
+        !(await at(PLACED)).error, (await at(PLACED)).error);
+  check("and carries everything in the set", solidsIn(PLACED) === 2,
+        solidsIn(PLACED) + " solids");
+  check("at the point it was given", near(boxOf(PLACED).low[0], 600),
+        String(boxOf(PLACED).low[0]));
+  //! THE ORIGINALS STAY. A Part is the body and its contents are its
+  //! definition, so they are not drawn twice; a plain folder is NOT a body,
+  //! so what is in it goes on being drawn exactly where it is, and the
+  //! instance is a second one somewhere else. Both are right, and they are
+  //! right in different ways - which is worth a test each.
+  const ids = drawn().map(one => one.id);
+  check("while the set's own contents stay where they are",
+        ids.includes(A) && ids.includes(B), ids.join(","));
+
+  //! AND EDITING THE SET MOVES THE INSTANCE, which is the whole claim. It
+  //! needs the ordering edge: an instance that read its folder before the
+  //! folder's contents were built would place an empty compound and say
+  //! nothing about it.
+  await set(A, "dz", 40);
+  check("editing something in the set changes the instance of it",
+        near(boxOf(PLACED).size[2], 40), String(boxOf(PLACED).size[2]));
+}
+
+/* =============================== and a copy is a paste, not a thousand edits
+
+   Duplicating a set went out as ordinary edits - an add per feature, a set per
+   ARGUMENT, a connect per wire - and each of those is a round trip that
+   settles the whole document on the way back. For the 75-feature rack sample
+   that is 627 edits and 71.75 seconds to make one copy. Read in as a subtree
+   it is one build: 5.53 seconds, which is just the cost of the geometry.    */
+
+console.log("\n10. a subtree is pasted in one build");
+{
+  const model = await kernel.model();
+  const here = (await kernel.tree()).tree.features;
+  const { duplicateEdits, duplicateModel } = await import("../src/reuse.js");
+  const { typeSpec } = await import("../src/ocaf.js");
+  const opts = { taken: new Set(here.map(f => f.id)),
+                 takenNames: new Set(here.map(f => f.name)), spec: typeSpec };
+  const asEdits = duplicateEdits(model, [PROD], opts);
+  const asTree = duplicateModel(model, [PROD], opts);
+  check("the two ways agree about what is copied",
+        asTree.features.length === Object.keys(asEdits.renamed).length,
+        asTree.features.length + " vs " + Object.keys(asEdits.renamed).length);
+  check("and the subtree is far fewer operations than the edits",
+        asTree.features.length * 3 < asEdits.edits.length,
+        asTree.features.length + " features vs " + asEdits.edits.length + " edits");
+
+  const was = (await kernel.tree()).tree.features.length;
+  await mdl.run({ op: "graft", features: asTree.features });
+  const now = (await kernel.tree()).tree.features;
+  check("the paste landed", now.length === was + asTree.features.length,
+        was + " -> " + now.length);
+  //! ONLY THE PASTED ONES. Section 8 deliberately left a refused instance in
+  //! the document, and a check that looked at the whole tree would find it.
+  const pasted = new Set(asTree.made);
+  const broken = now.filter(f => pasted.has(f.id) && f.error);
+  check("and nothing in it is in error",
+        broken.length === 0, broken.map(f => f.name + ": " + f.error).join(" | "));
+
+  //! THE COPY IS ITS OWN. Its wires point inside the copy, not back at the
+  //! original - which is the one thing a paste can get wrong in a way that
+  //! looks perfect until the original is edited.
+  const copiedProduct = now.find(f => f.id === asTree.renamed[PROD]);
+  check("the copy is a product of its own", !!copiedProduct && !copiedProduct.error,
+        copiedProduct ? copiedProduct.name : "missing");
+  //! AND A WIRE OUT OF THE COPIED RUN IS LEFT POINTING WHERE IT POINTED. The
+  //! product that was copied holds INSTANCES of a part that was not itself
+  //! copied, so the copy instances the same part - which is not a bug to fix
+  //! but the whole of what instancing is for: two products, one bolt, and
+  //! changing the bolt changes both. A paste that had rewired them to a
+  //! private copy of the bolt would have quietly turned an assembly of
+  //! components into two piles of look-alikes.
+  const before = boxOf(asTree.renamed[PROD]);
+  await set(SHANK, "dz", 33);
+  const after = boxOf(asTree.renamed[PROD]);
+  check("the copy still instances the SAME part, so editing it moves both",
+        !near(before.size[2], after.size[2]) && near(after.size[2], 33),
+        before.size[2] + " -> " + after.size[2]);
+  await set(SHANK, "dz", 20);
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

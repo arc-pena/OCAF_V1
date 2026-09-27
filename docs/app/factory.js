@@ -1430,6 +1430,38 @@ export function makeFactories(oc, kit) {
         return maker.Wire();
       } },
 
+    { name: "helix", takes: "axis, radius, pitch, turns", gives: "shape",
+      summary: "A helix about an axis, as one wire - the spine a real thread is swept "
+             + "along. Built the way OpenCascade builds one: a straight line in the "
+             + "PARAMETER SPACE of a cylinder, which is what a helix is, so it stays "
+             + "an exact curve rather than a polyline pretending. A left-hand thread "
+             + "is a negative pitch.",
+      run: (axis, radius, pitch, turns) => {
+        const r = positive(radius, "helix radius");
+        const n = positive(turns, "helix turns");
+        if (!Number.isFinite(pitch) || Math.abs(pitch) < 1e-9)
+          throw new Error("a helix needs a pitch to climb by");
+        const cylinder = new oc.Geom_CylindricalSurface(new oc.gp_Ax3(axis), r);
+        //! THE SLOPE IS THE WHOLE TRICK. One turn is 2*pi across the cylinder's
+        //! u and must climb exactly `pitch` in v, so the line's direction is
+        //! (1, pitch / 2*pi) and the curve is trimmed to turns * 2*pi of u.
+        const slope = new oc.Geom2d_Line(new oc.gp_Pnt2d(0, 0),
+                                         new oc.gp_Dir2d(1, pitch / (2 * Math.PI)));
+        //! TRIMMED BY ARC LENGTH, NOT BY u. gp_Dir2d NORMALISES what it is
+        //! given, so the line is parameterised by distance in (u, v) and not by
+        //! u - trimming at n*2*pi therefore stops short by exactly cos of the
+        //! thread's slope angle. At M12 x 1.75 that is a helix climbing 13.49
+        //! where 14 was asked for: a 3.7% pitch error on a thread that looks
+        //! perfect from every angle and measures wrong on every one.
+        const along = Math.hypot(1, pitch / (2 * Math.PI));
+        const run = new oc.Geom2d_TrimmedCurve(slope, 0, n * 2 * Math.PI * along, true, true);
+        const edge = new oc.BRepBuilderAPI_MakeEdge(run, cylinder).Edge();
+        //! AN EDGE ON A SURFACE HAS NO 3D CURVE until somebody builds one, and
+        //! without it every sweep along this quietly does nothing.
+        oc.BRepLib.BuildCurves3d(edge);
+        return new oc.BRepBuilderAPI_MakeWire(edge).Wire();
+      } },
+
     { name: "fitCurve", takes: "points, closed, tolerance", gives: "shape",
       summary: "One smooth B-spline curve through a run of points, passing through "
              + "the first and last exactly and within the tolerance of the rest. "

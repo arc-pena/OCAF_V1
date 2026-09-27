@@ -289,6 +289,21 @@ export const MDL_OPS = [
       return await ctx.kernel.loadModel(model);
     }),
 
+  modelOp("graft", ["features", "into?"],
+    "Paste a run of features into the document as they stand - the same reading a model "
+    + "file gets, into a document that already exists. This is how a subtree is copied: "
+    + "the features arrive with their ids already made fresh and their wires already "
+    + "pointing at each other, and the whole run is built ONCE. Doing the same thing as "
+    + "ordinary edits is an add per feature, a set per argument and a connect per wire - "
+    + "about a thousand of them for a rack, each one a rebuild of the whole document. "
+    + "`into` files everything that has no parent inside the run under that container.",
+    { op: "graft", features: [], into: null },
+    async (ctx, edit) => {
+      if (!Array.isArray(edit.features)) throw new Error('"features" must be a list');
+      return await ctx.kernel.graftFeatures(edit.features,
+                                            edit.into ? String(edit.into) : null);
+    }),
+
   modelOp("import", ["format", "data?", "from?", "name?", "encoding?", "as?", "units?", "layers?"],
     "Read a file into the document. `format` is one of the formats this build reads - step, "
     + "brep, obj, stl, dxf. The file arrives one of two ways: `data` is the file itself, as "

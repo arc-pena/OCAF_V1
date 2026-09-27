@@ -32,12 +32,16 @@
 
 import { ARG, F } from "./ocaf.js";
 import { offerPlugin } from "./plugin.js";
+import { PERFORATIONS, THREADS, openArea, perforation, perforationCentres,
+         threadProfile } from "./rack.js";
 import { FASTENERS, RACK_STANDARDS, STRUT_PROFILES, bomLines, fastener, hexOutline,
          holeCentres, rackHeight, rackStandard, strutHoles, strutProfile } from "./rack.js";
 
 const standardNames = RACK_STANDARDS.map(one => one.name);
 const profileNames = STRUT_PROFILES.map(one => one.name);
 const fastenerNames = FASTENERS.map(one => one.name);
+const perforationNames = PERFORATIONS.map(one => one.name);
+const threadNames = THREADS.map(one => one.name);
 
 /* -------------------------------------------------------------- the nodes */
 
@@ -167,6 +171,51 @@ export const RACK_NODES = [
            ARG.real("inset", "Set back", 25, -200, 400, 1),
            ARG.choice("ears", "Mounting", ["Ears both sides", "No ears"], 0),
            ARG.text("supplier", "Supplier ref", "", "make and model")] },
+
+  { type: "RackDoor", guid: "9a1b2c30-00dc-4c00-9e00-caf0000000dc", category: "body",
+    produces: "solid",
+    summary: "A perforated rack door, at the level of detail one is bought at. The "
+           + "panel is punched - round on a square or a 60 degree pitch, oblong slots, "
+           + "or hex - and what it REPORTS is the open area, computed off the holes it "
+           + "actually cut: that percentage is what a door is specified by, because "
+           + "below about 65% the door is the restriction rather than the fans. It "
+           + "carries a frame, a returned edge, hinges and a lock, and it says when it "
+           + "misses the open area it was asked for.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("units", "Height", 48, 1, 60, 1, "U"),
+           ARG.real("width", "Width", 600, 200, 1200, 5),
+           ARG.real("sheet", "Sheet", 1.5, 0.5, 6, 0.1),
+           ARG.real("frame", "Frame border", 40, 0, 200, 5),
+           ARG.choice("perf", "Perforation", perforationNames, 1),
+           //! 5.5 on a 6 mm staggered pitch is 76% open, which is what a modern
+           //! high-density door is bought at. 4 on 6 is 40% - a perfectly real
+           //! punch, and a door that would be the restriction rather than the fans.
+           ARG.real("hole", "Hole", 5.5, 0.5, 40, 0.5),
+           ARG.when(ARG.real("slot", "Slot length", 12, 1, 120, 1), "perf", 3),
+           ARG.real("pitchX", "Pitch across", 6, 1, 200, 0.5),
+           //! A 60 degree pattern's row pitch IS its across-pitch times root
+           //! three over two; 5.196 to 6 is what makes the pattern triangular.
+           ARG.real("pitchY", "Pitch up", 5.196, 1, 200, 0.001),
+           ARG.real("wantOpen", "Open area wanted", 70, 0, 95, 1, "%"),
+           ARG.choice("lock", "Lock", ["None", "Swing handle", "Cam lock"], 1),
+           ARG.choice("hinge", "Hinge side", ["Left", "Right", "None"], 0),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+
+  { type: "LevellingFoot", guid: "9a1b2c30-00dd-4c00-9e00-caf0000000dd", category: "body",
+    produces: "solid",
+    summary: "A screwable levelling foot: a base, a threaded stud and an adjusting nut. "
+           + "A loaded rack is over a tonne standing on four of these, so the thread is "
+           + "geometry rather than a note - Cut gives a real helical ISO 68-1 groove "
+           + "swept along a true helix, which is what LOD 400 means and what costs "
+           + "something to build. Plain leaves a smooth stud for when it does not.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.choice("thread", "Thread", threadNames, 4),
+           ARG.real("stud", "Stud length", 90, 10, 400, 5),
+           ARG.real("travel", "Adjustment", 40, 0, 200, 5),
+           ARG.real("base", "Base", 80, 20, 300, 5),
+           ARG.real("plate", "Base thickness", 10, 2, 50, 1),
+           ARG.choice("cut", "Thread", ["Plain stud", "Cut thread"], 0),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
 
   { type: "Bill", guid: "9a1b2c30-00da-4c00-9e00-caf0000000da", category: "analysis",
     produces: "text",
@@ -604,6 +653,161 @@ function rackDrivers(kit) {
                                  + spec.unitName + " tall",
                                high.toFixed(2) + " mm over "
                                  + (spec.unit * units).toFixed(2) + " of rack"]) };
+      },
+    },
+
+    RackDoor: {
+      precondition: f => {
+        if (KF.real(f, "width", 600) <= KF.real(f, "frame", 40) * 2)
+          return "the frame border is wider than the door";
+        return null;
+      },
+      build: f => {
+        const frame = frameOf(f);
+        const spec = PERFORATIONS[K.F.choice(f, "perf", 1)] || perforation("round-staggered");
+        const units = Math.max(1, Math.round(KF.real(f, "units", 48)));
+        const high = rackHeight("eia310", units);
+        const wide = KF.real(f, "width", 600);
+        const sheet = KF.real(f, "sheet", 1.5);
+        const border = KF.real(f, "frame", 40);
+
+        //! THE PANEL, then its returned edge - a door is a folded sheet, and the
+        //! return down each side is most of what makes it stiff.
+        const parts = [slab(frame, [0, 0, 0], wide, sheet, high)];
+        const lip = 20;
+        parts.push(slab(frame, [0, sheet, 0], sheet, lip, high));
+        parts.push(slab(frame, [wide - sheet, sheet, 0], sheet, lip, high));
+        parts.push(slab(frame, [0, sheet, 0], wide, lip, sheet));
+        parts.push(slab(frame, [0, sheet, high - sheet], wide, lip, sheet));
+
+        //! THE PUNCH, inside the border only. The centres come from the same
+        //! function that computes the open area, so the number reported and the
+        //! holes cut cannot be about different patterns.
+        const hole = KF.real(f, "hole", 4);
+        const slot = KF.real(f, "slot", 12);
+        const pitchX = KF.real(f, "pitchX", 6), pitchY = KF.real(f, "pitchY", 5.2);
+        const innerW = wide - 2 * border, innerH = high - 2 * border;
+        let centres = [];
+        if (spec.kind !== "none")
+          centres = perforationCentres(innerW, innerH, pitchX, pitchY, spec.stagger, hole);
+        const tools = [];
+        for (const [x, y] of centres) {
+          const at = [border + x, -1, border + y];
+          if (spec.kind === "round" || spec.kind === "hex")
+            tools.push(drill(frame, at, "v", hole / 2, sheet + 2));
+          else {
+            //! A SLOT IS TWO BORES AND THE BAR BETWEEN THEM, which is what a
+            //! slotted punch leaves and is why it opens more area than a round
+            //! one of the same web width.
+            const run = Math.max(0, slot - hole);
+            tools.push(drill(frame, at, "v", hole / 2, sheet + 2));
+            if (run > 0) {
+              tools.push(drill(frame, [at[0] + run, at[1], at[2]], "v", hole / 2, sheet + 2));
+              tools.push(slab(frame, [at[0], -1, at[2] - hole / 2], run, sheet + 2, hole));
+            }
+          }
+        }
+        let door = tools.length ? cutAll(S.assemble(parts), K.compoundOf(tools))
+                                : S.assemble(parts);
+
+        //! THE LOCK AND THE HINGES, which are the parts nobody models and are
+        //! the difference between a door and a rectangle.
+        const extra = [];
+        const lock = K.F.choice(f, "lock", 1);
+        const hinge = K.F.choice(f, "hinge", 0);
+        const latchX = hinge === 0 ? wide - border / 2 : border / 2;
+        if (lock === 1) {
+          //! A swing handle sits in a pocket and stands proud of the face.
+          extra.push(slab(frame, [latchX - 30, -18, high / 2 - 60], 60, 18, 120));
+          extra.push(drill(frame, [latchX, -30, high / 2], "v", 9, 34));
+        } else if (lock === 2) {
+          extra.push(drill(frame, [latchX, -12, high / 2], "v", 10, 26));
+        }
+        if (hinge !== 2) {
+          const hingeX = hinge === 0 ? border / 2 : wide - border / 2;
+          for (const z of [high * 0.15, high * 0.85])
+            extra.push(drill(frame, [hingeX, -14, z], "v", 8, 28));
+        }
+        if (extra.length) door = S.add(door, K.compoundOf(extra));
+
+        //! WHAT IT OPENS, off the holes that were cut. This is the number a
+        //! door is specified by, so it is computed rather than claimed - and a
+        //! door that misses what it was asked for says so on the feature.
+        const open = spec.kind === "none" ? 0
+          : openArea(centres.length, spec.kind, hole, slot, innerW, innerH);
+        const want = KF.real(f, "wantOpen", 70) / 100;
+        const said = ["Rack door " + units + "U \u00b7 " + Math.round(wide) + " wide",
+                      spec.name + (spec.from ? " \u00b7 " + spec.from : ""),
+                      centres.length.toLocaleString() + " holes",
+                      "open area " + (open * 100).toFixed(1) + "%"];
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        const note = spec.kind !== "none" && open < want
+          ? "open area is " + (open * 100).toFixed(1) + "%, under the "
+            + Math.round(want * 100) + "% asked for - close the pitch or open the hole"
+          : null;
+        if (note) said.push(note);
+        return { shape: door, data: K.text(said), ...(note ? { note } : {}) };
+      },
+    },
+
+    LevellingFoot: {
+      precondition: f => null,
+      build: f => {
+        const frame = frameOf(f);
+        const spec = THREADS[K.F.choice(f, "thread", 4)] || THREADS[4];
+        const iso = threadProfile(spec);
+        const studLong = KF.real(f, "stud", 90);
+        const baseDia = KF.real(f, "base", 80);
+        const plate = KF.real(f, "plate", 10);
+        const travel = KF.real(f, "travel", 40);
+        const cut = K.F.choice(f, "cut", 0) === 1;
+
+        const axisAt = w => new K.oc.gp_Ax2(
+          new K.oc.gp_Pnt(...world(frame, 0, 0, w)),
+          new K.oc.gp_Dir(frame.z[0], frame.z[1], frame.z[2]));
+
+        //! The base pad that stands on the floor, then the stud up out of it.
+        const parts = [S.cylinder(axisAt(0), baseDia / 2, plate)];
+        let stud = S.cylinder(axisAt(plate), spec.d / 2, studLong);
+
+        if (cut) {
+          //! A REAL THREAD: the ISO 68-1 groove swept along a true helix and
+          //! taken out of the stud. It is the expensive option and it is
+          //! offered rather than assumed, because a rack with four of these on
+          //! it is four helical sweeps every time anything upstream moves.
+          const turns = Math.max(1, Math.floor(studLong / spec.pitch) - 1);
+          const spine = H.helix(axisAt(plate + spec.pitch / 2), spec.d / 2, spec.pitch, turns);
+          //! The cutter's section, in the plane through the axis: a vee from
+          //! the crest down to the root, which is where d3 rather than D1 is
+          //! the number that matters - they differ by a quarter of a
+          //! millimetre at M12 and that is a stud that does not fit its nut.
+          const r = spec.d / 2, root = iso.boltMinor / 2;
+          const on = world(frame, r, 0, plate + spec.pitch / 2);
+          const inward = world(frame, root, 0, plate + spec.pitch / 2);
+          const up = world(frame, r + 0.2, 0, plate + spec.pitch);
+          const down = world(frame, r + 0.2, 0, plate);
+          const vee = H.polyline([down, up, inward], true);
+          stud = S.remove(stud, S.rib(vee, spine));
+        }
+        parts.push(stud);
+
+        //! THE ADJUSTING NUT, which is how a foot is a levelling foot: it is
+        //! what the rack sits on and what is turned to bring it up.
+        const nutAt = plate + Math.min(travel, studLong - spec.pitch * 2);
+        parts.push(S.remove(
+          extrudeOutline(frame, hexOutline(spec.flats), [0, 0, nutAt], spec.pitch * 4, "z"),
+          drill(frame, [0, 0, nutAt - 1], "z", iso.nutMinor / 2, spec.pitch * 4 + 2)));
+
+        const supplier = supplierOf(f);
+        return { shape: S.assemble(parts),
+                 data: K.text(["Levelling foot " + spec.name + " \u00d7 " + Math.round(studLong),
+                               "ISO 68-1 \u00b7 " + spec.name + " \u00d7 " + spec.pitch
+                                 + " \u00b7 root \u00f8" + iso.boltMinor.toFixed(3),
+                               cut ? "thread cut as a true helix"
+                                   : "plain stud - switch Thread to Cut for the real groove",
+                               Math.round(baseDia) + " mm base",
+                               ...(supplier ? [supplier] : [])]) };
       },
     },
 

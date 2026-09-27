@@ -320,3 +320,124 @@ export function bomLines(parts) {
     + (row.supplier ? "  · " + row.supplier : "")
     + (row.from ? "  · " + row.from : ""));
 }
+
+/* ======================================================= doors and perforation
+
+   A DATA CENTRE DOOR IS A PERCENTAGE. Front and rear doors are perforated
+   because the air has to get through them, and the number every specification
+   is written around is the OPEN AREA - the fraction of the panel that is hole.
+   ASHRAE TC 9.9 and every hyperscale spec want it high; 80% is the figure a
+   modern high-density rack door is bought against, and below about 65% the
+   door starts to be the restriction rather than the fans.
+
+   So the perforation is not decoration here. The pattern and the pitch decide
+   the number, the number is computed off the geometry that was actually built,
+   and a door that does not make its target says so.                        */
+
+//! The patterns a door is actually punched in. `open` is the fraction of the
+//! pitch cell that is hole, worked out per pattern below rather than stored,
+//! because it is the thing being checked and a stored one cannot be wrong in a
+//! way anybody notices.
+export const PERFORATIONS = [
+  { key: "none", name: "Solid", kind: "none" },
+  { key: "round-staggered", name: "Round, staggered 60°", kind: "round", stagger: true,
+    from: "the standard ventilation punch: round holes on a triangular pitch" },
+  { key: "round-square", name: "Round, square pitch", kind: "round", stagger: false,
+    from: "round holes on a square pitch" },
+  { key: "oblong", name: "Oblong slots", kind: "oblong", stagger: true,
+    from: "slotted punch: more open area for the same web width" },
+  { key: "hex", name: "Hexagonal", kind: "hex", stagger: true,
+    from: "hex punch: the highest open area for a given web" },
+];
+
+export const perforation = key =>
+  PERFORATIONS.find(one => one.key === key) || PERFORATIONS[1];
+
+//! WHERE EVERY HOLE GOES, as centres within a width x height panel. Staggered
+//! rows are offset half a pitch, which is what makes a 60 degree pattern and is
+//! why it opens more area than a square one for the same web.
+export function perforationCentres(width, height, pitchX, pitchY, stagger, margin = 0) {
+  const out = [];
+  if (!(width > 0 && height > 0 && pitchX > 0 && pitchY > 0)) return out;
+  const usableW = width - 2 * margin, usableH = height - 2 * margin;
+  if (usableW <= 0 || usableH <= 0) return out;
+  const rows = Math.floor(usableH / pitchY) + 1;
+  for (let r = 0; r < rows; r++) {
+    const y = margin + r * pitchY + (usableH - (rows - 1) * pitchY) / 2;
+    const shift = stagger && (r % 2) ? pitchX / 2 : 0;
+    const cols = Math.floor((usableW - shift) / pitchX) + 1;
+    const spread = (usableW - shift - (cols - 1) * pitchX) / 2;
+    for (let c = 0; c < cols; c++) {
+      const x = margin + shift + spread + c * pitchX;
+      if (x < margin - 1e-9 || x > width - margin + 1e-9) continue;
+      out.push([x, y]);
+    }
+  }
+  return out;
+}
+
+//! THE AREA ONE HOLE TAKES OUT. Computed per shape so the open-area figure is
+//! about the hole that was actually cut and not about a round one every time.
+export function holeArea(kind, size, slot = 0) {
+  if (kind === "round") return Math.PI * (size / 2) * (size / 2);
+  //! A slot is a rectangle with a half-circle on each end - its area is the
+  //! rectangle plus one whole circle, not the rectangle plus two half-guesses.
+  if (kind === "oblong") return size * Math.max(0, slot - size) + Math.PI * (size / 2) * (size / 2);
+  //! A regular hexagon across the flats: 2/sqrt(3) times the square on them.
+  if (kind === "hex") return size * size * Math.sqrt(3) / 2 * (2 / Math.sqrt(3)) * 0.8660254;
+  return 0;
+}
+
+//! What a door actually opens, off the holes that were actually placed.
+export function openArea(holes, kind, size, slot, width, height) {
+  const panel = width * height;
+  if (!(panel > 0)) return 0;
+  return holes * holeArea(kind, size, slot) / panel;
+}
+
+/* ============================================================ threads and feet
+
+   A LEVELLING FOOT IS THE PART THAT CARRIES THE RACK. A loaded 48U rack is
+   comfortably over a tonne, it stands on four of these, and the thread in them
+   is what takes the load - so at LOD 400 the thread is geometry rather than a
+   note on a drawing. These are the ISO metric coarse figures, which is the one
+   table where the numbers are exact rather than typical.                    */
+
+//! ISO 724 / ISO 261 coarse pitch. d is the nominal (major) diameter, pitch is
+//! the coarse pitch, and the minor diameter is computed from them by the
+//! standard's own relation rather than stored, so it cannot drift from them.
+export const THREADS = [
+  { key: "m8", name: "M8", d: 8, pitch: 1.25, flats: 13 },
+  { key: "m10", name: "M10", d: 10, pitch: 1.5, flats: 17 },
+  { key: "m12", name: "M12", d: 12, pitch: 1.75, flats: 19 },
+  { key: "m16", name: "M16", d: 16, pitch: 2.0, flats: 24 },
+  { key: "m20", name: "M20", d: 20, pitch: 2.5, flats: 30 },
+  { key: "m24", name: "M24", d: 24, pitch: 3.0, flats: 36 },
+];
+
+export const thread = key => THREADS.find(one => one.key === key) || THREADS[2];
+
+//! THE ISO 68-1 PROFILE, which is what makes a thread an M12 rather than a
+//! groove 12 mm across. H is the height of the sharp triangle the profile is
+//! cut from, and the flanks are truncated off it: H/8 at the crest, H/4 at the
+//! root.
+//!
+//! THERE ARE TWO MINOR DIAMETERS AND THEY ARE BOTH REAL, which is the trap
+//! here and is worth the extra field. The NUT's minor - the hole a tap leaves -
+//! is D1 = d - 2*(5/8)H = 10.106 at M12 x 1.75. The BOLT's minor, at the
+//! bottom of its rounded root, is d3 = d - 2*(17/24)H = 9.853. Both are
+//! tabulated for M12 and picking the wrong one models a stud 0.25 mm too fat
+//! or a tapped hole 0.25 mm too tight - which is exactly the size of error
+//! that assembles perfectly on screen and does not in a rack.
+export function threadProfile(spec) {
+  const one = typeof spec === "string" ? thread(spec) : spec;
+  const H = one.pitch * Math.sqrt(3) / 2;
+  return { H, major: one.d,
+           //! D1, the tapped hole.
+           nutMinor: one.d - 2 * (5 / 8) * H,
+           //! d3, the bottom of an external thread's root.
+           boltMinor: one.d - 2 * (17 / 24) * H,
+           pitchDia: one.d - 2 * (3 / 8) * H,
+           //! How deep the groove is cut into the stud, crest to root.
+           depth: (one.d - (one.d - 2 * (17 / 24) * H)) / 2 };
+}

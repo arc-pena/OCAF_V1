@@ -152,6 +152,63 @@ export function freshName(want, taken) {
 //!
 //! A container brings its contents. Duplicating a folder and getting an empty
 //! folder is not what anybody means by duplicating a folder.
+//! THE SAME COPY, AS A SUBTREE RATHER THAN AS A THOUSAND EDITS.
+//!
+//! duplicateEdits below says what a copy IS - fresh ids, wires rewritten to
+//! point inside the copy, everything filed the way it was - and it says it in
+//! the document's ordinary edit vocabulary, which is what made it easy to get
+//! right and easy to test. What it is not is quick: an add per feature, a set
+//! per ARGUMENT and a connect per wire is about a thousand edits for a rack,
+//! and each one is a round trip that settles the whole document on the way
+//! back. Copying a rack therefore rebuilt it a thousand times, and a person
+//! who pressed Duplicate watched it for a minute.
+//!
+//! So this takes the same decisions and writes them as the features
+//! THEMSELVES - the model file's own shape, which the document can read in one
+//! go and build once. Nothing here decides anything new; the ids, the names
+//! and the rewritten wires are all worked out by the same pass.
+export function duplicateModel(model, ids, opts = {}) {
+  const all = featuresOf(model);
+  const plan = duplicateEdits(model, ids, opts);
+  const renamed = plan.renamed;
+  const wanted = all.filter(one => renamed[one.id]);
+
+  //! A WIRE IS WRITTEN TWO WAYS in a model file and both have to be rewritten:
+  //! { ref: "ID" } for a reference, and { value, from: "ID" } for a number
+  //! driven by another. A wire pointing OUT of the copied run is left alone -
+  //! the copy reads the same outside input the original does, which is what
+  //! duplicating a set inside a bigger model means.
+  const point = value => {
+    if (Array.isArray(value)) return value.map(point);
+    if (!value || typeof value !== "object") return value;
+    if (typeof value.ref === "string")
+      return { ...value, ref: renamed[value.ref] || value.ref };
+    if (typeof value.from === "string")
+      return { ...value, from: renamed[value.from] || value.from };
+    return value;
+  };
+
+  const features = wanted.map(one => {
+    const copy = { ...one, id: renamed[one.id] };
+    //! Its new name comes from the same pass, so the two ways of duplicating
+    //! cannot drift apart on what a copy is called.
+    const named = plan.edits.find(e => e.op === "add" && e.id === renamed[one.id]);
+    if (named && named.name) copy.name = named.name;
+    if (one.parent) {
+      //! A parent inside the run follows the copy; one outside it is dropped,
+      //! so the paste decides where the whole run lands.
+      if (renamed[one.parent]) copy.parent = renamed[one.parent];
+      else delete copy.parent;
+    }
+    if (one.args && typeof one.args === "object") {
+      copy.args = {};
+      for (const [key, value] of Object.entries(one.args)) copy.args[key] = point(value);
+    }
+    return copy;
+  });
+  return { features, made: features.map(one => one.id), renamed };
+}
+
 export function duplicateEdits(model, ids, { taken = new Set(), takenNames = new Set(),
                                              spec = null, into = undefined } = {}) {
   const all = featuresOf(model);
