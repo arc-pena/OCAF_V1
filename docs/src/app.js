@@ -53,6 +53,7 @@ import { PACKING } from "./packing-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
 import { RACK } from "./rack-plugin.js";
 import { HARNESS } from "./harness-plugin.js";
+import { ERGO } from "./ergonomics-plugin.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
@@ -1548,6 +1549,12 @@ function wornAppearance(entry) {
 //! an appearance that says nothing about colour. Nearest wins, own first.
 function showsEdges(entry) {
   if (!entry) return true;
+  //! A CURVE'S LINES ARE THE FEATURE, not an outline of one - so the edge
+  //! switch must not touch them. Switched off on a set holding reach envelopes,
+  //! which are circles, it hid the envelopes completely: the feature built, the
+  //! tree said so, and there was nothing on screen. "Mesh edges" means the
+  //! lines laid OVER a body, and a circle has no body to lay them over.
+  if (entry.produces === "curve") return true;
   if (entry.appearance && entry.appearance.edges !== undefined)
     return entry.appearance.edges !== false;
   for (const up of setsAbove(entry.id))

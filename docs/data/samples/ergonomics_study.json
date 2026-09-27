@@ -1,0 +1,552 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Ergonomics · can somebody work this rack",
+ "units": "mm",
+ "needs": [
+  "rack",
+  "ergonomics"
+ ],
+ "features": [
+  {
+   "id": "E",
+   "type": "GeometricalSet",
+   "name": "Ergonomics · can somebody work this rack"
+  },
+  {
+   "id": "P",
+   "type": "GeometricalSet",
+   "name": "00 Parameters",
+   "parent": "E"
+  },
+  {
+   "id": "N_UNITS",
+   "type": "Number",
+   "name": "Rack height",
+   "parent": "P",
+   "args": {
+    "value": 48
+   }
+  },
+  {
+   "id": "N_TALL",
+   "type": "Number",
+   "name": "Tall person",
+   "parent": "P",
+   "args": {
+    "value": 1900
+   }
+  },
+  {
+   "id": "N_SHORT",
+   "type": "Number",
+   "name": "Short person",
+   "parent": "P",
+   "args": {
+    "value": 1550
+   }
+  },
+  {
+   "id": "N_AISLE",
+   "type": "Number",
+   "name": "Aisle",
+   "parent": "P",
+   "args": {
+    "value": 1200
+   }
+  },
+  {
+   "id": "N_UNIT",
+   "type": "Number",
+   "name": "Working at unit",
+   "parent": "P",
+   "args": {
+    "value": 48
+   }
+  },
+  {
+   "id": "X_UNITZ",
+   "type": "Expression",
+   "name": "That unit is at (mm)",
+   "parent": "P",
+   "args": {
+    "formula": "(a - 1) * 44.45 + 22",
+    "a": {
+     "value": 48,
+     "from": "N_UNIT"
+    }
+   }
+  },
+  {
+   "id": "R",
+   "type": "GeometricalSet",
+   "name": "01 The rack",
+   "parent": "E",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.85,
+     0.42,
+     0.08
+    ]
+   }
+  },
+  {
+   "id": "PT0",
+   "type": "Point",
+   "name": "Origin",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "parent": "R",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   }
+  },
+  {
+   "id": "PL0",
+   "type": "Plane",
+   "name": "Floor",
+   "parent": "R",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VZ"
+    }
+   }
+  },
+  {
+   "id": "FRAME",
+   "type": "RackFrame",
+   "name": "Rack · 48U",
+   "parent": "R",
+   "args": {
+    "standard": 0,
+    "depth": 1000,
+    "profile": 2,
+    "rails": 3,
+    "posts": 0,
+    "postWidth": 50,
+    "supplier": "frame",
+    "plane": {
+     "ref": "PL0"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTR2",
+   "type": "Point",
+   "name": "Second rack at",
+   "parent": "R",
+   "args": {
+    "x": 1500,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "FRAME2",
+   "type": "RackFrame",
+   "name": "Rack · 48U, the same",
+   "parent": "R",
+   "args": {
+    "standard": 0,
+    "depth": 1000,
+    "profile": 2,
+    "rails": 3,
+    "posts": 0,
+    "postWidth": 50,
+    "supplier": "frame",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTR2"
+    },
+    "units": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTU",
+   "type": "Point",
+   "name": "The unit being worked at",
+   "parent": "R",
+   "args": {
+    "x": 300,
+    "y": -20,
+    "z": {
+     "value": 2111.15,
+     "from": "X_UNITZ"
+    }
+   }
+  },
+  {
+   "id": "PTU2",
+   "type": "Point",
+   "name": "The same unit, second rack",
+   "parent": "R",
+   "args": {
+    "x": 1800,
+    "y": -20,
+    "z": {
+     "value": 2111.15,
+     "from": "X_UNITZ"
+    }
+   }
+  },
+  {
+   "id": "PTLOW",
+   "type": "Point",
+   "name": "The bottom unit",
+   "parent": "R",
+   "args": {
+    "x": -700,
+    "y": -20,
+    "z": 22
+   }
+  },
+  {
+   "id": "H",
+   "type": "GeometricalSet",
+   "name": "02 The people",
+   "parent": "E"
+  },
+  {
+   "id": "PTT",
+   "type": "Point",
+   "name": "Tall, at the rack",
+   "parent": "H",
+   "args": {
+    "x": 300,
+    "y": -450,
+    "z": 0
+   }
+  },
+  {
+   "id": "MT",
+   "type": "Mannequin",
+   "name": "Tall · 1.9 m",
+   "parent": "H",
+   "args": {
+    "support": 0,
+    "turn": 0,
+    "leftOut": 12,
+    "leftUp": 95,
+    "leftElbow": 15,
+    "rightOut": 12,
+    "rightUp": 95,
+    "rightElbow": 15,
+    "name": "Tall",
+    "plane": {
+     "ref": "PL0"
+    },
+    "on": {
+     "ref": "PTT"
+    },
+    "lookAt": {
+     "ref": "PTU"
+    },
+    "stature": {
+     "value": 1900,
+     "from": "N_TALL"
+    }
+   }
+  },
+  {
+   "id": "PTS",
+   "type": "Point",
+   "name": "Short, at the second rack",
+   "parent": "H",
+   "args": {
+    "x": 1800,
+    "y": -450,
+    "z": 0
+   }
+  },
+  {
+   "id": "MS",
+   "type": "Mannequin",
+   "name": "Short · 1.55 m",
+   "parent": "H",
+   "args": {
+    "support": 0,
+    "turn": 0,
+    "leftOut": 12,
+    "leftUp": 140,
+    "leftElbow": 0,
+    "rightOut": 12,
+    "rightUp": 140,
+    "rightElbow": 0,
+    "name": "Short",
+    "plane": {
+     "ref": "PL0"
+    },
+    "on": {
+     "ref": "PTS"
+    },
+    "lookAt": {
+     "ref": "PTU2"
+    },
+    "stature": {
+     "value": 1550,
+     "from": "N_SHORT"
+    }
+   }
+  },
+  {
+   "id": "PTL",
+   "type": "Point",
+   "name": "Low, at the rack",
+   "parent": "H",
+   "args": {
+    "x": -700,
+    "y": -250,
+    "z": 0
+   }
+  },
+  {
+   "id": "ML",
+   "type": "Mannequin",
+   "name": "Squatting at the foot",
+   "parent": "H",
+   "args": {
+    "support": 0,
+    "turn": 0,
+    "stature": 1727,
+    "squat": 0.95,
+    "lean": 25,
+    "leftOut": 10,
+    "leftUp": 50,
+    "leftElbow": 40,
+    "rightOut": 10,
+    "rightUp": 50,
+    "rightElbow": 40,
+    "name": "Low",
+    "plane": {
+     "ref": "PL0"
+    },
+    "on": {
+     "ref": "PTL"
+    },
+    "lookAt": {
+     "ref": "PTLOW"
+    }
+   }
+  },
+  {
+   "id": "V",
+   "type": "GeometricalSet",
+   "name": "03 Reach envelopes",
+   "parent": "E",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.16,
+     0.55,
+     0.85
+    ]
+   }
+  },
+  {
+   "id": "ENVT",
+   "type": "ReachEnvelope",
+   "name": "Tall · normal and maximum",
+   "parent": "V",
+   "args": {
+    "draw": 1,
+    "which": 2,
+    "arms": 0,
+    "of": {
+     "ref": "MT"
+    }
+   }
+  },
+  {
+   "id": "ENVS",
+   "type": "ReachEnvelope",
+   "name": "Short · normal and maximum",
+   "parent": "V",
+   "args": {
+    "draw": 1,
+    "which": 2,
+    "arms": 0,
+    "of": {
+     "ref": "MS"
+    }
+   }
+  },
+  {
+   "id": "Q",
+   "type": "GeometricalSet",
+   "name": "04 The questions",
+   "parent": "E"
+  },
+  {
+   "id": "RT",
+   "type": "Reach",
+   "name": "Tall → that unit",
+   "parent": "Q",
+   "args": {
+    "hand": 0,
+    "bend": 45,
+    "of": {
+     "ref": "MT"
+    },
+    "to": {
+     "ref": "PTU"
+    }
+   }
+  },
+  {
+   "id": "RS",
+   "type": "Reach",
+   "name": "Short → the same unit",
+   "parent": "Q",
+   "args": {
+    "hand": 0,
+    "bend": 45,
+    "of": {
+     "ref": "MS"
+    },
+    "to": {
+     "ref": "PTU2"
+    }
+   }
+  },
+  {
+   "id": "RL",
+   "type": "Reach",
+   "name": "Squatting → the bottom unit",
+   "parent": "Q",
+   "args": {
+    "hand": 0,
+    "bend": 45,
+    "of": {
+     "ref": "ML"
+    },
+    "to": {
+     "ref": "PTLOW"
+    }
+   }
+  },
+  {
+   "id": "W",
+   "type": "GeometricalSet",
+   "name": "05 The aisle",
+   "parent": "E"
+  },
+  {
+   "id": "WA",
+   "type": "Point",
+   "name": "Aisle start",
+   "parent": "W",
+   "args": {
+    "x": -1500,
+    "y": -1900,
+    "z": 0
+   }
+  },
+  {
+   "id": "WB",
+   "type": "Point",
+   "name": "Aisle end",
+   "parent": "W",
+   "args": {
+    "x": 5500,
+    "y": -1900,
+    "z": 0
+   }
+  },
+  {
+   "id": "PATH",
+   "type": "Polyline",
+   "name": "Down the aisle",
+   "parent": "W",
+   "args": {
+    "points": [
+     {
+      "ref": "WA"
+     },
+     {
+      "ref": "WB"
+     }
+    ]
+   }
+  },
+  {
+   "id": "MW",
+   "type": "Mannequin",
+   "name": "Walking the aisle",
+   "parent": "W",
+   "args": {
+    "support": 2,
+    "along": 2600,
+    "turn": 0,
+    "leftUp": 12,
+    "rightUp": -12,
+    "name": "Walking",
+    "plane": {
+     "ref": "PL0"
+    },
+    "on": {
+     "ref": "PATH"
+    },
+    "stature": {
+     "value": 1900,
+     "from": "N_TALL"
+    }
+   }
+  },
+  {
+   "id": "GAIT",
+   "type": "Gait",
+   "name": "How long the aisle takes",
+   "parent": "W",
+   "args": {
+    "effort": 0.25,
+    "load": 0,
+    "of": {
+     "ref": "MW"
+    },
+    "path": {
+     "ref": "PATH"
+    }
+   }
+  },
+  {
+   "id": "GAIT2",
+   "type": "Gait",
+   "name": "Carrying a 15 kg switch",
+   "parent": "W",
+   "args": {
+    "effort": 0.25,
+    "load": 15,
+    "of": {
+     "ref": "MW"
+    },
+    "path": {
+     "ref": "PATH"
+    }
+   }
+  }
+ ]
+}

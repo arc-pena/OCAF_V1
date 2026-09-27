@@ -18,6 +18,8 @@ import { PluginHost } from "../src/plugin.js";
 import "../src/rack-plugin.js";
 //! The rack sample routes real cables, so it needs this one on the shelf too.
 import "../src/harness-plugin.js";
+//! And the ergonomics study needs the mannequin on the shelf too.
+import "../src/ergonomics-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 

@@ -89,6 +89,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # entourage is the figure library and nothing else - no kernel, no
            # DOM - and the rack package's Entourage driver is what reads it.
            "entourage.js",
+           # ergonomics is arithmetic over the body - no kernel, no DOM - and
+           # its package turns that into a mannequin.
+           "ergonomics.js", "ergonomics-plugin.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its
@@ -157,6 +160,7 @@ SAMPLES = [
     ("rack-orw", "rack_orw.json"),
     ("hyperstack-rack", "hyperstack_rack.json"),
     ("datahall-corridor", "datahall_corridor.json"),
+    ("ergonomics-study", "ergonomics_study.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

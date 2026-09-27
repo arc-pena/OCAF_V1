@@ -32,6 +32,7 @@ import { createWasmKernel } from "./wasm-kernel.js";
 import { registerTypes, unregisterTypes } from "./ocaf.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
+import { ERGO } from "./ergonomics-plugin.js";
 import { DRAWINGS } from "./drawings-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { PACKING } from "./packing-plugin.js";
@@ -66,7 +67,7 @@ let kernel = null;
 //! one the worker reads, and the failure lands on the page as "there is no
 //! package called 'harness'" - naming the page's own shelf, which has it.
 const SHELF = {};
-for (const plugin of [CLIMATE, CROWD, DRAWINGS, HARNESS, IFC, PACKING, RACK])
+for (const plugin of [CLIMATE, CROWD, DRAWINGS, ERGO, HARNESS, IFC, PACKING, RACK])
   SHELF[plugin.id] = plugin;
 
 //! What a driver builder is handed here: the factories and the document, and

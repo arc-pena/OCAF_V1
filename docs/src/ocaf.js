@@ -1085,6 +1085,24 @@ export const SAMPLES = [
            + "one is in the appendix - so the width here is a number somebody set, and "
            + "the frame says so on its own face rather than in a footnote." },
 
+  { key: "ergonomics-study", name: "Ergonomics \u2014 can somebody work this rack",
+    file: "samples/ergonomics_study.json", needs: ["rack", "ergonomics"],
+    summary: "Two identical 48U racks and two people, one 1.9 m and one 1.55 m, both "
+           + "standing 450 from the face reaching for unit 48. One can reach it and one "
+           + "is 319 mm short - which is the whole point of the file, and is a finding "
+           + "about a rack arrived at from two published fractions of a stature rather "
+           + "than from anybody's judgement. Every segment of the mannequins is Drillis "
+           + "& Contini's fraction of height, every mass is Winter's, and the reach "
+           + "envelopes are drawn round both of them so where the answer comes from is "
+           + "visible. A third figure squats at the foot of a rack and the model says "
+           + "its centre of mass is 131 mm inside its feet - a posture somebody can "
+           + "hold - and that the bottom unit is still 289 mm out of its reach, which "
+           + "is why people kneel. A fourth walks the aisle: 7 m in 4.6 s at 1.51 m/s, "
+           + "speed from LEG LENGTH by the Froude relation, and a fifth of a second "
+           + "slower again carrying a 15 kg switch. Drag Working at unit and watch the "
+           + "reach: the nearest place to put equipment is shoulder height, and it is "
+           + "not the lowest. Needs the Racks and Human Ergonomics packages." },
+
   { key: "datahall-corridor", name: "Data hall \u2014 a double-loaded corridor",
     file: "samples/datahall_corridor.json", needs: ["rack", "harness"],
     summary: "Eight racks in two rows, back to back across a hot aisle - and ONE of "
