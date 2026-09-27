@@ -635,6 +635,45 @@ function measureScene() {
   let rightDragged = false;
   const el = renderer.domElement;
 
+  /* ------------------------------------------------------- two fingers
+
+     PINCH IS THE WHEEL AND THE MIDDLE BUTTON, on a device that has neither.
+     Apart is a dolly out, together is a dolly in, and the pair sliding across
+     pans - which is the gesture every map and every photo on the phone
+     already uses, so it is the one nobody has to be taught.
+
+     Kept as a map of live pointers rather than a boolean, because fingers
+     arrive and leave in any order: lifting one of two must put the remaining
+     one back to a plain orbit from WHERE IT IS NOW, or the model jumps by
+     however far the lifted finger happened to be away.                     */
+
+  const touches = new Map();
+  let pinch = null;
+
+  const spread = () => {
+    const [a, b] = [...touches.values()];
+    return { gap: Math.hypot(a.x - b.x, a.y - b.y),
+             x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
+  function startPinch() {
+    //! A PINCH IS NOT A CLICK, and whatever the first finger had started is
+    //! abandoned rather than finished: a second finger landing must not leave
+    //! a half-drawn sketch line or a selection band behind it.
+    if (mode === "band" || mode === "draw") mode = null;
+    pinch = { ...spread(), mode };
+    mode = "pinch";
+    navigating = true;
+  }
+
+  function endPinch(keepGoing) {
+    pinch = null;
+    //! The finger still down carries on as an orbit, from where it is. Its
+    //! last position is reset by the caller so the first move after the lift
+    //! is measured from there and not from where the pair used to be.
+    mode = keepGoing ? "orbit" : null;
+  }
+
   el.addEventListener("pointerdown", event => {
     // A number being dragged out owns the viewport until it is let go. The
     // press that lets go of it is the press that sets it, and nothing else:
@@ -681,15 +720,57 @@ function measureScene() {
     // orbit does not strand the model at an angle nobody asked for. A pan on
     // the middle or right button is always a pan: those buttons have nothing
     // else to do.
-    navigating = mode !== "orbit" || !altToOrbit || event.altKey;
+    //! A FINGER HAS NO ALT KEY, so alt-to-orbit can never be satisfied by one
+    //! and the model simply would not turn on a phone. The rule is there so a
+    //! plain LEFT-DRAG with a mouse belongs to what is on screen rather than to
+    //! the camera; on touch the equivalent distinction is tap versus drag, and
+    //! that one still works - a tap picks, a drag turns. So touch navigates.
+    const byFinger = event.pointerType === "touch" || event.pointerType === "pen";
+    navigating = byFinger || mode !== "orbit" || !altToOrbit || event.altKey;
     // A dolly is asked for by name, so it is never held back by the setting
     // that decides who owns a plain left drag.
     if (mode === "dolly") navigating = true;
     lastX = event.clientX; lastY = event.clientY; moved = 0;
     if (event.button === 2) rightDragged = false;
-    el.setPointerCapture(event.pointerId);
+    //! EVERY FINGER DOWN, kept so a second one can be noticed. A phone has no
+    //! wheel and no middle button, so the only way to zoom or to pan is with
+    //! two fingers - and there was no code here that knew about a second one
+    //! at all, which is why pinch did nothing rather than doing the wrong
+    //! thing. Mouse pointers go in too and simply never reach two.
+    touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (touches.size === 2) startPinch();
+    //! CAPTURE IS A COURTESY, not the gesture. It keeps a drag alive when the
+    //! pointer leaves the canvas, and it throws if the pointer is already gone
+    //! - which a quick tap and a synthesised event both manage. Uncaught, the
+    //! throw ends this handler, and since the capture is its last line that
+    //! silently costs nothing today and would cost whatever is added after it.
+    try { el.setPointerCapture(event.pointerId); } catch (e) { /* already gone */ }
   });
   el.addEventListener("pointermove", event => {
+    //! THE SECOND FINGER FIRST. While two are down the gesture is theirs and
+    //! nothing else in here gets a look at it.
+    if (touches.has(event.pointerId))
+      touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (mode === "pinch" && pinch && touches.size >= 2) {
+      const now = spread();
+      //! APART IS OUT. The ratio is of the two gaps, so the zoom follows the
+      //! fingers exactly rather than at some rate that has to be tuned - and
+      //! a gap of nothing is guarded, because two fingers can land on one pixel.
+      if (pinch.gap > 4 && now.gap > 4) {
+        const span = Math.max(view.span, 1);
+        view.distance = Math.max(span * 0.02, Math.min(span * 40,
+          view.distance * (pinch.gap / now.gap)));
+      }
+      //! AND THE PAIR SLIDING ACROSS PANS, which is what makes it one gesture
+      //! rather than two: you can zoom in on a corner and bring it to the
+      //! middle without letting go.
+      pan(now.x - pinch.x, now.y - pinch.y);
+      pinch = { ...now, mode: pinch.mode };
+      if (gizmoOn() && !gizmo.grab) refreshGizmo();
+      if (meshEdit.gizmo) refreshMeshEdit();
+      placeCamera(); draw();
+      return;
+    }
     // The ruler first. A pad being dragged out is not an orbit, and while it
     // is being dragged out nothing else in here gets a look at the pointer.
     if (driveHeads(event)) return;
@@ -791,6 +872,23 @@ function measureScene() {
     placeCamera(); draw();
   });
   el.addEventListener("pointerup", event => {
+    //! A FINGER COMING OFF. Taken out of the list first, so what follows sees
+    //! how many are actually left.
+    const wasPinching = mode === "pinch";
+    touches.delete(event.pointerId);
+    if (wasPinching) {
+      //! THE ONE STILL DOWN CARRIES ON, from where it is. Reading its position
+      //! back into lastX/lastY is the whole of what stops the model leaping:
+      //! without it the next move is measured from wherever the pair's last
+      //! midpoint was, which can be half the screen away.
+      const left = [...touches.values()][0];
+      if (left) { lastX = left.x; lastY = left.y; moved = 0; }
+      endPinch(!!left);
+      //! AND IT IS NOT A CLICK. Two fingers that pinched and lifted must not
+      //! leave a selection behind them, so this never reaches the picking
+      //! below however little the fingers moved.
+      return;
+    }
     if (mode === "meshgizmo") { meshEditor.dropGizmo(); mode = null; return; }
     if (mode === "meshdrag") { meshEditor.drop(); mode = null; return; }
     // A click in edit mode picks at the level being edited: plain replaces,
@@ -843,7 +941,17 @@ function measureScene() {
   });
   //! Off the viewport, nothing is under the pointer.
   el.addEventListener("pointerleave", clearHover);
-  el.addEventListener("pointercancel", () => {
+  el.addEventListener("pointercancel", event => {
+    //! A CANCELLED POINTER IS A LIFTED ONE as far as the pinch is concerned -
+    //! the browser takes one away when it decides a gesture is its own, and a
+    //! finger left in the list after that would make the next single touch
+    //! look like a pinch that never ended.
+    if (event && event.pointerId !== undefined) touches.delete(event.pointerId);
+    if (mode === "pinch") {
+      const left = [...touches.values()][0];
+      if (left) { lastX = left.x; lastY = left.y; moved = 0; }
+      endPinch(!!left);
+    }
     meshEdit.axis = null;
     if (gizmo.grab) dropGizmoWidget();
     if (cutter.grab) dropSection();

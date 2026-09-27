@@ -471,5 +471,40 @@ console.log("\n11. and a document too big to put in one turn");
         /const listed = all\.slice\(-300\);/.test(agent));
 }
 
+console.log("\n10. and it can be driven with fingers");
+{
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  //! A FINGER HAS NO ALT KEY. The viewport defaults to alt-to-orbit so that a
+  //! plain left-drag with a mouse belongs to what is on screen rather than to
+  //! the camera - and on a phone that rule can never be satisfied, so the
+  //! model would not turn at all. Touch navigates; tap versus drag is the
+  //! distinction that still works there.
+  check("a touch pointer navigates without needing Alt",
+        /pointerType === "touch"/.test(app) && /navigating = byFinger \|\|/.test(app));
+
+  //! A PHONE HAS NO WHEEL AND NO MIDDLE BUTTON, so two fingers are the only
+  //! way to zoom or pan. There was no code that knew about a second pointer.
+  check("two fingers are tracked, not just one",
+        /const touches = new Map\(\)/.test(app) && /touches\.size === 2/.test(app));
+  check("and apart is a dolly, measured as the ratio of the two gaps",
+        /pinch\.gap \/ now\.gap/.test(app));
+  check("with the pair sliding across as a pan, in the same gesture",
+        /pan\(now\.x - pinch\.x, now\.y - pinch\.y\)/.test(app));
+
+  //! LIFTING ONE OF TWO must put the other back to a plain orbit FROM WHERE IT
+  //! IS. Without reading its position back, the next move is measured from the
+  //! pair's last midpoint, which can be half a screen away - so the model
+  //! leaps the moment a finger comes off.
+  check("lifting a finger hands the other one back without a jump",
+        /lastX = left\.x; lastY = left\.y; moved = 0;/.test(app));
+  check("and a pinch that ends is never treated as a click",
+        /const wasPinching = mode === "pinch";/.test(app));
+  //! A cancelled pointer is a lifted one: the browser takes one away when it
+  //! claims the gesture, and a finger left in the list would make the next
+  //! single touch look like a pinch that never ended.
+  check("a cancelled pointer leaves the list too",
+        /pointercancel", event =>[\s\S]{0,400}touches\.delete\(event\.pointerId\)/.test(app));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
