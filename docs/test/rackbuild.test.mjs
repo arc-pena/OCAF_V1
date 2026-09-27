@@ -566,5 +566,195 @@ console.log("\n8. a model made of a package's nodes says so in the file");
         JSON.stringify(sample.needs));
 }
 
+console.log("\n12. the containment unit: a portal truss and what hangs off it");
+{
+  //! A TRUSS IS THE FRAME ITS ARGUMENTS DESCRIBE, measured off the built solid.
+  //! The two numbers that matter are the SPAN - column centre to column centre -
+  //! and the CLEAR UNDER, which is what has to pass beneath it. Clear is to the
+  //! bottom chord's UNDERSIDE on purpose: measured to a centreline instead, every
+  //! change of section moves the headroom, and the headroom is the reason the
+  //! frame is that height.
+  const P = await add("Point");
+  const TF = await add("TrussFrame", { refs: { plane: PL, at: P } });
+  await set(TF, "span", 4200);
+  await set(TF, "clear", 2800);
+  await set(TF, "depth", 700);
+  await set(TF, "panels", 6);
+  await set(TF, "profile", 11);
+  await set(TF, "plate", 0);
+  const truss = await box(TF);
+  check("a 4200 span with HSS 6 columns measures 4200 + one section across",
+        near(truss.y, 4200 + 152.4, 0.5), truss.y.toFixed(1) + " mm");
+  check("and it is one section wide along the ribbon", near(truss.x, 152.4, 0.5),
+        truss.x.toFixed(1));
+  check("the top of it is the clear height plus the truss depth",
+        near(truss.z, 2800 + 700, 0.5), truss.z.toFixed(1) + " tall from the floor");
+  //! AND THE CLEAR HEIGHT DOES NOT MOVE WHEN THE SECTION DOES, which is the
+  //! whole reason it is measured to the underside. This is the check that would
+  //! catch it being taken to a centreline: the truss would get 25 mm taller and
+  //! the headroom 25 mm shorter every time the steel was changed.
+  await set(TF, "profile", 13);
+  const bigger = await box(TF);
+  await set(TF, "profile", 11);
+  check("a heavier section does not change the height of the frame",
+        near(bigger.z, truss.z, 0.01), bigger.z.toFixed(1) + " vs " + truss.z.toFixed(1));
+  check("but it does change the steel", near(bigger.x, 203.2, 0.5), bigger.x.toFixed(1));
+  //! THE PANELS RE-DIVIDE THE SPAN rather than being drawn at a pitch, so the
+  //! web always reaches both ends: the report says the pitch it arrived at.
+  const said = String(((await at(TF)).data || {}).preview || "");
+  check("the truss says how its web divides the span", /6 panels at 700/.test(said),
+        said.split(" \u00b7 ").slice(0, 4).join(" \u00b7 "));
+  check("and it says which web it drew", /Warren/.test(said));
+  await set(TF, "web", 2);
+  const bare = await box(TF);
+  check("chords only is the same envelope as a Warren",
+        near(bare.z, truss.z, 0.01) && near(bare.y, truss.y, 0.01));
+  await set(TF, "web", 0);
+  //! AND THE BASE PLATE IS THE SPREAD OF THE FOOT, which is the part that makes
+  //! it floor supported rather than hung.
+  await set(TF, "plate", 500);
+  const footed = await box(TF);
+  check("a 500 base plate spreads past the column both ways",
+        near(footed.y, 4200 + 500, 0.5), footed.y.toFixed(1) + " across the plates");
+}
+
+console.log("\n13. a handed arm, because a column has two sides");
+{
+  //! AN ARM REACHES ALONG ITS PLANE'S Y, and there is no plane normal that turns
+  //! that round while leaving z up - so without a hand, half the brackets in a
+  //! hall are unbuildable. Measured as two arms off one point: they occupy the
+  //! same length of y, on opposite sides of it.
+  const P = await add("Point");
+  await set(P, "z", 2000);
+  const A = await add("StrutArm", { refs: { plane: PL, at: P } });
+  await set(A, "reach", 600);
+  await set(A, "profile", 5);
+  await set(A, "load", 40);
+  const one = await box(A);
+  await set(A, "hand", 1);
+  const other = await box(A);
+  await set(A, "hand", 0);
+  check("a handed arm is the same arm", near(one.x, other.x, 0.01)
+        && near(one.y, other.y, 0.01) && near(one.z, other.z, 0.01),
+        [one.x, one.y, one.z].map(n => n.toFixed(1)).join(" x ") + " vs "
+        + [other.x, other.y, other.z].map(n => n.toFixed(1)).join(" x "));
+  check("and it reaches its reach", one.y > 600 && one.y < 640, one.y.toFixed(1) + " mm");
+  //! WHAT IT HOLDS AT THAT REACH, which is the only question an arm is chosen
+  //! by: one over the reach from a stated capacity at a stated reach. 150 kg at
+  //! 300 mm braced is 75 kg at 600, and a plain cantilever is 0.4 of that.
+  const told = async () => String(((await at(A)).data || {}).preview || "");
+  const braced = /about (\d+) kg/.exec(await told());
+  check("a braced 41 channel at 600 holds about 75 kg", braced && Number(braced[1]) === 75,
+        braced && braced[1]);
+  check("and at 40 kg it does not complain", !/brace it, shorten it/.test(await told()));
+  await set(A, "brace", 1);
+  const plain = /about (\d+) kg/.exec(await told());
+  check("unbraced it holds 0.4 of that", plain && Number(plain[1]) === 30, plain && plain[1]);
+  check("and now it says the load is too much for it",
+        /brace it, shorten it/.test(await told()), (await told()).split(" \u00b7 ").pop());
+  await set(A, "brace", 0);
+  //! AND A BIGGER SECTION HOLDS MORE, by the ratio of its depth - said to be a
+  //! rule and not a catalogue, on the feature itself.
+  await set(A, "profile", 10);
+  const heavy = /about (\d+) kg/.exec(await told());
+  await set(A, "profile", 5);
+  check("a 101.6 section holds more than a 41.3 one",
+        heavy && Number(heavy[1]) > 150, heavy && heavy[1] + " kg");
+  check("and the arm says the rule is a rule",
+        /an engineer's rule, not a catalogue/.test(await told()));
+}
+
+console.log("\n14. a busway with its tap-offs, and a joint per length");
+{
+  //! WHAT A BUSWAY IS MODELLED FOR is where the TAP-OFF BOXES land, because a
+  //! rack that does not sit under one has to be fed from somewhere else. On a
+  //! 600 rack pitch with a tap every 600, that is a question with an answer.
+  const P = await add("Point");
+  await set(P, "z", 3000);
+  const BD = await add("BusDuct", { refs: { plane: PL, at: P } });
+  await set(BD, "length", 4800);
+  await set(BD, "pitch", 600);
+  await set(BD, "joint", 4800);
+  const told = async () => String(((await at(BD)).data || {}).preview || "");
+  const said = await told();
+  const taps = /(\d+) tap-off boxes at (\d+)/.exec(said);
+  check("a 4800 run on a 600 pitch has eight tap-offs",
+        taps && Number(taps[1]) === 8, taps && taps[1]);
+  check("and they are on the pitch it was given", taps && Number(taps[2]) === 600);
+  //! ONE JOINT PACK PER LENGTH, AT ITS HEAD. A pack is the connection BETWEEN
+  //! two lengths, so it belongs to the length that starts there - drawn at both
+  //! ends instead, two runs butted end to end put two packs in the same place,
+  //! which is invisible on screen and is what a ribbon of identical modules
+  //! found: six double joints down the hall.
+  const packs = /(\d+) joint packs/.exec(said);
+  check("a run as long as its joint length has ONE pack, not two",
+        packs && Number(packs[1]) === 1, packs && packs[1]);
+  await set(BD, "joint", 2400);
+  const twice = /(\d+) joint packs/.exec(await told());
+  check("two lengths have two", twice && Number(twice[1]) === 2, twice && twice[1]);
+  //! AND THE PACK IS INSIDE ITS OWN LENGTH, so butted runs do not report a
+  //! bolted joint as a collision. The run is 4800 and the box has to be too.
+  await set(BD, "joint", 4800);
+  const run = await box(BD);
+  check("nothing sticks out past the ends of the run", near(run.x, 4800, 0.5),
+        run.x.toFixed(1) + " mm long");
+  //! AND IT SAYS WHOSE CATALOGUE IT IS NOT. A busway section is a
+  //! manufacturer's, they differ between them, and this package ships none.
+  check("the busway says the housing is a size you set",
+        /ships nobody's catalogue/.test(said), said.split(" \u00b7 ").pop());
+}
+
+console.log("\n15. a pipe run, and the heat it says it carries");
+{
+  //! THE LAGGING IS WHAT IS DRAWN, with the pipe inside it, because what has to
+  //! fit past the steelwork is the insulation and not the pipe. A DN150 run in a
+  //! 200 gap fits on screen bare and does not on site.
+  const P = await add("Point");
+  await set(P, "z", 3500);
+  const PR = await add("PipeRun", { refs: { plane: PL, at: P } });
+  await set(PR, "length", 4800);
+  await set(PR, "size", 3);          // DN150
+  await set(PR, "insulation", 0);
+  await set(PR, "pitch", 0);
+  const bare = await box(PR);
+  check("a DN150 run is 168.3 across when it is bare", near(bare.y, 168.3, 0.5),
+        bare.y.toFixed(1));
+  await set(PR, "insulation", 30);
+  const lagged = await box(PR);
+  check("and 60 more when it is lagged 30", near(lagged.y, 168.3 + 60, 0.5),
+        lagged.y.toFixed(1));
+  check("the run is the length it was given", near(lagged.x, 4800, 0.5),
+        lagged.x.toFixed(1));
+  //! THE HEAT, which is the number the loop is sized by and the reason to model
+  //! a pipe as anything more than a cylinder.
+  const told = async () => String(((await at(PR)).data || {}).preview || "");
+  await set(PR, "velocity", 1.5);
+  await set(PR, "rise", 10);
+  const kw = /carries (\d+) kW/.exec(await told());
+  check("DN150 at 1.5 m/s and 10 K is about 1.2 MW", kw && Number(kw[1]) > 1100
+        && Number(kw[1]) < 1300, kw && kw[1] + " kW");
+  await set(PR, "rise", 20);
+  const twice = /carries (\d+) kW/.exec(await told());
+  check("twice the rise is twice the heat",
+        twice && Math.abs(Number(twice[1]) - Number(kw[1]) * 2) <= 2,
+        twice && twice[1] + " kW");
+  await set(PR, "rise", 10);
+  //! AND THE BRANCHES, which decide which racks the loop can serve. On a 2400
+  //! pitch with a half-pitch setback they land between the frames rather than
+  //! inside one, which is where a branch can actually be made up.
+  await set(PR, "pitch", 2400);
+  await set(PR, "branch", 1);
+  const branched = /(\d+) branches at (\d+)/.exec(await told());
+  check("a 4800 run branched every 2400 has two tees",
+        branched && Number(branched[1]) === 2, branched && branched[1]);
+  const down = await box(PR);
+  check("and the tees reach DOWN from the main", down.z > lagged.z + 100,
+        down.z.toFixed(0) + " mm deep against the main's " + lagged.z.toFixed(0));
+  check("the run names the standard its sizes come from",
+        /ASME B36.10M/.test(await told()));
+  check("and says the sum is arithmetic and not a CFD result",
+        /not a CFD result/.test(await told()));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

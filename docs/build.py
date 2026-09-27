@@ -160,6 +160,7 @@ SAMPLES = [
     ("rack-orw", "rack_orw.json"),
     ("hyperstack-rack", "hyperstack_rack.json"),
     ("datahall-corridor", "datahall_corridor.json"),
+    ("hac-ribbon", "hac_ribbon.json"),
     ("ergonomics-study", "ergonomics_study.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]

@@ -36,6 +36,7 @@ import { PERFORATIONS, THREADS, openArea, perforation, perforationCentres,
          threadProfile } from "./rack.js";
 import { FLOOR_PEDESTAL, FLOOR_TILES, HANGER_RODS, ROD_STRESS_AREA, rodCapacity,
          tileFlow, tilePitch } from "./rack.js";
+import { PIPES, pipeDuty, pipeSize } from "./rack.js";
 import { ENTOURAGE, ENTOURAGE_NAMES, entourageAt } from "./entourage.js";
 import { FASTENERS, RACK_STANDARDS, STRUT_PROFILES, bomLines, fastener, hexOutline,
          holeCentres, rackHeight, rackStandard, strutHoles, strutProfile } from "./rack.js";
@@ -46,6 +47,7 @@ const fastenerNames = FASTENERS.map(one => one.name);
 const perforationNames = PERFORATIONS.map(one => one.name);
 const threadNames = THREADS.map(one => one.name);
 const tileNames = FLOOR_TILES.map(one => one.name);
+const pipeNames = PIPES.map(one => one.name);
 
 /* -------------------------------------------------------------- the nodes */
 
@@ -318,6 +320,89 @@ export const RACK_NODES = [
            ARG.real("turn", "Facing", 0, -360, 360, 15, "\u00b0"),
            //! APPENDED - see above.
            ARG.choice("figure", "Figure", ENTOURAGE_NAMES, 0)] },
+
+  //! -------------------------------------------- the containment structure
+
+  { type: "TrussFrame", guid: "9a1b2c30-00f6-4c00-9e00-caf0000000f6", category: "body",
+    produces: "solid",
+    summary: "A welded portal truss: two columns on base plates and a truss girder across "
+           + "them, in a named structural section. This is what a floor-supported hot "
+           + "aisle containment unit IS - the racks stand under it and it carries the "
+           + "cable trays, the bus duct and the pipework over them - so it is a frame "
+           + "with a span and a depth rather than a shape. Change the span and the "
+           + "diagonals re-divide; change the panels and there are more of them.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("span", "Span", 4000, 500, 30000, 50),
+           //! CLEAR HEIGHT TO THE UNDERSIDE, which is the number somebody sets:
+           //! it is what has to pass under the frame. Measured to the top chord
+           //! instead, every change of truss depth moves the headroom.
+           ARG.real("clear", "Clear under", 2800, 500, 12000, 50),
+           ARG.real("depth", "Truss depth", 600, 100, 3000, 25),
+           ARG.real("panels", "Panels", 6, 2, 40, 1, ""),
+           ARG.choice("web", "Web", ["Warren", "Pratt", "Chords only"], 0),
+           ARG.choice("profile", "Section", profileNames, 11),
+           ARG.choice("legs", "Columns", ["Both sides", "Left only", "Right only", "None"], 0),
+           ARG.real("plate", "Base plate", 400, 0, 1200, 10),
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           ARG.spare("section", "Section from", ["StrutSection"])] },
+
+  { type: "StrutArm", guid: "9a1b2c30-00f7-4c00-9e00-caf0000000f7", category: "body",
+    produces: "solid",
+    summary: "A cantilever arm off a column, in strut channel, with its back plate and a "
+           + "brace - what every cable tray and every bus duct in a hall is actually "
+           + "carried on. It says what it will hold at the end of its reach, which is "
+           + "the only question an arm is chosen by: the same bracket is rated three "
+           + "times over depending on how far out the load sits.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("reach", "Reach", 450, 50, 2000, 25),
+           ARG.choice("profile", "Section", profileNames, 5),
+           ARG.choice("brace", "Brace", ["Braced", "Plain cantilever"], 0),
+           ARG.real("load", "Load at the end", 60, 0, 2000, 5, "kg"),
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           ARG.spare("section", "Section from", ["StrutSection"]),
+           //! WHICH WAY IT REACHES, and an arm needs this because a column has
+           //! two sides and the trays on them are different trays. A plane's
+           //! frame only ever points its Y one way - there is no normal that
+           //! turns it round while leaving Z up - so a hall wants a handed arm
+           //! or half of its brackets are unbuildable. APPENDED, because an
+           //! argument's place in this list IS its OCAF tag.
+           ARG.choice("hand", "Reaches", ["Along the plane's Y", "The other way"], 0)] },
+
+  { type: "BusDuct", guid: "9a1b2c30-00f8-4c00-9e00-caf0000000f8", category: "body",
+    produces: "solid",
+    summary: "A run of sandwich busway with its tap-off boxes and its joint packs. The "
+           + "housing is a size you set rather than one looked up: busway sections are "
+           + "a manufacturer's, they differ between them, and this package does not "
+           + "ship anybody's catalogue. What it does model is the thing that matters on "
+           + "site - where the tap-off boxes land, because a rack that does not sit "
+           + "under one has to be fed from somewhere else.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("length", "Length", 3000, 200, 60000, 50),
+           ARG.real("width", "Housing width", 130, 40, 600, 5),
+           ARG.real("height", "Housing height", 180, 40, 600, 5),
+           ARG.real("pitch", "Tap-off pitch", 600, 100, 6000, 25),
+           ARG.real("tap", "Tap-off box", 250, 0, 900, 10),
+           ARG.real("joint", "Joint every", 3000, 500, 12000, 100),
+           ARG.text("rating", "Rating", "", "amps, as your supplier states it"),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+
+  { type: "PipeRun", guid: "9a1b2c30-00f9-4c00-9e00-caf0000000f9", category: "body",
+    produces: "solid",
+    summary: "A straight run of pipe to ASME B36.10, insulated, with branch tees on a "
+           + "pitch - the technical water supply or return of a liquid-cooled hall. It "
+           + "reports the heat it will carry at a velocity and a temperature rise you "
+           + "set, which is the number the loop is sized by: a DN150 branch at 1.5 m/s "
+           + "and 10 K is about 1.2 MW, and that is how many racks it feeds.",
+    args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
+           ARG.real("length", "Length", 3000, 100, 60000, 50),
+           ARG.choice("size", "Pipe", pipeNames, 3),
+           ARG.choice("schedule", "Schedule", ["Schedule 40", "Schedule 10"], 0),
+           ARG.real("insulation", "Insulation", 25, 0, 150, 5),
+           ARG.real("pitch", "Branch every", 3000, 0, 60000, 50),
+           ARG.choice("branch", "Branch", pipeNames, 0),
+           ARG.real("velocity", "Velocity", 1.5, 0.1, 4, 0.1, "m/s"),
+           ARG.real("rise", "Temperature rise", 10, 1, 40, 0.5, "K"),
+           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
 
   { type: "Clash", guid: "9a1b2c30-00f5-4c00-9e00-caf0000000f5", category: "analysis",
     produces: "text",
@@ -917,7 +1002,14 @@ function rackDrivers(kit) {
         const extra = [];
         const lock = K.F.choice(f, "lock", 1);
         const hinge = K.F.choice(f, "hinge", 0);
-        const latchX = hinge === 0 ? wide - border / 2 : border / 2;
+        //! THE HANDLE IS KEPT INSIDE THE LEAF. Its escutcheon is 60 wide and is
+        //! centred on the latch line, so a latch half a 40 border in - 20 mm
+        //! from the edge - hangs 10 mm off the side of the door. On one cabinet
+        //! that is a detail; in a row of them on a 600 pitch it is a door in the
+        //! next bay, and the clash check finds it at the module joint rather
+        //! than on the cabinet it belongs to.
+        const latchIn = Math.max(border / 2, 30);
+        const latchX = hinge === 0 ? wide - latchIn : latchIn;
         if (lock === 1) {
           //! A swing handle sits in a pocket and stands proud of the face.
           extra.push(slab(frame, [latchX - 30, -18, high / 2 - 60], 60, 18, 120));
@@ -1332,6 +1424,287 @@ function rackDrivers(kit) {
         return { data: K.packMesh(K.checkMesh(mesh, pick.name)) };
       },
     },
+
+    //! ------------------------------------------- the containment structure
+
+    TrussFrame: {
+      precondition: f => {
+        if (KF.real(f, "span", 4000) <= 0) return "a frame needs a span";
+        if (KF.real(f, "depth", 600) <= 0) return "a truss needs a depth";
+        return null;
+      },
+      build: f => {
+        const frame = frameOf(f);
+        const section = sectionOf(f, 11);
+        const span = KF.real(f, "span", 4000);
+        const clear = KF.real(f, "clear", 2800);
+        const depth = KF.real(f, "depth", 600);
+        const panels = Math.max(2, Math.round(KF.real(f, "panels", 6)));
+        const web = K.F.choice(f, "web", 0);
+        const legs = K.F.choice(f, "legs", 0);
+        const plate = KF.real(f, "plate", 400);
+        const w = section.w, h = section.h;
+
+        //! THE CHORDS ARE AT THE HEIGHTS THE ARGUMENTS MEAN. "Clear under" is
+        //! what passes beneath the frame, so the bottom chord's UNDERSIDE is at
+        //! that height - not its centreline, which would put the headroom half
+        //! a section out and move it every time the section changed.
+        const parts = [];
+        //! FROM THE START OF THE SPAN, not from its middle. extrudeOutline
+        //! takes the point as where the extrusion BEGINS - the outline is
+        //! centred on the other two axes and laid off from there - so a chord
+        //! placed at span/2 runs from the middle to one and a half spans out.
+        const chord = z => extrudeOutline(frame, section.outline(),
+                                          [0, 0, z + h / 2], span, "v");
+        parts.push(chord(clear));
+        parts.push(chord(clear + depth - h));
+
+        //! THE COLUMNS RUN FROM THE FLOOR TO THE TOP CHORD. A portal whose legs
+        //! stop at the bottom chord is a frame with a hinge in it.
+        const top = clear + depth;
+        for (const [which, y] of [[0, 0], [1, span]]) {
+          if (legs === 3) break;
+          if (legs === 1 && which === 1) continue;
+          if (legs === 2 && which === 0) continue;
+          parts.push(extrudeOutline(frame, section.outline(), [0, y, 0], top, "z"));
+          if (plate > 0)
+            parts.push(slab(frame, [-plate / 2, y - plate / 2, -20], plate, plate, 20));
+        }
+
+        //! THE WEB. A Warren truss alternates its diagonals and has no
+        //! verticals; a Pratt has a vertical at every panel point and its
+        //! diagonals all lean one way. They are different frames, not two
+        //! drawings of one, and the choice says which.
+        const step = span / panels;
+        const lo = clear + h / 2, hi = clear + depth - h / 2;
+        //! world() TAKES THREE COMPONENTS HERE, not a point. Handed an array
+        //! it reads it as `u` and takes `v` and `w` as undefined, which makes
+        //! every coordinate NaN - and a cylinder of NaN length comes back as
+        //! "cylinder height must be greater than zero", which names the
+        //! symptom and not the cause.
+        const member = (y0, z0, y1, z1) => {
+          const a = world(frame, 0, y0, z0), b = world(frame, 0, y1, z1);
+          const along = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+          const long = Math.hypot(along[0], along[1], along[2]);
+          if (long < 1) return null;
+          const way = [along[0] / long, along[1] / long, along[2] / long];
+          //! A DIAGONAL IS DRAWN ROUND, and that is a decision rather than
+          //! laziness: a square section swept along a slope needs a ROLL as
+          //! well as a direction, and a truss whose diagonals are each rolled
+          //! differently looks wrong in a way nobody can name. The chords and
+          //! the columns are the real section; the web is drawn at its own size
+          //! and the feature says so out loud.
+          return S.cylinder(new K.oc.gp_Ax2(new K.oc.gp_Pnt(a[0], a[1], a[2]),
+                                            new K.oc.gp_Dir(way[0], way[1], way[2])),
+                            Math.min(w, h) * 0.32, long);
+        };
+        if (web !== 2) {
+          for (let i = 0; i < panels; i++) {
+            const y0 = i * step, y1 = (i + 1) * step;
+            if (web === 0) {
+              parts.push(i % 2 === 0 ? member(y0, lo, y1, hi) : member(y0, hi, y1, lo));
+            } else {
+              parts.push(member(y0, hi, y1, lo));
+              if (i > 0) parts.push(member(y0, lo, y0, hi));
+            }
+          }
+          if (web === 1) parts.push(member(span, lo, span, hi));
+        }
+
+        const said = [section.name + " portal truss · " + Math.round(span)
+                        + " span, " + Math.round(depth) + " deep",
+                      Math.round(clear) + " clear under · " + panels + " panels at "
+                        + Math.round(step) + " · "
+                        + ["Warren", "Pratt", "chords only"][web],
+                      section.from];
+        if (section.wall)
+          said.push("design wall " + section.wall + " mm · AISC takes it as 0.93 of "
+            + "the " + section.nominalWall + " nominal, which is what the mill delivers");
+        said.push("the web is drawn round: a square section on a slope needs a roll, "
+          + "and the chords and columns are the section named above");
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        return { shape: K.compoundOf(parts.filter(Boolean)), data: K.text(said) };
+      },
+    },
+
+    StrutArm: {
+      precondition: f => (KF.real(f, "reach", 450) > 0 ? null : "an arm needs a reach"),
+      build: f => {
+        //! TURNED RIGHT ROUND RATHER THAN MIRRORED. Negating the frame's y
+        //! alone makes it left-handed, and every Ax2 built from it comes out
+        //! inside out; turning 180 degrees about the frame's own z negates x
+        //! and y together, which for a part symmetrical across its length is
+        //! the same reach the other way and is still a right-handed frame.
+        const hand = K.F.choice(f, "hand", 0) === 1;
+        const turned = one => ({ ...one, x: one.x.map(n => -n), y: one.y.map(n => -n) });
+        const frame = hand ? turned(frameOf(f)) : frameOf(f);
+        const section = sectionOf(f, 5);
+        const reach = KF.real(f, "reach", 450);
+        const braced = K.F.choice(f, "brace", 0) === 0;
+        //! From the column face outwards - extrudeOutline's point is where the
+        //! extrusion starts, so half the reach starts halfway out.
+        const parts = [extrudeOutline(frame, section.outline(), [0, 0, 0], reach, "v")];
+        //! The back plate it bolts to the column with - which is the part that
+        //! is actually sized, because a cantilever fails at its fixing.
+        parts.push(slab(frame, [-section.w / 2, -8, -section.h * 1.6],
+                        section.w, 8, section.h * 3.2));
+        //! AND THE BRACE, which is what makes the rating what it is: the same
+        //! channel plain carries a fraction of what it carries braced.
+        if (braced) {
+          const a = world(frame, 0, reach * 0.92, -section.h / 2);
+          const b = world(frame, 0, 0, -reach * 0.75);
+          const along = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+          const long = Math.hypot(along[0], along[1], along[2]);
+          if (long > 1) {
+            const way = [along[0] / long, along[1] / long, along[2] / long];
+            parts.push(S.cylinder(new K.oc.gp_Ax2(new K.oc.gp_Pnt(a[0], a[1], a[2]),
+                                                  new K.oc.gp_Dir(way[0], way[1], way[2])),
+                                  section.h * 0.28, long));
+          }
+        }
+        //! WHAT IT HOLDS AT THAT REACH, which is the only question an arm is
+        //! chosen by: the same bracket is rated three times over depending on
+        //! how far out the load sits. A cantilever's capacity goes as one over
+        //! its reach, from a stated capacity at a stated reach - an engineer's
+        //! rule, said to be one, and not a manufacturer's table.
+        const load = KF.real(f, "load", 60);
+        const CAN_AT = 150, AT_REACH = 300;
+        const holds = CAN_AT * (section.h / 41.3) * AT_REACH / Math.max(1, reach)
+                      * (braced ? 1 : 0.4);
+        const said = [section.name + " arm · " + Math.round(reach) + " reach"
+                        + (braced ? ", braced" : ", plain cantilever"),
+                      "about " + Math.round(holds) + " kg at the end · carrying "
+                        + Math.round(load) + " kg",
+                      "capacity as one over the reach from " + CAN_AT + " kg at "
+                        + AT_REACH + " mm - an engineer's rule, not a catalogue"];
+        const note = load > holds
+          ? "this arm carries " + Math.round(load) + " kg at " + Math.round(reach)
+            + " and holds about " + Math.round(holds)
+            + " - brace it, shorten it, or put another one in"
+          : null;
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        if (note) said.push(note);
+        return { shape: K.compoundOf(parts.filter(Boolean)), data: K.text(said),
+                 ...(note ? { note } : {}) };
+      },
+    },
+
+    BusDuct: {
+      precondition: f => (KF.real(f, "length", 3000) > 0 ? null : "a run needs a length"),
+      build: f => {
+        const frame = frameOf(f);
+        const length = KF.real(f, "length", 3000);
+        const wide = KF.real(f, "width", 130);
+        const high = KF.real(f, "height", 180);
+        const pitch = Math.max(50, KF.real(f, "pitch", 600));
+        const tap = KF.real(f, "tap", 250);
+        const joint = Math.max(100, KF.real(f, "joint", 3000));
+        const parts = [slab(frame, [0, -wide / 2, -high / 2], length, wide, high)];
+        //! THE JOINT PACKS, which are why a busway is not one extrusion: it
+        //! arrives in lengths, every joint is a bolted pack wider than the run,
+        //! and somebody has to be able to get at each of them.
+        //! A JOINT AT THE HEAD OF EVERY LENGTH AND NOT AT BOTH ENDS. A busway
+        //! is delivered in lengths and a pack is the connection BETWEEN two of
+        //! them, so a pack belongs to the length that starts there - the one at
+        //! the head of a run being where it takes from the run before it.
+        //! Drawn at both ends instead, two runs butted end to end put two packs
+        //! in the same place, which is invisible on screen and is what a ribbon
+        //! of seven identical modules found: six double joints down the hall.
+        //! strutHoles is no use here either - it sets its first hole back by the
+        //! setback, so asked for a joint every 3000 on a 3000 run it put none in
+        //! at all, and a run with no joints is a run nobody can install.
+        const joints = [];
+        for (let x = 0; x < length - 1; x += joint) joints.push(x);
+        //! AND THE PACK IS DRAWN FORWARD FROM THE JOINT, not straddling it. On
+        //! site it straddles, and half of it is over the length before: drawn
+        //! that way a run butted against another has 60 mm of its neighbour
+        //! inside it, which a coordinated model has to report as interference
+        //! because it cannot tell a bolted joint from a collision. Forward from
+        //! the joint it stays inside its own length and reads as the collar at
+        //! the head of it.
+        for (const x of joints)
+          parts.push(slab(frame, [x, -wide / 2 - 15, -high / 2 - 15],
+                          120, wide + 30, high + 30));
+        //! AND THE TAP-OFFS, which are the whole point of modelling it. A rack
+        //! that does not sit under one has to be fed from somewhere else.
+        const taps = tap > 0 ? strutHoles(length, pitch, pitch / 2) : [];
+        for (const x of taps)
+          parts.push(slab(frame, [x - tap * 0.35, wide / 2, -high / 2 - tap * 0.15],
+                          tap * 0.7, tap * 0.55, tap * 0.8));
+        const rating = String(KF.code(f, "rating", "") || "").trim();
+        const said = ["Busway · " + Math.round(length) + " of " + Math.round(wide)
+                        + " × " + Math.round(high) + (rating ? " · " + rating : ""),
+                      taps.length + " tap-off boxes at " + Math.round(pitch) + " · "
+                        + joints.length + " joint packs at " + Math.round(joint),
+                      "the housing is the size you set: busway sections are a "
+                        + "manufacturer's, and this package ships nobody's catalogue"];
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        return { shape: K.compoundOf(parts), data: K.text(said) };
+      },
+    },
+
+    PipeRun: {
+      precondition: f => (KF.real(f, "length", 3000) > 0 ? null : "a run needs a length"),
+      build: f => {
+        const frame = frameOf(f);
+        const spec = PIPES[K.F.choice(f, "size", 3)] || pipeSize("dn100");
+        const branchSpec = PIPES[K.F.choice(f, "branch", 0)] || PIPES[0];
+        const schedule = K.F.choice(f, "schedule", 0) === 1 ? "sch10" : "sch40";
+        const length = KF.real(f, "length", 3000);
+        const lag = KF.real(f, "insulation", 25);
+        const pitch = KF.real(f, "pitch", 3000);
+        const parts = [];
+        const along = at => new K.oc.gp_Ax2(new K.oc.gp_Pnt(at[0], at[1], at[2]),
+                                            new K.oc.gp_Dir(frame.x[0], frame.x[1], frame.x[2]));
+        //! THE LAGGING IS WHAT IS DRAWN, with the pipe inside it - which is the
+        //! way round that matters for clearance. What has to fit past the
+        //! steelwork is the insulation, not the pipe: drawn bare, a DN150 run
+        //! in a 200 gap fits on screen and does not on site.
+        parts.push(S.cylinder(along(world(frame, 0, 0, 0)),
+                              spec.od / 2 + Math.max(0, lag), length));
+        //! THE BRANCHES, where a loop is tapped for a rack or a CDU. Where they
+        //! land is what decides which racks the loop can actually serve.
+        const at = pitch > 0 ? strutHoles(length, pitch, pitch / 2) : [];
+        const down = new K.oc.gp_Dir(-frame.z[0], -frame.z[1], -frame.z[2]);
+        for (const x of at) {
+          const from = world(frame, x, 0, 0);
+          parts.push(S.cylinder(new K.oc.gp_Ax2(
+            new K.oc.gp_Pnt(from[0], from[1], from[2]), down),
+            branchSpec.od / 2, spec.od * 2.2));
+          const flange = world(frame, x, 0, -spec.od * 2.2);
+          parts.push(S.cylinder(new K.oc.gp_Ax2(
+            new K.oc.gp_Pnt(flange[0], flange[1], flange[2]), down),
+            branchSpec.od * 0.9, 18));
+        }
+        const duty = pipeDuty(spec, KF.real(f, "velocity", 1.5),
+                              KF.real(f, "rise", 10), schedule);
+        const said = [spec.name + " · " + Math.round(length) + " long"
+                        + (lag > 0 ? ", " + Math.round(lag) + " lagging" : ", bare"),
+                      "OD " + spec.od + " · bore " + duty.bore.toFixed(1) + " · "
+                        + (schedule === "sch10" ? "schedule 10" : "schedule 40")
+                        + " · ASME B36.10M, where the OD is fixed by the size and "
+                        + "only the wall changes with the schedule",
+                      duty.litres.toFixed(1) + " l/s at " + duty.velocity + " m/s carries "
+                        + Math.round(duty.kilowatts) + " kW at " + duty.rise + " K",
+                      "Q = m c dT, water at 4.18 kJ/kg·K and 997 kg/m³ - "
+                        + "arithmetic, not a CFD result",
+                      at.length + " branches at " + Math.round(pitch) + " in "
+                        + branchSpec.name];
+        const note = duty.velocity > 2
+          ? duty.velocity + " m/s is above the 2 m/s a closed loop is usually held to "
+            + "- it erodes the pipe and you can hear it"
+          : null;
+        const supplier = supplierOf(f);
+        if (supplier) said.push(supplier);
+        if (note) said.push(note);
+        return { shape: K.compoundOf(parts), data: K.text(said),
+                 ...(note ? { note } : {}) };
+      },
+    },
+
 
     Clash: {
       precondition: f => (KF.reference(f, "a") ? null : "nothing wired in to check"),

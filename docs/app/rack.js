@@ -348,7 +348,78 @@ export const STRUT_PROFILES = [
   { key: "rhs", name: "Box section 40 × 40 × 2", w: 40, h: 40, bore: 9,
     from: "Cold-formed RHS, 2 mm wall - drawn as its envelope",
     outline: () => rectOutline(40, 40) },
+
+  //! HSS, WHICH IS WHAT A CONTAINMENT FRAME IS WELDED FROM. Everything above
+  //! this line is something a rack is bolted together from; these are structural
+  //! members, and a hot aisle containment unit that stands on the floor and
+  //! carries five layers of cable tray over eighty racks is a steel frame.
+  //!
+  //! THE DESIGN WALL THICKNESS IS NOT THE NOMINAL ONE. AISC takes the design
+  //! thickness of an ERW hollow section as 0.93 of its nominal wall, because
+  //! that is what the mill delivers - so a 1/4 inch HSS is designed as 0.233 of
+  //! an inch, 5.92 mm. Using the nominal figure overstates the section by 7%,
+  //! which is the kind of error that passes every check until somebody weighs
+  //! the steel.
+  //!
+  //! AND THEY ARE DRAWN AS THEIR ENVELOPE, like the RHS above: the outline here
+  //! is one closed loop and a hollow section needs two. At 152 mm square in a
+  //! truss over a data hall the outside is what anybody sees, and the wall is
+  //! carried as a number so the bill and any weight taken off it are right.
+  //! WHAT IS NOT CLAIMED: no section area, no mass per metre. Those are in the
+  //! AISC manual and are not reproduced from memory here.
+  { key: "hss4", name: "HSS 4 × 4 × 1/4", w: 101.6, h: 101.6, bore: 22,
+    wall: 5.92, nominalWall: 6.35,
+    from: "AISC HSS 4x4x1/4 · design wall 0.233 in (0.93 of nominal) · envelope",
+    outline: () => rectOutline(101.6, 101.6) },
+  { key: "hss6", name: "HSS 6 × 6 × 1/4", w: 152.4, h: 152.4, bore: 22,
+    wall: 5.92, nominalWall: 6.35,
+    from: "AISC HSS 6x6x1/4 · design wall 0.233 in (0.93 of nominal) · envelope",
+    outline: () => rectOutline(152.4, 152.4) },
+  { key: "hss6t", name: "HSS 6 × 6 × 3/8", w: 152.4, h: 152.4, bore: 22,
+    wall: 8.86, nominalWall: 9.53,
+    from: "AISC HSS 6x6x3/8 · design wall 0.349 in (0.93 of nominal) · envelope",
+    outline: () => rectOutline(152.4, 152.4) },
+  { key: "hss8", name: "HSS 8 × 8 × 1/4", w: 203.2, h: 203.2, bore: 26,
+    wall: 5.92, nominalWall: 6.35,
+    from: "AISC HSS 8x8x1/4 · design wall 0.233 in (0.93 of nominal) · envelope",
+    outline: () => rectOutline(203.2, 203.2) },
 ];
+
+//! THE PIPE THE TECHNICAL WATER RUNS IN. ASME B36.10M: the outside diameter of
+//! a pipe is fixed by its nominal size and does NOT change with the schedule -
+//! only the wall does, inwards. That is the whole point of the standard and it
+//! is the thing people get wrong: a 4 inch pipe is 114.3 outside whether it is
+//! schedule 10 or schedule 80, and a model that scales the outside with the
+//! wall will not fit the fittings.
+export const PIPES = [
+  { key: "dn50", name: "DN50 (NPS 2)", od: 60.3, sch40: 3.91, sch10: 2.77 },
+  { key: "dn80", name: "DN80 (NPS 3)", od: 88.9, sch40: 5.49, sch10: 3.05 },
+  { key: "dn100", name: "DN100 (NPS 4)", od: 114.3, sch40: 6.02, sch10: 3.05 },
+  { key: "dn150", name: "DN150 (NPS 6)", od: 168.3, sch40: 7.11, sch10: 3.40 },
+  { key: "dn200", name: "DN200 (NPS 8)", od: 219.1, sch40: 8.18, sch10: 3.76 },
+  { key: "dn250", name: "DN250 (NPS 10)", od: 273.1, sch40: 9.27, sch10: 4.19 },
+];
+
+export const pipeSize = key => PIPES.find(one => one.key === key) || PIPES[2];
+
+//! HOW MUCH HEAT A PIPE OF THAT SIZE CARRIES, which is the number a technical
+//! water loop is sized by and the reason the pipe is in the model at all.
+//!
+//!     Q = m * c * dT,  and m = v * A * rho
+//!
+//! All four of those are stated rather than buried: water at 4.18 kJ/kg K and
+//! 997 kg/m3, a velocity somebody sets, and the supply-to-return rise. 1.5 m/s
+//! is the usual ceiling for a closed loop - above about 2 it erodes and it is
+//! audible. This is arithmetic, not a CFD result, and it says so.
+export const WATER_C = 4.18, WATER_RHO = 997;
+export function pipeDuty(spec, velocity = 1.5, rise = 10, schedule = "sch40") {
+  const bore = spec.od - 2 * (spec[schedule] || spec.sch40);
+  const area = Math.PI * (bore / 2000) * (bore / 2000);          // m2
+  const flow = area * velocity;                                   // m3/s
+  const kg = flow * WATER_RHO;                                    // kg/s
+  return { bore, area, flow, litres: flow * 1000, kg,
+           kilowatts: kg * WATER_C * rise, velocity, rise };
+}
 
 export const strutProfile = key =>
   STRUT_PROFILES.find(one => one.key === key) || STRUT_PROFILES[2];
@@ -775,6 +846,14 @@ export const RACK_FINISHES = [
   //! stop for the same reason.
   { role: "power", label: "Power", finish: "paint", color: [0.72, 0.16, 0.14],
     of: "PDUs, busbar, anything live" },
+  //! CYAN FOR THE TECHNICAL WATER, because a liquid-cooled hall has a service
+  //! in it that is neither cable nor power and must not be drawn as either. A
+  //! pipe the colour of a busbar is the one mistake in a plant room that gets
+  //! somebody hurt, and cyan is what the water lines are on every M&E drawing
+  //! anybody on site has read.
+  { role: "water", label: "Technical water", finish: "paint",
+    color: [0.10, 0.62, 0.71],
+    of: "supply and return mains, branches, valves - the liquid cooling loop" },
   { role: "floor", label: "Floor panels", finish: "matte", color: [0.74, 0.75, 0.73],
     of: "raised access panels, solid and grate" },
   { role: "understructure", label: "Understructure", finish: "steel",

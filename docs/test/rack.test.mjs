@@ -12,6 +12,8 @@ import { FASTENERS, ORV3_FASTENERS, ORV3_FOOT, RACK_STANDARDS, STRUT_PROFILES,
          unitBottom } from "../src/rack.js";
 import { FLOOR_PEDESTAL, FLOOR_TILES, ROD_STRESS_AREA, floorTile, holeArea, openArea,
          rodCapacity, tileFlow, tilePitch } from "../src/rack.js";
+import { PIPES, RACK_FINISHES, WATER_C, WATER_RHO, finishOf, pipeDuty,
+         pipeSize } from "../src/rack.js";
 import { ENTOURAGE, ENTOURAGE_NAMES, entourageAt, entourageMesh } from "../src/entourage.js";
 
 let failures = 0;
@@ -411,6 +413,116 @@ console.log("\n10. the entourage figures are rulers, not decorations");
   check("every figure carries its provenance",
         ENTOURAGE.every(one => one.from && one.from.length > 10),
         ENTOURAGE.map(one => one.from.slice(0, 30)).join(" | "));
+}
+
+console.log("\n11. the structural sections a containment unit is made of");
+{
+  //! AISC's HSS ARE NAMED IN INCHES AND DELIVERED AT 0.93 OF THE NOMINAL WALL,
+  //! which is the one thing about an ERW tube that catches people out: a
+  //! "6 x 6 x 1/4" has a DESIGN wall of 0.233 in, not 0.250. Checked from the
+  //! inch fractions rather than from the millimetre figure.
+  const hss6 = strutProfile("hss6");
+  check("HSS 6 x 6 is 6 inches square", near(hss6.w, inch(6), 1e-9)
+        && near(hss6.h, inch(6), 1e-9), hss6.w + " x " + hss6.h);
+  check("and its design wall is 0.93 of the 1/4 inch nominal",
+        near(hss6.wall, inch(0.25) * 0.93, 0.02),
+        hss6.wall + " mm from a nominal " + hss6.nominalWall);
+  check("the nominal wall is the one in the name", near(hss6.nominalWall, inch(0.25), 1e-9));
+  const hss8 = strutProfile("hss8");
+  check("HSS 8 x 8 is 8 inches square", near(hss8.w, inch(8), 1e-9), String(hss8.w));
+  //! A HEAVIER WALL AT THE SAME ENVELOPE, because that is what a wall thickness
+  //! IS: the outside of a hollow section does not move when it is thickened.
+  const hss6t = strutProfile("hss6t");
+  check("3/8 wall is the same 6 inch envelope as the 1/4",
+        near(hss6t.w, hss6.w, 1e-9) && hss6t.wall > hss6.wall,
+        hss6t.wall + " vs " + hss6.wall);
+  //! AND EACH ONE SAYS WHERE IT CAME FROM. An envelope is not a section
+  //! property, and a file that quotes an area or a weight this program has not
+  //! been given would be inventing one.
+  for (const key of ["hss4", "hss6", "hss6t", "hss8"]) {
+    const one = strutProfile(key);
+    check(one.name + " says what it is and is not", /AISC/.test(one.from)
+          && /envelope/.test(one.from), one.from);
+    //! FOUR CORNERS AND NOTHING ELSE, which is what an envelope means: a
+    //! hollow section drawn with its inside would be a different claim, and one
+    //! this program has not been given the corner radii to make.
+    check(one.name + " is a plain four-corner envelope",
+          one.outline().length === 4
+          && one.outline().every(pt => Math.abs(Math.abs(pt[0]) - one.w / 2) < 1e-9
+                                    && Math.abs(Math.abs(pt[1]) - one.h / 2) < 1e-9),
+          one.outline().length + " points");
+  }
+}
+
+console.log("\n12. the technical water loop, against ASME B36.10M and Q = m c dT");
+{
+  //! THE OUTSIDE DIAMETER IS FIXED BY THE NOMINAL SIZE, and only the wall
+  //! changes with the schedule. This is the thing that makes a pipe schedule a
+  //! schedule, and drawing a schedule 10 line thinner on the OUTSIDE is the
+  //! commonest pipe mistake in a model.
+  const dn150 = pipeSize("dn150");
+  check("DN150 is NPS 6 at 168.3 mm outside", near(dn150.od, 168.3, 1e-9), String(dn150.od));
+  check("and schedule 10 is thinner in the WALL, not in the OD",
+        dn150.sch10 < dn150.sch40, dn150.sch10 + " vs " + dn150.sch40);
+  const at40 = pipeDuty(dn150, 1.5, 10, "sch40");
+  const at10 = pipeDuty(dn150, 1.5, 10, "sch10");
+  check("so the thinner wall carries MORE, at the same velocity",
+        at10.kilowatts > at40.kilowatts,
+        Math.round(at10.kilowatts) + " kW vs " + Math.round(at40.kilowatts));
+  //! THE BORE, done here from the OD and the wall: 168.3 - 2 x 7.11 = 154.08.
+  check("the bore is the OD less two walls", near(at40.bore, 168.3 - 2 * 7.11, 1e-9),
+        at40.bore.toFixed(2) + " mm");
+  //! AND THE HEAT, which is the number a loop is sized by: Q = m c dT, with the
+  //! mass flow from the bore and the velocity. Done longhand here so the check
+  //! is against the physics and not against the function.
+  const area = Math.PI * Math.pow((168.3 - 2 * 7.11) / 2000, 2);
+  const want = area * 1.5 * WATER_RHO * WATER_C * 10;
+  check("DN150 schedule 40 at 1.5 m/s and 10 K carries Q = m c dT",
+        near(at40.kilowatts, want, 1e-6), Math.round(at40.kilowatts) + " kW");
+  check("and it is about 1.2 MW, which is what sizes a hall",
+        at40.kilowatts > 1100 && at40.kilowatts < 1300, Math.round(at40.kilowatts) + " kW");
+  //! TWICE THE RISE IS TWICE THE HEAT, and twice the velocity is twice the heat:
+  //! both are linear, unlike a plenum's square root, and a model that gets that
+  //! wrong is wrong by a factor rather than by a rounding.
+  check("twice the temperature rise is twice the heat",
+        near(pipeDuty(dn150, 1.5, 20, "sch40").kilowatts, at40.kilowatts * 2, 1e-6));
+  check("twice the velocity is twice the heat",
+        near(pipeDuty(dn150, 3, 10, "sch40").kilowatts, at40.kilowatts * 2, 1e-6));
+  //! WATER'S OWN NUMBERS, which are the two constants the whole sum rests on.
+  check("water is 4.18 kJ/kg K and 997 kg/m3 at room temperature",
+        WATER_C === 4.18 && WATER_RHO === 997, WATER_C + " " + WATER_RHO);
+  //! AND A PIPE'S NAME DOES NOT CONTAIN THE SEPARATOR A PREVIEW IS SPLIT ON.
+  //! A feature's preview is one line with " \u00b7 " between its parts, so a size
+  //! called "DN50 \u00b7 NPS 2" splits a report in half at its own name.
+  check("no pipe name contains the preview separator",
+        PIPES.every(one => !one.name.includes(" \u00b7 ")),
+        PIPES.map(one => one.name).join(", "));
+  check("every size names both standards it is known by",
+        PIPES.every(one => /DN/.test(one.name) && /NPS/.test(one.name)));
+}
+
+console.log("\n13. the colour scheme covers what a containment unit is made of");
+{
+  //! A ROLE FOR EVERY KIND OF THING IN A HALL, because a scheme with a gap in it
+  //! is a scheme somebody works round once and then always.
+  for (const role of ["frame", "fixing", "cable", "containment", "enclosure",
+                      "equipment", "power", "water", "floor", "understructure",
+                      "figure"]) {
+    const one = RACK_FINISHES.find(f => f.role === role);
+    check("there is a colour for " + role, !!one && !!one.of, one && one.label);
+  }
+  //! AND TECHNICAL WATER IS NOT POWER AND NOT CABLE. A pipe the colour of a
+  //! busbar is the one mistake in a plant room that gets somebody hurt.
+  const water = finishOf("water"), power = finishOf("power"), cable = finishOf("cable");
+  const apart = (a, b) => Math.hypot(a.color[0] - b.color[0], a.color[1] - b.color[1],
+                                     a.color[2] - b.color[2]);
+  check("water reads as neither power nor cable",
+        apart(water, power) > 0.4 && apart(water, cable) > 0.2,
+        apart(water, power).toFixed(2) + " from red, "
+        + apart(water, cable).toFixed(2) + " from blue");
+  check("an appearance is the shape styles.js writes",
+        water.finish && Array.isArray(water.color) && water.color.length === 3,
+        JSON.stringify(water));
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

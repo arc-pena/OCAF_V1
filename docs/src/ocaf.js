@@ -1131,6 +1131,42 @@ export const SAMPLES = [
            + "or Racks a row and the whole hall follows. Needs the Racks and Harness "
            + "packages. 169 nodes." },
 
+  { key: "hac-ribbon", name: "Data hall ribbon — floor-supported hot aisle containment",
+    file: "samples/hac_ribbon.json", needs: ["rack"],
+    summary: "Eighty-four racks in a 33.6 m ribbon, and ONE MODULE is a model. A "
+           + "floor-supported hot aisle containment unit is what hyperscale halls are "
+           + "actually built out of: prefabricated modules butted together, each one two "
+           + "welded HSS 6 × 6 × 1/4 portal trusses spanning the aisle with the racks "
+           + "standing UNDER them, and this file is seven instances of one such module - "
+           + "two levels of instancing deep, because the twelve racks inside it are "
+           + "themselves instances of three designs. Edit the GPU rack and fifty-six of "
+           + "them change. The module is seven parts rather than one - steel, arms, "
+           + "trays, busway, water, deck, racks - because that is how one arrives on "
+           + "site and because an instance is one body wearing one colour, so a module "
+           + "instanced whole would put six sevenths of a 33.6 m ribbon in flat grey. "
+           + "Forty-two racks a side, GPU, management and fibre patch, "
+           + "mixed six to a module, and the column bays are the ones the racks cannot "
+           + "have: a 152 mm column on the rack row's own centreline costs a bay, which "
+           + "is arithmetic the file does rather than a layout somebody drew. Overhead, "
+           + "twelve Unistrut cantilever arms a module carry three layers of fibre tray "
+           + "on each COLD aisle side and two of low voltage on each HOT side with the "
+           + "busway above them, and every arm says what it will hold at its reach - "
+           + "which is the only question an arm is chosen by. A DN250 technical water "
+           + "supply and return cross the top chords on channel bearers and tee down "
+           + "between them, and the loop reports the heat it carries: 5.7 MW at 1.8 m/s "
+           + "and 15 K, which over eighty-four racks is 68 kW a rack, so the sizing is "
+           + "on screen rather than in somebody's spreadsheet. NO RAISED FLOOR, because "
+           + "floor supported means the columns go to the slab and the cooling comes "
+           + "over the top - that is the whole reason this structure stands up rather "
+           + "than hangs. Everything the arms carry lives in the 766 mm between the rack "
+           + "tops and the bottom chord, and five Clash nodes check it by geometry: the "
+           + "racks against the steel, against the trays, against the arms, the module "
+           + "against its neighbours, and the people against all of it. Grow the racks "
+           + "to 56U and 204 clashes appear. Drag Hot aisle and the truss re-divides its "
+           + "panels, the far row moves and the roof follows; switch the HAC section to "
+           + "HSS 8 and fifteen trusses change while the headroom under them does not. "
+           + "Needs the Racks package. 365 nodes." },
+
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
     //! WHAT IT NEEDS BEFORE IT WILL OPEN. The first sample built out of a
