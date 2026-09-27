@@ -358,5 +358,51 @@ console.log("\n10. two types cannot answer to one guid");
   check("every type in the catalogue has its own guid", clashes === 0, clashes + " repeated");
 }
 
+/* ============================ a saved model has to be openable again
+
+   TWO PLACES REGISTER A PACKAGE'S NODES and they have to agree about who owns
+   them. The page does it when somebody switches a package on; the WORKER does
+   its own, from the same declaration, because what crosses a message port is a
+   package's NAME. The page is where a person clicks and the worker is where
+   the document lives - so when only the page stamped the nodes, every model
+   saved from the page came back with no "needs" list at all and refused to
+   reopen, naming a node type. The file looked perfect.                      */
+
+console.log("\nA. a package's nodes know whose they are, from the declaration");
+{
+  const { RACK_NODES } = await import("../src/rack-plugin.js");
+  const { HARNESS_NODES } = await import("../src/harness-plugin.js");
+  check("every rack node carries its package",
+        RACK_NODES.every(one => one.fromPackage === "rack"),
+        RACK_NODES.filter(one => one.fromPackage !== "rack").map(one => one.type).join(","));
+  check("and so does every harness node",
+        HARNESS_NODES.every(one => one.fromPackage === "harness"),
+        HARNESS_NODES.filter(one => one.fromPackage !== "harness").map(one => one.type).join(","));
+  //! STAMPED BY DECLARING IT, not by loading it - so the worker's own
+  //! registration gets it without having to remember to.
+  check("which is true before anything is switched on",
+        RACK_NODES[0].fromPackage === "rack", String(RACK_NODES[0].fromPackage));
+}
+
+console.log("\nB. and a file that never said what it needs can still be opened");
+{
+  const { packagesProviding } = await import("../src/plugin.js");
+  //! THE FALLBACK FOR EVERY FILE SAVED BEFORE THE LIST EXISTED. There is no
+  //! going back to add one, but the file still says what TYPES it holds and a
+  //! package declares its nodes with the package switched off.
+  check("a RackFrame names the package that provides it",
+        packagesProviding(["RackFrame"]).includes("rack"),
+        packagesProviding(["RackFrame"]).join(","));
+  check("a Route names the harness package",
+        packagesProviding(["Route"]).includes("harness"),
+        packagesProviding(["Route"]).join(","));
+  check("two packages' types ask for both",
+        ["rack", "harness"].every(id => packagesProviding(["RackFrame", "Cable"]).includes(id)),
+        packagesProviding(["RackFrame", "Cable"]).join(","));
+  check("and a type nobody provides asks for nothing",
+        packagesProviding(["Cube"]).length === 0,
+        packagesProviding(["Cube"]).join(","));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

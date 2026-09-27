@@ -13,12 +13,12 @@ import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGH
          rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, cappedTo, dataLines, lightenModel, round,
-         SAMPLES, sliderRange, sliderSpan } from "./ocaf.js";
+         SAMPLES, sliderRange, sliderSpan, typeSpec } from "./ocaf.js";
 import { armSliderEditor, closeSliderEditor, holdOnTrack,
          openSliderEditor } from "./slider.js";
 import { GraphEditor } from "./graph.js";
 import { Agent, agentTrouble, DEFAULT_MODEL, KEY_HOME, MODELS } from "./agent.js";
-import { PluginHost, unpackResource } from "./plugin.js";
+import { PluginHost, packagesProviding, unpackResource } from "./plugin.js";
 import { createWorkerKernel } from "./worker-kernel.js";
 import { makeTour } from "./tour.js";
 import { makePie, pieMenu } from "./pie.js";
@@ -12431,7 +12431,19 @@ const sampleModels = new Map();
 //! are missing will name themselves.
 async function loadNeeds(model) {
   const parsed = typeof model === "string" ? JSON.parse(model) : model;
-  for (const id of (parsed && parsed.needs) || []) {
+  //! WHAT THE FILE SAYS IT NEEDS, AND WHAT IT TURNS OUT TO NEED. A file written
+  //! before models carried a "needs" list has none, and there is no going back
+  //! to add one - but it still says what TYPES it is made of, and a package
+  //! declares its nodes with the package switched off. So anything the
+  //! catalogue does not know is looked up on the shelf and switched on by the
+  //! type that wants it. That covers hand-written files and files whose list
+  //! disagrees with their contents as well, which is why it is not a migration
+  //! but the ordinary path with the list as a shortcut.
+  const missing = [...new Set((parsed && parsed.features || [])
+    .map(one => one && one.type).filter(type => type && !typeSpec(type)))];
+  const asked = [...new Set([...((parsed && parsed.needs) || []),
+                             ...packagesProviding(missing)])];
+  for (const id of asked) {
     if (packages.isLoaded(id)) continue;
     try {
       say("switching on the " + id + " package\u2026");
@@ -13918,8 +13930,17 @@ function askReuse(fileName, model, sets) {
     const button = document.createElement("button");
     button.className = "pick-opt";
     button.setAttribute("aria-pressed", String(at === 0));
-    button.innerHTML = "<b>" + escapeHtml(one.name) + "</b><span>"
-      + escapeHtml(saysReuse(one).replace(one.name + " · ", "")) + "</span>";
+    //! INDENTED THE WAY THE TREE IS. The list arrives in tree order carrying
+    //! its depth - see setsIn - and showing that is the difference between
+    //! choosing "the whole rack" and choosing one of the two dozen sets inside
+    //! it, which read as the same kind of thing in a flat list of names.
+    if (one.depth) {
+      button.style.paddingLeft = (12 + one.depth * 16) + "px";
+      button.dataset.depth = String(one.depth);
+    }
+    button.innerHTML = "<b>" + (one.depth ? "\u2514 " : "") + escapeHtml(one.name)
+      + "</b><span>" + escapeHtml(saysReuse(one).replace(one.name + " \u00b7 ", ""))
+      + "</span>";
     button.addEventListener("click", () => {
       reusing.at = at;
       for (const other of host.children)

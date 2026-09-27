@@ -406,5 +406,40 @@ console.log("\n7. a set as a node: what goes in, what comes out");
         gatherInputs(rows).reduce((n, g) => n + g.rows.length, 0) === rows.length);
 }
 
+/* ================================ the list somebody picks a set from
+
+   A rack's file has two dozen sets in it. Listed flat, in whatever order the
+   file happens to store them, they are two dozen names with nothing to say
+   which is the whole rack and which is the box of bolts inside it - and that
+   is the ONLY thing somebody choosing what to instantiate needs to know.    */
+
+console.log("\n12. the sets are offered in the order the tree reads");
+{
+  const nest = { format: "ocaf-parametric-model", version: 1, features: [
+    { id: "BOLTS", type: "GeometricalSet", name: "Fixings", parent: "RACK" },
+    { id: "RACK", type: "GeometricalSet", name: "Rack" },
+    { id: "CUBE", type: "Cube", name: "Cube.1", parent: "BOLTS" },
+    { id: "OTHER", type: "GeometricalSet", name: "Spares" },
+    { id: "DEEP", type: "GeometricalSet", name: "Cage nuts", parent: "BOLTS" },
+  ] };
+  const sets = setsIn(nest, { isSet: one => one.type === "GeometricalSet" });
+  check("a parent comes before its children whatever order the file has them in",
+        sets.map(one => one.name).join(" > ") === "Rack > Fixings > Cage nuts > Spares",
+        sets.map(one => one.name).join(" > "));
+  check("and each one says how deep it sits, so the list can be indented",
+        sets.map(one => one.depth).join(",") === "0,1,2,0",
+        sets.map(one => one.name + "@" + one.depth).join(" "));
+  //! A SET WHOSE PARENT IS NOT A SET IS A ROOT. Its parent is not in this list,
+  //! so hanging it off one would put it at a depth with nothing above it and
+  //! leave it looking like a child of whatever was printed before.
+  const loose = { format: "ocaf-parametric-model", version: 1, features: [
+    { id: "BODY", type: "Cube", name: "Cube.1" },
+    { id: "IN", type: "GeometricalSet", name: "Inside a cube?", parent: "BODY" },
+  ] };
+  const one = setsIn(loose, { isSet: x => x.type === "GeometricalSet" });
+  check("a set filed under something that is not a set still shows up, at the top",
+        one.length === 1 && one[0].depth === 0, JSON.stringify(one));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

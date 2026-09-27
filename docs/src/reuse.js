@@ -48,11 +48,31 @@ export function contentsOf(model, setId, deep = true) {
 //! and what each would ask for - so the thing a person chooses from is a list
 //! of features rather than a list of ids.
 export function setsIn(model, { isSet = one => /set$/i.test(one.type) } = {}) {
-  return featuresOf(model).filter(isSet).map(one => {
-    const inside = contentsOf(model, one.id);
-    return { id: one.id, name: one.name || one.id, type: one.type,
-             holds: inside.length, inputs: inputsOf(model, one.id).length };
-  });
+  const sets = featuresOf(model).filter(isSet);
+  const mine = new Set(sets.map(one => one.id));
+  const out = [];
+  //! IN THE ORDER THE TREE READS, not the order the file happens to store them.
+  //! A rack's file has two dozen sets in it and a flat list of them is a list
+  //! of names with no way to tell the whole rack from the box of bolts inside
+  //! it - which is the one thing somebody choosing what to instantiate needs to
+  //! know. Walked depth first from the sets that are nobody's child, with the
+  //! depth carried so whoever draws the list can indent it.
+  //!
+  //! A set whose parent is NOT itself a set counts as a root: the parent is not
+  //! in this list, so hanging the child off it would leave it unreachable.
+  const walk = (holder, depth) => {
+    for (const one of sets) {
+      const above = one.parent && mine.has(one.parent) ? one.parent : null;
+      if (above !== holder) continue;
+      const inside = contentsOf(model, one.id);
+      out.push({ id: one.id, name: one.name || one.id, type: one.type,
+                 holds: inside.length, inputs: inputsOf(model, one.id).length,
+                 depth, parent: above });
+      walk(one.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
 }
 
 /* --------------------------------------------------------- the wires in it

@@ -53,6 +53,18 @@ export function definePlugin(manifest) {
     throw new Error(manifest.id + ' must have a start(kit) - that is where it comes alive');
   if (manifest.nodes && !Array.isArray(manifest.nodes))
     throw new Error(manifest.id + ": nodes must be a list of catalogue entries");
+  //! WHOSE NODE THIS IS, WRITTEN WHERE THE PACKAGE IS DECLARED. modelJson reads
+  //! it back off the specs in use to write the file's "needs" list, which is
+  //! what makes a saved model openable again at all.
+  //!
+  //! It used to be stamped when the PAGE switched a package on, and that is one
+  //! of two places a package's nodes get registered: the WORKER registers its
+  //! own, from the same declaration, and never stamped them. The page is where
+  //! a person clicks and the worker is where the document actually lives - so
+  //! every model saved from the page came back with no "needs" at all, and
+  //! reopening it refused at the first node by name. The file looked perfect.
+  //! Stamping here is the only place both sides go through.
+  for (const node of manifest.nodes || []) node.fromPackage = manifest.id;
   return {
     version: 1, needs: [], nodes: [], resources: [], api: null, view: null,
     ...manifest,
@@ -76,6 +88,25 @@ export function offerPlugin(manifest) {
 
 export const availablePlugins = () => [...shelf.values()];
 export const findPlugin = id => shelf.get(id) || null;
+
+//! WHICH PACKAGES WOULD SUPPLY THESE TYPES. A package DECLARES its nodes before
+//! it does anything, and that declaration is readable with the package switched
+//! off - which is the property that makes this possible at all.
+//!
+//! It exists because a file can be older than the rule that files name their
+//! packages. Every model saved before that worked came back with no list, and
+//! there is no going back to add one; but the file still says what TYPES it is
+//! made of, and the shelf still says who provides them. So a model that asks
+//! for a RackFrame can have the rack package switched on for it without ever
+//! having said the word "rack" - which is also the right behaviour for a file
+//! somebody hand-wrote, or one where the list and the contents disagree.
+export function packagesProviding(types) {
+  const wanted = new Set(types || []);
+  const out = [];
+  for (const plugin of shelf.values())
+    if ((plugin.nodes || []).some(node => wanted.has(node.type))) out.push(plugin.id);
+  return out;
+}
 
 /* --------------------------------------------------------------- running */
 
@@ -111,14 +142,9 @@ export class PluginHost {
     // adds to the catalogue is readable with it switched off, which is the
     // point of declaring it.
     if (plugin.nodes.length) {
-      //! WHOSE NODE THIS IS, written on the node. A model file made of a
-      //! package's nodes has to say which package, or opening it from a file
-      //! refuses at the first node by name - "unknown feature type
-      //! RackFrame" - which reads as a broken file rather than as a package
-      //! that is switched off. The catalogue is what knows the answer, so
-      //! this is where the answer is recorded: modelJson reads it back off
-      //! the specs in use and writes the list into the file.
-      for (const node of plugin.nodes) node.fromPackage = plugin.id;
+      //! The nodes already know whose they are - definePlugin stamps them, so
+      //! that the worker's own registration gets it too - and this is only the
+      //! page's half of switching a package on.
       registerTypes(plugin.nodes, "the " + plugin.name + " package");
       //! WHERE THE DRIVERS GO DEPENDS ON WHERE THE MODELLING IS. A driver is a
       //! closure over the kernel, so when the kernel is on another thread the
