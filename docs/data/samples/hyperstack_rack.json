@@ -3,6 +3,9 @@
  "version": 1,
  "name": "Hyperstack rack",
  "units": "mm",
+ "needs": [
+  "rack"
+ ],
  "features": [
   {
    "id": "R",
@@ -85,6 +88,15 @@
    "parent": "P",
    "args": {
     "value": 100
+   }
+  },
+  {
+   "id": "SECTION",
+   "type": "StrutSection",
+   "name": "Rack section · T-slot 40",
+   "parent": "P",
+   "args": {
+    "profile": 2
    }
   },
   {
@@ -257,6 +269,9 @@
     "supplier": "frame, welded",
     "plane": {
      "ref": "PL0"
+    },
+    "section": {
+     "ref": "SECTION"
     },
     "units": {
      "value": 48,
@@ -481,6 +496,9 @@
     },
     "at": {
      "ref": "PTB"
+    },
+    "section": {
+     "ref": "SECTION"
     }
    }
   },
@@ -608,6 +626,48 @@
    }
   },
   {
+   "id": "X_TOPU2",
+   "type": "Expression",
+   "name": "Second free U",
+   "parent": "C",
+   "args": {
+    "formula": "a + b * c + 1",
+    "a": {
+     "value": 3,
+     "from": "N_FIRST"
+    },
+    "b": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "c": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
+   "id": "X_TOPU4",
+   "type": "Expression",
+   "name": "Fourth free U",
+   "parent": "C",
+   "args": {
+    "formula": "a + b * c + 3",
+    "a": {
+     "value": 3,
+     "from": "N_FIRST"
+    },
+    "b": {
+     "value": 8,
+     "from": "N_NODES"
+    },
+    "c": {
+     "value": 2,
+     "from": "N_NODEU"
+    }
+   }
+  },
+  {
    "id": "PTS",
    "type": "Point",
    "name": "Switches at",
@@ -625,7 +685,6 @@
    "parent": "C",
    "args": {
     "standard": 0,
-    "unit": 40,
     "units": 1,
     "depth": 550,
     "inset": 20,
@@ -636,6 +695,10 @@
     },
     "at": {
      "ref": "PTS"
+    },
+    "unit": {
+     "value": 19,
+     "from": "X_TOPU"
     }
    }
   },
@@ -646,7 +709,6 @@
    "parent": "C",
    "args": {
     "standard": 0,
-    "unit": 42,
     "units": 1,
     "depth": 550,
     "inset": 20,
@@ -657,6 +719,10 @@
     },
     "at": {
      "ref": "PTS"
+    },
+    "unit": {
+     "value": 20,
+     "from": "X_TOPU2"
     }
    }
   },
@@ -667,7 +733,6 @@
    "parent": "C",
    "args": {
     "standard": 0,
-    "unit": 45,
     "units": 2,
     "depth": 300,
     "inset": 700,
@@ -678,6 +743,10 @@
     },
     "at": {
      "ref": "PTS"
+    },
+    "unit": {
+     "value": 22,
+     "from": "X_TOPU4"
     }
    }
   },
@@ -821,6 +890,19 @@
    }
   },
   {
+   "id": "X_BOUGHT",
+   "type": "Expression",
+   "name": "Bought part at (mm)",
+   "parent": "X",
+   "args": {
+    "formula": "a * 44.45 - 34",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
    "id": "PTX3",
    "type": "Point",
    "name": "Bought part at",
@@ -828,7 +910,10 @@
    "args": {
     "x": 65,
     "y": 46,
-    "z": 2100
+    "z": {
+     "value": 2099.6000000000004,
+     "from": "X_BOUGHT"
+    }
    }
   },
   {
@@ -935,13 +1020,25 @@
    }
   },
   {
+   "id": "X_MGR",
+   "type": "Expression",
+   "name": "Manager length (mm)",
+   "parent": "K",
+   "args": {
+    "formula": "a * 44.45 - 200",
+    "a": {
+     "value": 48,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
    "id": "MGR",
    "type": "Strut",
    "name": "Vertical manager · 41 channel",
    "parent": "K",
    "args": {
     "profile": 6,
-    "length": 1900,
     "holes": 2,
     "bore2": 12,
     "pitch2": 100,
@@ -952,6 +1049,10 @@
     },
     "at": {
      "ref": "PTK2"
+    },
+    "length": {
+     "value": 1933.6000000000004,
+     "from": "X_MGR"
     }
    }
   },

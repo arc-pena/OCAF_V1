@@ -115,6 +115,14 @@ num("N_PLINTH", "Plinth", 100, "P");
 //! exactly, and every position up the rack is a whole number of them. Written
 //! as an Expression so it is visible in the model rather than hidden in this
 //! script - somebody opening the sample can see where 44.45 comes in.
+//! THE SECTION THE RACK IS MADE OF, as one feature. This is the answer to
+//! "change the strut and the frame follows": the frame and every brace are
+//! wired to THIS, so switching it from a 40 T-slot to a 45 or to a 41 mm
+//! channel changes the frame and all four braces at once. A choice on an
+//! argument cannot be wired - it is a number on one feature - which is why the
+//! section has to be a feature before it can be a parameter.
+add("SECTION", "StrutSection", { name: "Rack section · T-slot 40", parent: "P",
+  args: { profile: 2 } });
 expr("X_U", "One unit (mm)", "44.45", {}, "P");
 expr("X_HEIGHT", "Rack height (mm)", "a * 44.45", { a: ["N_UNITS", UNITS] }, "P");
 expr("X_NODESPAN", "Compute span (U)", "a * b",
@@ -144,7 +152,8 @@ add("PLYB", "Plane", { name: "Out the front", parent: "F", refs: { origin: "PT0"
 //! The frame. Its height in U and its depth are WIRED, so the two numbers in
 //! 00 Parameters are the two numbers that define the rack.
 add("FRAME", "RackFrame", { name: "Frame · 48U", parent: "F",
-  refs: { plane: "PL0" }, wire: { units: ["N_UNITS", UNITS], depth: ["N_DEPTH", DEPTH] },
+  refs: { plane: "PL0", section: "SECTION" },
+  wire: { units: ["N_UNITS", UNITS], depth: ["N_DEPTH", DEPTH] },
   args: { standard: 0, profile: 2, rails: 3, posts: 0, postWidth: 50,
           supplier: "frame, welded" } });
 
@@ -197,7 +206,7 @@ add("PTB", "Point", { name: "First brace at", parent: "B",
 //! that is the whole of the difference. Its length is the clear span between
 //! the post flanges: the standard's hole spacing less one flange.
 add("BRACE", "Strut", { name: "Brace · 40 T-slot, drilled", parent: "B",
-  refs: { plane: "PLX", at: "PTB" },
+  refs: { plane: "PLX", at: "PTB", section: "SECTION" },
   args: { profile: 2, length: BRACE_SPAN, holes: 1, bore: 9, pitch: 60, setback: 30,
           supplier: "brace, cut to length" } });
 add("BRACES", "Array", { name: "Braces · up the rack", parent: "B",
@@ -226,21 +235,33 @@ add("NODES", "Array", { name: "Compute stack · 8 nodes", parent: "C",
 
 //! The rest of the rack, placed relative to the compute stack so it moves when
 //! the stack grows: the leaf switches sit directly above it.
-expr("X_TOPU", "First free U", "a + b * c",
+//! THE UNIT EACH ONE SITS AT, COMPUTED. These were typed - 40, 42 and 45 - and
+//! a typed unit number is a part that stays where it was put while everything
+//! around it moves: halve the rack and the switches hang in the air above it,
+//! which is exactly what this sample exists to say cannot happen. The first
+//! free U is the one above the compute stack, so the switches, the PDU and the
+//! blanking ride up and down with the node count as well as with the height.
+const TOP_U = "a + b * c";
+expr("X_TOPU", "First free U", TOP_U,
      { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "C");
+expr("X_TOPU2", "Second free U", TOP_U + " + 1",
+     { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "C");
+expr("X_TOPU4", "Fourth free U", TOP_U + " + 3",
+     { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "C");
+const FREE_U = FIRST_U + NODES * NODE_U;
 add("PTS", "Point", { name: "Switches at", parent: "C",
   args: { x: PANEL_X, y: 60, z: 0 } });
 add("SW1", "RackDevice", { name: "Leaf switch · 1U", parent: "C",
-  refs: { plane: "PL0", at: "PTS" },
-  args: { standard: 0, unit: 40, units: 1, depth: 550, inset: 20, ears: 0,
+  refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU", FREE_U] },
+  args: { standard: 0, units: 1, depth: 550, inset: 20, ears: 0,
           supplier: "32 x 400G leaf switch" } });
 add("SW2", "RackDevice", { name: "Leaf switch · 1U", parent: "C",
-  refs: { plane: "PL0", at: "PTS" },
-  args: { standard: 0, unit: 42, units: 1, depth: 550, inset: 20, ears: 0,
+  refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU2", FREE_U + 1] },
+  args: { standard: 0, units: 1, depth: 550, inset: 20, ears: 0,
           supplier: "32 x 400G leaf switch" } });
 add("PDU", "RackDevice", { name: "PDU · 2U", parent: "C",
-  refs: { plane: "PL0", at: "PTS" },
-  args: { standard: 0, unit: 45, units: 2, depth: 300, inset: 700, ears: 0,
+  refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU4", FREE_U + 3] },
+  args: { standard: 0, units: 2, depth: 300, inset: 700, ears: 0,
           supplier: "3-phase 32 A rack PDU" } });
 
 /* ------------------------------------------------------------- 04 Fastening */
@@ -279,8 +300,13 @@ add("BOLTS", "Array", { name: "Bolts · up the post", parent: "X",
 //! is a cylinder standing in for a supplier's STEP file, and it is labelled as
 //! one: this sample ships nobody's part files. Import the real STEP, wire it
 //! here, and the bill carries the reference you put on it.
+//! IT RIDES WITH THE RACK TOO. It is a demonstration of the bought-part wiring
+//! and not a real fixing, but a demonstration that floats in mid-air once the
+//! height changes demonstrates the wrong thing.
+expr("X_BOUGHT", "Bought part at (mm)", "a * 44.45 - 34", { a: ["N_UNITS", UNITS] }, "X");
 add("PTX3", "Point", { name: "Bought part at", parent: "X",
-  args: { x: 65, y: 46, z: 2100 } });
+  wire: { z: ["X_BOUGHT", UNITS * U - 34] },
+  args: { x: 65, y: 46 } });
 add("STANDIN", "Cube", { name: "(stand-in for a supplier STEP)", parent: "X",
   refs: { origin: "PTX3", plane: "PL0" }, args: { dx: 10, dy: 14, dz: 10 } });
 add("BOLT_REAL", "Fastener", { name: "M8 · the bought part", parent: "X",
@@ -305,9 +331,12 @@ add("PTK2", "Point", { name: "Manager at", parent: "K",
   args: { x: 555, y: DEPTH - 110, z: 100 } });
 //! The vertical cable manager is a strut on the same section family, drilled
 //! for tie points on a 100 pitch - so it is the same kit of parts.
+//! AND ITS LENGTH IS THE RACK'S. A fixed 1900 is right for a 48U rack and
+//! stands most of a metre out of the top of a 24U one.
+expr("X_MGR", "Manager length (mm)", "a * 44.45 - 200", { a: ["N_UNITS", UNITS] }, "K");
 add("MGR", "Strut", { name: "Vertical manager · 41 channel", parent: "K",
-  refs: { plane: "PL0", at: "PTK2" },
-  args: { profile: 6, length: 1900, holes: 2, bore2: 12, pitch2: 100, setback2: 50,
+  refs: { plane: "PL0", at: "PTK2" }, wire: { length: ["X_MGR", UNITS * U - 200] },
+  args: { profile: 6, holes: 2, bore2: 12, pitch2: 100, setback2: 50,
           supplier: "cable manager, 41 x 21 channel" } });
 
 /* ------------------------------------------------------------------ 06 Bill */
@@ -318,8 +347,14 @@ add("BOM", "Bill", { name: "Bill of materials · the whole rack", parent: "Z",
 add("BOM_FIX", "Bill", { name: "Fasteners to order", parent: "Z",
   refs: { of: "R" }, args: { show: 1 } });
 
+//! WHAT IT CANNOT BE OPENED WITHOUT, written into the file. Every node in 01
+//! to 05 belongs to the rack package, and a catalogue without it has no
+//! RackFrame - so a file that did not say this refused at the first one, by
+//! node name, and read as a corrupt file. The page switches on whatever a
+//! model asks for before opening it, so this is the whole of what is needed to
+//! make the file openable by dropping it on the page.
 const model = { format: "ocaf-parametric-model", version: 1,
-                name: "Hyperstack rack", units: "mm", features };
+                name: "Hyperstack rack", units: "mm", needs: ["rack"], features };
 
 /* =================================================== built, then questioned */
 
@@ -372,6 +407,11 @@ const wantHoles = holeCentres("eia310", UNITS).length;
 console.log("post " + wantHoles + " holes · " + postFaces + " faces");
 if (wantHoles !== 144) { console.log("the hole pattern is wrong"); process.exit(1); }
 
+//! WHAT LIVES INSIDE THE FRAME and must stay there at any height. The tray is
+//! not in it: the tray sits ON the frame, and is checked for that instead.
+const INSIDE = ["BRACES", "NODES", "SW1", "SW2", "PDU", "CAGES", "BOLTS", "MGR",
+                "STANDIN", "BOLT_REAL"];
+
 //! AND EVERYTHING IS WHERE IT SAYS IT IS. This is the check that would have
 //! caught the bracing standing up beside a post instead of lying across the
 //! back of it: a brace is a cross-member, so it is WIDE and SHORT, and nothing
@@ -388,8 +428,7 @@ if (wantHoles !== 144) { console.log("the hole pattern is wrong"); process.exit(
     console.log("the brace is not lying across the rack - the sample is not written");
     process.exit(1);
   }
-  const over = ["BRACES", "NODES", "SW1", "SW2", "PDU", "CAGES", "BOLTS", "MGR"]
-    .filter(id => boxOf(id).high[2] > high + 1e-6);
+  const over = INSIDE.filter(id => boxOf(id).high[2] > high + 1e-6);
   if (over.length) {
     console.log("out through the top of the frame: " + over.join(", "));
     process.exit(1);
@@ -408,6 +447,15 @@ if (wantHoles !== 144) { console.log("the hole pattern is wrong"); process.exit(
   }
   if (!(cages.low[1] >= 61.9)) {
     console.log("the cage nuts are not behind the flange - the sample is not written");
+    process.exit(1);
+  }
+
+  //! AND THE FILE SAYS WHICH PACKAGE IT IS MADE OF. Without this line the file
+  //! opens from the samples menu, which has its own list, and refuses when
+  //! somebody drops it on the page - the one way somebody sent this sample is
+  //! going to try to open it.
+  if (!(model.needs || []).includes("rack")) {
+    console.log("the file does not ask for the rack package - the sample is not written");
     process.exit(1);
   }
 
@@ -437,6 +485,57 @@ console.log("compute stack  8 nodes " + eight.toFixed(1) + " mm · 4 nodes "
 if (!(Math.abs(eight - back) < 1e-6) || !(Math.abs(four - eight / 2) < U)) {
   console.log("the compute count is not driving the stack - the sample is not written");
   process.exit(1);
+}
+
+//! AND ASKED AGAIN OF A RACK THAT HAS BEEN HALVED. Everything above fits a 48U
+//! rack, and a part placed at a typed height fits a 48U rack too - it is only
+//! when the rack moves that the difference between a number that was computed
+//! and a number that was typed shows up. The switches sat at U40 and U42 and
+//! the manager was 1900 long: at 24U all three hung in the air above a frame
+//! half their height, and every check above still passed.
+{
+  await mdl.run({ op: "set", id: "N_UNITS", key: "value", value: 24 });
+  const high = boxOf("FRAME").high[2];
+  const out = INSIDE.filter(id => boxOf(id).high[2] > high + 1e-6);
+  console.log("halved to 24U · frame top " + high.toFixed(1) + " · "
+    + (out.length ? "OUT: " + out.join(", ") : "everything still inside it"));
+  await mdl.run({ op: "set", id: "N_UNITS", key: "value", value: UNITS });
+  if (out.length) {
+    console.log("these do not follow the height: " + out.join(", ")
+      + " - the sample is not written");
+    process.exit(1);
+  }
+}
+
+//! AND ONE SECTION DRIVES EVERY MEMBER MADE OF IT. This is the check behind
+//! "change the strut and the frame follows": the frame and all four braces are
+//! wired to one StrutSection, so switching it has to move both at once. A
+//! 40 T-slot brace is 40 wide; a 45 is 45; a 41 x 21 channel is 20.6 deep.
+{
+  const braceWide = () => boxOf("BRACES").size[1];
+  const frameWide = () => boxOf("FRAME").size[0];
+  const at40 = { brace: braceWide(), frame: frameWide() };
+  await mdl.run({ op: "set", id: "SECTION", key: "profile", value: 3 });   // T-slot 45
+  const at45 = { brace: braceWide(), frame: frameWide() };
+  await mdl.run({ op: "set", id: "SECTION", key: "profile", value: 6 });   // 41 x 21 channel
+  const channel = { brace: braceWide(), frame: frameWide() };
+  await mdl.run({ op: "set", id: "SECTION", key: "profile", value: 2 });
+  const back = { brace: braceWide(), frame: frameWide() };
+  console.log("one section, every member · brace " + at40.brace.toFixed(1) + " -> "
+    + at45.brace.toFixed(1) + " -> " + channel.brace.toFixed(1) + " -> " + back.brace.toFixed(1)
+    + "  · frame " + at40.frame.toFixed(1) + " -> " + at45.frame.toFixed(1)
+    + " -> " + channel.frame.toFixed(1) + " -> " + back.frame.toFixed(1));
+  //! The brace follows the section exactly - it IS the section - and the frame
+  //! has to move too, or the section is only driving one of the two.
+  if (Math.abs(at40.brace - 40) > 0.01 || Math.abs(at45.brace - 45) > 0.01
+      || Math.abs(channel.brace - 20.6) > 0.01 || Math.abs(back.brace - 40) > 0.01) {
+    console.log("the section is not driving the bracing - the sample is not written");
+    process.exit(1);
+  }
+  if (!(at45.frame > at40.frame) || !(Math.abs(back.frame - at40.frame) < 1e-6)) {
+    console.log("the section is not driving the frame - the sample is not written");
+    process.exit(1);
+  }
 }
 
 //! AND THE HEIGHT DRIVES THE FRAME, THE POSTS, THE BRACING AND THE FIXINGS.

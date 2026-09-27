@@ -206,11 +206,22 @@ const mdl = new Mdl({
 //! the browser's own store - see keepModel - so a tab that really does die
 //! takes nothing with it.
 async function edit(command, options = {}) {
-  const watch = setTimeout(() => say("still working on " + (command.op || "that")
-    + " - the modelling happens in this page, so a big one takes the page with it"), 1000);
+  let warned = false;
+  const watch = setTimeout(() => {
+    warned = true;
+    say("still working on " + (command.op || "that")
+      + " - a big model takes a while, and the panel says how far along it is");
+  }, 1000);
   try { return await mdl.run(command, options); }
   catch (err) { showError(err.message); return null; }
-  finally { clearTimeout(watch); }
+  finally {
+    clearTimeout(watch);
+    //! AND TAKE IT BACK. Cancelling the timer only stops a message that has
+    //! not been said yet; one that HAS been said sits on the bar until
+    //! something else replaces it, so "still working" outlived the work and
+    //! was the last thing a finished model had to say for itself.
+    if (warned) say("done");
+  }
 }
 
 //! Several edits that are one thing that happened: four features filed into a
@@ -12031,6 +12042,14 @@ function select(id, openDefinition, keep = false) {
 //! Everything the kernel says, in one place: mirror the tree, redraw the
 //! panels, then fetch the triangles for whatever it rebuilt.
 function applyState(payload, options = {}) {
+  //! THE WORK IS OVER, SO THE PANEL SAYING SO GOES. Every edit's answer lands
+  //! here, which makes this the one place that knows a build has finished -
+  //! and the panel had no such place before: it was raised by the kernel's
+  //! first progress message and never lowered, so opening a model left
+  //! "Reading the model..." on screen for good. A model that took a minute
+  //! read as a model that had hung, because the only thing on screen was a
+  //! bar that never moved.
+  doneWorking();
   if (payload.tree) state.tree = payload.tree;
   // An analysis is about a shape. Change the shape and it is about something
   // that is no longer there - and a stale one looks exactly like a fresh one.
@@ -12132,7 +12151,7 @@ function offerSpare() {
   open.textContent = "Recover it";
   open.addEventListener("click", async () => {
     try {
-      await mdl.run({ op: "model", model: JSON.parse(spare.text) });
+      await mdl.run({ op: "model", model: await loadNeeds(JSON.parse(spare.text)) });
       say("recovered the model that was open " + ago + " ago");
       fitView();
     } catch (err) { showError(err.message); }
@@ -12360,6 +12379,31 @@ const sampleMenu = document.getElementById("sample-menu");
 //! and kept, so opening the same sample twice does not fetch it twice.
 const sampleModels = new Map();
 
+//! WHAT A MODEL ASKS FOR, SWITCHED ON BEFORE IT OPENS. A file made of a
+//! package's nodes names its packages in "needs", and without them the
+//! catalogue has no such type: the open refuses at the first one BY NODE NAME
+//! - "unknown feature type RackFrame" - which reads as a broken file and not
+//! as a package that is off. The samples menu has always done this from its
+//! own list; this is the same thing for a file somebody opens, taken from the
+//! file itself so it works for a model saved out of this page as much as for
+//! one that shipped with it.
+//!
+//! A package that is asked for and is not on the shelf is NOT fatal. Most of a
+//! file is usually ordinary nodes, and refusing the whole thing helps nobody -
+//! so it is said out loud and the open goes ahead, where the nodes that really
+//! are missing will name themselves.
+async function loadNeeds(model) {
+  const parsed = typeof model === "string" ? JSON.parse(model) : model;
+  for (const id of (parsed && parsed.needs) || []) {
+    if (packages.isLoaded(id)) continue;
+    try {
+      say("switching on the " + id + " package\u2026");
+      await packages.load(id);
+    } catch (error) { say("this model asks for the " + id + " package: " + error.message); }
+  }
+  return parsed;
+}
+
 async function sampleModel(sample) {
   if (sample.model) return sample.model;
   if (sampleModels.has(sample.key)) return sampleModels.get(sample.key);
@@ -12399,7 +12443,9 @@ function buildSampleMenu() {
           say("switching on the " + id + " package\u2026");
           await packages.load(id);
         }
-        model = await sampleModel(sample);
+        //! AND WHATEVER THE FILE ITSELF ASKS FOR, which is the list that
+        //! travels with a model rather than the one beside it in the menu.
+        model = await loadNeeds(await sampleModel(sample));
       }
       catch (error) { say("could not open " + sample.name + ": " + error.message); return; }
       if (await edit({ op: "model", model })) fitView();
@@ -13637,7 +13683,7 @@ async function takeFile(file) {
   //! here, in the page, before anything of it reaches the kernel.
   if (format.key === "model") {
     try {
-      await mdl.run({ op: "model", model: await file.text() });
+      await mdl.run({ op: "model", model: await loadNeeds(await file.text()) });
       fitView();
       say(file.name + " opened");
     } catch (err) { say("could not open " + file.name + " — " + err.message); return "no"; }
@@ -14106,7 +14152,8 @@ document.getElementById("btn-copy").addEventListener("click", async () => {
 document.getElementById("btn-load").addEventListener("click", async () => {
   const button = document.getElementById("btn-load");
   try {
-    await mdl.run({ op: "model", model: document.getElementById("model-text").value });
+    await mdl.run({ op: "model",
+                    model: await loadNeeds(document.getElementById("model-text").value) });
     modal.close();
     fitView();
   } catch (err) {

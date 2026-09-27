@@ -42,6 +42,22 @@ const fastenerNames = FASTENERS.map(one => one.name);
 /* -------------------------------------------------------------- the nodes */
 
 export const RACK_NODES = [
+  //! THE SECTION, AS A FEATURE OF ITS OWN. A choice on an argument is a number
+  //! stored on that one feature and it cannot be wired, so a frame, its braces
+  //! and its rails each carried their OWN idea of what section the rack was
+  //! built from - and changing the rack's section meant changing every one of
+  //! them by hand, which is not a parametric model, it is a model with
+  //! parameters in it. This is the section itself: one feature, wired into
+  //! every member that is made of it, changed in one place.
+  { type: "StrutSection", guid: "9a1b2c30-00db-4c00-9e00-caf0000000db", category: "data",
+    produces: "text",
+    summary: "One section, shared. Wire it into a Strut, a rack frame or a cable tray and "
+           + "that member is made of this section - so switching a whole rack from a 40 "
+           + "T-slot to a 45, or to a 41 mm channel, is one change in one place instead of "
+           + "one per beam. A member with nothing wired in keeps its own choice, so this "
+           + "is something to reach for and not something to have to set up.",
+    args: [ARG.choice("profile", "Section", profileNames, 2)] },
+
   { type: "Strut", guid: "9a1b2c30-00d4-4c00-9e00-caf0000000d4", category: "body",
     produces: "solid",
     summary: "A length of strut, extruded from a named section and drilled on a pitch. "
@@ -59,7 +75,10 @@ export const RACK_NODES = [
            ARG.when(ARG.real("bore2", "Hole", 9, 1, 40, 0.5), "holes", 2),
            ARG.when(ARG.real("pitch2", "Pitch", 50, 5, 1000, 1), "holes", 2),
            ARG.when(ARG.real("setback2", "First hole at", 25, 0, 1000, 1), "holes", 2),
-           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           //! APPENDED, because an argument's place in this list IS its tag in
+           //! the document and inserting one renumbers every argument after it.
+           ARG.spare("section", "Section from", ["StrutSection"])] },
 
   { type: "RackPost", guid: "9a1b2c30-00d5-4c00-9e00-caf0000000d5", category: "body",
     produces: "solid",
@@ -96,7 +115,8 @@ export const RACK_NODES = [
            ARG.real("rails", "Intermediate rails", 2, 0, 12, 1, ""),
            ARG.choice("posts", "Mounting posts", ["Front and back", "Front only", "None"], 0),
            ARG.real("postWidth", "Post flange", 50, 20, 200, 1),
-           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           ARG.spare("section", "Section from", ["StrutSection"])] },
 
   { type: "Fastener", guid: "9a1b2c30-00d7-4c00-9e00-caf0000000d7", category: "body",
     produces: "solid",
@@ -125,7 +145,8 @@ export const RACK_NODES = [
            ARG.choice("profile", "Side rail", profileNames, 6),
            ARG.real("pitch", "Rung pitch", 250, 25, 2000, 5),
            ARG.real("rung", "Rung", 20, 5, 100, 1),
-           ARG.text("supplier", "Supplier ref", "", "your own part number")] },
+           ARG.text("supplier", "Supplier ref", "", "your own part number"),
+           ARG.spare("section", "Section from", ["StrutSection"])] },
 
   { type: "RackDevice", guid: "9a1b2c30-00d9-4c00-9e00-caf0000000d9", category: "body",
     produces: "solid",
@@ -236,10 +257,28 @@ function rackDrivers(kit) {
     return S.pad(face, [dir[0] * length, dir[1] * length, dir[2] * length]);
   };
 
+  //! ONE CUT, NOT A HUNDRED AND FORTY-FOUR. This took the tools one at a time,
+  //! and each one was a whole boolean: a full intersection of the tool against
+  //! a post that had grown more faces with every hole before it. Four posts of
+  //! 144 holes was fifty-odd seconds of the minute a rack took to open, and
+  //! the same fifty seconds every time the height moved - which is what turns
+  //! a parametric model into one nobody drags. OpenCascade takes a compound as
+  //! the tool of a cut and does the lot in one pass, so that is what it gets.
   const cutAll = (solid, tools) => {
-    let out = solid;
-    for (const tool of tools) out = S.remove(out, tool);
-    return out;
+    if (!tools.length) return solid;
+    return tools.length === 1 ? S.remove(solid, tools[0])
+                              : S.remove(solid, K.compoundOf(tools));
+  };
+
+  //! WHAT A MEMBER IS MADE OF. A wired StrutSection wins over the member's own
+  //! choice, which is what makes one section change a whole frame; a member
+  //! with nothing wired in reads its own, which is what makes the wire optional
+  //! rather than something everybody has to set up before they can draw a beam.
+  const sectionOf = (f, fallback) => {
+    const shared = KF.reference(f, "section");
+    const pick = shared ? K.F.choice(shared, "profile", fallback)
+                        : K.F.choice(f, "profile", fallback);
+    return STRUT_PROFILES[pick] || STRUT_PROFILES[fallback] || STRUT_PROFILES[2];
   };
 
   const supplierOf = f => String(KF.code(f, "supplier", "") || "").trim();
@@ -262,7 +301,11 @@ function rackDrivers(kit) {
                  from: bought ? "the bought part, as supplied" : it.from };
       }
       case "Strut": {
-        const it = STRUT_PROFILES[KF.choice(one, "profile", 2)] || strutProfile("ts40");
+        //! THROUGH THE SAME READING THE DRIVER USES. A bill that read the
+        //! member's own choice while the member was built from a wired section
+        //! would order the section the rack is not made of - and would look
+        //! right, because the number it read is really on the feature.
+        const it = sectionOf(one, 2);
         return { name: it.name + " \u00b7 " + round(KF.real(one, "length", 1000)) + " mm",
                  kind: "section", from: it.from, supplier };
       }
@@ -274,7 +317,7 @@ function rackDrivers(kit) {
       }
       case "RackFrame": {
         const std = RACK_STANDARDS[KF.choice(one, "standard", 0)] || RACK_STANDARDS[0];
-        const it = STRUT_PROFILES[KF.choice(one, "profile", 2)] || strutProfile("ts40");
+        const it = sectionOf(one, 2);
         return { name: "Rack frame " + Math.round(KF.real(one, "units", 42)) + std.unitName
                    + " \u00b7 " + it.name, kind: "section", from: std.name, supplier };
       }
@@ -301,6 +344,18 @@ function rackDrivers(kit) {
   };
 
   return {
+    //! IT BUILDS NOTHING. A section is not a body - it is what bodies are made
+    //! of - so what it produces is its own description, which is what the tree
+    //! shows and what tells you at a glance what the rack is made of.
+    StrutSection: {
+      precondition: f => null,
+      build: f => {
+        const spec = STRUT_PROFILES[K.F.choice(f, "profile", 2)] || strutProfile("ts40");
+        return { data: K.text([spec.name, spec.from,
+                               spec.w + " \u00d7 " + spec.h + " mm"]) };
+      },
+    },
+
     Strut: {
       precondition: f => {
         if (KF.real(f, "length", 1000) <= 0) return "a strut needs a length";
@@ -308,7 +363,7 @@ function rackDrivers(kit) {
       },
       build: f => {
         const frame = frameOf(f);
-        const spec = STRUT_PROFILES[K.F.choice(f, "profile", 2)] || strutProfile("ts40");
+        const spec = sectionOf(f, 2);
         const length = KF.real(f, "length", 1000);
         let solid = extrudeOutline(frame, spec.outline(), [0, 0, 0], length, "z");
         const mode = K.F.choice(f, "holes", 0);
@@ -379,7 +434,7 @@ function rackDrivers(kit) {
         const spec = RACK_STANDARDS[K.F.choice(f, "standard", 0)] || RACK_STANDARDS[0];
         const units = Math.max(1, Math.round(KF.real(f, "units", 42)));
         const depth = KF.real(f, "depth", 1070);
-        const section = STRUT_PROFILES[K.F.choice(f, "profile", 2)] || strutProfile("ts40");
+        const section = sectionOf(f, 2);
         const rails = Math.max(0, Math.round(KF.real(f, "rails", 2)));
         const postWidth = KF.real(f, "postWidth", 50);
         const high = rackHeight(spec.key, units);
@@ -488,7 +543,7 @@ function rackDrivers(kit) {
       precondition: f => (KF.real(f, "length", 1000) > 0 ? null : "a tray needs a length"),
       build: f => {
         const frame = frameOf(f);
-        const section = STRUT_PROFILES[K.F.choice(f, "profile", 6)] || strutProfile("p3300");
+        const section = sectionOf(f, 6);
         const length = KF.real(f, "length", 1000);
         const width = KF.real(f, "width", 300);
         const pitch = KF.real(f, "pitch", 250);

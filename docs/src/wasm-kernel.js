@@ -6342,7 +6342,22 @@ function sprawl(face, edges) {
   const BIG_ENOUGH_TO_SLICE = 250;
 
   async function settleAsync(all, tell) {
-    if (doc.features().length < BIG_ENOUGH_TO_SLICE) return settle(all);
+    //! COUNTING FEATURES IS NOT MEASURING WORK, and this line used to do the
+    //! first while meaning the second. A rack of SEVENTY features - four posts
+    //! with a hundred and forty-four square holes cut through each, arrays of
+    //! bolts, a frame of drilled sections - is fifty-odd seconds of booleans,
+    //! and it went down the straight path because seventy is less than two
+    //! hundred and fifty. Straight means synchronous: no slices, so no
+    //! progress reported and no frame drawn, for the whole minute. What was on
+    //! screen was the one message sent before the walk began, under a bar at
+    //! nought per cent, which is indistinguishable from a model that has hung.
+    //!
+    //! So the count only decides it when NOBODY IS LISTENING. When the page
+    //! has asked to be told, the sliced walk is what runs whatever the size:
+    //! it costs one Date.now() a feature, and it only hands the thread back
+    //! when a slice has actually overrun, so a model that settles in four
+    //! milliseconds still settles in four and says nothing.
+    if (!tell && doc.features().length < BIG_ENOUGH_TO_SLICE) return settle(all);
     let report = await settleSlowly(all, tell);
     //! The generators, exactly as the straight one runs them - and then one
     //! more sliced pass if any of them made anything.

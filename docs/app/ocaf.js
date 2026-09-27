@@ -4508,7 +4508,16 @@ export class Doc {
     if (target) {
       const accepts = arg.kind === "ref" || arg.kind === "refs" ? arg.accepts : ["number"];
       const gives = F.spec(target).produces;
-      if (!accepts.includes(gives))
+      //! BY KIND, OR BY TYPE - the same rule acceptsFrom uses, because these
+      //! two are the same question asked twice: acceptsFrom decides which wires
+      //! the interface will OFFER and this decides which the document will
+      //! MAKE, and when they disagree the interface offers a wire that is then
+      //! refused by name. Almost every input wants a kind - a plane, a solid, a
+      //! number - and says so. An input that wants ONE PARTICULAR TYPE has no
+      //! kind to ask for: a section is not a solid and not a number, it is the
+      //! thing a beam is made of, and the type name is the only honest way to
+      //! say "that node, and nothing else".
+      if (!accepts.includes(gives) && !accepts.includes(F.spec(target).type))
         throw new Error(arg.label + " takes " + accepts.join(" or ") + ", and "
           + F.name(target) + " gives " + gives);
       if (this.dependsOn(target, f))
@@ -4831,8 +4840,17 @@ export class Doc {
   }
 
   modelJson() {
+    //! WHAT THIS FILE CANNOT BE OPENED WITHOUT. A node from a package is a node
+    //! the catalogue does not have until the package is switched on, so a file
+    //! that does not name its packages cannot be opened from disk at all: it
+    //! refuses at the first one, by node name, which reads as a corrupt file.
+    //! Read off the specs actually in use rather than off what happens to be
+    //! loaded, so a document that no longer uses a package stops asking for it.
+    const needs = [...new Set(this.features()
+      .map(f => (F.spec(f) || {}).fromPackage).filter(Boolean))].sort();
     return {
       format: "ocaf-parametric-model", version: 1, name: this.title, units: this.units,
+      ...(needs.length ? { needs } : {}),
       features: this.features().map(f => {
         const spec = F.spec(f);
         const args = {};

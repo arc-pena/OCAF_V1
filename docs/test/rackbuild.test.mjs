@@ -274,5 +274,86 @@ console.log("\n9. the bill of materials, read off the model itself");
   check("add a fifth bolt and the bill says five", /5 . Hex bolt M6 . 16/.test(after), after);
 }
 
+/* =========================================== one section, every member of it
+
+   The complaint this answers, in the words it arrived in: "I cannot change
+   unit strut dimensions and it adapts the frame". It could not, and the reason
+   was structural rather than a bug - a choice is a number stored on ONE
+   feature and there is no wire that reaches it, so a frame and its braces each
+   held their own private idea of what the rack was made of. StrutSection is
+   the section as a feature, which is what makes it something a wire can reach.
+
+   The failure that would look like success: wiring a section in and having
+   the member keep building its own choice. Everything still builds, the tree
+   is green, and only a measurement tells the two apart - so the sizes are
+   measured off the solids, both of them, on the same switch.                */
+
+console.log("\n7. one section drives every member wired to it");
+{
+  const SEC = await add("StrutSection");                 // T-slot 40 by default
+  const BEAM = await add("Strut", { refs: { plane: PL, section: SEC } });
+  await set(BEAM, "length", 500);
+  const FRAME = await add("RackFrame", { refs: { plane: PL, section: SEC } });
+  await set(FRAME, "units", 12);
+
+  const beam40 = await box(BEAM), frame40 = await box(FRAME);
+  check("a beam wired to a 40 T-slot section is 40 across",
+        near(beam40.x, 40) && near(beam40.y, 40), beam40.x + " × " + beam40.y);
+
+  await set(SEC, "profile", 3);                           // T-slot 45
+  const beam45 = await box(BEAM), frame45 = await box(FRAME);
+  check("switch the SECTION and the beam is 45", near(beam45.x, 45), String(beam45.x));
+  check("and the frame moved with it, off the same one change",
+        frame45.x > frame40.x + 4, frame40.x + " -> " + frame45.x);
+
+  await set(SEC, "profile", 6);                           // 41 x 21 channel
+  const chan = await box(BEAM);
+  check("and a channel is its own depth, not a square",
+        near(chan.x, 41.3) && near(chan.y, 20.6), chan.x + " × " + chan.y);
+
+  //! AND IT IS OPTIONAL. A member with nothing wired in has to keep reading
+  //! its own choice, or every beam in every old model changes shape the day
+  //! this input is added.
+  const LOOSE = await add("Strut", { refs: { plane: PL } });
+  await set(LOOSE, "length", 500);
+  await set(LOOSE, "profile", 0);                         // T-slot 20
+  const loose = await box(LOOSE);
+  check("a beam with no section wired in keeps its own choice",
+        near(loose.x, 20), String(loose.x));
+
+  //! AND THE BILL SAYS WHAT THE MODEL IS MADE OF. A bill that read the
+  //! member's own choice while the member was built from a wired section would
+  //! name a section the rack does not contain, and would look entirely right.
+  await set(SEC, "profile", 3);
+  const SET2 = await add("GeometricalSet");
+  await mdl.run({ op: "group", id: BEAM, into: SET2 });
+  const B2 = await add("Bill", { refs: { of: SET2 } });
+  const said = String(((await at(B2)).data || {}).preview || "");
+  check("the bill names the wired section, not the one on the beam",
+        /T-slot 45/.test(said) && !/T-slot 40/.test(said), said.slice(0, 120));
+}
+
+/* ================================== and the file says what it cannot open without
+
+   Opening the sample from the samples menu worked and dropping the same file
+   on the page did not: the menu carries its own list of packages and a file
+   carried none, so the open refused at the first node BY NODE NAME - "unknown
+   feature type RackFrame" - which reads as a corrupt file rather than as a
+   package that is switched off.                                             */
+
+console.log("\n8. a model made of a package's nodes says so in the file");
+{
+  const written = await kernel.model();
+  const model = typeof written === "string" ? JSON.parse(written)
+              : (written.model || written);
+  check("the document this test built names the rack package",
+        Array.isArray(model.needs) && model.needs.includes("rack"),
+        JSON.stringify(model.needs));
+  const sample = JSON.parse(readFileSync("docs/data/samples/hyperstack_rack.json", "utf8"));
+  check("and so does the sample that ships",
+        Array.isArray(sample.needs) && sample.needs.includes("rack"),
+        JSON.stringify(sample.needs));
+}
+
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

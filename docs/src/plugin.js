@@ -111,6 +111,14 @@ export class PluginHost {
     // adds to the catalogue is readable with it switched off, which is the
     // point of declaring it.
     if (plugin.nodes.length) {
+      //! WHOSE NODE THIS IS, written on the node. A model file made of a
+      //! package's nodes has to say which package, or opening it from a file
+      //! refuses at the first node by name - "unknown feature type
+      //! RackFrame" - which reads as a broken file rather than as a package
+      //! that is switched off. The catalogue is what knows the answer, so
+      //! this is where the answer is recorded: modelJson reads it back off
+      //! the specs in use and writes the list into the file.
+      for (const node of plugin.nodes) node.fromPackage = plugin.id;
       registerTypes(plugin.nodes, "the " + plugin.name + " package");
       //! WHERE THE DRIVERS GO DEPENDS ON WHERE THE MODELLING IS. A driver is a
       //! closure over the kernel, so when the kernel is on another thread the
