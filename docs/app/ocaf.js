@@ -2656,6 +2656,64 @@ export const CATALOGUE = [
            + "distinction the two factories draw.",
     args: [declaredInputs(), blackBox()] },
 
+  /* ------------------------------------------------------- assemblies
+
+     A Part is a container that is also a BODY: it holds the features that
+     define one thing, and what it produces is all of them at once, as a
+     compound. That one addition is what turns a folder into a component -
+     something an Instance can place, an Array can pattern, and a Product can
+     be assembled from - because every one of those already takes a body and
+     none of them could ever take a folder.
+
+     WHY AN INSTANCE COSTS ALMOST NOTHING. TopoDS_Shape::Moved swaps the
+     location and leaves the underlying TShape shared, so a part is built once
+     and triangulated once however many times it appears. Array has worked this
+     way from the start - 200 copies of a filleted box measured at 4 ms rather
+     than 72 to build and 49 ms rather than 1698 to mesh - and an Instance is
+     the same trick with a placement somebody chose instead of a grid.
+
+     AND WHY EDITING A PART CHANGES EVERY INSTANCE OF IT. Nothing here makes
+     that happen: an Instance READS the part, so the part is upstream of it,
+     and the document already rebuilds everything downstream of an edit. The
+     same line is what makes "replace this instance with that part" work -
+     re-point the reference and whatever was patterning the instance follows,
+     because a pattern of an instance is downstream of the instance.          */
+
+  { type: "Part", guid: "9a1b2c30-00e6-4c00-9e00-caf0000000e6",
+    category: "container", produces: "solid",
+    summary: "One component, as a folder that is also a body. Everything filed in it is "
+           + "the definition - the sketches, the solids, the fixings - and what it hands "
+           + "downstream is the whole of that, together, as one shape. So a part can be "
+           + "placed with an Instance, repeated with an Array and gathered into a "
+           + "Product, and editing anything inside it changes every place it appears. "
+           + "Give it a colour and everything in it takes that colour.",
+    args: [declaredInputs(), blackBox()] },
+
+  { type: "Product", guid: "9a1b2c30-00e7-4c00-9e00-caf0000000e7",
+    category: "container", produces: "solid",
+    summary: "An assembly: a folder of instances and of other products, which is itself "
+           + "a body. Built exactly as a Part is - the difference is what belongs in it, "
+           + "which is the same distinction a geometrical set and a body draw. A product "
+           + "of products is how a rack becomes a row and a row becomes a hall.",
+    args: [declaredInputs(), blackBox()] },
+
+  { type: "Instance", guid: "9a1b2c30-00e8-4c00-9e00-caf0000000e8",
+    category: "operation", produces: "solid",
+    summary: "One part, placed. It does not copy the part: it is the same shape at "
+           + "another location, so a hundred instances are built and meshed once. Edit "
+           + "the part and every instance of it follows; point this at a different part "
+           + "and everything downstream - a pattern of it, a product holding it - "
+           + "follows too. Place it on a point, or onto a plane to turn it as well.",
+    //! NOT `consumes`. An Array eats its source because one body becomes the
+    //! pattern and the original is no longer a part in its own right; a part
+    //! instanced five times is still one part, and eating it would leave the
+    //! second instance with nothing to read.
+    args: [ref("part", "Part", ["Part", "Product", "solid"]),
+           spare("at", "At", ["point"]),
+           spare("plane", "Onto", ["plane"]),
+           real("turn", "Turn", 0, -360, 360, 5, "\u00b0"),
+           real("scale", "Scale", 1, 0.01, 100, 0.01, "")] },
+
   /* --------------------------------------------------------- operations */
   { type: "Extrude", guid: "9a1b2c30-0070-4c00-9e00-caf000000070", category: "operation",
     produces: "solid",
@@ -3136,6 +3194,13 @@ export const DATA_TAG = 103;
 //! declaration itself is cached beside them so the interface can draw the
 //! sliders without compiling anything.
 export const PARAM_TAG_BASE = 10, PARAM_TAG_LIMIT = 50, SPECS_TAG = 51;
+
+//! THE CONTAINERS THAT ARE ALSO BODIES. A folder produces nothing and so has
+//! never taken part in the regeneration order; these produce the compound of
+//! what is filed in them, which makes them depend on all of it. Named in one
+//! place because the order, the builder and the drawing rule all have to agree
+//! about which types those are.
+export const BUILDS_ITS_CONTENTS = ["Part", "Product"];
 
 //! How a feature should look, as opposed to what shape it is. Kept on the
 //! feature so it saves with the model and survives regeneration, but outside the
@@ -4578,6 +4643,23 @@ export class Doc {
         const from = producer.get(a);
         if (from && from !== f) { incoming.get(f).add(from); outgoing.get(from).add(f); }
       }
+
+    //! AND A CONTAINER THAT BUILDS COMES AFTER WHAT IS IN IT. Being filed in a
+    //! set is not a wire - a folder drives no geometry, which is why the parent
+    //! has never ordered a rebuild and should not start now for folders. A Part
+    //! is not a folder: it produces the compound of its contents, so it depends
+    //! on every one of them, and without this edge it is built FIRST and hands
+    //! back an empty compound. That failure is a quiet one - the part builds,
+    //! reports no error, and is simply empty - so it is worth the edge being
+    //! explicit rather than relying on the order features happen to be in.
+    for (const f of features) {
+      if (!BUILDS_ITS_CONTENTS.includes(F.spec(f).type)) continue;
+      for (const inside of this.within(f)) {
+        if (inside === f) continue;
+        incoming.get(f).add(inside);
+        outgoing.get(inside).add(f);
+      }
+    }
 
     const ready = features.filter(f => incoming.get(f).size === 0);
     const sorted = [];

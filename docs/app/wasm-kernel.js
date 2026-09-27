@@ -6107,6 +6107,142 @@ function sprawl(face, edges) {
   };
   builders.Body = builders.GeometricalSet;
 
+  /* ------------------------------------------------------- assemblies
+
+     A PART IS A FOLDER THAT IS ALSO A BODY. Everything else about an assembly
+     follows from that one sentence: Array, Instance and every boolean already
+     take a body and none of them could take a folder, so the moment a
+     container produces a compound it becomes a component without any of them
+     being told about it.
+
+     WHAT GOES IN THE COMPOUND. Everything filed inside, however deep, that has
+     a shape and is not already inside a nested Part - a nested part is itself
+     one of these and has put its own contents in its own compound, so taking
+     them again would put every solid in twice. Anything a feature consumed is
+     out for the same reason it is out of the bill: an Array's source is not a
+     body beside the pattern it made.                                        */
+
+  const ASSEMBLIES = ["Part", "Product"];
+
+  //! The features a container is made of, stopping at a nested one. Written
+  //! once because the builder and the drawing rule below have to agree about
+  //! it exactly - if they disagreed the model would draw twice or not at all.
+  function partContents(holder) {
+    const out = [];
+    const walk = set => {
+      for (const one of doc.contents(set)) {
+        const spec = F.spec(one);
+        if (!spec) continue;
+        if (ASSEMBLIES.includes(spec.type)) { out.push(one); continue; }
+        if (spec.category === "container") { walk(one); continue; }
+        out.push(one);
+      }
+    };
+    walk(holder);
+    return out;
+  }
+
+  //! WHOSE PART A FEATURE IS, or null. The drawing rule needs the nearest one
+  //! above a feature, because that is the one that has already drawn it.
+  //! F.parent HANDS BACK THE PARENT ITSELF, not its id - it is a TDF_Reference
+  //! to the container's label - so it is walked directly. Passing it to
+  //! doc.find, which takes an id, quietly yields nothing and the walk stops at
+  //! the first step, which is a chain that always looks like "no parent".
+  function partAbove(f) {
+    for (let up = F.parent(f), guard = 0; up && guard < 200; up = F.parent(up), guard++) {
+      const spec = F.spec(up);
+      if (spec && ASSEMBLIES.includes(spec.type)) return up;
+    }
+    return null;
+  }
+
+  builders.Part = {
+    build: f => {
+      const builder = new oc.TopoDS_Builder();
+      const compound = new oc.TopoDS_Compound();
+      builder.MakeCompound(compound);
+      let held = 0;
+      for (const one of partContents(f)) {
+        //! CONSUMED IS NOT HELD. A pattern's source became the pattern; it is
+        //! not a second body sitting inside the part beside it.
+        if (doc.consumedBy(one)) continue;
+        const shape = F.shape(one);
+        if (!shape || shape.IsNull()) continue;
+        //! THE SAME SHAPE, not a copy of it. Add takes the shape as it is, so
+        //! the part's compound shares every TShape with the features in it -
+        //! which is why a part costs its contents and not twice its contents.
+        builder.Add(compound, shape);
+        held++;
+      }
+      const feeds = doc.inputsOf(f);
+      return { shape: compound,
+               data: text([held + (held === 1 ? " body" : " bodies"),
+                           feeds.length ? "in: " + feeds.map(F.name).join(", ")
+                                        : "nothing comes in"]) };
+    },
+  };
+  builders.Product = builders.Part;
+
+  builders.Instance = {
+    precondition: f => {
+      const part = F.reference(f, "part");
+      if (!part) return "nothing wired in to place";
+      if (!F.shape(part)) return F.name(part) + " has not been built";
+      //! A PART CANNOT CONTAIN AN INSTANCE OF ITSELF. The document refuses a
+      //! wire that would make a cycle, but this is a cycle through the TREE
+      //! rather than through the wires: an instance filed inside the very part
+      //! it places would grow by its own size every rebuild.
+      for (let up = F.parent(f), guard = 0; up && guard < 200; up = F.parent(up), guard++)
+        if (F.id(up) === F.id(part))
+          return "this is inside " + F.name(part) + ", so it cannot also place it";
+      return null;
+    },
+    build: f => {
+      const part = F.reference(f, "part");
+      const shape = F.shape(part);
+      const at = readPoint(F.reference(f, "at")) || [0, 0, 0];
+      const turn = F.real(f, "turn", 0);
+      const grow = F.real(f, "scale", 1);
+      const trsf = new oc.gp_Trsf();
+
+      //! ONTO A PLANE, if one is wired in: the part's own origin and axes are
+      //! taken to the plane's, which is how a part made flat on the floor ends
+      //! up on the face somebody pointed at.
+      const plane = F.reference(f, "plane");
+      if (plane) {
+        const ax = planeAxis(plane);
+        const put = new oc.gp_Ax3(ax);
+        if (readPoint(F.reference(f, "at")))
+          put.SetLocation(new oc.gp_Pnt(at[0], at[1], at[2]));
+        trsf.SetTransformation(put, new oc.gp_Ax3());
+      } else {
+        trsf.SetTranslation(new oc.gp_Vec(at[0], at[1], at[2]));
+      }
+      if (Math.abs(turn) > 1e-9) {
+        const spin = new oc.gp_Trsf();
+        spin.SetRotation(new oc.gp_Ax1(new oc.gp_Pnt(at[0], at[1], at[2]),
+                                       new oc.gp_Dir(0, 0, 1)), turn * Math.PI / 180);
+        trsf.PreMultiply(spin);
+      }
+      //! SCALE IS A DIFFERENT KIND OF THING. A location can hold a rigid move
+      //! and nothing else, so a scaled instance really is rebuilt - which is
+      //! why it is left at one unless somebody asks, and why it says so.
+      if (Math.abs(grow - 1) > 1e-9) {
+        const bigger = new oc.gp_Trsf();
+        bigger.SetScale(new oc.gp_Pnt(at[0], at[1], at[2]), grow);
+        bigger.Multiply(trsf);
+        return { shape: new oc.BRepBuilderAPI_Transform(shape, bigger, true).Shape(),
+                 data: text([F.name(part), "scaled \u00d7 " + grow,
+                             "a scaled instance is rebuilt, not shared"]) };
+      }
+      //! THE SHARED PATH. Moved swaps the TopLoc_Location and leaves the
+      //! TShape alone, so this instance costs a location and no geometry.
+      return { shape: shape.Moved(new oc.TopLoc_Location(trsf)),
+               data: text([F.name(part), "placed, sharing its geometry",
+                           countSubShapes(shape, SOLID) + " solids"]) };
+    },
+  };
+
   /* --------------------------------------------------------- generators
 
      A feature whose output is other features.
@@ -6751,6 +6887,13 @@ function sprawl(face, edges) {
       if (options.notTypes && options.notTypes.includes(spec.type)) continue;
       if (options.notCategories && options.notCategories.includes(spec.category)) continue;
       if (options.visible !== false && !F.visible(f)) continue;
+      //! WHAT A PART HAS ALREADY DRAWN IS NOT DRAWN AGAIN. A Part produces the
+      //! compound of everything inside it, so without this every solid in an
+      //! assembly would be handed over twice - once as itself and once inside
+      //! its part - which draws correctly, exports double, and doubles every
+      //! measured area and volume without anything looking wrong on screen.
+      //! The part is the body; its contents are how the part is defined.
+      if (!ASSEMBLIES.includes(spec.type) && partAbove(f)) continue;
       let shape = F.shape(f);
       //! A POLYMESH HAS NO B-REP, and half the IFC in the world arrives as
       //! one: tessellated in the file, so what came in is triangles and
@@ -6780,9 +6923,15 @@ function sprawl(face, edges) {
       //! answer to "which" is the same three-level cascade the section cutter
       //! resolves - so the driver needs the same three levels, and this is
       //! where the tree that holds them is.
+      //! WALKED BY THE PARENT ITSELF. This asked doc.find for a feature it
+      //! already had - F.parent returns the container's label, not its id - so
+      //! find returned nothing, the loop stopped before its first turn, and
+      //! `above` was empty for every body in every document. A colour put on a
+      //! set therefore reached nothing inside it, which is exactly the
+      //! behaviour that makes a part worth having: colour the part and
+      //! everything in it, everywhere it is instanced, takes that colour.
       const above = [];
-      for (let up = doc.find(F.parent(f)), guard = 0; up && guard < 200;
-           up = doc.find(F.parent(up)), guard++) {
+      for (let up = F.parent(f), guard = 0; up && guard < 200; up = F.parent(up), guard++) {
         const worn = F.appearance(up);
         if (worn) above.push(worn);
       }
