@@ -88,7 +88,16 @@
    "name": "Person",
    "parent": "P",
    "args": {
-    "value": 1800
+    "value": 1727
+   }
+  },
+  {
+   "id": "N_PERSON2",
+   "type": "Number",
+   "name": "Second person",
+   "parent": "P",
+   "args": {
+    "value": 1680
    }
   },
   {
@@ -2494,7 +2503,8 @@
      0.84,
      0.82,
      0.78
-    ]
+    ],
+    "edges": false
    }
   },
   {
@@ -2522,11 +2532,12 @@
   },
   {
    "id": "PERSON",
-   "type": "ScaleFigure",
-   "name": "Scale figure · 1.8 m",
+   "type": "Entourage",
+   "name": "Entourage · hands in pockets",
    "parent": "S",
    "args": {
     "turn": 0,
+    "figure": 0,
     "plane": {
      "ref": "PL0"
     },
@@ -2534,8 +2545,39 @@
      "ref": "PTS"
     },
     "height": {
-     "value": 1800,
+     "value": 1727,
      "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "PTSB",
+   "type": "Point",
+   "name": "Second person at",
+   "parent": "S",
+   "args": {
+    "x": 1920,
+    "y": -600,
+    "z": 0
+   }
+  },
+  {
+   "id": "PERSON2",
+   "type": "Entourage",
+   "name": "Entourage · trench coat",
+   "parent": "S",
+   "args": {
+    "turn": -75,
+    "figure": 2,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTSB"
+    },
+    "height": {
+     "value": 1680,
+     "from": "N_PERSON2"
     }
    }
   },

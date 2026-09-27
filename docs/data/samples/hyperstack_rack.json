@@ -2222,7 +2222,8 @@
      0.84,
      0.82,
      0.78
-    ]
+    ],
+    "edges": false
    }
   },
   {
@@ -2238,12 +2239,13 @@
   },
   {
    "id": "PERSON",
-   "type": "ScaleFigure",
-   "name": "Scale figure · 1.8 m",
+   "type": "Entourage",
+   "name": "Entourage · hands in pockets",
    "parent": "SC",
    "args": {
-    "height": 1800,
-    "turn": 180,
+    "height": 1727,
+    "turn": 0,
+    "figure": 0,
     "plane": {
      "ref": "PL0"
     },

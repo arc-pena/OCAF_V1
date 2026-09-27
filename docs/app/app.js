@@ -1514,6 +1514,47 @@ const bothSides = material => {
   return material;
 };
 
+//! WHAT A BODY WEARS, and it is not always its own. A Part says in the
+//! catalogue, in as many words, that colouring it colours everything in it -
+//! and it did not: the viewport read the feature's OWN appearance and nothing
+//! else, so a colour on a set reached the set, which has no surfaces, and
+//! stopped there. It looked like the colour had not been applied.
+//!
+//! The chain already existed - setsAbove is what the section cutter's hatching
+//! walks - so this is that chain, asked the other question.
+//!
+//! AN APPEARANCE THAT SAYS NOTHING ABOUT COLOUR IS NOT AN ANSWER. A set may
+//! carry a cut style and no finish, which is a real thing to want: hatch
+//! everything in this set, leave its colours alone. Walked without this test,
+//! that set would repaint its contents the default grey.
+const SAYS_COLOUR = ["finish", "color", "metalness", "gloss", "opacity"];
+const paints = worn => !!worn && SAYS_COLOUR.some(key => worn[key] !== undefined);
+function wornAppearance(entry) {
+  if (!entry) return null;
+  if (paints(entry.appearance)) return entry.appearance;
+  for (const up of setsAbove(entry.id)) if (paints(up)) return up;
+  return entry.appearance || null;
+}
+
+//! WHETHER THIS OBJECT'S EDGES ARE DRAWN. Every edge of every triangle of a
+//! five-thousand-face figure, laid over the figure, is not information - it is
+//! a grey smudge in the shape of a person, and next to it a rack whose edges
+//! ARE information is harder to read for it. So it is a property of the object,
+//! beside its colour, and it travels in the file.
+//!
+//! RESOLVED ON ITS OWN, not through wornAppearance. A set may say `edges: false`
+//! and nothing else, which is a real thing to want - hide the edges on the
+//! entourage, leave its colours alone - and wornAppearance deliberately ignores
+//! an appearance that says nothing about colour. Nearest wins, own first.
+function showsEdges(entry) {
+  if (!entry) return true;
+  if (entry.appearance && entry.appearance.edges !== undefined)
+    return entry.appearance.edges !== false;
+  for (const up of setsAbove(entry.id))
+    if (up && up.edges !== undefined) return up.edges !== false;
+  return true;
+}
+
 function surfaceMaterial(entry, style = findStyle(state.style)) {
   if (style.clay) {
     const clay = bothSides(new THREE.MeshStandardMaterial({
@@ -1527,9 +1568,9 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
     //! colour. A finish nobody has chosen is the neutral grey this always
     //! drew, so a part that has never been given a material looks exactly as
     //! it did.
-    const worn = style.colours ? materialOf(entry && entry.appearance) : null;
-    const colour = worn && entry && entry.appearance
-      ? new THREE.Color(...worn.color) : THEME.shape.clone();
+    const said = wornAppearance(entry);
+    const worn = style.colours ? materialOf(said) : null;
+    const colour = worn && said ? new THREE.Color(...worn.color) : THEME.shape.clone();
     const shaded = bothSides(new THREE.MeshStandardMaterial({
       color: colour, metalness: 0.15, roughness: 0.55,
       transparent: worn && worn.opacity < 0.999,
@@ -1539,7 +1580,7 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
     shaded.userData.base = colour.clone();
     return shaded;
   }
-  const made = materialOf(entry && entry.appearance);
+  const made = materialOf(wornAppearance(entry));
   const material = bothSides(new THREE.MeshStandardMaterial({
     color: new THREE.Color(...made.color),
     metalness: made.metalness, roughness: made.roughness,
@@ -1563,7 +1604,8 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
 //! is, came out in the same green as every other curve. A line is as capable
 //! of being blue as a solid is.
 function wornColour(entry) {
-  const worn = entry && entry.appearance && entry.appearance.color;
+  const said = wornAppearance(entry);
+  const worn = said && said.color;
   return Array.isArray(worn) && worn.length === 3 ? new THREE.Color(...worn) : null;
 }
 
@@ -1706,7 +1748,12 @@ function paintHardEdges() {
 //! bodies for several seconds after the tick was set and every one of them
 //! needs its edges.
 function hardEdgesFor(id, held) {
-  const want = arcticLook.edges && state.style === "arctic";
+  //! AND ARCTIC OBEYS THE OBJECT TOO. An object whose edges are switched off
+  //! stays off in Arctic - which is the mode that draws a line along every
+  //! sharp edge on purpose, and is exactly where a figure made of five
+  //! thousand triangles turns into a black blob. Switch its edges back on and
+  //! it gets them here as well, because it is one setting.
+  const want = arcticLook.edges && state.style === "arctic" && showsEdges(feature(id));
   const had = hardEdges.get(id);
   //! WHAT A RIBBON COST, GIVEN BACK WHEN IT GOES. The tally is a budget, and a
   //! budget that only ever goes up is a budget that runs out: every rebuild
@@ -1892,10 +1939,15 @@ function applyStyle(styleKey = state.style) {
 
   for (const [id, { group }] of shapes) {
     const entry = feature(id);
+    const edgesOn = showsEdges(entry);
     for (const object of group.children) {
       //! The arctic overlay is a Mesh and is not a surface - see hardEdgesFor.
       //! Unguarded, the style walk put clay on it and the edges went white.
       if (object.userData.hardEdge) continue;
+      //! AND THE OUTLINES COME BACK TO WHAT THE OBJECT SAYS, every time
+      //! anything is repainted - which is what makes the switch take effect
+      //! without a re-mesh.
+      if (object.userData.outline) object.visible = edgesOn;
       if (object.isMesh) {
         const was = object.material;
         object.material = object.userData.datum
@@ -2449,6 +2501,11 @@ function groupFromStream(mesh, entry) {
     //! program would be the same question answered twice.
     lines.userData.brepEdges = !drawsFaint(entry)
       && !(entry && entry.produces === "curve");
+    //! BUILT AND HIDDEN rather than not built, so switching them back on is a
+    //! flag and not a re-mesh. A model that has to go back to the kernel to
+    //! show an edge is a model where the switch feels broken.
+    lines.userData.outline = true;
+    lines.visible = showsEdges(entry);
     group.add(lines);
   }
 
@@ -10018,6 +10075,29 @@ function materialField(entry) {
     row(label, slider);
   }
 
+  //! THE EDGE SWITCH, beside the colour because it is the same kind of thing: a
+  //! property of the object that travels in the file and changes nothing about
+  //! the geometry. A five-thousand-face figure with every triangle outlined is
+  //! not information, it is a grey smudge in the shape of a person - and it
+  //! makes the rack beside it, whose edges ARE information, harder to read.
+  {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "mat-check";
+    const own = entry.appearance && entry.appearance.edges !== undefined;
+    box.checked = showsEdges(entry);
+    box.addEventListener("change", () => wearMaterial(entry.id, { edges: box.checked }));
+    row("Edges", box);
+    const why = document.createElement("div");
+    why.className = "summary";
+    why.textContent = own
+      ? "Set on this object. Off here means off in Arctic too."
+      : (showsEdges(entry)
+         ? "Drawn. Turn them off for a mesh whose triangles are not information."
+         : "Off, from a set above this one. Tick to draw them on this object anyway.");
+    field.appendChild(why);
+  }
+
   const note = document.createElement("div");
   note.className = "summary";
   note.textContent = state.style === "rendered"
@@ -10306,6 +10386,12 @@ function wearMaterial(id, change, live = false) {
   const was = entry.appearance || {};
   if (was.mark) next.mark = was.mark;
   if (was.markWeight) next.markWeight = was.markWeight;
+  //! AND SO DOES THE EDGE SWITCH, for the same reason and by the same rule:
+  //! appearanceOf builds a clean appearance out of a finish and its overrides
+  //! and knows nothing about edges, so without this line changing a colour
+  //! would quietly put an object's edges back on.
+  const edges = change.edges !== undefined ? change.edges : was.edges;
+  if (edges !== undefined) next.edges = edges;
   entry.appearance = next;                    // so the next read sees it at once
   repaintMaterial(id);
   if (showroom.ready) showroom.paint(id, next);
@@ -10322,7 +10408,15 @@ function repaintMaterial(id) {
   if (!held) return;
   const entry = feature(id);
   const style = findStyle(state.style);
+  const edgesOn = showsEdges(entry);
+  //! The overlay is built when the switch goes on and thrown away when it goes
+  //! off, so an object whose edges were just switched off has to lose its
+  //! arctic ribbon here - hiding the outline alone would leave the ribbon.
+  hardEdgesFor(id, held);
   for (const object of held.group.children) {
+    //! THE OUTLINE OBEYS THE OBJECT. This is what makes the edge switch take
+    //! effect: it is a flag on something already built, not a re-mesh.
+    if (object.userData.outline) { object.visible = edgesOn; continue; }
     //! The marks are rebuilt too, and by the same call, because the shape and
     //! the weight of a point live on the appearance beside the finish - so
     //! "the appearance changed" has to mean both or the panel shows a cross

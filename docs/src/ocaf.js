@@ -1099,11 +1099,19 @@ export const SAMPLES = [
            + "straight back - and each panel reports the open area it actually cut and "
            + "the air that will pass it at plenum pressure. Over them, a 450 ladder "
            + "runway on M12 trapeze hangers that say what their rods will carry, with "
-           + "fibre trunk routed across the aisle on it. And a person, 1.8 m, standing "
-           + "in the corridor, because a hall drawn without one has nothing in it to "
-           + "measure a 2.1 m rack or a 1.2 m aisle against. Drag Hot aisle, Rack "
-           + "height or Racks a row and the whole hall follows. Needs the Racks and "
-           + "Harness packages. 158 nodes." },
+           + "fibre trunk routed across the aisle on it. And two people standing in the "
+           + "cold aisle, from the Entourage library, because a hall drawn without "
+           + "anybody in it has nothing in it to measure a 2.1 m rack or a 1.2 m aisle "
+           + "against. It is COLOURED by what each thing is - frame orange, cable blue, "
+           + "containment green, fixings brass, power red - one line per set, because a "
+           + "model everything is grey in is a photograph of a machine room taken in "
+           + "fog. And it CHECKS ITSELF: three Clash nodes put the racks against the "
+           + "floor, against the overhead and against the people, by geometry rather "
+           + "than by looking - which is how the racks were found standing with their "
+           + "legs 110 mm through the floor panels, a thing that looks exactly like a "
+           + "rack standing on a floor. Drag Hot aisle, Rack height, Rack on its feet "
+           + "or Racks a row and the whole hall follows. Needs the Racks and Harness "
+           + "packages. 169 nodes." },
 
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
@@ -1122,7 +1130,8 @@ export const SAMPLES = [
            + "that says how much cable it will take, a runway on a trapeze hanger that "
            + "says what its rods will carry, the raised access floor it stands on with "
            + "its pedestals and stringers - grate in front of the door, solid under the "
-           + "rack - and a person beside it for scale. It is coloured by what each "
+           + "rack - and somebody from the Entourage library standing beside it for "
+           + "scale. It is coloured by what each "
            + "thing is, and a Clash node checks the rack against its floor by geometry "
            + "rather than by looking. Every dimension is an "
            + "Expression over eight numbers: change Compute nodes from 8 to 4 and the "

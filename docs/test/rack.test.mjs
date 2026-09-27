@@ -12,7 +12,7 @@ import { FASTENERS, ORV3_FASTENERS, ORV3_FOOT, RACK_STANDARDS, STRUT_PROFILES,
          unitBottom } from "../src/rack.js";
 import { FLOOR_PEDESTAL, FLOOR_TILES, ROD_STRESS_AREA, floorTile, holeArea, openArea,
          rodCapacity, tileFlow, tilePitch } from "../src/rack.js";
-import { FIGURE_FROM, FIGURE_HEIGHT, figureAt, figureMesh } from "../src/figure.js";
+import { ENTOURAGE, ENTOURAGE_NAMES, entourageAt, entourageMesh } from "../src/entourage.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -350,43 +350,67 @@ console.log("\n9. what a floor panel will pass, and what a hanger will carry");
         near(rodCapacity("M16") / rodCapacity("M12"), 157 / 84.3, 1e-9));
 }
 
-console.log("\n10. the scale figure is a ruler, not a decoration");
+console.log("\n10. the entourage figures are rulers, not decorations");
 {
-  //! THE WHOLE VALUE OF A SCALE FIGURE IS THAT ITS HEIGHT IS EXACT. One that is
-  //! 1795 when 1800 was asked for is a decoration, and nothing on screen would
-  //! ever say so.
-  const mesh = figureMesh();
-  check("the mesh is there", mesh.points.length > 500 && mesh.faces.length > 500,
-        mesh.points.length + " vertices, " + mesh.faces.length + " faces");
-  check("normalised to a height of exactly one", FIGURE_HEIGHT === 1);
-  for (const want of [1800, 1500, 2000]) {
-    const at = figureAt(want, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
-    const z = at.points.map(p => p[2]);
-    const tall = Math.max(...z) - Math.min(...z);
-    check("asked for " + want + " it is " + want, near(tall, want, 1e-6), tall.toFixed(6));
-    check("and standing on the floor", near(Math.min(...z), 0, 1e-9));
+  check("there are figures in the library", ENTOURAGE.length >= 4,
+        ENTOURAGE_NAMES.join(", "));
+  for (const one of ENTOURAGE) {
+    const mesh = entourageMesh(one.key);
+    check(one.name + " has a mesh", mesh.points.length > 500 && mesh.faces.length > 500,
+          mesh.points.length + " vertices, " + mesh.faces.length + " faces");
+    //! THE WHOLE VALUE OF A SCALE FIGURE IS THAT ITS HEIGHT IS EXACT. One that
+    //! is 1720 when 1727 was asked for is a decoration, and nothing on screen
+    //! would ever say so. Asked of three heights, because a normalisation that
+    //! is only right at one is not a normalisation.
+    for (const want of [1727, 1500, 2000]) {
+      const at = entourageAt(one.key, want, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+      const z = at.points.map(p => p[2]);
+      check("  asked for " + want + " it is " + want,
+            near(Math.max(...z) - Math.min(...z), want, 1e-6),
+            (Math.max(...z) - Math.min(...z)).toFixed(6));
+      check("  and standing on the floor", near(Math.min(...z), 0, 1e-9));
+    }
+    //! AND ANCHORED AT THE BOTTOM OF ITS BOUNDING BOX, CENTRED IN PLAN - which
+    //! is the whole of what "place a person at a point" means. These arrived
+    //! laid out in a row, one of them 1.8 m from the origin, so a figure that
+    //! was not re-anchored would appear somewhere near where it was asked for
+    //! and never at it.
+    const at = entourageAt(one.key, 1727, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+    const span = k => {
+      const v = at.points.map(p => p[k]);
+      return { low: Math.min(...v), high: Math.max(...v) };
+    };
+    const x = span(0), y = span(1);
+    check("  centred in plan on the point it stands at",
+          near(x.low + x.high, 0, 1e-6) && near(y.low + y.high, 0, 1e-6),
+          x.low.toFixed(1) + ".." + x.high.toFixed(1) + " by "
+            + y.low.toFixed(1) + ".." + y.high.toFixed(1));
+    //! AND IT IS A PERSON RATHER THAN A POST. A figure that lost its limbs to
+    //! the decimation would pass every check above.
+    const wide = x.high - x.low, deep = y.high - y.low;
+    check("  and the proportions of a person",
+          wide / 1727 > 0.2 && wide / 1727 < 0.6 && deep / 1727 > 0.2 && deep / 1727 < 0.6,
+          Math.round(wide) + " across, " + Math.round(deep) + " deep at 1727 tall");
   }
-  //! AND IT IS A PERSON RATHER THAN A POST. A figure that had lost its arms to
-  //! the decimation, or kept them out in the base mesh's A-pose, would pass
-  //! every height check above - so the proportions are checked against a
-  //! person's: about a third as wide as tall, and a sixth as deep.
-  const at = figureAt(1800, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
-  const span = k => {
-    const v = at.points.map(p => p[k]);
-    return Math.max(...v) - Math.min(...v);
-  };
-  check("about a third as wide as it is tall", span(0) / 1800 > 0.25 && span(0) / 1800 < 0.40,
-        (span(0)).toFixed(0) + " mm across");
-  check("and about a sixth as deep", span(1) / 1800 > 0.12 && span(1) / 1800 < 0.25,
-        (span(1)).toFixed(0) + " mm deep");
-  //! IT FACES +Y, and that is what makes Turn read the same way round on a
-  //! figure as on a rack. Checked by where the mass is: a person is deeper
-  //! behind the middle of their feet than in front of it.
-  check("it stands where it is put", near(span(2), 1800, 1e-6));
-  //! WHERE IT CAME FROM TRAVELS WITH IT. This is somebody else's work under
-  //! CC0, and the one thing that must never be lost is which work.
-  check("and it says where it is from", /CC0/.test(FIGURE_FROM) && /MakeHuman/.test(FIGURE_FROM),
-        FIGURE_FROM);
+  //! AND THEY ALL FACE THE SAME WAY. Two of the four arrived side-on to the
+  //! others, so a dropdown that swapped one for another swapped which way the
+  //! person was looking - which is not what a dropdown is for. A standing
+  //! person is wider across the shoulders than front to back, so after
+  //! alignment every one of them is wider in x than in y.
+  for (const one of ENTOURAGE) {
+    const at = entourageAt(one.key, 1727, [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+    const span = k => {
+      const v = at.points.map(p => p[k]);
+      return Math.max(...v) - Math.min(...v);
+    };
+    check(one.name + " faces along y, shoulders across x", span(0) > span(1),
+          Math.round(span(0)) + " across vs " + Math.round(span(1)) + " deep");
+  }
+  //! AND EVERY ONE SAYS WHERE IT CAME FROM, which is the one thing about
+  //! somebody else's mesh that must never be lost.
+  check("every figure carries its provenance",
+        ENTOURAGE.every(one => one.from && one.from.length > 10),
+        ENTOURAGE.map(one => one.from.slice(0, 30)).join(" | "));
 }
 
 console.log(failures ? "\n" + failures + " failed" : "\nall checks passed");

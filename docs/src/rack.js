@@ -783,8 +783,14 @@ export const RACK_FINISHES = [
   //! AND THE PERSON IS NOT A COLOUR IN THE SCHEME. A scale figure is a ruler,
   //! not a part of the design, so it wears something that reads as "not one of
   //! these" - a pale clay that no piece of equipment is.
-  { role: "figure", label: "Scale figure", finish: "matte", color: [0.84, 0.82, 0.78],
-    of: "the person, who is a measurement and not a component" },
+  //! AND NO EDGES ON IT. Five thousand triangles with a line along every one of
+  //! them is not information - it is a grey smudge in the shape of a person -
+  //! and it makes the rack beside it, whose edges ARE information, harder to
+  //! read. So "entourage" carries that too: a colour and the absence of a
+  //! wireframe are both how a thing is drawn.
+  { role: "figure", label: "Entourage", finish: "matte", color: [0.84, 0.82, 0.78],
+    edges: false,
+    of: "the people, who are a measurement and not a component" },
 ];
 
 export const rackFinish = role =>
@@ -797,5 +803,6 @@ export const rackFinish = role =>
 //! panel can change either.
 export const finishOf = role => {
   const one = rackFinish(role);
-  return { finish: one.finish, color: one.color };
+  return { finish: one.finish, color: one.color,
+           ...(one.edges === undefined ? {} : { edges: one.edges }) };
 };

@@ -722,3 +722,87 @@ export const ROD_STRESS_AREA = { M8: 36.6, M10: 58.0, M12: 84.3, M16: 157 };
 export const ROD_WORKING_MPA = 48;
 export const rodCapacity = name =>
   (ROD_STRESS_AREA[name] || 0) * ROD_WORKING_MPA / 9.81;      // kg a rod holds
+
+/* ============================================================== what it looks like
+
+   A MODEL EVERYTHING IS GREY IN IS A MODEL NOBODY CAN READ. Eight racks, a
+   floor, two runways and four hundred fixings in one neutral grey is a
+   photograph of a machine room taken in fog: the frame and the panel it is
+   bolted to are the same object to the eye, and the one bolt in the wrong place
+   is invisible. Every discipline that coordinates in 3D solves this the same
+   way - a colour per kind of thing, held to across the whole model - and this
+   is that table.
+
+   AND IT IS A HOUSE CONVENTION, which has to be said plainly because there is a
+   published colour code in this area and this is not it. The APWA Uniform Color
+   Code - red electric, yellow gas or oil, orange communications, blue potable
+   water, green sewer - is for marking BURIED SERVICES on the ground before
+   somebody digs. It says nothing about what colour a rack frame is, and reading
+   this table as if it were that one would have the cables here meaning water.
+   What this table is: one colour per role, chosen so that the things you need
+   to tell apart in a machine room are told apart at a glance, and held to.     */
+
+export const RACK_FINISHES = [
+  //! ORANGE FOR THE STRUCTURE, which is the colour steelwork is primed and
+  //! shipped in and the one thing in a rack you always want to find first.
+  { role: "frame", label: "Frame and structure", finish: "paint",
+    color: [0.85, 0.42, 0.08],
+    of: "frames, posts, struts, bracing - everything that carries load" },
+  //! YELLOW FOR THE FIXINGS. Brass and zinc-yellow passivation are what small
+  //! fasteners actually are, and at a rack's scale a bolt has to be a different
+  //! colour from the member it goes through or it is a dimple on a face.
+  { role: "fixing", label: "Bolts, nuts and cage nuts", finish: "brass",
+    color: [0.90, 0.72, 0.13],
+    of: "every fastener, and the levelling feet that screw into the frame" },
+  //! BLUE FOR CABLE. The one colour that must not be shared with anything
+  //! else: a cable is the thing you are tracing when you look at a rack.
+  { role: "cable", label: "Cable", finish: "paint", color: [0.13, 0.42, 0.80],
+    of: "cables and their connectors, whatever they carry" },
+  //! GREEN FOR WHAT CARRIES IT. Containment and cable are two different things
+  //! and the commonest mistake is to draw them as one - a tray the colour of
+  //! the cables in it tells you nothing about how full it is.
+  { role: "containment", label: "Trays, managers and runway", finish: "paint",
+    color: [0.16, 0.55, 0.33],
+    of: "cable tray, vertical managers, overhead runway, trapeze hangers" },
+  { role: "enclosure", label: "Doors and panels", finish: "anodised",
+    color: [0.27, 0.29, 0.32],
+    of: "doors, side panels, blanking - the sheet metal round the outside" },
+  { role: "equipment", label: "Equipment", finish: "anodised",
+    color: [0.18, 0.21, 0.25],
+    of: "servers, switches, patch panels - what the rack is there to hold" },
+  //! RED FOR POWER, which IS the one convention everybody shares, and the one
+  //! worth borrowing: it is the colour on the isolator and on the emergency
+  //! stop for the same reason.
+  { role: "power", label: "Power", finish: "paint", color: [0.72, 0.16, 0.14],
+    of: "PDUs, busbar, anything live" },
+  { role: "floor", label: "Floor panels", finish: "matte", color: [0.74, 0.75, 0.73],
+    of: "raised access panels, solid and grate" },
+  { role: "understructure", label: "Understructure", finish: "steel",
+    color: [0.58, 0.61, 0.64],
+    of: "pedestals and stringers under the floor" },
+  //! AND THE PERSON IS NOT A COLOUR IN THE SCHEME. A scale figure is a ruler,
+  //! not a part of the design, so it wears something that reads as "not one of
+  //! these" - a pale clay that no piece of equipment is.
+  //! AND NO EDGES ON IT. Five thousand triangles with a line along every one of
+  //! them is not information - it is a grey smudge in the shape of a person -
+  //! and it makes the rack beside it, whose edges ARE information, harder to
+  //! read. So "entourage" carries that too: a colour and the absence of a
+  //! wireframe are both how a thing is drawn.
+  { role: "figure", label: "Entourage", finish: "matte", color: [0.84, 0.82, 0.78],
+    edges: false,
+    of: "the people, who are a measurement and not a component" },
+];
+
+export const rackFinish = role =>
+  RACK_FINISHES.find(one => one.role === role) || RACK_FINISHES[0];
+
+//! The appearance record a model file carries, for one role. `finish` names the
+//! material and the colour rides on top of it, which is exactly the shape
+//! styles.js writes when somebody picks a colour by hand - so a colour set from
+//! this table and a colour set in the panel are the same kind of thing and the
+//! panel can change either.
+export const finishOf = role => {
+  const one = rackFinish(role);
+  return { finish: one.finish, color: one.color,
+           ...(one.edges === undefined ? {} : { edges: one.edges }) };
+};

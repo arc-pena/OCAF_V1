@@ -561,9 +561,13 @@ add("FFG", "Array", { name: "Grate field", parent: "FL",
 set("SC", "11 Scale", "R", "figure");
 add("PTSC", "Point", { name: "Person at", parent: "SC",
   args: { x: 1100, y: -900, z: 0 } });
-add("PERSON", "ScaleFigure", { name: "Scale figure · 1.8 m", parent: "SC",
+//! FACING THE DOOR. Every figure in the library is turned to face +Y as it is
+//! baked, and the rack's door is at +y of where this person stands, so this is
+//! a Facing of nothing at all. That is the point of aligning them: changing
+//! which figure it is does not change where they are looking.
+add("PERSON", "Entourage", { name: "Entourage · hands in pockets", parent: "SC",
   refs: { plane: "PL0", at: "PTSC" },
-  args: { height: 1800, turn: 180 } });
+  args: { height: 1727, turn: 0, figure: 0 } });
 
 /* ----------------------------------------------------------------- 12 Clash */
 

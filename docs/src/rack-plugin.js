@@ -36,7 +36,7 @@ import { PERFORATIONS, THREADS, openArea, perforation, perforationCentres,
          threadProfile } from "./rack.js";
 import { FLOOR_PEDESTAL, FLOOR_TILES, HANGER_RODS, ROD_STRESS_AREA, rodCapacity,
          tileFlow, tilePitch } from "./rack.js";
-import { FIGURE_FROM, figureAt } from "./figure.js";
+import { ENTOURAGE, ENTOURAGE_NAMES, entourageAt } from "./entourage.js";
 import { FASTENERS, RACK_STANDARDS, STRUT_PROFILES, bomLines, fastener, hexOutline,
          holeCentres, rackHeight, rackStandard, strutHoles, strutProfile } from "./rack.js";
 
@@ -288,24 +288,36 @@ export const RACK_NODES = [
 
   //! A MESH AND NOT A SOLID, which is the one node in this package that is. A
   //! person is not a machined part - nothing downstream will fillet one or
-  //! section it or write it to STEP as a solid - and 3,830 triangles placed
-  //! six times in a hall is nothing, where the same figure sewn into a B-Rep
-  //! shell is minutes of booleans for a decoration.
-  { type: "ScaleFigure", guid: "9a1b2c30-00f4-4c00-9e00-caf0000000f4", category: "mesh",
+  //! section it or write it to STEP as a solid - and five thousand triangles
+  //! placed a few times in a hall is nothing, where the same figure sewn into a
+  //! B-Rep shell is minutes of booleans for something that is only looked at.
+  //!
+  //! IT WAS CALLED ScaleFigure and carried one mesh. The type is renamed and
+  //! the choice of figure is APPENDED, which is the only safe way to add one:
+  //! an argument's place in this list is its tag in the document, so putting
+  //! `figure` before `height` would turn every saved height into a figure.
+  { type: "Entourage", guid: "9a1b2c30-00f4-4c00-9e00-caf0000000f4", category: "mesh",
     produces: "mesh",
-    summary: "A person, to the height you set, for scale. A hall drawn without one is a "
-           + "picture of a rack: there is nothing in the frame to measure a 2.1 m frame "
-           + "or a 1.2 m aisle against, and a corridor reads the same whether it is 900 "
-           + "wide or 1800. The mesh is the MakeHuman base figure, which its copyright "
-           + "holders released as CC0 - it is the one thing in this package that is "
-           + "somebody else's work, and it may be used by anybody for anything.",
+    summary: "A person, from a library, for scale. A hall drawn without one is a picture "
+           + "of a rack: there is nothing in the frame to measure a 2.1 m frame or a 1.2 "
+           + "m aisle against, and a corridor reads the same whether it is 900 wide or "
+           + "1800. Every figure stands ON the point it is given - the anchor baked into "
+           + "each one is the bottom of its bounding box, centred in plan - and Facing "
+           + "turns it about that same point, so somebody can be pointed at whatever "
+           + "they should be looking at. They are all turned to face one way to begin "
+           + "with, so changing which figure it is does not change where they look.",
     args: [ARG.ref("plane", "Plane", ["plane"]), ARG.spare("at", "At", ["point"]),
-           //! 1755 mm is the mean height of an adult man in Europe and 1800 is
-           //! the round number people ask for. The default is the round number,
-           //! because a scale figure is a ruler and a ruler should be a number
-           //! somebody can check at a glance.
-           ARG.real("height", "Height", 1800, 300, 2500, 10),
-           ARG.real("turn", "Facing", 0, -360, 360, 15, "\u00b0")] },
+           //! 1727 IS THE TALLEST OF THE FOUR AS SUPPLIED. They arrived all
+           //! normalised to one height in the file they came from, so their
+           //! heights RELATIVE TO EACH OTHER did not survive that export -
+           //! which is why height is set per placement, and why the default is
+           //! the tallest rather than an average of something that is not
+           //! there. A figure that is not standing - the one leaning - is
+           //! shorter than its own standing height by however far it leans.
+           ARG.real("height", "Height", 1727, 300, 2500, 5),
+           ARG.real("turn", "Facing", 0, -360, 360, 15, "\u00b0"),
+           //! APPENDED - see above.
+           ARG.choice("figure", "Figure", ENTOURAGE_NAMES, 0)] },
 
   { type: "Clash", guid: "9a1b2c30-00f5-4c00-9e00-caf0000000f5", category: "analysis",
     produces: "text",
@@ -494,7 +506,7 @@ function rackDrivers(kit) {
                    + round(KF.real(one, "base", 80)) + " base", kind: "part",
                  from: "ISO 261 " + it.name + " \u00d7 " + it.pitch, supplier };
       }
-      case "ScaleFigure":
+      case "Entourage":
         //! NOT A PART. A person is in the model to be looked at, and a bill
         //! that orders one is a bill nobody will read the rest of.
         return null;
@@ -1299,25 +1311,27 @@ function rackDrivers(kit) {
       },
     },
 
-    ScaleFigure: {
-      precondition: f => (KF.real(f, "height", 1800) > 0 ? null : "a person needs a height"),
+    Entourage: {
+      precondition: f => (KF.real(f, "height", 1727) > 0 ? null : "a person needs a height"),
       build: f => {
         const frame = frameOf(f);
-        const height = KF.real(f, "height", 1800);
-        //! TURNED IN THE FRAME'S OWN PLANE, so a figure on the floor plane
-        //! turns about the vertical the way everything else in a hall does.
+        const height = KF.real(f, "height", 1727);
+        const pick = ENTOURAGE[K.F.choice(f, "figure", 0)] || ENTOURAGE[0];
+        //! TURNED IN THE FRAME'S OWN PLANE, about the point it stands on - which
+        //! is the anchor baked into every figure in the library: the bottom of
+        //! its bounding box, centred in plan. Turning about anything else moves
+        //! the person as well as facing them, which is not what somebody
+        //! dragging a Facing slider is asking for.
         const turn = KF.real(f, "turn", 0) * Math.PI / 180;
         const c = Math.cos(turn), s = Math.sin(turn);
         const across = [frame.x[0] * c + frame.y[0] * s, frame.x[1] * c + frame.y[1] * s,
                         frame.x[2] * c + frame.y[2] * s];
         const facing = [-frame.x[0] * s + frame.y[0] * c, -frame.x[1] * s + frame.y[1] * c,
                         -frame.x[2] * s + frame.y[2] * c];
-        const mesh = figureAt(height, frame.origin, across, facing, frame.z);
-        return { data: K.packMesh(K.checkMesh(mesh, "scale figure")) };
+        const mesh = entourageAt(pick.key, height, frame.origin, across, facing, frame.z);
+        return { data: K.packMesh(K.checkMesh(mesh, pick.name)) };
       },
     },
-
-    //! ------------------------------------------------------- clash
 
     Clash: {
       precondition: f => (KF.reference(f, "a") ? null : "nothing wired in to check"),

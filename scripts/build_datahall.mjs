@@ -68,7 +68,10 @@ const AISLE = 1200;            // the hot aisle between the two rows, clear
 const FFH = 600;               // finished floor height
 const SLAB = 3000;             // the soffit the runway hangs from
 const TRAY_UNDER = 2600;       // the underside of the runway
-const PERSON = 1800;
+//! THE TALLEST OF THE FOUR FIGURES AS SUPPLIED. They arrived all normalised to
+//! one height, so their heights relative to each other did not survive that
+//! export - which is why each placement sets its own.
+const PERSON = 1727;
 //! HOW FAR OFF THE FLOOR THE RACK STANDS, and this is not decoration. A rack
 //! sits on four levelling feet and the feet sit on the finished floor - so the
 //! frame's underside is a foot's height above z = 0, not on it. Built at z = 0
@@ -140,6 +143,7 @@ num("N_AISLE", "Hot aisle", AISLE, "P");
 num("N_FFH", "Finished floor", FFH, "P");
 num("N_SLAB", "Soffit", SLAB, "P");
 num("N_PERSON", "Person", PERSON, "P");
+num("N_PERSON2", "Second person", 1680, "P");
 num("N_PLINTH", "Rack on its feet", PLINTH, "P");
 num("N_NODES", "Compute nodes a rack", 8, "P");
 num("N_NODEU", "Node height", 2, "P");
@@ -505,9 +509,19 @@ set("S", "07 Scale", "H", "figure");
 at("PTS", "Person at", PITCH * 1.5, -900, 0, "S",
    { y: ["X_COLD", -900] });
 expr("X_COLD", "Cold aisle centreline (mm)", "-900", {}, "S");
-add("PERSON", "ScaleFigure", { name: "Scale figure \u00b7 1.8 m", parent: "S",
+//! FACING THE RACKS. Every figure in the library is turned to face +Y when it
+//! is baked, so a person in the cold aisle looking at the doors is a Facing of
+//! nothing at all - which is the point of aligning them: changing which figure
+//! it is does not change where they look.
+add("PERSON", "Entourage", { name: "Entourage \u00b7 hands in pockets", parent: "S",
   refs: { plane: "PL0", at: "PTS" }, wire: { height: ["N_PERSON", PERSON] },
-  args: { turn: 0 } });
+  args: { turn: 0, figure: 0 } });
+//! A SECOND ONE, further down the aisle and turned, because one person is a
+//! scale bar and two are a room. The trench coat is looking along the aisle.
+at("PTSB", "Second person at", PITCH * 3.2, -600, 0, "S");
+add("PERSON2", "Entourage", { name: "Entourage \u00b7 trench coat", parent: "S",
+  refs: { plane: "PL0", at: "PTSB" }, wire: { height: ["N_PERSON2", 1680] },
+  args: { turn: -75, figure: 2 } });
 
 /* ------------------------------------------------------------- 09 Bill */
 

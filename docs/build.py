@@ -86,9 +86,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            "slider.js", "graph.js",
            "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
-           # figure is the scale figure's mesh and nothing else - no kernel, no
-           # DOM - and the rack package's ScaleFigure driver is what reads it.
-           "figure.js",
+           # entourage is the figure library and nothing else - no kernel, no
+           # DOM - and the rack package's Entourage driver is what reads it.
+           "entourage.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its

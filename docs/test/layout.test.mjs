@@ -506,5 +506,50 @@ console.log("\n10. and it can be driven with fingers");
         /pointercancel", event =>[\s\S]{0,400}touches\.delete\(event\.pointerId\)/.test(app));
 }
 
+console.log("\n12. a colour on a set, and edges you can switch off");
+{
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  //! THE CATALOGUE SAYS, IN AS MANY WORDS, that colouring a Part colours
+  //! everything in it - and the viewport read the feature's OWN appearance and
+  //! nothing else, so a colour on a set reached the set, which has no surfaces,
+  //! and stopped. It looked exactly like the colour had not been applied.
+  check("a body wears the nearest colour above it when it has none of its own",
+        /function wornAppearance\(entry\)/.test(app)
+        && /for \(const up of setsAbove\(entry\.id\)\) if \(paints\(up\)\) return up;/.test(app));
+  check("and the material is built from that rather than from the feature's own",
+        /materialOf\(wornAppearance\(entry\)\)/.test(app));
+  //! AN APPEARANCE THAT SAYS NOTHING ABOUT COLOUR IS NOT AN ANSWER. A set may
+  //! carry a cut style and no finish - hatch everything in here, leave the
+  //! colours alone - and walking that as a colour would repaint its contents
+  //! the default grey.
+  check("a set that says nothing about colour does not repaint what is in it",
+        /const paints = worn =>/.test(app) && /SAYS_COLOUR\.some/.test(app));
+
+  //! EDGES ARE RESOLVED ON THEIR OWN, not through the colour walk: a set that
+  //! says only `edges: false` is a real thing to want, and the colour walk
+  //! ignores an appearance that says nothing about colour.
+  check("edges resolve own-first then up the sets, on their own",
+        /function showsEdges\(entry\)/.test(app)
+        && /if \(up && up\.edges !== undefined\) return up\.edges !== false;/.test(app));
+  check("an outline is built and hidden rather than not built",
+        /lines\.userData\.outline = true;/.test(app)
+        && /lines\.visible = showsEdges\(entry\);/.test(app));
+  //! AND ARCTIC OBEYS IT, which is the mode that draws a line along every sharp
+  //! edge on purpose and is where a five-thousand-triangle figure turns into a
+  //! black blob.
+  check("arctic's overlay obeys the object too",
+        /arcticLook\.edges && state\.style === "arctic" && showsEdges\(feature\(id\)\)/.test(app));
+  check("and switching it repaints without going back to the kernel",
+        /if \(object\.userData\.outline\) \{ object\.visible = edgesOn; continue; \}/.test(app));
+  //! AND THE SETTING SURVIVES A COLOUR CHANGE. appearanceOf builds a clean
+  //! appearance out of a finish and its overrides and knows nothing about
+  //! edges, so without carrying it across, picking a colour would quietly put
+  //! an object's edges back on - the same trap the point marks had.
+  check("and a colour change carries the edge switch across",
+        /const edges = change\.edges !== undefined \? change\.edges : was\.edges;/.test(app));
+  check("there is a control for it in the material panel",
+        /wearMaterial\(entry\.id, \{ edges: box\.checked \}\)/.test(app));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

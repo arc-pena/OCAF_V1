@@ -421,9 +421,9 @@ console.log("\n9. the hall around the rack: floor, hanger, manager, figure");
         mgr.split("\n")[2] || mgr.slice(0, 60));
 
   //! AND THE PERSON IS THE HEIGHT ASKED FOR, measured off the built mesh.
-  const FG = await add("ScaleFigure", { refs: { plane: PL } });
+  const FG = await add("Entourage", { refs: { plane: PL } });
   await set(FG, "height", 1800);
-  check("a scale figure builds", !(await at(FG)).error, (await at(FG)).error);
+  check("an entourage figure builds", !(await at(FG)).error, (await at(FG)).error);
   check("and is exactly the height asked for",
         near(await sizeOf(FG, 5), 1800, 0.01), String(await sizeOf(FG, 5)));
   await set(FG, "height", 1500);
@@ -531,7 +531,7 @@ console.log("\n11. clash detection, against answers that can be done on paper");
   //! person standing inside a rack - which passes, silently, for ever.
   await kernel.setReference(CL, "a", LOW, false, true);
   await set(CL, "how", 1);
-  const FG = await add("ScaleFigure", { refs: { plane: PL }, into: HIGH });
+  const FG = await add("Entourage", { refs: { plane: PL }, into: HIGH });
   await set(FG, "height", 1800);
   await set(PB, "z", 4000);            // the cube out of the way
   const withMesh = String(((await at(CL)).data || {}).preview || "");
