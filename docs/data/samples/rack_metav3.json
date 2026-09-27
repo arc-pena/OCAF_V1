@@ -1,0 +1,317 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Meta Open Rack V3 · 44 OU",
+ "units": "mm",
+ "needs": [
+  "rack"
+ ],
+ "features": [
+  {
+   "id": "R",
+   "type": "GeometricalSet",
+   "name": "Meta Open Rack V3 · 44 OU"
+  },
+  {
+   "id": "P",
+   "type": "GeometricalSet",
+   "name": "00 The standard",
+   "parent": "R"
+  },
+  {
+   "id": "N_UNITS",
+   "type": "Number",
+   "name": "Height (OU)",
+   "parent": "P",
+   "args": {
+    "value": 44
+   }
+  },
+  {
+   "id": "N_WIDTH",
+   "type": "Number",
+   "name": "Frame width",
+   "parent": "P",
+   "args": {
+    "value": 600
+   }
+  },
+  {
+   "id": "F",
+   "type": "GeometricalSet",
+   "name": "01 Frame",
+   "parent": "R"
+  },
+  {
+   "id": "PT0",
+   "type": "Point",
+   "name": "Origin",
+   "parent": "F",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "parent": "F",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   }
+  },
+  {
+   "id": "PL0",
+   "type": "Plane",
+   "name": "Floor",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VZ"
+    }
+   }
+  },
+  {
+   "id": "FRAME",
+   "type": "RackFrame",
+   "name": "Frame · 44OU",
+   "parent": "F",
+   "args": {
+    "standard": 2,
+    "profile": 2,
+    "rails": 3,
+    "posts": 0,
+    "postWidth": 50,
+    "depth": 1068,
+    "width": 0,
+    "supplier": "Meta Open Rack V3 · 44 OU",
+    "plane": {
+     "ref": "PL0"
+    },
+    "units": {
+     "value": 44,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP0",
+   "type": "Point",
+   "name": "Post 1 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST0",
+   "type": "RackPost",
+   "name": "Post 1 · Meta Open Rack V3 · 44 OU",
+   "parent": "F",
+   "args": {
+    "standard": 2,
+    "holes": 1,
+    "width": 50,
+    "wall": 2,
+    "bore": 4.5,
+    "supplier": "post · Meta Open Rack Frame V3, rev 1.3, 3 June 2024 · §6.1 dimensi",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP0"
+    },
+    "units": {
+     "value": 44,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP1",
+   "type": "Point",
+   "name": "Post 2 at",
+   "parent": "F",
+   "args": {
+    "x": 510,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST1",
+   "type": "RackPost",
+   "name": "Post 2 · Meta Open Rack V3 · 44 OU",
+   "parent": "F",
+   "args": {
+    "standard": 2,
+    "holes": 1,
+    "width": 50,
+    "wall": 2,
+    "bore": 4.5,
+    "supplier": "post · Meta Open Rack Frame V3, rev 1.3, 3 June 2024 · §6.1 dimensi",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP1"
+    },
+    "units": {
+     "value": 44,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP2",
+   "type": "Point",
+   "name": "Post 3 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 1008,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST2",
+   "type": "RackPost",
+   "name": "Post 3 · Meta Open Rack V3 · 44 OU",
+   "parent": "F",
+   "args": {
+    "standard": 2,
+    "holes": 1,
+    "width": 50,
+    "wall": 2,
+    "bore": 4.5,
+    "supplier": "post · Meta Open Rack Frame V3, rev 1.3, 3 June 2024 · §6.1 dimensi",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP2"
+    },
+    "units": {
+     "value": 44,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP3",
+   "type": "Point",
+   "name": "Post 4 at",
+   "parent": "F",
+   "args": {
+    "x": 510,
+    "y": 1008,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST3",
+   "type": "RackPost",
+   "name": "Post 4 · Meta Open Rack V3 · 44 OU",
+   "parent": "F",
+   "args": {
+    "standard": 2,
+    "holes": 1,
+    "width": 50,
+    "wall": 2,
+    "bore": 4.5,
+    "supplier": "post · Meta Open Rack Frame V3, rev 1.3, 3 June 2024 · §6.1 dimensi",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP3"
+    },
+    "units": {
+     "value": 44,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "VX",
+   "type": "Vector",
+   "name": "Across",
+   "parent": "F",
+   "args": {
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   }
+  },
+  {
+   "id": "PLX",
+   "type": "Plane",
+   "name": "Across the rack",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VX"
+    }
+   }
+  },
+  {
+   "id": "PTB",
+   "type": "Point",
+   "name": "Cross brace at 23 OU",
+   "parent": "F",
+   "args": {
+    "x": 90,
+    "y": 1033,
+    "z": 1056
+   }
+  },
+  {
+   "id": "BRACE",
+   "type": "Strut",
+   "name": "Cross brace · 1 OpenU, at 23 OU",
+   "parent": "F",
+   "args": {
+    "profile": 2,
+    "length": 420,
+    "holes": 0,
+    "supplier": "cross brace - required above 800 kg",
+    "plane": {
+     "ref": "PLX"
+    },
+    "at": {
+     "ref": "PTB"
+    }
+   }
+  },
+  {
+   "id": "Z",
+   "type": "GeometricalSet",
+   "name": "02 Bill of materials",
+   "parent": "R"
+  },
+  {
+   "id": "BOM",
+   "type": "Bill",
+   "name": "Bill of materials",
+   "parent": "Z",
+   "args": {
+    "show": 0,
+    "of": {
+     "ref": "R"
+    }
+   }
+  }
+ ]
+}

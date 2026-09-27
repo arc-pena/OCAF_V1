@@ -64,20 +64,164 @@ export const RACK_STANDARDS = [
   },
   {
     key: "orv3",
-    name: "OCP Open Rack v3 · 21 inch",
-    from: "Open Compute Project Open Rack v3. The OpenU, the equipment width "
-        + "and the frame width are published; the post hole pattern here is NOT "
-        + "from the specification - set it on the post.",
-    unit: 48,                    // one OpenU
+    name: "OCP Open Rack V3 \u00b7 48 mm OpenU",
+    //! READ OFF THE SPECIFICATION, at last. Open Compute Project, "Open Rack
+    //! Base Frame V3 Specification", revision 1.1, 5 March 2024. Section and
+    //! figure numbers are given against each figure below, because a number
+    //! without one is a number nobody can check.
+    //!
+    //! This row was a stub for a long time and said so: the OpenU and a couple
+    //! of widths, and `holes: null` with a note that the pattern had NOT been
+    //! read off the specification. It is read off it now.
+    //!
+    //! ONE FIGURE HAS CHANGED AND IT WAS MINE. The row used to carry 537 as a
+    //! "21 inch equipment width". That number is not in this document. What the
+    //! base frame specification fixes is the FRAME: 540.40 between the latch
+    //! datums and 539.40 between the shelf inner surfaces (Figure 6.1.1). The
+    //! width of the IT gear itself belongs to the IT equipment specification,
+    //! which is a different document and is not this one - so the frame's own
+    //! numbers are here and the equipment width is not invented from memory.
+    from: "OCP Open Rack Base Frame V3, rev 1.1, 5 March 2024 \u00b7 \u00a76.1.1 frame, "
+        + "\u00a76.1.2 OpenU. All dimensions are after paint (nominal 120 \u00b5m a layer).",
+    //! §6.1.2, Figure 6.1.2.1. The frame carries both: 48 mm OpenU, and
+    //! 44.45 mm EIA-310-D rack units as an option (§6.1.3).
+    unit: 48,
     unitName: "OU",
-    panel: 537,                  // 21" equipment width
-    columns: 465.1,
-    holes: null,                 // see `from` - not invented
-    square: 9.5,
-    flange: 15.875,
-    depth: 1068,
+    //! Figure 6.1.1. Latch datum to latch datum, which the drawing labels RACK
+    //! WIDTH. The shelf inner surfaces are 539.40 \u00b1 1.05 and the inner
+    //! vertical members 543.40 \u00b1 0.91.
+    panel: 540.40,
+    innerMembers: 543.40,
+    shelfWidth: 539.40,
+    overallWidth: 600.24,
+    //! THE HOLE PATTERN, Figures 6.1.2.1 and 6.1.2.2, details E, F and J. Two
+    //! holes to an OpenU, at 9 and 33 mm above that unit's own boundary - which
+    //! is a different animal from EIA's three at 6.35 / 22.225 / 38.1, and is
+    //! why a pattern invented to look right would have been wrong everywhere.
+    holes: [9, 33],
+    //! The round holes are Ø4.50 +0.075/-0 before paint, Ø4.26 painted, on the
+    //! side members; the front face carries Ø5.40 +0.075/-0, Ø5.16 painted
+    //! (Figure 6.1.2.2). Both take thread-forming screws - see ORV3_FASTENERS.
+    bore: 4.5,
+    borePainted: 4.26,
+    frontBore: 5.4,
+    frontBorePainted: 5.16,
+    //! ORv3 HAS NO SQUARE CAGE-NUT HOLE. It is a thread-forming-screw rack, so
+    //! the EIA figure would be meaningless here and is left out rather than
+    //! carried across.
+    square: null,
+    //! §6.1.2.2: OU boundary to the front face of the outer member.
+    flange: 33.0,
+    //! Figure 6.1.1, OVERALL DEPTH REF. Datum A to the IT shelf stop is
+    //! 789.0 \u00b1 1.04, to the rear inner member 669.06 \u00b1 0.9.
+    depth: 1068.24,
+    shelfStop: 789.0,
   },
+  {
+    key: "metav3",
+    name: "Meta Open Rack V3 \u00b7 44 OU",
+    //! Meta's own frame on the Open Rack V3 interface. "Meta Open Rack Frame V3
+    //! Specification", revision 1.3, 3 June 2024. Unusually for these, its
+    //! headline dimensions are in the PROSE rather than in a drawing, so they
+    //! are quoted here as the document states them (\u00a76.1) - nominal, not
+    //! toleranced.
+    from: "Meta Open Rack Frame V3, rev 1.3, 3 June 2024 \u00b7 \u00a76.1 dimensions, "
+        + "\u00a76.2 load, \u00a76.3 capacity, \u00a77.5 mounting points.",
+    unit: 48,
+    unitName: "OU",
+    //! \u00a76.1.3 width 600 nominal, \u00a76.1.4 depth 1068 nominal,
+    //! \u00a76.1.2 height 2286 (90 inches) floor to frame top.
+    panel: 540.40,               // the ORv3 interface it is built to
+    overallWidth: 600,
+    depth: 1068,
+    height: 2286,
+    //! \u00a76.3: 44 OpenU or 47 RU, and 88 half-OpenU.
+    units: 44,
+    unitsRU: 47,
+    //! The OU interface is Open Rack V3's, so the hole pattern is that one.
+    holes: [9, 33],
+    bore: 4.5,
+    square: null,
+    flange: 33.0,
+    //! \u00a76.2: 1400 kg of IT, excluding the rack itself. Above 800 kg it
+    //! wants a 1-OpenU cross brace, recommended between 18OU and 27OU and
+    //! defaulting to 23OU - which is a real modelling decision, not a note.
+    loadKg: 1400,
+    braceAboveKg: 800,
+    braceAtOU: 23,
+    braceRange: [18, 27],
+  },
+
+  {
+    key: "orw",
+    name: "OCP Open Rack Wide \u00b7 ORW",
+    //! "Open Rack Wide (ORW) Base Specification", V1.0.0. The vertical
+    //! interface is Open Rack's - 48 mm OpenU, holes 9 and 33 above each
+    //! boundary - and the frame is tapped M6 x 1.0 rather than taking
+    //! thread-forming screws like ORv3 (Figure 4.2.2.1, details C and D).
+    //!
+    //! ITS OVERALL FRAME WIDTH IS NOT HERE, and that is the one number the word
+    //! "Wide" is about. The frame cross-section (Figure 4.2.1.1) is drawn at a
+    //! scale where I could not read the width callout with confidence, and the
+    //! full-resolution copy is in the specification's Appendix A. A width
+    //! guessed from the rack's NAME would be the exact mistake this file exists
+    //! to avoid, so it is absent and a frame on this standard takes its width
+    //! as an argument until somebody reads the appendix.
+    from: "OCP Open Rack Wide (ORW) Base Specification V1.0.0 \u00b7 \u00a74.2.2 vertical "
+        + "OU. Frame width not transcribed - see Figure 4.2.1.1 and Appendix A.",
+    unit: 48,
+    unitName: "OU",
+    panel: null,
+    overallWidth: null,
+    depth: null,
+    //! \u00a74.2.2 and Figure 4.2.2.1: 44 OU positions, measured at 1, 23 and 44.
+    units: 44,
+    holes: [9, 33],
+    //! Tapped, not thread-forming: M6 x 1.0P through the front and rear inner
+    //! verticals, at 24 mm (half-OU) spacing, with RU positions at 44.45 and
+    //! 22.23 for the EIA option.
+    thread: "M6 x 1.0",
+    bore: 5.4,
+    square: null,
+    flange: 33.0,
+    //! Front inner M6 centreline to rear inner M6 centreline, both sides.
+    railToRail: 541.3,
+  },
+
 ];
+
+/* --------------------------------------------- what an Open Rack is bolted with
+
+   §6.8 of the same document, and it is unusually specific: the rack is not
+   built with cage nuts and bolts at all, it is built with THREAD-FORMING SCREWS
+   driven straight into the sheet. Which screw goes in which hole is decided by
+   the hole's diameter before paint, so the two are kept together here.        */
+
+export const ORV3_FASTENERS = [
+  { bore: 4.5, screw: "M5 thread-forming, DIN 7500",
+    stripOut: 6.25, torque: 5, cycles: 5,
+    from: "OCP Open Rack Base Frame V3 rev 1.1 \u00a76.8.1" },
+  { bore: 5.4, screw: "M6 thread-forming, DIN 7500",
+    stripOut: 6.25, torque: 5, cycles: 5,
+    from: "OCP Open Rack Base Frame V3 rev 1.1 \u00a76.8.2" },
+];
+
+//! Which screw a hole of this size takes, by the diameter BEFORE paint - which
+//! is how the specification indexes them, and is not the diameter you would
+//! measure on a finished frame.
+export const orv3Screw = bore =>
+  ORV3_FASTENERS.find(one => Math.abs(one.bore - bore) < 0.01) || null;
+
+//! §6.7, and every one of these is a SHALL. A levelling foot that does not
+//! meet them is not an Open Rack foot, so they are here to be checked against
+//! rather than remembered.
+export const ORV3_FOOT = {
+  swivelDia: 30,      // 6.7.1, at least
+  liftsCasters: 15,   // 6.7.2, minimum off the floor
+  driver: 8,          // 6.7.4, hex across flats
+  maxTorque: 35,      // 6.7.5, N-m to raise or lower fully loaded
+  from: "OCP Open Rack Base Frame V3 rev 1.1 \u00a76.7",
+};
 
 export const rackStandard = key =>
   RACK_STANDARDS.find(one => one.key === key) || RACK_STANDARDS[0];

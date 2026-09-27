@@ -1,0 +1,263 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "EIA-310-E 19 inch · 42U",
+ "units": "mm",
+ "needs": [
+  "rack"
+ ],
+ "features": [
+  {
+   "id": "R",
+   "type": "GeometricalSet",
+   "name": "EIA-310-E 19 inch · 42U"
+  },
+  {
+   "id": "P",
+   "type": "GeometricalSet",
+   "name": "00 The standard",
+   "parent": "R"
+  },
+  {
+   "id": "N_UNITS",
+   "type": "Number",
+   "name": "Height (U)",
+   "parent": "P",
+   "args": {
+    "value": 42
+   }
+  },
+  {
+   "id": "N_WIDTH",
+   "type": "Number",
+   "name": "Frame width",
+   "parent": "P",
+   "args": {
+    "value": 600
+   }
+  },
+  {
+   "id": "F",
+   "type": "GeometricalSet",
+   "name": "01 Frame",
+   "parent": "R"
+  },
+  {
+   "id": "PT0",
+   "type": "Point",
+   "name": "Origin",
+   "parent": "F",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "parent": "F",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   }
+  },
+  {
+   "id": "PL0",
+   "type": "Plane",
+   "name": "Floor",
+   "parent": "F",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VZ"
+    }
+   }
+  },
+  {
+   "id": "FRAME",
+   "type": "RackFrame",
+   "name": "Frame · 42U",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "profile": 2,
+    "rails": 3,
+    "posts": 0,
+    "postWidth": 50,
+    "depth": 1000,
+    "width": 0,
+    "supplier": "EIA-310-E 19 inch · 42U",
+    "plane": {
+     "ref": "PL0"
+    },
+    "units": {
+     "value": 42,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP0",
+   "type": "Point",
+   "name": "Post 1 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST0",
+   "type": "RackPost",
+   "name": "Post 1 · EIA-310-E · 19 inch",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "bore": 7,
+    "supplier": "post · EIA-310-E / IEC 60297-3-100. Every number is an exact inch f",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP0"
+    },
+    "units": {
+     "value": 42,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP1",
+   "type": "Point",
+   "name": "Post 2 at",
+   "parent": "F",
+   "args": {
+    "x": 505.1,
+    "y": 60,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST1",
+   "type": "RackPost",
+   "name": "Post 2 · EIA-310-E · 19 inch",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "bore": 7,
+    "supplier": "post · EIA-310-E / IEC 60297-3-100. Every number is an exact inch f",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP1"
+    },
+    "units": {
+     "value": 42,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP2",
+   "type": "Point",
+   "name": "Post 3 at",
+   "parent": "F",
+   "args": {
+    "x": 40,
+    "y": 940,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST2",
+   "type": "RackPost",
+   "name": "Post 3 · EIA-310-E · 19 inch",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "bore": 7,
+    "supplier": "post · EIA-310-E / IEC 60297-3-100. Every number is an exact inch f",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP2"
+    },
+    "units": {
+     "value": 42,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "PTP3",
+   "type": "Point",
+   "name": "Post 4 at",
+   "parent": "F",
+   "args": {
+    "x": 505.1,
+    "y": 940,
+    "z": 0
+   }
+  },
+  {
+   "id": "POST3",
+   "type": "RackPost",
+   "name": "Post 4 · EIA-310-E · 19 inch",
+   "parent": "F",
+   "args": {
+    "standard": 0,
+    "holes": 0,
+    "width": 50,
+    "wall": 2,
+    "bore": 7,
+    "supplier": "post · EIA-310-E / IEC 60297-3-100. Every number is an exact inch f",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTP3"
+    },
+    "units": {
+     "value": 42,
+     "from": "N_UNITS"
+    }
+   }
+  },
+  {
+   "id": "Z",
+   "type": "GeometricalSet",
+   "name": "02 Bill of materials",
+   "parent": "R"
+  },
+  {
+   "id": "BOM",
+   "type": "Bill",
+   "name": "Bill of materials",
+   "parent": "Z",
+   "args": {
+    "show": 0,
+    "of": {
+     "ref": "R"
+    }
+   }
+  }
+ ]
+}

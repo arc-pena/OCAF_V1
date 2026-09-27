@@ -120,7 +120,10 @@ export const RACK_NODES = [
            ARG.choice("posts", "Mounting posts", ["Front and back", "Front only", "None"], 0),
            ARG.real("postWidth", "Post flange", 50, 20, 200, 1),
            ARG.text("supplier", "Supplier ref", "", "your own part number"),
-           ARG.spare("section", "Section from", ["StrutSection"])] },
+           ARG.spare("section", "Section from", ["StrutSection"]),
+           //! APPENDED. Only read when the standard publishes no width of its
+           //! own - Open Rack Wide is the case, and the feature says so.
+           ARG.real("width", "Frame width", 0, 0, 2000, 5)] },
 
   { type: "Fastener", guid: "9a1b2c30-00d7-4c00-9e00-caf0000000d7", category: "body",
     produces: "solid",
@@ -444,6 +447,13 @@ function rackDrivers(kit) {
       build: f => {
         const frame = frameOf(f);
         const spec = RACK_STANDARDS[K.F.choice(f, "standard", 0)] || RACK_STANDARDS[0];
+        //! THE HOLE IS THE STANDARD'S SIZE where the standard fixes one. Open
+        //! Rack V3 drills 4.5 and 5.4 before paint, because those are the two
+        //! sizes its thread-forming screws are specified against (§6.8), so
+        //! falling back on this node's generic 7 would model a post that no
+        //! screw in the specification fits. EIA fixes a SQUARE hole instead and
+        //! publishes no round one, so there the node's own number still stands.
+        const standardBore = Number.isFinite(spec.bore) && spec.bore > 0 ? spec.bore : null;
         const units = Math.max(1, Math.round(KF.real(f, "units", 42)));
         const width = KF.real(f, "width", 50);
         const wall = KF.real(f, "wall", 2);
@@ -465,7 +475,7 @@ function rackDrivers(kit) {
             const s = spec.square;
             tools.push(slab(frame, [line - s / 2, -1, z - s / 2], s, wall + 2, s));
           } else if (mode === 1) {
-            tools.push(drill(frame, [line, -1, z], "v", KF.real(f, "bore", 7) / 2, wall + 2));
+            tools.push(drill(frame, [line, -1, z], "v", KF.real(f, "bore", standardBore ?? 7) / 2, wall + 2));
           }
         }
         if (tools.length) solid = cutAll(solid, tools);
@@ -474,7 +484,7 @@ function rackDrivers(kit) {
                                  + high.toFixed(2) + " mm",
                                at.length + " holes · "
                                  + (mode === 0 ? spec.square + " mm square"
-                                    : mode === 1 ? "ø" + KF.real(f, "bore", 7) : "none")]) };
+                                    : mode === 1 ? "\u00f8" + KF.real(f, "bore", standardBore ?? 7) : "none")]) };
       },
     },
 
@@ -490,12 +500,34 @@ function rackDrivers(kit) {
         const postWidth = KF.real(f, "postWidth", 50);
         const high = rackHeight(spec.key, units);
         const w = section.w, h = section.h;
-        //! THE FRAME IS AS WIDE AS THE STANDARD SAYS, plus the posts it has to
-        //! carry: the hole columns are 465.1 apart and everything else is
-        //! measured out from there, which is why this is a sum and not a
-        //! parameter somebody types.
-        const inner = spec.columns + postWidth;
-        const across = inner + w * 2;
+        //! HOW WIDE THE FRAME IS, asked of the standard in the order the
+        //! standards actually publish it - because they do not all publish the
+        //! same thing, and assuming they do is how this broke.
+        //!
+        //! EIA-310-E fixes the HOLE COLUMNS (465.1) and everything else is
+        //! measured out from them, so there the width is a sum. Open Rack V3
+        //! publishes the FRAME instead - 600.24 overall, Figure 6.1.1 - and has
+        //! no column spacing to add up; reading spec.columns there gave
+        //! undefined, the sum came out NaN, and the extrusion failed with
+        //! "BRep_API: command not done", which says nothing about a missing
+        //! number. And Open Rack Wide publishes a width this program has not
+        //! read, so there it HAS to come from the node.
+        //!
+        //! So: the standard's own frame width if it has one, else the columns
+        //! plus the posts they carry, else what the node was told - and the
+        //! feature says which of the three it used, because "600 wide" from the
+        //! specification and "600 wide" because somebody typed it are different
+        //! claims.
+        const told = KF.real(f, "width", 0);
+        const fromSpec = Number.isFinite(spec.overallWidth) && spec.overallWidth > 0
+          ? spec.overallWidth : null;
+        const fromColumns = Number.isFinite(spec.columns) && spec.columns > 0
+          ? spec.columns + postWidth + w * 2 : null;
+        const across = fromSpec ?? fromColumns ?? (told > 0 ? told : 600);
+        const widthFrom = fromSpec ? "the standard's own frame width"
+          : fromColumns ? "the standard's hole columns plus the posts"
+          : told > 0 ? "the width set on this feature - the standard does not publish one here"
+          : "600 as a fallback - neither the standard nor this feature says";
         const parts = [];
         //! Four legs.
         for (const [u, v] of [[0, 0], [across - w, 0], [0, depth - h], [across - w, depth - h]])
@@ -524,6 +556,7 @@ function rackDrivers(kit) {
         }
         const bill = [
           spec.name + " · " + units + spec.unitName,
+          Math.round(across * 100) / 100 + " mm wide, from " + widthFrom,
           section.name,
           across.toFixed(1) + " × " + depth + " × " + high.toFixed(1) + " mm",
           (4 + levels.length * 4) + " members",

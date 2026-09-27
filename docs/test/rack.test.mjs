@@ -6,9 +6,10 @@
 // the only way to know is to check the arithmetic against the inch fractions
 // it came from - which is what this does, by computing each one from 25.4 mm
 // to the inch rather than by repeating the millimetre figure.
-import { FASTENERS, RACK_STANDARDS, STRUT_PROFILES, bomLines, bomOf, fastener,
-         hexOutline, holeCentres, holeName, rackHeight, rackStandard,
-         strutHoles, strutProfile, unitBottom } from "../src/rack.js";
+import { FASTENERS, ORV3_FASTENERS, ORV3_FOOT, RACK_STANDARDS, STRUT_PROFILES,
+         bomLines, bomOf, fastener, hexOutline, holeCentres, holeName, orv3Screw,
+         rackHeight, rackStandard, strutHoles, strutProfile,
+         unitBottom } from "../src/rack.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -82,23 +83,103 @@ console.log("\n2. a rack of 42U, and where its holes are");
         holeName("eia310", 125));
 }
 
-console.log("\n3. the hyperscale rack, and what is honestly not in it");
+console.log("\n3. the hyperscale rack, read off the specification at last");
 {
+  //! THIS SECTION USED TO CHECK THAT THE ANSWER WAS ABSENT. The row carried no
+  //! hole pattern and said in words that it had not been read off the
+  //! specification, and the test asserted exactly that - which was the right
+  //! thing to assert while it was true. The specification is here now (OCP Open
+  //! Rack Base Frame V3, rev 1.1, 5 March 2024), so the checks are against it.
   const ocp = rackStandard("orv3");
   check("an OpenU is 48 mm", near(ocp.unit, 48), String(ocp.unit));
-  check("the equipment is 21 inches wide", near(ocp.panel, 537), String(ocp.panel));
-  //! THE HONEST HOLE. A pattern invented to look right is the one mistake here
-  //! that would not show up until parts were ordered, so there is not one -
-  //! and the row says why in words the interface can print.
-  check("its post pattern is absent rather than invented", ocp.holes === null);
-  check("and the row says so", /NOT\s+from the specification/.test(ocp.from), ocp.from);
-  //! And a post on that standard still works, because the pattern can be given.
+  //! Figure 6.1.1: latch datum to latch datum, which the drawing calls RACK
+  //! WIDTH. The 537 this row used to carry was not from this document - the
+  //! IT gear's own width belongs to the IT equipment specification.
+  check("the rack width is the latch datums, 540.40", near(ocp.panel, 540.40), String(ocp.panel));
+  check("the inner vertical members are 543.40 apart",
+        near(ocp.innerMembers, 543.40), String(ocp.innerMembers));
+  check("and the frame is 600.24 overall", near(ocp.overallWidth, 600.24), String(ocp.overallWidth));
+  check("1068.24 deep", near(ocp.depth, 1068.24), String(ocp.depth));
+
+  //! THE PATTERN, Figures 6.1.2.1 and 6.1.2.2. Two holes to an OpenU at 9 and
+  //! 33 above that unit's own boundary - which is a different animal from
+  //! EIA's three at 6.35 / 22.225 / 38.1, and is exactly why inventing one
+  //! would have been wrong at every hole rather than nearly right.
+  check("two holes to an OpenU, at 9 and 33 above its boundary",
+        Array.isArray(ocp.holes) && ocp.holes.length === 2
+          && near(ocp.holes[0], 9) && near(ocp.holes[1], 33),
+        JSON.stringify(ocp.holes));
+  const up = holeCentres("orv3", 4);
+  check("so a 4 OU post has eight holes", up.length === 8, String(up.length));
+  check("the first at 9 and the last at 3 OU plus 33",
+        near(up[0], 9) && near(up[7], 3 * 48 + 33), JSON.stringify([up[0], up[7]]));
+  //! EVERY GAP IS 24 OR 24, because 9 to 33 is 24 and 33 to the next 9 is 24 -
+  //! the ORv3 pattern really is evenly spaced, which is the opposite of EIA's
+  //! and is worth asserting so nobody "fixes" one to match the other.
+  const gaps = up.slice(1).map((v, i) => Math.round((v - up[i]) * 1000) / 1000);
+  check("and unlike EIA every gap is the same 24 mm",
+        gaps.every(g => near(g, 24)), JSON.stringify([...new Set(gaps)]));
+
+  //! IT IS NOT A CAGE-NUT RACK. Square holes are an EIA feature; ORv3 takes
+  //! thread-forming screws straight into the sheet (\u00a76.8), so carrying the
+  //! EIA square across would describe a rack that does not exist.
+  check("it has no square cage-nut hole", ocp.square === null, String(ocp.square));
+  check("a 4.5 hole takes an M5 thread-forming screw to DIN 7500",
+        /M5 thread-forming, DIN 7500/.test((orv3Screw(4.5) || {}).screw || ""),
+        JSON.stringify(orv3Screw(4.5)));
+  check("and a 5.4 hole an M6",
+        /M6 thread-forming, DIN 7500/.test((orv3Screw(5.4) || {}).screw || ""),
+        JSON.stringify(orv3Screw(5.4)));
+  check("every screw row cites its clause",
+        ORV3_FASTENERS.every(one => /\u00a76\.8/.test(one.from)),
+        ORV3_FASTENERS.map(one => one.from).join(" | "));
+
+  //! \u00a76.7, all SHALLs.
+  check("a levelling foot is at least 30 mm and driven by an 8 mm hex",
+        ORV3_FOOT.swivelDia === 30 && ORV3_FOOT.driver === 8,
+        JSON.stringify(ORV3_FOOT));
+
+  //! And a pattern given on the node still overrides the standard's.
   const given = holeCentres("orv3", 4, [12, 24, 36]);
-  check("a pattern given on the node drives it",
+  check("a pattern typed on the node still wins",
         given.length === 12 && near(given[0], 12) && near(given[11], 3 * 48 + 36),
         JSON.stringify([given[0], given[11]]));
-  check("and with none it draws none rather than guessing",
-        holeCentres("orv3", 4).length === 0);
+}
+
+console.log("\n3b. and the two racks built on that same interface");
+{
+  //! META'S FRAME, whose headline numbers are in the prose rather than in a
+  //! drawing (\u00a76.1) - so they are quoted as stated: nominal, untoleranced.
+  const meta = rackStandard("metav3");
+  check("Meta's V3 frame is 2286 tall, 600 wide, 1068 deep",
+        meta.height === 2286 && meta.overallWidth === 600 && meta.depth === 1068,
+        [meta.height, meta.overallWidth, meta.depth].join(" x "));
+  check("it holds 44 OpenU or 47 RU", meta.units === 44 && meta.unitsRU === 47,
+        meta.units + " / " + meta.unitsRU);
+  check("rated 1400 kg, wanting a cross brace above 800",
+        meta.loadKg === 1400 && meta.braceAboveKg === 800, JSON.stringify(meta.loadKg));
+  check("with the brace defaulting to 23 OU, inside the 18-27 range",
+        meta.braceAtOU === 23 && meta.braceRange[0] === 18 && meta.braceRange[1] === 27,
+        JSON.stringify(meta.braceRange));
+  check("and it is the same OU interface", JSON.stringify(meta.holes) === "[9,33]",
+        JSON.stringify(meta.holes));
+
+  //! OPEN RACK WIDE. Its vertical interface is Open Rack's and is here; its
+  //! FRAME WIDTH is not, because the cross-section is drawn too small to read
+  //! and the full-resolution copy is in the specification's appendix. A width
+  //! guessed from the word "Wide" is the one mistake this file exists to avoid.
+  const orw = rackStandard("orw");
+  check("ORW shares the 48 mm OpenU and its 9/33 pattern",
+        orw.unit === 48 && JSON.stringify(orw.holes) === "[9,33]",
+        orw.unit + " " + JSON.stringify(orw.holes));
+  check("it is TAPPED M6 x 1.0, not thread-forming like ORv3",
+        orw.thread === "M6 x 1.0", String(orw.thread));
+  check("44 OU positions", orw.units === 44, String(orw.units));
+  check("its frame width is absent rather than guessed from its name",
+        orw.overallWidth === null && orw.panel === null,
+        JSON.stringify([orw.overallWidth, orw.panel]));
+  check("and the row says where to read it",
+        /Appendix A/.test(orw.from), orw.from);
 }
 
 console.log("\n4. the sections, as closed outlines at their published sizes");

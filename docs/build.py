@@ -148,6 +148,10 @@ SAMPLES = [
     ("sample-cap", "Sample_Cap.json"),
     ("samplecap-one", "samplecap_onecaponly.json"),
     ("sweep-gallery", "sweep_gallery.json"),
+    ("rack-eia310", "rack_eia310.json"),
+    ("rack-orv3", "rack_orv3.json"),
+    ("rack-metav3", "rack_metav3.json"),
+    ("rack-orw", "rack_orw.json"),
     ("hyperstack-rack", "hyperstack_rack.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]

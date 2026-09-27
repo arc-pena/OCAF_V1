@@ -1053,6 +1053,38 @@ export const SAMPLES = [
            + "made that way with their dimensions wired; the two it cannot are sketches "
            + "carrying their tangencies instead. 243 nodes." },
 
+  //! ONE SAMPLE PER RACK STANDARD, and each is the LEAST model that can be
+  //! checked against its published document: a frame and four posts, every
+  //! number of which comes out of the standards table. Opening one and
+  //! measuring it is measuring the specification. The Hyperstack sample below
+  //! is the opposite argument - one rack, fully built, to LOD 400.
+  { key: "rack-eia310", name: "Rack · EIA-310-E 19 inch, 42U",
+    file: "samples/rack_eia310.json", needs: ["rack"],
+    summary: "The 19-inch rack everybody has, drilled to EIA-310-E: three holes to a "
+           + "unit at 5/8, 5/8 and 1/2 of an inch above its own boundary - the spacing "
+           + "everybody draws evenly and is not - square at 9.5 mm for cage nuts. 42U "
+           + "is 1866.9 mm because 1U is 1.75 inches exactly." },
+  { key: "rack-orv3", name: "Rack · OCP Open Rack V3, 44 OU",
+    file: "samples/rack_orv3.json", needs: ["rack"],
+    summary: "The hyperscale rack, read off the OCP Open Rack Base Frame V3 "
+           + "specification: a 48 mm OpenU, two round holes to a unit at 9 and 33 above "
+           + "its boundary, 600.24 across the frame and 1068.24 deep. It takes M5 and "
+           + "M6 thread-forming screws straight into the sheet rather than cage nuts, "
+           + "which is why it has no square hole at all." },
+  { key: "rack-metav3", name: "Rack · Meta Open Rack V3, 44 OU",
+    file: "samples/rack_metav3.json", needs: ["rack"],
+    summary: "Meta's own frame on the Open Rack V3 interface: 2286 mm floor to top, "
+           + "600 by 1068, 44 OpenU or 47 EIA units, rated 1400 kg of IT. Above 800 kg "
+           + "it wants a one-OpenU cross brace, and the specification says where - so "
+           + "the brace is in the model, at its default 23 OU." },
+  { key: "rack-orw", name: "Rack · OCP Open Rack Wide",
+    file: "samples/rack_orw.json", needs: ["rack"],
+    summary: "Open Rack Wide: the same 48 mm OpenU interface, tapped M6 x 1.0 rather "
+           + "than taking thread-forming screws. Its FRAME WIDTH is not from the "
+           + "specification - that drawing is reproduced too small to read and the full "
+           + "one is in the appendix - so the width here is a number somebody set, and "
+           + "the frame says so on its own face rather than in a footnote." },
+
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
     //! WHAT IT NEEDS BEFORE IT WILL OPEN. The first sample built out of a

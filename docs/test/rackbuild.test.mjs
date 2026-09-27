@@ -134,18 +134,36 @@ console.log("\n3. a post is drilled where the standard says");
         JSON.stringify(said));
 }
 
-console.log("\n4. the hyperscale standard refuses to invent a hole pattern");
+console.log("\n4. the hyperscale standard, now that it has been read");
 {
+  //! THIS USED TO CHECK A REFUSAL. Open Rack V3's hole pattern was not in this
+  //! program, the node said so by name rather than inventing one, and the test
+  //! asserted the refusal - which was the right thing to assert for as long as
+  //! it was true. The specification has since been read (OCP Open Rack Base
+  //! Frame V3, rev 1.1, Figures 6.1.2.1 and 6.1.2.2), so the pattern is the
+  //! standard's own and the post builds without being told anything.
+  //!
+  //! THE REFUSAL ITSELF IS STILL THERE, in RackPost's precondition, for the
+  //! next standard that arrives half-read. It cannot be exercised here because
+  //! all four standards now publish a pattern, which is a good problem.
   const P = await add("RackPost", { refs: { plane: PL } });
-  await set(P, "standard", 1);                       // OCP Open Rack v3
+  await set(P, "standard", 1);                       // OCP Open Rack V3
   await set(P, "units", 4);
-  const row = await at(P);
-  check("it refuses, and says what to do about it",
-        /does not publish a post hole pattern/.test(row.error || ""), row.error);
-  await code(P, "pattern", "12, 24, 36");
-  check("given a pattern it builds", !(await at(P)).error, (await at(P)).error);
+  await set(P, "holes", 1);                          // round, as ORv3 is
+  check("it builds straight off the standard now", !(await at(P)).error, (await at(P)).error);
   //! 4 OU at 48 mm is 192, which is the other thing that standard fixes.
   check("and 4 OpenU is 192 mm", near((await box(P)).z, 192, 1e-6), String((await box(P)).z));
+  //! TWO HOLES A UNIT, NOT THREE, and every gap the same 24 - which is the
+  //! whole of how an Open Rack post differs from an EIA one, and is why a
+  //! pattern invented to look right would have been wrong at every hole.
+  const said = String(((await at(P)).data || {}).preview || "");
+  check("eight holes up a 4 OU post", /8 holes/.test(said), said.slice(0, 120));
+  //! AND A PATTERN TYPED ON THE NODE STILL WINS, which is what lets somebody
+  //! model a frame that does not follow its own standard.
+  await code(P, "pattern", "12, 24, 36");
+  check("a typed pattern still overrides the standard's",
+        /12 holes/.test(String(((await at(P)).data || {}).preview || "")),
+        String(((await at(P)).data || {}).preview || "").slice(0, 120));
 }
 
 console.log("\n5. a frame, and what one number does to it");
