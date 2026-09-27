@@ -45,7 +45,7 @@ import { Mdl } from "../docs/src/mdl.js";
 import { PluginHost } from "../docs/src/plugin.js";
 import { RACK } from "../docs/src/rack-plugin.js";
 import { HARNESS } from "../docs/src/harness-plugin.js";
-import { holeCentres, rackHeight } from "../docs/src/rack.js";
+import { RACK_FINISHES, finishOf, holeCentres, rackHeight } from "../docs/src/rack.js";
 import { readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -63,11 +63,21 @@ const NODE_U = 2;              // each one 2U
 const FIRST_U = 3;             // the first compute node sits at U3
 const BOLT_PITCH = 4;          // a fixing every 4U up the post
 const U = 44.45;
+//! HOW FAR OFF THE FLOOR THE RACK STANDS. A rack sits on four levelling feet
+//! and the feet sit on the floor, so the frame's underside is a foot's height
+//! ABOVE the finished floor - not on it. Built at zero with its feet hanging
+//! below, as this was, the legs were driven 110 mm through the floor panels;
+//! see 12 Clash, which is what found it.
+const PLINTH = 100;
 
 //! WHERE A UNIT STARTS, in millimetres up the rack. Written here rather than
 //! typed into the cable points, so a run that leaves a node's face leaves the
 //! face of the node that is actually there.
-const unitBottomAt = u => (u - 1) * U;
+//! WHERE A UNIT STARTS, in millimetres from the FLOOR - which is a foot's
+//! height above where unit 1 starts inside the rack. A cable that leaves a
+//! node's face has to leave the face of the node that is actually there, and
+//! the rack is standing on its feet.
+const unitBottomAt = u => PLINTH + (u - 1) * U;
 
 const features = [];
 //! A MODEL FILE SAYS A REFERENCE INSIDE args, as { ref: "ID" } - the `refs`
@@ -97,8 +107,12 @@ const add = (id, type, more = {}) => {
 //! Every set is numbered so the tree reads in the order somebody builds in,
 //! and they all sit inside one - so a bill can be of THE RACK rather than of
 //! one part of it.
-const set = (id, name, parent = "R") =>
-  add(id, "GeometricalSet", { name, ...(parent ? { parent } : {}) });
+//! A SET CARRIES THE COLOUR and everything in it wears it unless it says
+//! otherwise, so the whole scheme is one word per set. See RACK_FINISHES: a
+//! model everything is grey in is a photograph of a machine room taken in fog.
+const set = (id, name, parent = "R", role = null) =>
+  add(id, "GeometricalSet", { name, ...(parent ? { parent } : {}),
+                              ...(role ? { appearance: finishOf(role) } : {}) });
 //! A Number is one slider, and the unit belongs to the name rather than to the
 //! node: the catalogue's Number is deliberately a bare number so it can be
 //! wired into anything, and a rack's height in U and its depth in mm are both
@@ -126,7 +140,7 @@ num("N_NODEU", "Node height", NODE_U, "P");
 num("N_FIRST", "First node at", FIRST_U, "P");
 num("N_BOLTU", "Fixing every", BOLT_PITCH, "P");
 num("N_TRAY", "Tray width", 300, "P");
-num("N_PLINTH", "Plinth", 100, "P");
+num("N_PLINTH", "Rack on its feet", PLINTH, "P");
 
 //! THE SUM THAT MAKES IT A RACK RATHER THAN A DRAWING: one unit is 44.45 mm,
 //! exactly, and every position up the rack is a whole number of them. Written
@@ -147,7 +161,7 @@ expr("X_NODESPAN", "Compute span (U)", "a * b",
 
 /* ----------------------------------------------------------------- 01 Frame */
 
-set("F", "01 Frame");
+set("F", "01 Frame", "R", "frame");
 add("PT0", "Point", { name: "Origin", parent: "F", args: { x: 0, y: 0, z: 0 } });
 add("VZ", "Vector", { name: "Up", parent: "F", args: { dx: 0, dy: 0, dz: 1 } });
 add("PL0", "Plane", { name: "Floor", parent: "F", refs: { origin: "PT0", normal: "VZ" } });
@@ -168,8 +182,13 @@ add("PLYB", "Plane", { name: "Out the front", parent: "F", refs: { origin: "PT0"
 
 //! The frame. Its height in U and its depth are WIRED, so the two numbers in
 //! 00 Parameters are the two numbers that define the rack.
+//! A FRAME NEEDS A POINT OF ITS OWN TO BE LIFTED. Given only a plane it is
+//! built at the plane's origin, and the floor plane's origin is the floor - so
+//! the frame alone stayed at zero while the rest of the rack rose around it.
+add("PTR", "Point", { name: "Rack base", parent: "F",
+  wire: { z: ["N_PLINTH", PLINTH] }, args: { x: 0, y: 0 } });
 add("FRAME", "RackFrame", { name: "Frame · 48U", parent: "F",
-  refs: { plane: "PL0", section: "SECTION" },
+  refs: { plane: "PL0", at: "PTR", section: "SECTION" },
   wire: { units: ["N_UNITS", UNITS], depth: ["N_DEPTH", DEPTH] },
   args: { standard: 0, profile: 2, rails: 3, posts: 0, postWidth: 50,
           supplier: "frame, welded" } });
@@ -192,7 +211,8 @@ const BRACE_SPAN = COLUMN - FLANGE;
 const BRACE_Z0 = UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12)));
 ["PF1", "PF2", "PB1", "PB2"].forEach((id, i) => {
   add("PTP" + i, "Point", { name: "Post " + (i + 1) + " at", parent: "F",
-    args: { x: POST_AT[i][0], y: POST_AT[i][1], z: 0 } });
+    wire: { z: ["N_PLINTH", PLINTH] },
+    args: { x: POST_AT[i][0], y: POST_AT[i][1] } });
   add(id, "RackPost", { name: "Post " + (i + 1) + " · EIA-310-E", parent: "F",
     refs: { plane: "PL0", at: "PTP" + i }, wire: { units: ["N_UNITS", UNITS] },
     args: { standard: 0, holes: 0, width: 50, wall: 2, supplier: "post, 2 mm ZP" } });
@@ -200,7 +220,7 @@ const BRACE_Z0 = UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12)));
 
 /* --------------------------------------------------------------- 02 Bracing */
 
-set("B", "02 Bracing");
+set("B", "02 Bracing", "R", "frame");
 //! ONE STRUT, PATTERNED UP THE RACK. The count is an Expression over the rack
 //! height, so a 48U rack gets more braces than a 24U one WITHOUT anybody
 //! editing the pattern - which is the difference between a parametric model
@@ -213,10 +233,10 @@ expr("X_BRACEZ", "Brace pitch (mm)", "a * 44.45 / Math.max(2, Math.round(a / 12)
 //! 300 mm is fine at 48U and is above the top of a 12U rack - which is the
 //! kind of thing a model only tells you about once the number is wired.
 expr("X_BRACE0", "First brace at (mm)",
-     "a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
-     { a: ["N_UNITS", UNITS] }, "B");
+     "b + a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
+     { a: ["N_UNITS", UNITS], b: ["N_PLINTH", PLINTH] }, "B");
 add("PTB", "Point", { name: "First brace at", parent: "B",
-  wire: { z: ["X_BRACE0", BRACE_Z0] },
+  wire: { z: ["X_BRACE0", PLINTH + BRACE_Z0] },
   args: { x: POST_X[0] + FLANGE, y: DEPTH - 60 + FLANGE / 2 } });
 //! ON THE ACROSS PLANE, so it lies between the two rear posts instead of
 //! standing up beside one of them - a strut runs along its plane's NORMAL, and
@@ -233,14 +253,14 @@ add("BRACES", "Array", { name: "Braces · up the rack", parent: "B",
 
 /* --------------------------------------------------------------- 03 Compute */
 
-set("C", "03 Compute");
+set("C", "03 Compute", "R", "equipment");
 //! THE PARAMETER THE DEMONSTRATION IS ABOUT. One number - Compute nodes - and
 //! the rack fills with four of them or eight of them or sixteen, each landing
 //! exactly on its own unit boundary because the spacing is an Expression over
 //! the unit and the node height rather than a distance somebody measured.
 expr("X_NODEMM", "Node pitch (mm)", "a * 44.45", { a: ["N_NODEU", NODE_U] }, "C");
 add("PTC", "Point", { name: "First node at", parent: "C",
-  args: { x: PANEL_X, y: 60, z: 0 } });
+  wire: { z: ["N_PLINTH", PLINTH] }, args: { x: PANEL_X, y: 60 } });
 add("NODE", "RackDevice", { name: "AMD compute node · 2U", parent: "C",
   refs: { plane: "PL0", at: "PTC" }, wire: { units: ["N_NODEU", NODE_U] },
   args: { standard: 0, unit: FIRST_U, depth: 900, inset: 20, ears: 0,
@@ -267,7 +287,7 @@ expr("X_TOPU4", "Fourth free U", TOP_U + " + 3",
      { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "C");
 const FREE_U = FIRST_U + NODES * NODE_U;
 add("PTS", "Point", { name: "Switches at", parent: "C",
-  args: { x: PANEL_X, y: 60, z: 0 } });
+  wire: { z: ["N_PLINTH", PLINTH] }, args: { x: PANEL_X, y: 60 } });
 add("SW1", "RackDevice", { name: "Leaf switch · 1U", parent: "C",
   refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU", FREE_U] },
   args: { standard: 0, units: 1, depth: 550, inset: 20, ears: 0,
@@ -276,7 +296,7 @@ add("SW2", "RackDevice", { name: "Leaf switch · 1U", parent: "C",
   refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU2", FREE_U + 1] },
   args: { standard: 0, units: 1, depth: 550, inset: 20, ears: 0,
           supplier: "32 x 400G leaf switch" } });
-add("PDU", "RackDevice", { name: "PDU · 2U", parent: "C",
+add("PDU", "RackDevice", { name: "PDU · 2U", parent: "C", appearance: finishOf("power"),
   refs: { plane: "PL0", at: "PTS" }, wire: { unit: ["X_TOPU4", FREE_U + 3] },
   args: { standard: 0, units: 2, depth: 300, inset: 700, ears: 0,
           supplier: "3-phase 32 A rack PDU" } });
@@ -298,13 +318,14 @@ add("PP1", "RackDevice", { name: "Patch panel · 1U", parent: "C",
 //! first node there is always room for it, and the bottom two U of a rack is
 //! where the blanking actually goes.
 add("BLK", "RackDevice", { name: "Blanking · 2U at the foot", parent: "C",
+  appearance: finishOf("enclosure"),
   refs: { plane: "PL0", at: "PTS" },
   args: { standard: 0, unit: 1, units: 2, depth: 30, inset: 20, ears: 0,
           supplier: "blanking panel, snap-in" } });
 
 /* ------------------------------------------------------------- 04 Fastening */
 
-set("X", "04 Fastening");
+set("X", "04 Fastening", "R", "fixing");
 //! CAGE NUTS AND BOLTS AT THE FIXINGS, patterned up the post. This is the part
 //! nobody models, and it is the part that decides whether a model is LOD 400:
 //! the hole is in the post, the cage nut is in the hole, the bolt is in the
@@ -312,10 +333,12 @@ set("X", "04 Fastening");
 expr("X_BOLTS", "Fixings a column", "Math.floor(a / b)",
      { a: ["N_UNITS", UNITS], b: ["N_BOLTU", BOLT_PITCH] }, "X");
 expr("X_BOLTZ", "Fixing pitch (mm)", "a * 44.45", { a: ["N_BOLTU", BOLT_PITCH] }, "X");
+expr("X_FIXZ", "First fixing at (mm)", "a + 6.35", { a: ["N_PLINTH", PLINTH] }, "X");
 //! At the hole column, on the inside face of the front post's flange: the
 //! cage nut goes in from behind and the bolt comes through from the front.
 add("PTX", "Point", { name: "First fixing at", parent: "X",
-  args: { x: POST_X[0] + FLANGE / 2, y: 62, z: 6.35 } });
+  wire: { z: ["X_FIXZ", PLINTH + 6.35] },
+  args: { x: POST_X[0] + FLANGE / 2, y: 62 } });
 add("CAGE", "Fastener", { name: "Cage nut M6", parent: "X",
   refs: { plane: "PLY", at: "PTX" },
   args: { part: 10, supplier: "cage nut, M6, 9.5 mm square" } });
@@ -324,7 +347,8 @@ add("CAGES", "Array", { name: "Cage nuts · up the post", parent: "X",
   wire: { countZ: ["X_BOLTS", UNITS / BOLT_PITCH], spacingZ: ["X_BOLTZ", BOLT_PITCH * U] },
   args: { mode: 0, countX: 2, spacingX: COLUMN, countY: 1, spacingY: 0 } });
 add("PTX2", "Point", { name: "First bolt at", parent: "X",
-  args: { x: POST_X[0] + FLANGE / 2, y: 60, z: 6.35 } });
+  wire: { z: ["X_FIXZ", PLINTH + 6.35] },
+  args: { x: POST_X[0] + FLANGE / 2, y: 60 } });
 add("BOLT", "Fastener", { name: "Hex bolt M6 × 16", parent: "X",
   refs: { plane: "PLYB", at: "PTX2" },
   args: { part: 0, length: 16, supplier: "ISO 4017 M6 x 16 A2" } });
@@ -341,9 +365,10 @@ add("BOLTS", "Array", { name: "Bolts · up the post", parent: "X",
 //! IT RIDES WITH THE RACK TOO. It is a demonstration of the bought-part wiring
 //! and not a real fixing, but a demonstration that floats in mid-air once the
 //! height changes demonstrates the wrong thing.
-expr("X_BOUGHT", "Bought part at (mm)", "a * 44.45 - 34", { a: ["N_UNITS", UNITS] }, "X");
+expr("X_BOUGHT", "Bought part at (mm)", "b + a * 44.45 - 34",
+     { a: ["N_UNITS", UNITS], b: ["N_PLINTH", PLINTH] }, "X");
 add("PTX3", "Point", { name: "Bought part at", parent: "X",
-  wire: { z: ["X_BOUGHT", UNITS * U - 34] },
+  wire: { z: ["X_BOUGHT", PLINTH + UNITS * U - 34] },
   args: { x: 65, y: 46 } });
 add("STANDIN", "Cube", { name: "(stand-in for a supplier STEP)", parent: "X",
   refs: { origin: "PTX3", plane: "PL0" }, args: { dx: 10, dy: 14, dz: 10 } });
@@ -353,20 +378,21 @@ add("BOLT_REAL", "Fastener", { name: "M8 · the bought part", parent: "X",
 
 /* ----------------------------------------------------------------- 05 Cable */
 
-set("K", "05 Cable management");
+set("K", "05 Cable management", "R", "containment");
 //! ON TOP OF THE FRAME, not floating above it - and the tray is placed by its
 //! own UNDERSIDE, so "on top of the frame" is the frame's height and nothing
 //! added to it. WIRED to that height, so it rises with the rack.
-expr("X_TRAYZ", "Tray at (mm)", "a * 44.45", { a: ["N_UNITS", UNITS] }, "K");
+expr("X_TRAYZ", "Tray at (mm)", "b + a * 44.45",
+     { a: ["N_UNITS", UNITS], b: ["N_PLINTH", PLINTH] }, "K");
 add("PTK", "Point", { name: "Tray at", parent: "K",
-  wire: { z: ["X_TRAYZ", UNITS * U] },
+  wire: { z: ["X_TRAYZ", PLINTH + UNITS * U] },
   args: { x: 20, y: 380 } });
 add("TRAY", "CableTray", { name: "Overhead tray · 300 wide", parent: "K",
   refs: { plane: "PL0", at: "PTK" }, wire: { width: ["N_TRAY", 300] },
   args: { length: 560, profile: 6, pitch: 140, rung: 20,
           supplier: "ladder tray, 300 mm" } });
 add("PTK2", "Point", { name: "Manager at", parent: "K",
-  args: { x: 445, y: DEPTH - 230, z: 0 } });
+  wire: { z: ["N_PLINTH", PLINTH] }, args: { x: 445, y: DEPTH - 230 } });
 //! THE VERTICAL MANAGER AS THE PART IT IS, and not as a length of drilled
 //! channel standing in for one. A manager is a channel with pairs of fingers up
 //! it and the tie slots between them, and the only question anybody asks of one
@@ -381,7 +407,7 @@ add("MGR", "CableManager", { name: "Vertical manager · fingered", parent: "K",
 
 /* ------------------------------------------------------------- 06 Legs */
 
-set("L", "06 Legs");
+set("L", "06 Legs", "R", "fixing");
 //! THE PART THAT CARRIES THE RACK. A loaded 48U rack is comfortably over a
 //! tonne standing on four of these, so the thread is geometry: a true helix
 //! cut to ISO 68-1. It is the expensive thing in this file - a helical sweep
@@ -393,8 +419,11 @@ const FOOT_IN = 60;
 const FOOT_AT = [[FOOT_IN, FOOT_IN], [595.1 - FOOT_IN, FOOT_IN],
                  [FOOT_IN, DEPTH - FOOT_IN], [595.1 - FOOT_IN, DEPTH - FOOT_IN]];
 FOOT_AT.forEach(([x, y], i) => {
+  //! ON THE FLOOR, at z = 0. A foot is built UPWARDS from its point - base
+  //! plate first, then the stud - so placed at -110 its base plate sat 110 mm
+  //! inside the floor panels.
   add("PTL" + i, "Point", { name: "Foot " + (i + 1) + " at", parent: "L",
-    args: { x, y, z: -110 } });
+    args: { x, y, z: 0 } });
   add("FOOT" + i, "LevellingFoot", {
     name: "Levelling foot " + (i + 1) + (i < 2 ? " \u00b7 thread cut" : " \u00b7 plain stud"),
     parent: "L", refs: { plane: "PL0", at: "PTL" + i },
@@ -405,14 +434,14 @@ FOOT_AT.forEach(([x, y], i) => {
 
 /* ------------------------------------------------------------- 07 Door */
 
-set("D", "07 Door");
+set("D", "07 Door", "R", "enclosure");
 //! LOD 400 MEANS THE OPEN AREA IS A NUMBER, not a hatch pattern. A perforated
 //! door is bought against that percentage, and the node computes it off the
 //! holes it actually punched rather than off the pattern it was asked for - so
 //! a door that misses says so. 5.5 mm on a 6 mm 60-degree pitch is about 74%,
 //! which is what a modern high-density front door is.
 add("PTD", "Point", { name: "Door at", parent: "D",
-  args: { x: 0, y: -30, z: 0 } });
+  wire: { z: ["N_PLINTH", PLINTH] }, args: { x: 0, y: -30 } });
 add("DOOR", "RackDoor", { name: "Front door \u00b7 perforated", parent: "D",
   refs: { plane: "PL0", at: "PTD" },
   wire: { units: ["N_UNITS", UNITS] },
@@ -422,7 +451,7 @@ add("DOOR", "RackDoor", { name: "Front door \u00b7 perforated", parent: "D",
 
 /* -------------------------------------------------- 08 Overhead management */
 
-set("O", "08 Overhead cable management");
+set("O", "08 Overhead cable management", "R", "containment");
 //! TOP-HUNG, which is how a hall is actually wired: the runway is carried off
 //! the ceiling on trapeze hangers and the rack hangs its runs from it, so the
 //! tray is not sitting on the rack at all.
@@ -449,7 +478,7 @@ add("RUNWAY", "CableTray", { name: "Overhead runway · 450 ladder", parent: "O",
 
 /* ------------------------------------------------------------ 09 Cabling */
 
-set("W", "09 Cabling");
+set("W", "09 Cabling", "R", "cable");
 //! CABLES THAT ARE ACTUALLY ROUTED, with the connector on the end that goes in
 //! the port. Each run starts at a node's face, goes back and up the manager,
 //! and lands on the leaf switch above the stack - which is what a patch lead
@@ -466,9 +495,9 @@ const MGR_X = 555;
   add("WC" + i, "Point", { name: "Node " + (i + 1) + " across", parent: "W",
     args: { x: MGR_X, y: -60, z: fromZ } });
   add("WD" + i, "Point", { name: "Node " + (i + 1) + " up", parent: "W",
-    args: { x: MGR_X, y: -60, z: 1755 } });
+    args: { x: MGR_X, y: -60, z: PLINTH + 1755 } });
   add("WE" + i, "Point", { name: "Node " + (i + 1) + " to switch", parent: "W",
-    args: { x: PANEL_FACE + 60 + i * 20, y: 40, z: 1755 } });
+    args: { x: PANEL_FACE + 60 + i * 20, y: 40, z: PLINTH + 1755 } });
   add("RT" + i, "Route", { name: "Node " + (i + 1) + " uplink route", parent: "W",
     refs: { through: ["WA" + i, "WB" + i, "WC" + i, "WD" + i, "WE" + i] },
     args: { kind: 0, radius: 45 } });
@@ -486,7 +515,7 @@ const MGR_X = 555;
   add("QB" + i, "Point", { name: "PSU " + (i + 1) + " out", parent: "W",
     args: { x: PANEL_FACE + 300, y: 1080, z: fromZ } });
   add("QC" + i, "Point", { name: "PSU " + (i + 1) + " up", parent: "W",
-    args: { x: MGR_X, y: 1080, z: 1990 } });
+    args: { x: MGR_X, y: 1080, z: PLINTH + 1990 } });
   add("QRT" + i, "Route", { name: "PSU " + (i + 1) + " power route", parent: "W",
     refs: { through: ["QA" + i, "QB" + i, "QC" + i] },
     args: { kind: 0, radius: 60 } });
@@ -503,7 +532,7 @@ const MGR_X = 555;
 //! in front of the door where the cold air comes up, solid under the rack
 //! itself. Each panel reports the open area it actually cut and what will pass
 //! through it at plenum pressure.
-set("FL", "10 Raised floor");
+set("FL", "10 Raised floor", "R", "floor");
 add("PTFL", "Point", { name: "Solid field at", parent: "FL",
   args: { x: -600, y: 0, z: 0 } });
 add("TFL", "FloorTile", { name: "Solid panel · under the rack", parent: "FL",
@@ -529,12 +558,23 @@ add("FFG", "Array", { name: "Grate field", parent: "FL",
 //! that can be checked against a document; this is the one thing in the file
 //! that cannot, and it is the thing that makes the rest of it readable at a
 //! glance. 1.8 m, in the cold aisle, facing the door.
-set("SC", "11 Scale");
+set("SC", "11 Scale", "R", "figure");
 add("PTSC", "Point", { name: "Person at", parent: "SC",
   args: { x: 1100, y: -900, z: 0 } });
 add("PERSON", "ScaleFigure", { name: "Scale figure · 1.8 m", parent: "SC",
   refs: { plane: "PL0", at: "PTSC" },
   args: { height: 1800, turn: 180 } });
+
+/* ----------------------------------------------------------------- 12 Clash */
+
+//! WHAT NOTHING ON SCREEN WILL TELL YOU. A rack whose legs are driven through
+//! the floor panels looks exactly like a rack standing on them, and that is
+//! what this model was until this node was asked. Boxes then solids: the box
+//! pass is instant and is exact here because a rack and a floor panel are both
+//! square to the axes, and the solid pass is only asked of what the boxes flag.
+set("CH", "12 Clash", "R", null);
+add("CLASH", "Clash", { name: "The rack against its floor", parent: "CH",
+  refs: { a: "R", b: "FL" }, args: { tolerance: 1, how: 1, budget: 200, show: 8 } });
 
 /* ------------------------------------------------------------------ 06 Bill */
 
@@ -754,6 +794,25 @@ if (Math.abs(half.frame - rackHeight("eia310", 24)) > 1e-6
 
 //! THE BILL IS THE MODEL'S OWN. Read back off the built document rather than
 //! counted here, because a bill this script computed would prove nothing.
+//! AND NOTHING IS INSIDE ANYTHING ELSE. Read off the model's own Clash node,
+//! because a check this script did for itself would say nothing about the file
+//! it writes. This is what found the legs through the floor.
+{
+  const said = String((rows.find(f => f.id === "CLASH").data || {}).preview || "");
+  console.log("\nclash \u00b7 " + said.split("\n").slice(0, 3).join(" \u00b7 "));
+  if (!/no interference/.test(said)) {
+    console.log(said);
+    console.log("the rack clashes with its floor - the sample is not written");
+    process.exit(1);
+  }
+  //! AND THE CHECK IS NOT VACUOUS: it has to have looked at something.
+  const pairs = /([\d,]+) pairs/.exec(said);
+  if (!pairs || Number(pairs[1].replace(/,/g, "")) < 500) {
+    console.log("the clash check is not looking at the model - the sample is not written");
+    process.exit(1);
+  }
+}
+
 const bom = rows.find(f => f.id === "BOM");
 const fix = rows.find(f => f.id === "BOM_FIX");
 console.log("\nbill of materials · " + String((bom.data || {}).preview || "").slice(0, 160));

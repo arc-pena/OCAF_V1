@@ -1514,6 +1514,28 @@ const bothSides = material => {
   return material;
 };
 
+//! WHAT A BODY WEARS, and it is not always its own. A Part says in the
+//! catalogue, in as many words, that colouring it colours everything in it -
+//! and it did not: the viewport read the feature's OWN appearance and nothing
+//! else, so a colour on a set reached the set, which has no surfaces, and
+//! stopped there. It looked like the colour had not been applied.
+//!
+//! The chain already existed - setsAbove is what the section cutter's hatching
+//! walks - so this is that chain, asked the other question.
+//!
+//! AN APPEARANCE THAT SAYS NOTHING ABOUT COLOUR IS NOT AN ANSWER. A set may
+//! carry a cut style and no finish, which is a real thing to want: hatch
+//! everything in this set, leave its colours alone. Walked without this test,
+//! that set would repaint its contents the default grey.
+const SAYS_COLOUR = ["finish", "color", "metalness", "gloss", "opacity"];
+const paints = worn => !!worn && SAYS_COLOUR.some(key => worn[key] !== undefined);
+function wornAppearance(entry) {
+  if (!entry) return null;
+  if (paints(entry.appearance)) return entry.appearance;
+  for (const up of setsAbove(entry.id)) if (paints(up)) return up;
+  return entry.appearance || null;
+}
+
 function surfaceMaterial(entry, style = findStyle(state.style)) {
   if (style.clay) {
     const clay = bothSides(new THREE.MeshStandardMaterial({
@@ -1527,9 +1549,9 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
     //! colour. A finish nobody has chosen is the neutral grey this always
     //! drew, so a part that has never been given a material looks exactly as
     //! it did.
-    const worn = style.colours ? materialOf(entry && entry.appearance) : null;
-    const colour = worn && entry && entry.appearance
-      ? new THREE.Color(...worn.color) : THEME.shape.clone();
+    const said = wornAppearance(entry);
+    const worn = style.colours ? materialOf(said) : null;
+    const colour = worn && said ? new THREE.Color(...worn.color) : THEME.shape.clone();
     const shaded = bothSides(new THREE.MeshStandardMaterial({
       color: colour, metalness: 0.15, roughness: 0.55,
       transparent: worn && worn.opacity < 0.999,
@@ -1539,7 +1561,7 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
     shaded.userData.base = colour.clone();
     return shaded;
   }
-  const made = materialOf(entry && entry.appearance);
+  const made = materialOf(wornAppearance(entry));
   const material = bothSides(new THREE.MeshStandardMaterial({
     color: new THREE.Color(...made.color),
     metalness: made.metalness, roughness: made.roughness,
@@ -1563,7 +1585,8 @@ function surfaceMaterial(entry, style = findStyle(state.style)) {
 //! is, came out in the same green as every other curve. A line is as capable
 //! of being blue as a solid is.
 function wornColour(entry) {
-  const worn = entry && entry.appearance && entry.appearance.color;
+  const said = wornAppearance(entry);
+  const worn = said && said.color;
   return Array.isArray(worn) && worn.length === 3 ? new THREE.Color(...worn) : null;
 }
 

@@ -469,6 +469,81 @@ console.log("\n10. a bill of a hall counts the instances, not the geometry");
         !/6 \u00d7 Hex bolt/.test(said));
 }
 
+console.log("\n11. clash detection, against answers that can be done on paper");
+{
+  //! TWO 100 CUBES, one above the other. Every number below is arithmetic
+  //! somebody can check before the program is asked: touching is not clashing,
+  //! 20 mm of overlap is 100 x 100 x 20 = 200,000 mm3, and 40 mm apart is
+  //! nothing. That is the whole point of choosing cubes for this.
+  const HALL = await add("GeometricalSet");
+  const LOW = await add("GeometricalSet", { into: HALL });
+  const HIGH = await add("GeometricalSet", { into: HALL });
+  const PA = await add("Point", { into: LOW });
+  const CA = await add("Cube", { refs: { origin: PA, plane: PL }, into: LOW });
+  for (const [k, v] of [["dx", 100], ["dy", 100], ["dz", 100]]) await set(CA, k, v);
+  const PB = await add("Point", { into: HIGH });
+  const CB = await add("Cube", { refs: { origin: PB, plane: PL }, into: HIGH });
+  for (const [k, v] of [["dx", 100], ["dy", 100], ["dz", 100]]) await set(CB, k, v);
+  const CL = await add("Clash", { refs: { a: LOW, b: HIGH }, into: HALL });
+  await set(CL, "tolerance", 1);
+  await set(CL, "how", 1);
+  const told = async z => {
+    await set(PB, "z", z);
+    return String(((await at(CL)).data || {}).preview || "");
+  };
+  const apart = await told(140);
+  check("40 mm apart is not a clash", /no interference/.test(apart), apart.split("\n")[1]);
+  const touching = await told(100);
+  check("and touching is not a clash either", /no interference/.test(touching),
+        touching.split("\n")[1]);
+  const into = await told(80);
+  const volume = /(\d+) mm\u00b3/.exec(into);
+  check("20 mm of overlap is a clash", /1 clash/.test(into), into.split("\n")[1]);
+  check("  20 mm deep", /20\.0 mm in/.test(into), into.split("\n")[2]);
+  check("  and 100 x 100 x 20 = 200,000 mm\u00b3 of it",
+        !!volume && Number(volume[1]) === 200000, volume ? volume[1] : into);
+
+  //! AND THE TOLERANCE IS WHAT IT SAYS. A 20 mm overlap allowed 25 mm is not a
+  //! clash; a joint that shares a face is never one. Without a tolerance a
+  //! clash report lists every joint in the model, which is a report nobody
+  //! reads and so is a report that reports nothing.
+  await set(CL, "tolerance", 25);
+  check("and an overlap inside the tolerance is not reported",
+        /no interference/.test(String(((await at(CL)).data || {}).preview || "")));
+  await set(CL, "tolerance", 1);
+
+  //! A AGAINST PART OF A. "The model against its floor" is a thing somebody
+  //! asks and the floor is IN the model - so without taking the far side out of
+  //! the near one, every panel clashes with itself, 42 mm deep and six million
+  //! cubic millimetres. True, and useless. It happened on the first run.
+  await told(140);                       // apart again, so any clash found is a false one
+  await kernel.setReference(CL, "a", HALL, false, true);
+  const whole = String(((await at(CL)).data || {}).preview || "");
+  check("the whole against one part of it does not find that part inside itself",
+        /no interference/.test(whole), whole.split("\n")[1]);
+  //! And the count says WHY: one solid on this side, not two. The far side's
+  //! cube is not on the near side at all.
+  check("  because the far side is taken out of the near one",
+        /1 \+ 1 solids/.test(whole), whole.split("\n")[0]);
+
+  //! AND A MESH IS IN THE WAY LIKE ANYTHING ELSE. A scale figure has no B-Rep,
+  //! so a gather that only took solids reported "0 solids, 0 pairs" for a
+  //! person standing inside a rack - which passes, silently, for ever.
+  await kernel.setReference(CL, "a", LOW, false, true);
+  await set(CL, "how", 1);
+  const FG = await add("ScaleFigure", { refs: { plane: PL }, into: HIGH });
+  await set(FG, "height", 1800);
+  await set(PB, "z", 4000);            // the cube out of the way
+  const withMesh = String(((await at(CL)).data || {}).preview || "");
+  check("a mesh is counted as something that can be in the way",
+        / 2 solids,/.test(withMesh) || /1 \+ 2 solids/.test(withMesh),
+        withMesh.split("\n")[0]);
+  check("  and a figure standing on the cube is found",
+        /clash/.test(withMesh), withMesh.split("\n")[1]);
+  check("  said to be a box answer, because a mesh cannot be intersected",
+        /a mesh - boxes only/.test(withMesh), withMesh.split("\n")[2]);
+}
+
 /* ================================== and the file says what it cannot open without
 
    Opening the sample from the samples menu worked and dropping the same file

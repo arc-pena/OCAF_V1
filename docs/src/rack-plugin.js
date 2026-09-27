@@ -307,6 +307,27 @@ export const RACK_NODES = [
            ARG.real("height", "Height", 1800, 300, 2500, 10),
            ARG.real("turn", "Facing", 0, -360, 360, 15, "\u00b0")] },
 
+  { type: "Clash", guid: "9a1b2c30-00f5-4c00-9e00-caf0000000f5", category: "analysis",
+    produces: "text",
+    summary: "Interference between two things, or inside one. Wire the racks into This "
+           + "and the floor into Against and it says whether anything is inside anything "
+           + "else, by how much, and which parts - which is the question a coordinated "
+           + "model exists to answer and the one nothing on screen will tell you, because "
+           + "a leg through a floor panel looks exactly like a leg standing on it. Boxes "
+           + "is instant and exact for anything square to the axes; Solids is the true "
+           + "answer and costs a boolean per pair it has to ask about.",
+    args: [ARG.ref("a", "This", ARG.ANY, true),
+           ARG.ref("b", "Against", ARG.ANY),
+           //! A TOLERANCE, because touching is not clashing. Two parts that
+           //! share a face - a panel resting on a stringer, a foot standing on
+           //! a floor - overlap by zero and by rounding, and a clash report
+           //! that lists every joint in the model is a clash report nobody
+           //! reads. 1 mm is the figure the trade uses for a hard clash.
+           ARG.real("tolerance", "Allow", 1, 0, 100, 0.5),
+           ARG.choice("how", "Test", ["Bounding boxes", "Boxes, then solids"], 0),
+           ARG.real("budget", "Pairs to open up", 200, 1, 5000, 10),
+           ARG.real("show", "List", 8, 1, 100, 1, "")] },
+
   { type: "Bill", guid: "9a1b2c30-00da-4c00-9e00-caf0000000da", category: "analysis",
     produces: "text",
     summary: "The bill of materials, read off the model. Wire a set into it and it walks "
@@ -1293,6 +1314,182 @@ function rackDrivers(kit) {
                         -frame.x[2] * s + frame.y[2] * c];
         const mesh = figureAt(height, frame.origin, across, facing, frame.z);
         return { data: K.packMesh(K.checkMesh(mesh, "scale figure")) };
+      },
+    },
+
+    //! ------------------------------------------------------- clash
+
+    Clash: {
+      precondition: f => (KF.reference(f, "a") ? null : "nothing wired in to check"),
+      build: f => {
+        const doc = K.doc ? K.doc() : null;
+        const tol = Math.max(0, KF.real(f, "tolerance", 1));
+        const solids = K.F.choice(f, "how", 0) === 1;
+        const budget = Math.max(1, Math.round(KF.real(f, "budget", 200)));
+        const show = Math.max(1, Math.round(KF.real(f, "show", 8)));
+
+        //! EVERY SOLID UNDER ONE SIDE, with the name of the feature it came
+        //! from. Exploded to solids rather than left as one box a feature: a
+        //! rack's bounding box is the whole rack, and "the rack overlaps the
+        //! floor" is true of every rack ever built and says nothing. It is the
+        //! LEG that is in the panel, and a leg is a solid.
+        //!
+        //! A CONTAINER'S OWN COMPOUND IS SKIPPED - it is the same geometry as
+        //! its contents, and counting both makes every part clash with itself.
+        const gather = (of, into, seen, guard, skip) => {
+          if (!of || guard > 20) return;
+          const spec = KF.spec(of);
+          if (!spec) return;
+          const id = KF.id(of);
+          //! NOT WHAT IS ALREADY ON THE OTHER SIDE. "The model against its
+          //! floor" is a thing somebody asks, and the floor is IN the model -
+          //! so without this the floor is on both sides and every panel clashes
+          //! with itself, 42 mm deep and six million cubic millimetres, which
+          //! is true and useless. A against B means A less B.
+          if (skip && skip.has(id)) return;
+          if (seen.has(id)) return;
+          seen.add(id);
+          const container = spec.category === "container"
+            || ["Part", "Product"].includes(spec.type);
+          if (container && doc) {
+            for (const one of doc.contents(of)) gather(one, into, seen, guard + 1, skip);
+            return;
+          }
+          if (spec.category === "datum" || spec.category === "data"
+              || spec.category === "analysis") return;
+          if (doc && doc.consumedBy(of)) return;
+          const name = KF.name(of);
+          const shape = KF.shape(of);
+          if (!shape || shape.IsNull()) {
+            //! A MESH HAS NO B-REP AND IS STILL IN THE WAY. A scale figure, a
+            //! scanned part, half the IFC in the world - none of them has a
+            //! shape to explode, and skipping them reported "0 solids, 0
+            //! pairs" for a person standing in a rack, which passes. Its
+            //! points are its extents and that is a real answer: a box test is
+            //! all a mesh can be asked for here anyway, and the node says so.
+            const data = KF.data(of);
+            if (!data || data.kind !== "mesh") return;
+            const points = K.F.triples(data);
+            if (!points.length) return;
+            const low = [0, 1, 2].map(k => Math.min(...points.map(one => one[k])));
+            const high = [0, 1, 2].map(k => Math.max(...points.map(one => one[k])));
+            into.push({ name, shape: null, mesh: true, box: { low, high } });
+            return;
+          }
+          //! subShapes wants the cast as well as the kind - the explorer hands
+          //! back a TopoDS_Shape and Solid() is what makes it a solid.
+          const found = K.subShapes(shape, K.SOLID, K.oc.TopoDS.Solid);
+          //! A SHAPE WITH NO SOLIDS IN IT IS STILL SOMETHING. A mesh feature,
+          //! a surface, a swept sheet - none of them explode to solids, and
+          //! dropping them would leave a scale figure standing inside a rack
+          //! with nothing reported. Taken whole, by its bounding box.
+          if (!found.length) into.push({ name, shape, box: K.extents(shape) });
+          else for (const solid of found)
+            into.push({ name, shape: solid, box: K.extents(solid) });
+        };
+
+        //! THE OTHER SIDE FIRST, so what it holds can be kept out of this one.
+        const mine = [], theirs = [];
+        const other = KF.reference(f, "b");
+        const theirIds = new Set();
+        if (other) gather(other, theirs, theirIds, 0, null);
+        gather(KF.reference(f, "a"), mine, new Set(), 0, other ? theirIds : null);
+
+        //! HOW MUCH TWO BOXES ARE INSIDE EACH OTHER, on the axis they overlap
+        //! LEAST. That least axis is the depth of the interference: a leg
+        //! 110 mm into a 32 mm panel overlaps 110 in x and y and 32 in z, and
+        //! 32 is how far in it is.
+        const bite = (one, two) => {
+          let least = Infinity;
+          for (let k = 0; k < 3; k++) {
+            const over = Math.min(one.box.high[k], two.box.high[k])
+                       - Math.max(one.box.low[k], two.box.low[k]);
+            if (over <= tol) return 0;
+            least = Math.min(least, over);
+          }
+          return least;
+        };
+
+        const pairs = [];
+        const against = other ? theirs : mine;
+        let looked = 0;
+        for (let i = 0; i < mine.length; i++) {
+          //! Against itself, only each pair once and never a part against
+          //! itself - which would report every solid in the model.
+          const from = other ? 0 : i + 1;
+          for (let j = from; j < against.length; j++) {
+            looked++;
+            const deep = bite(mine[i], against[j]);
+            if (deep > 0) pairs.push({ a: mine[i], b: against[j], deep });
+          }
+        }
+        pairs.sort((one, two) => two.deep - one.deep);
+
+        //! AND THEN THE TRUE ANSWER, for as many as the budget allows. A box
+        //! test over-reports: a cable through the rung of a tray has boxes
+        //! that overlap and geometry that does not, and so does anything that
+        //! is not square to the axes. The common volume settles it - and it is
+        //! a boolean per pair, so it is asked of the worst ones first and what
+        //! it could not reach is SAID rather than dropped.
+        let opened = 0, real = pairs;
+        if (solids && pairs.length) {
+          real = [];
+          for (const pair of pairs) {
+            //! A mesh has no B-Rep to intersect, so the box answer is the
+            //! only one there is for that pair - and it is reported as such
+            //! rather than counted against the budget.
+            if (pair.a.mesh || pair.b.mesh) { real.push({ ...pair, boxOnly: true }); continue; }
+            if (opened >= budget) { real.push({ ...pair, untested: true }); continue; }
+            opened++;
+            let volume = 0;
+            try {
+              const both = new K.oc.BRepAlgoAPI_Common(pair.a.shape, pair.b.shape);
+              both.Build();
+              if (both.IsDone()) {
+                const props = new K.oc.GProp_GProps();
+                K.oc.BRepGProp.VolumeProperties(both.Shape(), props, false, false, false);
+                volume = Math.abs(props.Mass());
+                props.delete();
+              }
+            } catch (err) { volume = -1; }        // it would not cut: say so
+            if (volume < 0) real.push({ ...pair, unknown: true });
+            else if (volume > tol * tol * tol) real.push({ ...pair, volume });
+          }
+        }
+
+        const said = [];
+        const both = other ? KF.name(KF.reference(f, "a")) + " against " + KF.name(other)
+                           : "inside " + KF.name(KF.reference(f, "a"));
+        said.push(both + " \u00b7 " + mine.length + (other ? " + " + theirs.length : "")
+          + " solids, " + looked.toLocaleString() + " pairs");
+        const hard = real.filter(one => !one.untested);
+        if (!hard.length) {
+          said.push("no interference over " + tol + " mm");
+        } else {
+          said.push(hard.length + (hard.length === 1 ? " clash" : " clashes")
+            + " over " + tol + " mm");
+          for (const one of hard.slice(0, show))
+            said.push("  " + one.a.name + " \u00d7 " + one.b.name + " \u00b7 "
+              + one.deep.toFixed(1) + " mm in"
+              + (one.volume !== undefined ? ", " + Math.round(one.volume) + " mm\u00b3" : "")
+              + (one.unknown ? " (the boolean would not run - box only)" : "")
+              + (one.boxOnly ? " (a mesh - boxes only)" : ""));
+          if (hard.length > show) said.push("  \u2026 and " + (hard.length - show) + " more");
+        }
+        said.push(solids
+          ? "boxes, then the common volume of " + opened + " pair"
+            + (opened === 1 ? "" : "s")
+          : "bounding boxes only - exact for anything square to the axes, and it "
+            + "over-reports anything that is not");
+        const left = real.filter(one => one.untested).length;
+        if (left) said.push(left + " box overlap" + (left === 1 ? "" : "s")
+          + " were not opened up - the budget is " + budget);
+        const note = hard.length
+          ? hard.length + " clash" + (hard.length === 1 ? "" : "es") + " over " + tol
+            + " mm \u00b7 worst " + hard[0].deep.toFixed(1) + " mm: "
+            + hard[0].a.name + " \u00d7 " + hard[0].b.name
+          : null;
+        return { data: K.text(said), ...(note ? { note } : {}) };
       },
     },
 

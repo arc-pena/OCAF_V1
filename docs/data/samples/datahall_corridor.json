@@ -92,6 +92,15 @@
    }
   },
   {
+   "id": "N_PLINTH",
+   "type": "Number",
+   "name": "Rack on its feet",
+   "parent": "P",
+   "args": {
+    "value": 100
+   }
+  },
+  {
    "id": "N_NODES",
    "type": "Number",
    "name": "Compute nodes a rack",
@@ -305,16 +314,44 @@
    }
   },
   {
+   "id": "RK8",
+   "type": "GeometricalSet",
+   "name": "02 Racks",
+   "parent": "H"
+  },
+  {
    "id": "RACK",
    "type": "Part",
    "name": "Rack A · the one parametric rack",
-   "parent": "H"
+   "parent": "RK8"
   },
   {
    "id": "RF",
    "type": "GeometricalSet",
    "name": "01 Frame",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.85,
+     0.42,
+     0.08
+    ]
+   }
+  },
+  {
+   "id": "PTR",
+   "type": "Point",
+   "name": "Rack base",
+   "parent": "RF",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
+   }
   },
   {
    "id": "FRAME",
@@ -330,6 +367,9 @@
     "supplier": "frame, welded",
     "plane": {
      "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTR"
     },
     "section": {
      "ref": "SECTION"
@@ -352,7 +392,10 @@
    "args": {
     "x": 40,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -386,7 +429,10 @@
    "args": {
     "x": 505.1,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -423,7 +469,10 @@
      "value": 1140,
      "from": "X_POSTY"
     },
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -460,7 +509,10 @@
      "value": 1140,
      "from": "X_POSTY"
     },
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -503,7 +555,15 @@
    "id": "RB",
    "type": "GeometricalSet",
    "name": "02 Bracing",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.85,
+     0.42,
+     0.08
+    ]
+   }
   },
   {
    "id": "X_BRACES",
@@ -537,10 +597,14 @@
    "name": "First brace at (mm)",
    "parent": "RB",
    "args": {
-    "formula": "a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
+    "formula": "b + a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
     "a": {
      "value": 48,
      "from": "N_UNITS"
+    },
+    "b": {
+     "value": 100,
+     "from": "N_PLINTH"
     }
    }
   },
@@ -556,7 +620,7 @@
      "from": "X_BRACEY"
     },
     "z": {
-     "value": 266.70000000000005,
+     "value": 366.70000000000005,
      "from": "X_BRACE0"
     }
    }
@@ -626,7 +690,15 @@
    "id": "RE",
    "type": "GeometricalSet",
    "name": "03 Equipment",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.18,
+     0.21,
+     0.25
+    ]
+   }
   },
   {
    "id": "PTC",
@@ -636,7 +708,10 @@
    "args": {
     "x": 56.25,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -864,6 +939,14 @@
    "type": "RackDevice",
    "name": "Blanking · 2U",
    "parent": "RE",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.27,
+     0.29,
+     0.32
+    ]
+   },
    "args": {
     "standard": 0,
     "units": 2,
@@ -909,6 +992,14 @@
    "type": "RackDevice",
    "name": "PDU · 2U",
    "parent": "RE",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.72,
+     0.16,
+     0.14
+    ]
+   },
    "args": {
     "standard": 0,
     "units": 2,
@@ -932,7 +1023,15 @@
    "id": "RX",
    "type": "GeometricalSet",
    "name": "04 Fixings",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "brass",
+    "color": [
+     0.9,
+     0.72,
+     0.13
+    ]
+   }
   },
   {
    "id": "X_BOLTS",
@@ -948,6 +1047,19 @@
    }
   },
   {
+   "id": "X_FIXZ",
+   "type": "Expression",
+   "name": "First fixing at (mm)",
+   "parent": "RX",
+   "args": {
+    "formula": "a + 6.35",
+    "a": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
+   }
+  },
+  {
    "id": "PTX",
    "type": "Point",
    "name": "First cage nut at",
@@ -955,7 +1067,10 @@
    "args": {
     "x": 65,
     "y": 62,
-    "z": 6.35
+    "z": {
+     "value": 106.35,
+     "from": "X_FIXZ"
+    }
    }
   },
   {
@@ -1003,7 +1118,10 @@
    "args": {
     "x": 65,
     "y": 60,
-    "z": 6.35
+    "z": {
+     "value": 106.35,
+     "from": "X_FIXZ"
+    }
    }
   },
   {
@@ -1048,7 +1166,15 @@
    "id": "RK",
    "type": "GeometricalSet",
    "name": "05 Cable management",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.16,
+     0.55,
+     0.33
+    ]
+   }
   },
   {
    "id": "PTK",
@@ -1061,7 +1187,10 @@
      "value": 980,
      "from": "X_MGRY"
     },
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -1106,7 +1235,15 @@
    "id": "RL",
    "type": "GeometricalSet",
    "name": "06 Feet",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "brass",
+    "color": [
+     0.9,
+     0.72,
+     0.13
+    ]
+   }
   },
   {
    "id": "PTL0",
@@ -1116,7 +1253,7 @@
    "args": {
     "x": 60,
     "y": 60,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1149,7 +1286,7 @@
    "args": {
     "x": 535.1,
     "y": 60,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1185,7 +1322,7 @@
      "value": 1140,
      "from": "X_FOOTY"
     },
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1221,7 +1358,7 @@
      "value": 1140,
      "from": "X_FOOTY"
     },
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1263,7 +1400,15 @@
    "id": "RD",
    "type": "GeometricalSet",
    "name": "07 Door",
-   "parent": "RACK"
+   "parent": "RACK",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.27,
+     0.29,
+     0.32
+    ]
+   }
   },
   {
    "id": "PTD",
@@ -1273,7 +1418,10 @@
    "args": {
     "x": 0,
     "y": -30,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -1309,7 +1457,7 @@
    "id": "A",
    "type": "GeometricalSet",
    "name": "03 Row A · instances",
-   "parent": "H"
+   "parent": "RK8"
   },
   {
    "id": "PTA1",
@@ -1444,7 +1592,7 @@
    "id": "B",
    "type": "GeometricalSet",
    "name": "04 Row B · a pattern of instances",
-   "parent": "H"
+   "parent": "RK8"
   },
   {
    "id": "PTB0",
@@ -1507,7 +1655,15 @@
    "id": "FL",
    "type": "GeometricalSet",
    "name": "05 Raised floor",
-   "parent": "H"
+   "parent": "H",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.74,
+     0.75,
+     0.73
+    ]
+   }
   },
   {
    "id": "PTS1",
@@ -1813,7 +1969,15 @@
    "id": "O",
    "type": "GeometricalSet",
    "name": "06 Overhead containment",
-   "parent": "H"
+   "parent": "H",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.16,
+     0.55,
+     0.33
+    ]
+   }
   },
   {
    "id": "PTRA",
@@ -2060,28 +2224,36 @@
    "id": "W",
    "type": "GeometricalSet",
    "name": "07 Trunk cable",
-   "parent": "O"
+   "parent": "O",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.13,
+     0.42,
+     0.8
+    ]
+   }
   },
   {
    "id": "WA0",
    "type": "Point",
-   "name": "Trunk 1 up",
+   "name": "Trunk 1 into row A",
    "parent": "W",
    "args": {
     "x": 400,
-    "y": 980,
-    "z": 2100
+    "y": 1260,
+    "z": 1400
    }
   },
   {
    "id": "WB0",
    "type": "Point",
-   "name": "Trunk 1 on the tray",
+   "name": "Trunk 1 up",
    "parent": "W",
    "args": {
     "x": 400,
-    "y": 980,
-    "z": 2540
+    "y": 1260,
+    "z": 2640
    }
   },
   {
@@ -2091,19 +2263,19 @@
    "parent": "W",
    "args": {
     "x": 400,
-    "y": 2620,
-    "z": 2540
+    "y": 2340,
+    "z": 2640
    }
   },
   {
    "id": "WD0",
    "type": "Point",
-   "name": "Trunk 1 down",
+   "name": "Trunk 1 into row B",
    "parent": "W",
    "args": {
     "x": 400,
-    "y": 2620,
-    "z": 2100
+    "y": 2340,
+    "z": 1400
    }
   },
   {
@@ -2148,23 +2320,23 @@
   {
    "id": "WA1",
    "type": "Point",
-   "name": "Trunk 2 up",
+   "name": "Trunk 2 into row A",
    "parent": "W",
    "args": {
     "x": 1100,
-    "y": 980,
-    "z": 2100
+    "y": 1260,
+    "z": 1400
    }
   },
   {
    "id": "WB1",
    "type": "Point",
-   "name": "Trunk 2 on the tray",
+   "name": "Trunk 2 up",
    "parent": "W",
    "args": {
     "x": 1100,
-    "y": 980,
-    "z": 2540
+    "y": 1260,
+    "z": 2640
    }
   },
   {
@@ -2174,19 +2346,19 @@
    "parent": "W",
    "args": {
     "x": 1100,
-    "y": 2620,
-    "z": 2540
+    "y": 2340,
+    "z": 2640
    }
   },
   {
    "id": "WD1",
    "type": "Point",
-   "name": "Trunk 2 down",
+   "name": "Trunk 2 into row B",
    "parent": "W",
    "args": {
     "x": 1100,
-    "y": 2620,
-    "z": 2100
+    "y": 2340,
+    "z": 1400
    }
   },
   {
@@ -2231,23 +2403,23 @@
   {
    "id": "WA2",
    "type": "Point",
-   "name": "Trunk 3 up",
+   "name": "Trunk 3 into row A",
    "parent": "W",
    "args": {
     "x": 1800,
-    "y": 980,
-    "z": 2100
+    "y": 1260,
+    "z": 1400
    }
   },
   {
    "id": "WB2",
    "type": "Point",
-   "name": "Trunk 3 on the tray",
+   "name": "Trunk 3 up",
    "parent": "W",
    "args": {
     "x": 1800,
-    "y": 980,
-    "z": 2540
+    "y": 1260,
+    "z": 2640
    }
   },
   {
@@ -2257,19 +2429,19 @@
    "parent": "W",
    "args": {
     "x": 1800,
-    "y": 2620,
-    "z": 2540
+    "y": 2340,
+    "z": 2640
    }
   },
   {
    "id": "WD2",
    "type": "Point",
-   "name": "Trunk 3 down",
+   "name": "Trunk 3 into row B",
    "parent": "W",
    "args": {
     "x": 1800,
-    "y": 2620,
-    "z": 2100
+    "y": 2340,
+    "z": 1400
    }
   },
   {
@@ -2314,8 +2486,16 @@
   {
    "id": "S",
    "type": "GeometricalSet",
-   "name": "08 Scale",
-   "parent": "H"
+   "name": "07 Scale",
+   "parent": "H",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.84,
+     0.82,
+     0.78
+    ]
+   }
   },
   {
    "id": "PTS",
@@ -2356,6 +2536,66 @@
     "height": {
      "value": 1800,
      "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "C",
+   "type": "GeometricalSet",
+   "name": "08 Clash",
+   "parent": "H"
+  },
+  {
+   "id": "CL_FLOOR",
+   "type": "Clash",
+   "name": "The racks against the floor",
+   "parent": "C",
+   "args": {
+    "tolerance": 1,
+    "how": 1,
+    "budget": 200,
+    "show": 8,
+    "a": {
+     "ref": "RK8"
+    },
+    "b": {
+     "ref": "FL"
+    }
+   }
+  },
+  {
+   "id": "CL_OVER",
+   "type": "Clash",
+   "name": "The racks against the overhead",
+   "parent": "C",
+   "args": {
+    "tolerance": 1,
+    "how": 1,
+    "budget": 200,
+    "show": 8,
+    "a": {
+     "ref": "RK8"
+    },
+    "b": {
+     "ref": "O"
+    }
+   }
+  },
+  {
+   "id": "CL_PERSON",
+   "type": "Clash",
+   "name": "The person against the racks",
+   "parent": "C",
+   "args": {
+    "tolerance": 1,
+    "how": 0,
+    "budget": 200,
+    "show": 8,
+    "a": {
+     "ref": "S"
+    },
+    "b": {
+     "ref": "RK8"
     }
    }
   },

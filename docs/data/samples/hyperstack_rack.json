@@ -85,7 +85,7 @@
   {
    "id": "N_PLINTH",
    "type": "Number",
-   "name": "Plinth",
+   "name": "Rack on its feet",
    "parent": "P",
    "args": {
     "value": 100
@@ -143,7 +143,15 @@
    "id": "F",
    "type": "GeometricalSet",
    "name": "01 Frame",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.85,
+     0.42,
+     0.08
+    ]
+   }
   },
   {
    "id": "PT0",
@@ -257,6 +265,20 @@
    }
   },
   {
+   "id": "PTR",
+   "type": "Point",
+   "name": "Rack base",
+   "parent": "F",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
+   }
+  },
+  {
    "id": "FRAME",
    "type": "RackFrame",
    "name": "Frame · 48U",
@@ -270,6 +292,9 @@
     "supplier": "frame, welded",
     "plane": {
      "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTR"
     },
     "section": {
      "ref": "SECTION"
@@ -292,7 +317,10 @@
    "args": {
     "x": 40,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -326,7 +354,10 @@
    "args": {
     "x": 505.1,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -360,7 +391,10 @@
    "args": {
     "x": 40,
     "y": 1140,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -394,7 +428,10 @@
    "args": {
     "x": 505.1,
     "y": 1140,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -424,7 +461,15 @@
    "id": "B",
    "type": "GeometricalSet",
    "name": "02 Bracing",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.85,
+     0.42,
+     0.08
+    ]
+   }
   },
   {
    "id": "X_BRACES",
@@ -458,10 +503,14 @@
    "name": "First brace at (mm)",
    "parent": "B",
    "args": {
-    "formula": "a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
+    "formula": "b + a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
     "a": {
      "value": 48,
      "from": "N_UNITS"
+    },
+    "b": {
+     "value": 100,
+     "from": "N_PLINTH"
     }
    }
   },
@@ -474,7 +523,7 @@
     "x": 90,
     "y": 1165,
     "z": {
-     "value": 266.70000000000005,
+     "value": 366.70000000000005,
      "from": "X_BRACE0"
     }
    }
@@ -531,7 +580,15 @@
    "id": "C",
    "type": "GeometricalSet",
    "name": "03 Compute",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.18,
+     0.21,
+     0.25
+    ]
+   }
   },
   {
    "id": "X_NODEMM",
@@ -554,7 +611,10 @@
    "args": {
     "x": 56.25,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -676,7 +736,10 @@
    "args": {
     "x": 56.25,
     "y": 60,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -732,6 +795,14 @@
    "type": "RackDevice",
    "name": "PDU · 2U",
    "parent": "C",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.72,
+     0.16,
+     0.14
+    ]
+   },
    "args": {
     "standard": 0,
     "units": 2,
@@ -801,6 +872,14 @@
    "type": "RackDevice",
    "name": "Blanking · 2U at the foot",
    "parent": "C",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.27,
+     0.29,
+     0.32
+    ]
+   },
    "args": {
     "standard": 0,
     "unit": 1,
@@ -821,7 +900,15 @@
    "id": "X",
    "type": "GeometricalSet",
    "name": "04 Fastening",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "brass",
+    "color": [
+     0.9,
+     0.72,
+     0.13
+    ]
+   }
   },
   {
    "id": "X_BOLTS",
@@ -854,6 +941,19 @@
    }
   },
   {
+   "id": "X_FIXZ",
+   "type": "Expression",
+   "name": "First fixing at (mm)",
+   "parent": "X",
+   "args": {
+    "formula": "a + 6.35",
+    "a": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
+   }
+  },
+  {
    "id": "PTX",
    "type": "Point",
    "name": "First fixing at",
@@ -861,7 +961,10 @@
    "args": {
     "x": 65,
     "y": 62,
-    "z": 6.35
+    "z": {
+     "value": 106.35,
+     "from": "X_FIXZ"
+    }
    }
   },
   {
@@ -912,7 +1015,10 @@
    "args": {
     "x": 65,
     "y": 60,
-    "z": 6.35
+    "z": {
+     "value": 106.35,
+     "from": "X_FIXZ"
+    }
    }
   },
   {
@@ -962,10 +1068,14 @@
    "name": "Bought part at (mm)",
    "parent": "X",
    "args": {
-    "formula": "a * 44.45 - 34",
+    "formula": "b + a * 44.45 - 34",
     "a": {
      "value": 48,
      "from": "N_UNITS"
+    },
+    "b": {
+     "value": 100,
+     "from": "N_PLINTH"
     }
    }
   },
@@ -978,7 +1088,7 @@
     "x": 65,
     "y": 46,
     "z": {
-     "value": 2099.6000000000004,
+     "value": 2199.6000000000004,
      "from": "X_BOUGHT"
     }
    }
@@ -1023,7 +1133,15 @@
    "id": "K",
    "type": "GeometricalSet",
    "name": "05 Cable management",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.16,
+     0.55,
+     0.33
+    ]
+   }
   },
   {
    "id": "X_TRAYZ",
@@ -1031,10 +1149,14 @@
    "name": "Tray at (mm)",
    "parent": "K",
    "args": {
-    "formula": "a * 44.45",
+    "formula": "b + a * 44.45",
     "a": {
      "value": 48,
      "from": "N_UNITS"
+    },
+    "b": {
+     "value": 100,
+     "from": "N_PLINTH"
     }
    }
   },
@@ -1047,7 +1169,7 @@
     "x": 20,
     "y": 380,
     "z": {
-     "value": 2133.6000000000004,
+     "value": 2233.6000000000004,
      "from": "X_TRAYZ"
     }
    }
@@ -1083,7 +1205,10 @@
    "args": {
     "x": 445,
     "y": 970,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -1115,7 +1240,15 @@
    "id": "L",
    "type": "GeometricalSet",
    "name": "06 Legs",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "brass",
+    "color": [
+     0.9,
+     0.72,
+     0.13
+    ]
+   }
   },
   {
    "id": "PTL0",
@@ -1125,7 +1258,7 @@
    "args": {
     "x": 60,
     "y": 60,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1158,7 +1291,7 @@
    "args": {
     "x": 535.1,
     "y": 60,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1191,7 +1324,7 @@
    "args": {
     "x": 60,
     "y": 1140,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1224,7 +1357,7 @@
    "args": {
     "x": 535.1,
     "y": 1140,
-    "z": -110
+    "z": 0
    }
   },
   {
@@ -1253,7 +1386,15 @@
    "id": "D",
    "type": "GeometricalSet",
    "name": "07 Door",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.27,
+     0.29,
+     0.32
+    ]
+   }
   },
   {
    "id": "PTD",
@@ -1263,7 +1404,10 @@
    "args": {
     "x": 0,
     "y": -30,
-    "z": 0
+    "z": {
+     "value": 100,
+     "from": "N_PLINTH"
+    }
    }
   },
   {
@@ -1299,7 +1443,15 @@
    "id": "O",
    "type": "GeometricalSet",
    "name": "08 Overhead cable management",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.16,
+     0.55,
+     0.33
+    ]
+   }
   },
   {
    "id": "PTO",
@@ -1407,7 +1559,15 @@
    "id": "W",
    "type": "GeometricalSet",
    "name": "09 Cabling",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "paint",
+    "color": [
+     0.13,
+     0.42,
+     0.8
+    ]
+   }
   },
   {
    "id": "WA0",
@@ -1417,7 +1577,7 @@
    "args": {
     "x": 96.25,
     "y": 40,
-    "z": 128.9
+    "z": 228.9
    }
   },
   {
@@ -1428,7 +1588,7 @@
    "args": {
     "x": 96.25,
     "y": -60,
-    "z": 128.9
+    "z": 228.9
    }
   },
   {
@@ -1439,7 +1599,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 128.9
+    "z": 228.9
    }
   },
   {
@@ -1450,7 +1610,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1461,7 +1621,7 @@
    "args": {
     "x": 156.25,
     "y": 40,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1514,7 +1674,7 @@
    "args": {
     "x": 96.25,
     "y": 40,
-    "z": 217.8
+    "z": 317.8
    }
   },
   {
@@ -1525,7 +1685,7 @@
    "args": {
     "x": 96.25,
     "y": -60,
-    "z": 217.8
+    "z": 317.8
    }
   },
   {
@@ -1536,7 +1696,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 217.8
+    "z": 317.8
    }
   },
   {
@@ -1547,7 +1707,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1558,7 +1718,7 @@
    "args": {
     "x": 176.25,
     "y": 40,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1611,7 +1771,7 @@
    "args": {
     "x": 96.25,
     "y": 40,
-    "z": 306.70000000000005
+    "z": 406.70000000000005
    }
   },
   {
@@ -1622,7 +1782,7 @@
    "args": {
     "x": 96.25,
     "y": -60,
-    "z": 306.70000000000005
+    "z": 406.70000000000005
    }
   },
   {
@@ -1633,7 +1793,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 306.70000000000005
+    "z": 406.70000000000005
    }
   },
   {
@@ -1644,7 +1804,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1655,7 +1815,7 @@
    "args": {
     "x": 196.25,
     "y": 40,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1708,7 +1868,7 @@
    "args": {
     "x": 96.25,
     "y": 40,
-    "z": 395.6
+    "z": 495.6
    }
   },
   {
@@ -1719,7 +1879,7 @@
    "args": {
     "x": 96.25,
     "y": -60,
-    "z": 395.6
+    "z": 495.6
    }
   },
   {
@@ -1730,7 +1890,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 395.6
+    "z": 495.6
    }
   },
   {
@@ -1741,7 +1901,7 @@
    "args": {
     "x": 555,
     "y": -60,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1752,7 +1912,7 @@
    "args": {
     "x": 216.25,
     "y": 40,
-    "z": 1755
+    "z": 1855
    }
   },
   {
@@ -1805,7 +1965,7 @@
    "args": {
     "x": 396.25,
     "y": 980,
-    "z": 108.9
+    "z": 208.9
    }
   },
   {
@@ -1816,7 +1976,7 @@
    "args": {
     "x": 396.25,
     "y": 1080,
-    "z": 108.9
+    "z": 208.9
    }
   },
   {
@@ -1827,7 +1987,7 @@
    "args": {
     "x": 555,
     "y": 1080,
-    "z": 1990
+    "z": 2090
    }
   },
   {
@@ -1874,7 +2034,7 @@
    "args": {
     "x": 396.25,
     "y": 980,
-    "z": 197.8
+    "z": 297.8
    }
   },
   {
@@ -1885,7 +2045,7 @@
    "args": {
     "x": 396.25,
     "y": 1080,
-    "z": 197.8
+    "z": 297.8
    }
   },
   {
@@ -1896,7 +2056,7 @@
    "args": {
     "x": 555,
     "y": 1080,
-    "z": 1990
+    "z": 2090
    }
   },
   {
@@ -1939,7 +2099,15 @@
    "id": "FL",
    "type": "GeometricalSet",
    "name": "10 Raised floor",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.74,
+     0.75,
+     0.73
+    ]
+   }
   },
   {
    "id": "PTFL",
@@ -2047,7 +2215,15 @@
    "id": "SC",
    "type": "GeometricalSet",
    "name": "11 Scale",
-   "parent": "R"
+   "parent": "R",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.84,
+     0.82,
+     0.78
+    ]
+   }
   },
   {
    "id": "PTSC",
@@ -2073,6 +2249,30 @@
     },
     "at": {
      "ref": "PTSC"
+    }
+   }
+  },
+  {
+   "id": "CH",
+   "type": "GeometricalSet",
+   "name": "12 Clash",
+   "parent": "R"
+  },
+  {
+   "id": "CLASH",
+   "type": "Clash",
+   "name": "The rack against its floor",
+   "parent": "CH",
+   "args": {
+    "tolerance": 1,
+    "how": 1,
+    "budget": 200,
+    "show": 8,
+    "a": {
+     "ref": "R"
+    },
+    "b": {
+     "ref": "FL"
     }
    }
   },

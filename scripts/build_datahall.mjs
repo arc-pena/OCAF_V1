@@ -32,7 +32,9 @@
 //   06 Overhead     the runway over each row, on trapeze hangers that say what
 //                   they carry, and trunk cable routed along it.
 //   07 Scale        a person, 1.8 m, in the cold aisle.
-//   08 Bill         the bill of materials for the hall, read off the model.
+//   08 Clash        the racks against the floor, the overhead and the person,
+//                   checked by geometry rather than by looking at it.
+//   09 Bill         the bill of materials for the hall, read off the model.
 //
 // WHY THE CORRIDOR IS BETWEEN THE ROWS. The two rows stand BACK TO BACK, so the
 // space between them is the hot aisle and the cold aisles are on the outside -
@@ -45,7 +47,8 @@ import { Mdl } from "../docs/src/mdl.js";
 import { PluginHost } from "../docs/src/plugin.js";
 import { RACK } from "../docs/src/rack-plugin.js";
 import { HARNESS } from "../docs/src/harness-plugin.js";
-import { FLOOR_TILES, holeCentres, rackHeight, tilePitch } from "../docs/src/rack.js";
+import { FLOOR_TILES, RACK_FINISHES, finishOf, holeCentres, rackHeight,
+         tilePitch } from "../docs/src/rack.js";
 import { readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -66,6 +69,14 @@ const FFH = 600;               // finished floor height
 const SLAB = 3000;             // the soffit the runway hangs from
 const TRAY_UNDER = 2600;       // the underside of the runway
 const PERSON = 1800;
+//! HOW FAR OFF THE FLOOR THE RACK STANDS, and this is not decoration. A rack
+//! sits on four levelling feet and the feet sit on the finished floor - so the
+//! frame's underside is a foot's height above z = 0, not on it. Built at z = 0
+//! with its feet hanging below, as this was, every rack in the hall had its
+//! legs driven 110 mm through the floor panels: eight racks, thirty-two legs,
+//! and from any distance it looks exactly like a rack standing on a floor.
+//! That is what the Clash node at the end of this file is for.
+const PLINTH = 100;
 
 //! AND NO SECTION-DEPTH CORRECTION ANYWHERE, which is worth saying because the
 //! first version of this file had two. A tray is placed by its underside and a
@@ -99,8 +110,13 @@ const add = (id, type, more = {}) => {
   features.push({ id, type, ...rest, ...(Object.keys(made).length ? { args: made } : {}) });
   return id;
 };
-const set = (id, name, parent = "H") =>
-  add(id, "GeometricalSet", { name, ...(parent ? { parent } : {}) });
+//! A SET CARRIES THE COLOUR, and everything in it wears it unless it says
+//! otherwise - which is what makes a scheme a scheme rather than a hundred
+//! separate decisions. One line per set here is the whole of the colouring of
+//! eight racks, a floor, two runways and four hundred fixings.
+const set = (id, name, parent = "H", role = null) =>
+  add(id, "GeometricalSet", { name, ...(parent ? { parent } : {}),
+                              ...(role ? { appearance: finishOf(role) } : {}) });
 const num = (id, name, value, parent) =>
   add(id, "Number", { name, parent, args: { value } });
 const expr = (id, name, js, wired, parent) => {
@@ -124,6 +140,7 @@ num("N_AISLE", "Hot aisle", AISLE, "P");
 num("N_FFH", "Finished floor", FFH, "P");
 num("N_SLAB", "Soffit", SLAB, "P");
 num("N_PERSON", "Person", PERSON, "P");
+num("N_PLINTH", "Rack on its feet", PLINTH, "P");
 num("N_NODES", "Compute nodes a rack", 8, "P");
 num("N_NODEU", "Node height", 2, "P");
 num("N_FIRST", "First node at", 3, "P");
@@ -176,19 +193,33 @@ add("PLYB", "Plane", { name: "Out the front", parent: "R",
 //! the whole of that as one shape, and an Instance of it is that shape at
 //! another location - one TShape, eight locations. A folder would work too and
 //! would say less.
-add("RACK", "Part", { name: "Rack A · the one parametric rack", parent: "H" });
+//! ONE SET OVER ALL EIGHT, so a clash check has a side to be wired to. The
+//! Part and the two rows are three different kinds of thing - a component, a
+//! list of instances, and a pattern of one - and "the racks" is all of them.
+set("RK8", "02 Racks");
+add("RACK", "Part", { name: "Rack A · the one parametric rack", parent: "RK8" });
 
-set("RF", "01 Frame", "RACK");
+set("RF", "01 Frame", "RACK", "frame");
+//! EVERYTHING IN THE RACK IS BUILT AT THE PLINTH, not at zero. A point wired
+//! to N_PLINTH lifts with it, so dragging the foot height carries the whole
+//! rack up - which is what makes the clash check at the end of this file a
+//! check and not a coincidence.
+//!
+//! A FRAME NEEDS A POINT OF ITS OWN TO BE LIFTED AT ALL. Given only a plane it
+//! is built at the plane's origin, and the origin of the floor plane is the
+//! floor - so the frame alone stayed at zero while every part of the rack rose
+//! around it. frameOf() takes the point over the plane when there is one.
+at("PTR", "Rack base", 0, 0, PLINTH, "RF", { z: ["N_PLINTH", PLINTH] });
 add("FRAME", "RackFrame", { name: "Frame · 48U", parent: "RF",
-  refs: { plane: "PL0", section: "SECTION" },
+  refs: { plane: "PL0", at: "PTR", section: "SECTION" },
   wire: { units: ["N_UNITS", UNITS], depth: ["N_DEPTH", DEPTH] },
   args: { standard: 0, profile: 2, rails: 3, posts: 0, postWidth: FLANGE,
           supplier: "frame, welded" } });
 const POST_AT = [[POST_X[0], 60], [POST_X[1], 60],
                  [POST_X[0], DEPTH - 60], [POST_X[1], DEPTH - 60]];
 ["PF1", "PF2", "PB1", "PB2"].forEach((id, i) => {
-  at("PTP" + i, "Post " + (i + 1) + " at", POST_AT[i][0], POST_AT[i][1], 0, "RF",
-     i >= 2 ? { y: ["X_POSTY", DEPTH - 60] } : null);
+  at("PTP" + i, "Post " + (i + 1) + " at", POST_AT[i][0], POST_AT[i][1], PLINTH, "RF",
+     { z: ["N_PLINTH", PLINTH], ...(i >= 2 ? { y: ["X_POSTY", DEPTH - 60] } : {}) });
   add(id, "RackPost", { name: "Post " + (i + 1) + " · EIA-310-E", parent: "RF",
     refs: { plane: "PL0", at: "PTP" + i }, wire: { units: ["N_UNITS", UNITS] },
     args: { standard: 0, holes: 0, width: FLANGE, wall: 2,
@@ -200,17 +231,17 @@ const POST_AT = [[POST_X[0], 60], [POST_X[1], 60],
 //! whole file exists to make impossible.
 expr("X_POSTY", "Rear post at (mm)", "a - 60", { a: ["N_DEPTH", DEPTH] }, "RF");
 
-set("RB", "02 Bracing", "RACK");
+set("RB", "02 Bracing", "RACK", "frame");
 expr("X_BRACES", "Braces", "Math.max(2, Math.round(a / 12))",
      { a: ["N_UNITS", UNITS] }, "RB");
 expr("X_BRACEZ", "Brace pitch (mm)", "a * 44.45 / Math.max(2, Math.round(a / 12))",
      { a: ["N_UNITS", UNITS] }, "RB");
 expr("X_BRACE0", "First brace at (mm)",
-     "a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
-     { a: ["N_UNITS", UNITS] }, "RB");
+     "b + a * 44.45 / (2 * Math.max(2, Math.round(a / 12)))",
+     { a: ["N_UNITS", UNITS], b: ["N_PLINTH", PLINTH] }, "RB");
 at("PTB", "First brace at", POST_X[0] + FLANGE, DEPTH - 60 + FLANGE / 2,
-   UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12))), "RB",
-   { z: ["X_BRACE0", UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12)))],
+   PLINTH + UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12))), "RB",
+   { z: ["X_BRACE0", PLINTH + UNITS * U / (2 * Math.max(2, Math.round(UNITS / 12)))],
      y: ["X_BRACEY", DEPTH - 60 + FLANGE / 2] });
 expr("X_BRACEY", "Brace at (mm)", "a - 35", { a: ["N_DEPTH", DEPTH] }, "RB");
 add("BRACE", "Strut", { name: "Brace · drilled", parent: "RB",
@@ -225,10 +256,10 @@ add("BRACES", "Array", { name: "Braces · up the rack", parent: "RB",
 
 /* ---------------------------------------------------------- the equipment */
 
-set("RE", "03 Equipment", "RACK");
+set("RE", "03 Equipment", "RACK", "equipment");
 const FIRST_U = 3, NODE_U = 2, NODES = 8;
 const FREE_U = FIRST_U + NODES * NODE_U;
-at("PTC", "Equipment at", PANEL_X, 60, 0, "RE");
+at("PTC", "Equipment at", PANEL_X, 60, PLINTH, "RE", { z: ["N_PLINTH", PLINTH] });
 add("NODE", "RackDevice", { name: "Compute node \u00b7 2U", parent: "RE",
   refs: { plane: "PL0", at: "PTC" },
   wire: { unit: ["N_FIRST", FIRST_U], units: ["N_NODEU", NODE_U] },
@@ -259,16 +290,23 @@ add("NODES", "Array", { name: "Compute stack", parent: "RE",
   ([id, name, plus, units, depth, inset, supplier]) => {
   expr("X_" + id, name + " at (U)", "a + b * c" + (plus ? " + " + plus : ""),
        { a: ["N_FIRST", FIRST_U], b: ["N_NODES", NODES], c: ["N_NODEU", NODE_U] }, "RE");
+  //! TWO OF THE FIVE ARE NOT EQUIPMENT and say so for themselves, over the
+  //! set's colour: a PDU is power and wears red wherever it is, and a blanking
+  //! panel is a piece of sheet and belongs with the door.
+  const role = id === "PDU" ? "power" : id === "BLK" ? "enclosure" : null;
   add(id, "RackDevice", { name, parent: "RE",
     refs: { plane: "PL0", at: "PTC" }, wire: { unit: ["X_" + id, FREE_U + plus] },
-    args: { standard: 0, units, depth, inset, ears: 0, supplier } });
+    args: { standard: 0, units, depth, inset, ears: 0, supplier },
+    ...(role ? { appearance: finishOf(role) } : {}) });
 });
 
 /* ------------------------------------------------------------ the fixings */
 
-set("RX", "04 Fixings", "RACK");
+set("RX", "04 Fixings", "RACK", "fixing");
 expr("X_BOLTS", "Fixings a column", "Math.floor(a / 4)", { a: ["N_UNITS", UNITS] }, "RX");
-at("PTX", "First cage nut at", POST_X[0] + FLANGE / 2, 62, 6.35, "RX");
+expr("X_FIXZ", "First fixing at (mm)", "a + 6.35", { a: ["N_PLINTH", PLINTH] }, "RX");
+at("PTX", "First cage nut at", POST_X[0] + FLANGE / 2, 62, PLINTH + 6.35, "RX",
+   { z: ["X_FIXZ", PLINTH + 6.35] });
 add("CAGE", "Fastener", { name: "Cage nut M6", parent: "RX",
   refs: { plane: "PLY", at: "PTX" },
   args: { part: 10, supplier: "cage nut, M6, 9.5 mm square" } });
@@ -277,7 +315,8 @@ add("CAGES", "Array", { name: "Cage nuts · up the post", parent: "RX",
   wire: { countZ: ["X_BOLTS", Math.floor(UNITS / 4)] },
   args: { mode: 0, countX: 2, spacingX: COLUMN, countY: 1, spacingY: 0,
           spacingZ: 4 * U } });
-at("PTX2", "First bolt at", POST_X[0] + FLANGE / 2, 60, 6.35, "RX");
+at("PTX2", "First bolt at", POST_X[0] + FLANGE / 2, 60, PLINTH + 6.35, "RX",
+   { z: ["X_FIXZ", PLINTH + 6.35] });
 add("BOLT", "Fastener", { name: "Hex bolt M6 × 16", parent: "RX",
   refs: { plane: "PLYB", at: "PTX2" },
   args: { part: 0, length: 16, supplier: "ISO 4017 M6 × 16 A2" } });
@@ -289,13 +328,13 @@ add("BOLTS", "Array", { name: "Bolts · up the post", parent: "RX",
 
 /* -------------------------------------------------- the cable management */
 
-set("RK", "05 Cable management", "RACK");
+set("RK", "05 Cable management", "RACK", "containment");
 //! THE VERTICAL MANAGER, as the part it is rather than as a length of channel:
 //! fingers in pairs on a 2U pitch with the tie slots between them, and the node
 //! reports how many cables of a given diameter the window will actually take.
 //! That number is the only question a manager is chosen against.
-at("PTK", "Manager at", RACK_W - 150, DEPTH - 220, 0, "RK",
-   { y: ["X_MGRY", DEPTH - 220] });
+at("PTK", "Manager at", RACK_W - 150, DEPTH - 220, PLINTH, "RK",
+   { y: ["X_MGRY", DEPTH - 220], z: ["N_PLINTH", PLINTH] });
 expr("X_MGRY", "Manager at (mm)", "a - 220", { a: ["N_DEPTH", DEPTH] }, "RK");
 add("MGR", "CableManager", { name: "Vertical manager · rear", parent: "RK",
   refs: { plane: "PL0", at: "PTK" }, wire: { units: ["N_UNITS", UNITS] },
@@ -304,11 +343,15 @@ add("MGR", "CableManager", { name: "Vertical manager · rear", parent: "RK",
 
 /* ----------------------------------------------------------------- feet */
 
-set("RL", "06 Feet", "RACK");
+set("RL", "06 Feet", "RACK", "fixing");
 const FOOT_IN = 60;
 [[FOOT_IN, FOOT_IN], [RACK_W - FOOT_IN, FOOT_IN],
  [FOOT_IN, DEPTH - FOOT_IN], [RACK_W - FOOT_IN, DEPTH - FOOT_IN]].forEach(([x, y], i) => {
-  at("PTL" + i, "Foot " + (i + 1) + " at", x, y, -110, "RL",
+  //! ON THE FLOOR, at z = 0 - the finished floor level, which is what every
+  //! other height in this hall is measured from. A foot is built UPWARDS from
+  //! its point: base plate first, then the stud. Placed at -110, as these
+  //! were, the base plate sat 110 mm INSIDE the floor panels.
+  at("PTL" + i, "Foot " + (i + 1) + " at", x, y, 0, "RL",
      i >= 2 ? { y: ["X_FOOTY", DEPTH - FOOT_IN] } : null);
   add("FOOT" + i, "LevellingFoot", {
     name: "Levelling foot " + (i + 1) + (i < 2 ? " · thread cut" : " · plain stud"),
@@ -320,8 +363,8 @@ expr("X_FOOTY", "Rear foot at (mm)", "a - 60", { a: ["N_DEPTH", DEPTH] }, "RL");
 
 /* ----------------------------------------------------------------- door */
 
-set("RD", "07 Door", "RACK");
-at("PTD", "Door at", 0, -30, 0, "RD");
+set("RD", "07 Door", "RACK", "enclosure");
+at("PTD", "Door at", 0, -30, PLINTH, "RD", { z: ["N_PLINTH", PLINTH] });
 add("DOOR", "RackDoor", { name: "Front door · perforated", parent: "RD",
   refs: { plane: "PL0", at: "PTD" }, wire: { units: ["N_UNITS", UNITS] },
   args: { width: RACK_W, sheet: 1.5, frame: 40, perf: 1, hole: 5.5,
@@ -330,7 +373,7 @@ add("DOOR", "RackDoor", { name: "Front door · perforated", parent: "RD",
 
 /* -------------------------------------------------------------- 03 Row A */
 
-set("A", "03 Row A · instances");
+set("A", "03 Row A · instances", "RK8");
 for (let i = 1; i < RACKS; i++) {
   at("PTA" + i, "Rack A" + (i + 1) + " at", i * PITCH, 0, 0, "A",
      { x: ["X_A" + i, i * PITCH] });
@@ -347,7 +390,7 @@ for (let i = 1; i < RACKS; i++) {
 //! row B's datum is the far side of the aisle and not the near one. And the
 //! pattern is of the INSTANCE: a pattern of instances is still one piece of
 //! geometry, which is the thing worth demonstrating here.
-set("B", "04 Row B · a pattern of instances");
+set("B", "04 Row B · a pattern of instances", "RK8");
 at("PTB0", "Row B at", PITCH, DEPTH * 2 + AISLE, 0, "B",
    { x: ["N_PITCH", PITCH], y: ["X_ROWB", DEPTH * 2 + AISLE] });
 add("IB", "Instance", { name: "Rack B1 · turned 180", parent: "B",
@@ -359,7 +402,7 @@ add("ROWB", "Array", { name: "Row B · four racks", parent: "B",
 
 /* -------------------------------------------------------- 05 Raised floor */
 
-set("FL", "05 Raised floor");
+set("FL", "05 Raised floor", "H", "floor");
 //! THE FLOOR IS LAID IN BANDS, and which band is which panel is the design
 //! decision a raised floor IS. Grate in front of each row, where the cold air
 //! has to come up; solid under the racks and everywhere down the hot aisle,
@@ -388,7 +431,7 @@ for (const [id, tile, name, y0, rows] of BANDS) {
 
 /* -------------------------------------------------------- 06 Overhead */
 
-set("O", "06 Overhead containment");
+set("O", "06 Overhead containment", "H", "containment");
 //! TWO RUNWAYS, one over each row, carried on trapeze hangers off the soffit.
 //! A tray drawn at 2.6 m is a drawing; the hanger is what holds it there, and
 //! it says what its rods will carry - so a 450 ladder full of copper on M8
@@ -424,14 +467,22 @@ expr("X_HANGX", "Trapeze pitch (mm)", "a * 2", { a: ["N_PITCH", PITCH] }, "O");
 //! overhead and drops into the other - which is the run that decides the
 //! runway's height, and the route node refuses a corner tighter than the
 //! cable's own bend radius rather than drawing one.
-set("W", "07 Trunk cable", "O");
+set("W", "07 Trunk cable", "O", "cable");
+//! WHERE A TRUNK ACTUALLY RUNS, and the first version of this did not. It
+//! turned down INSIDE the racks - at y 980 of a rack 1200 deep - and hung
+//! BELOW the runway rather than lying on it. Both look perfectly reasonable
+//! from across the hall and neither is buildable, and neither was found by
+//! looking: the Clash node found nine of them, 1.5 mm in, the first time it
+//! was asked. So the drop is in the hot aisle 60 mm clear of each row's rear
+//! face, and the run across sits ON the tray's rungs rather than under them.
+const DROP_A = DEPTH + 60, DROP_B = DEPTH * 2 + AISLE - DEPTH - 60;
+const ON_TRAY = TRAY_UNDER + 40;
 [0, 1, 2].forEach(i => {
   const x = 400 + i * 700;
-  at("WA" + i, "Trunk " + (i + 1) + " up", x, 980, 2100, "W");
-  at("WB" + i, "Trunk " + (i + 1) + " on the tray", x, 980, TRAY_UNDER - 60, "W");
-  at("WC" + i, "Trunk " + (i + 1) + " across", x, DEPTH * 2 + AISLE - 980,
-     TRAY_UNDER - 60, "W");
-  at("WD" + i, "Trunk " + (i + 1) + " down", x, DEPTH * 2 + AISLE - 980, 2100, "W");
+  at("WA" + i, "Trunk " + (i + 1) + " into row A", x, DROP_A, 1400, "W");
+  at("WB" + i, "Trunk " + (i + 1) + " up", x, DROP_A, ON_TRAY, "W");
+  at("WC" + i, "Trunk " + (i + 1) + " across", x, DROP_B, ON_TRAY, "W");
+  at("WD" + i, "Trunk " + (i + 1) + " into row B", x, DROP_B, 1400, "W");
   add("RT" + i, "Route", { name: "Trunk " + (i + 1) + " route", parent: "W",
     refs: { through: ["WA" + i, "WB" + i, "WC" + i, "WD" + i] },
     args: { kind: 0, radius: 120 } });
@@ -440,9 +491,9 @@ set("W", "07 Trunk cable", "O");
     args: { cable: 2, startEnd: 2, endEnd: 2, supplier: "24-fibre OM4 trunk" } });
 });
 
-/* ----------------------------------------------------------- 08 Scale */
+/* ----------------------------------------------------------- 07 Scale */
 
-set("S", "08 Scale");
+set("S", "07 Scale", "H", "figure");
 //! THE ONE THING IN THE FILE THAT IS NOT DESIGNED, and the one that makes the
 //! rest of it readable. 1.8 m to the top of the head, standing in the cold
 //! aisle in front of row A facing the doors - which is where somebody working
@@ -459,6 +510,29 @@ add("PERSON", "ScaleFigure", { name: "Scale figure \u00b7 1.8 m", parent: "S",
   args: { turn: 0 } });
 
 /* ------------------------------------------------------------- 09 Bill */
+
+//! WHAT NOTHING ON SCREEN WILL TELL YOU. A rack whose legs are driven through
+//! the floor panels looks exactly like a rack standing on them - the legs are
+//! under the rack and the panels are under the legs and from any distance it is
+//! a rack on a floor. That is what this is: the racks against the floor, the
+//! racks against the overhead, and the person against the racks, checked by
+//! geometry rather than by looking.
+//!
+//! BOXES, THEN SOLIDS. The box pass is instant and is exact here, because a
+//! rack and a floor panel are both square to the axes; the solid pass is the
+//! true answer and costs a boolean a pair, so it is only asked of the pairs the
+//! boxes flagged. With the hall coordinated it asks nothing, because there are
+//! none to ask about.
+set("C", "08 Clash", "H", null);
+add("CL_FLOOR", "Clash", { name: "The racks against the floor", parent: "C",
+  refs: { a: "RK8", b: "FL" },
+  args: { tolerance: 1, how: 1, budget: 200, show: 8 } });
+add("CL_OVER", "Clash", { name: "The racks against the overhead", parent: "C",
+  refs: { a: "RK8", b: "O" },
+  args: { tolerance: 1, how: 1, budget: 200, show: 8 } });
+add("CL_PERSON", "Clash", { name: "The person against the racks", parent: "C",
+  refs: { a: "S", b: "RK8" },
+  args: { tolerance: 1, how: 0, budget: 200, show: 8 } });
 
 set("Z", "09 Bill of materials");
 add("BOM", "Bill", { name: "Bill of materials · the hall", parent: "Z",
@@ -515,6 +589,13 @@ const fail = why => { console.log("\n" + why + " - the sample is not written"); 
 const F = kit.F, doc = kit.doc();
 const featureOf = id => doc.features().find(one => F.id(one) === id);
 const shapeOf = id => { const f = featureOf(id); return f ? F.shape(f) : null; };
+//! A feature's text as it stands NOW. `rows` is the tree from the first build
+//! and does not move when something is dragged.
+const tellOf = async id => {
+  const answer = await kernel.tree();
+  const row = (answer.tree || answer).features.find(one => one.id === id);
+  return row && row.data ? row.data.preview : null;
+};
 const meshOf = id => {
   const f = featureOf(id);
   const data = f && F.data(f);
@@ -660,6 +741,52 @@ const meshOf = id => {
   if (Math.abs(at40.brace - 40) > 0.01 || Math.abs(at45.brace - 45) > 0.01)
     fail("the section is not driving the bracing");
   if (!(at45.run > at40.run)) fail("the section is not driving the runway");
+}
+
+//! AND NOTHING IS INSIDE ANYTHING ELSE. This is the check the plinth exists for
+//! and the one that would have caught its absence: built at z = 0 the rack's
+//! four levelling feet stood 110 mm inside the floor panels, in all eight
+//! racks, and it looked exactly like eight racks standing on a floor. Read off
+//! the model's own Clash nodes rather than recomputed here, because a check
+//! this script did for itself would say nothing about the file it writes.
+{
+  for (const id of ["CL_FLOOR", "CL_OVER", "CL_PERSON"]) {
+    const said = String(await tellOf(id) || "");
+    const line = said.split("\n").find(one => /clash|no interference/.test(one)) || said;
+    console.log(id.padEnd(11) + line.trim());
+    if (!/no interference/.test(said)) {
+      console.log(said.split("\n").slice(0, 10).map(one => "   " + one).join("\n"));
+      fail("the hall clashes with itself");
+    }
+  }
+  //! AND THE CHECK IS NOT VACUOUS. A clash test that finds nothing because it
+  //! looked at nothing passes every time, so the pair count says it looked.
+  const looked = String(await tellOf("CL_FLOOR") || "");
+  const pairs = /([\d,]+) pairs/.exec(looked);
+  const many = pairs ? Number(pairs[1].replace(/,/g, "")) : 0;
+  console.log("the floor check compared " + many.toLocaleString() + " pairs of solids");
+  if (many < 1000) fail("the clash check is not looking at the model");
+
+  //! AND IT REALLY WOULD FIND ONE. A check that cannot fail is not a check, so
+  //! the rack is sunk 60 mm into the floor and the same node has to say so.
+  //!
+  //! NOT BY SETTING THE PLINTH TO ZERO, which was the first try and which found
+  //! nothing - correctly. At a plinth of zero the frame's underside is exactly
+  //! the finished floor and the panel's top is exactly the finished floor: they
+  //! touch, and touching is not clashing. The original fault was not a plinth of
+  //! zero, it was feet built DOWNWARDS from the frame into the floor; sinking
+  //! the whole rack is the same interference and is a number this file has.
+  await mdl.run({ op: "set", id: "N_PLINTH", key: "value", value: -60 });
+  const dropped = String(await tellOf("CL_FLOOR") || "");
+  await mdl.run({ op: "set", id: "N_PLINTH", key: "value", value: PLINTH });
+  const back = String(await tellOf("CL_FLOOR") || "");
+  const found = /(\d+) clash/.exec(dropped);
+  console.log("sunk 60 mm into the floor: " + (found ? found[1] + " clashes" : "nothing found")
+    + " \u00b7 back on its feet: "
+    + (/no interference/.test(back) ? "clear" : "STILL CLASHING"));
+  if (!found || Number(found[1]) < 8)
+    fail("sinking the rack into the floor was not reported as a clash");
+  if (!/no interference/.test(back)) fail("the hall did not come back clear");
 }
 
 const bom = rows.find(f => f.id === "BOM");
