@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><script src="kernel.js"></script>
+<script>
+(async () => {
+  const log = (...a) => console.log(a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" "));
+  try {
+    const k = await startKernel({ base: "" });
+    log("calls", k.calls ? "" : Object.keys(k).join(","));
+    log("pkg", await k.usePackage("rack"));
+    const model = await (await fetch("../hac-narrative/hac_ribbon.json")).json();
+    let t = performance.now();
+    const r = await k.loadModel(model);
+    log("loadModel ms", Math.round(performance.now() - t), "executed", r.report.executed.length, "failed", r.report.failed || [], "skipped", (r.report.skipped||[]).length);
+    t = performance.now();
+    const m = await k.mesh();
+    log("mesh ms", Math.round(performance.now() - t));
+    let tris = 0; const lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
+    for (const f of m.features) {
+      tris += f.triangles || 0;
+      const p = f.positions; if (p && f.visible !== false) for (let i=0;i<p.length;i+=3) for (let j=0;j<3;j++){lo[j]=Math.min(lo[j],p[i+j]);hi[j]=Math.max(hi[j],p[i+j]);}
+      if (f.triangles || f.meshError || (f.type!=="Point"&&f.type!=="Expression"&&f.type!=="Number"&&f.type!=="GeometricalSet"))
+        log(f.id, f.type, f.shape||"", "vis", f.visible, "tris", f.triangles||0, "edges", f.edges? f.edges.length/6:0, f.meshError||"", f.report? JSON.stringify(f.report).slice(0,300):"");
+    }
+    log("triangles", tris, "bbox", lo.map(Math.round), hi.map(Math.round));
+    const one = m.features.find(f => f.type === "Clash"); log("clash keys", one ? Object.keys(one).join(",") : "");
+    const bom = m.features.find(f => f.id === "BOM_STEEL"); log("bom keys", bom ? Object.keys(bom).join(",") : "", bom && JSON.stringify(bom).slice(0,600));
+    const tr = await k.tree(); log("tree sample", JSON.stringify(tr).slice(0, 1500));
+    log("DONE");
+  } catch (e) { log("ERR", e.message, e.stack); }
+})();
+</script>

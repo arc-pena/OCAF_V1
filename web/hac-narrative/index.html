@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kernel-base" content="../kernel/">
+<title>Morphit Data Hall</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,700;125,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+/* One look on purpose: a data hall at night, lit by what each thing is. The
+   trade colours are Morphit's own (frame orange, cable blue,
+   containment green, fixings brass, power red) so the page and the tool read
+   the same. The page never switches theme, so every colour is painted here. */
+:root {
+  color-scheme: dark;
+  --ground: #0a0e12;
+  --ground-2: #121820;
+  --ink: #e6ebef;
+  --ink-2: #a2aeb8;
+  --ink-3: #6b7885;
+  --line: rgba(230, 235, 239, .12);
+  --datum: #e0a33c;          /* Morphit's datum amber: spec clauses, references */
+  --steel: #e0823a;
+  --fibre: #53c6e3;
+  --lv: #8a96ff;
+  --power: #e25a4e;
+  --water: #3a9bdc;
+  --contain: #7cc47f;
+  --brass: #c9a45c;
+  --good: #5fc38f;
+  --bad: #ff5a4a;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --gutter: clamp(16px, 5vw, 64px);
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 400 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
+}
+a { color: var(--ink); text-decoration-color: var(--datum); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--datum); outline-offset: 3px; border-radius: 3px; }
+
+#stage { position: fixed; inset: 0; z-index: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; }
+#stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(10,14,18,.9) 0%, rgba(10,14,18,.55) 30%, rgba(10,14,18,0) 52%),
+    radial-gradient(ellipse at 62% 45%, rgba(10,14,18,0) 45%, rgba(10,14,18,.55) 100%);
+}
+#labels { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+.dim {
+  position: absolute; transform: translate(-50%, -50%);
+  font: 500 11px/1 var(--mono); color: var(--ground); background: var(--datum);
+  padding: 4px 7px; border-radius: 10px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .2s;
+}
+.dim small { opacity: .7; font-size: 10px; margin-right: 4px; }
+
+main { position: relative; z-index: 2; padding-inline: var(--gutter); }
+.chapter { min-height: 100svh; display: flex; align-items: center; padding-block: 14vh; }
+.copy { max-width: 32rem; display: grid; gap: 14px; }
+.copy.wide { max-width: 38rem; }
+.kicker { font: 500 11.5px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--datum); }
+.kicker b { color: var(--ink-3); font-weight: 500; }
+h1, h2 { margin: 0; font-family: var(--display); font-stretch: 112%; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; line-height: 1.03; }
+h1 { font-size: clamp(40px, 6.6vw, 84px); font-stretch: 125%; font-weight: 800; text-transform: uppercase; letter-spacing: -.02em; width: min(100%, 12.5ch); }
+h2 { font-size: clamp(27px, 3.4vw, 42px); }
+.copy p { margin: 0; color: var(--ink-2); max-width: 62ch; }
+.copy p strong { color: var(--ink); font-weight: 500; }
+.lede { font-size: 18px; }
+.figures { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 400 12px/1.5 var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.figures b { color: var(--ink); font-weight: 500; }
+.figures .bad b { color: var(--bad); }
+.figures .good b { color: var(--good); }
+code { font: 500 .86em var(--mono); color: var(--ink); }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+
+#status { display: flex; align-items: center; gap: 10px; font: 400 12px/1.4 var(--mono); color: var(--ink-2); }
+#status i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--datum); box-shadow: 0 0 0 4px rgba(224,163,60,.16); animation: pulse 1.2s ease-in-out infinite; }
+#status.ready i { background: var(--good); box-shadow: 0 0 0 4px rgba(95,195,143,.16); animation: none; }
+#status.failed i { background: var(--bad); animation: none; }
+@keyframes pulse { 50% { opacity: .35; } }
+.cue { font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+
+/* A requirement read off a specification: the clause, then what it fixes. */
+.clauses { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.clause { display: grid; grid-template-columns: 7.2em 1fr auto; gap: 12px; align-items: baseline; padding: 8px 12px; background: rgba(18,24,32,.88); font-size: 13.5px; }
+.clause .ref { font: 500 11px var(--mono); color: var(--datum); }
+.clause .what { color: var(--ink-2); }
+.clause .val { font: 500 13px var(--mono); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.shall { font: 500 10px var(--mono); letter-spacing: .08em; color: var(--ground); background: var(--datum); padding: 1px 5px; border-radius: 3px; margin-left: 6px; }
+
+/* The pattern two standards drill a post to, drawn to scale. */
+.holes { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.holes svg { width: 300px; max-width: 100%; height: auto; }
+.holes figcaption { font: 400 11.5px/1.5 var(--mono); color: var(--ink-3); max-width: 15rem; }
+
+/* How a clause becomes geometry: five hand-offs, in order. */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+.flow li { position: relative; padding: 7px 0 7px 34px; font-size: 14px; color: var(--ink-2); }
+.flow li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 8px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--datum); color: var(--datum); font: 500 11px/20px var(--mono); text-align: center; }
+.flow li::after { content: ""; position: absolute; left: 11px; top: 32px; bottom: -8px; width: 1px; background: rgba(224,163,60,.35); }
+.flow li:last-child::after { display: none; }
+.flow b { color: var(--ink); font-weight: 500; }
+pre.src { margin: 0; padding: 12px 14px; background: rgba(18,24,32,.9); border: 1px solid var(--line); border-radius: 6px; font: 400 12px/1.55 var(--mono); color: var(--ink-2); overflow-x: auto; }
+pre.src .c { color: #6f7f73; }
+pre.src .k { color: var(--fibre); }
+pre.src .n { color: var(--datum); }
+
+table.params { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.params td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+table.params td:first-child { font: 500 11px var(--mono); color: var(--datum); width: 7.5em; }
+table.params td:nth-child(2) { color: var(--ink-2); }
+table.params td:last-child { text-align: right; font: 500 12.5px var(--mono); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.params tr.derived td:first-child { color: var(--fibre); }
+.tablewrap { overflow-x: auto; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 400 12px/1.4 var(--mono); color: var(--ink-2); }
+
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.compare > div { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: rgba(18,24,32,.85); }
+.compare h3 { margin: 0 0 6px; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.compare .big { font: 700 26px/1.1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums; }
+.compare .sub { font: 400 11.5px/1.4 var(--mono); color: var(--ink-3); }
+
+/* The live controls: every press is a real rebuild in this tab. */
+.live { display: grid; gap: 12px; padding: 14px; border: 1px solid rgba(224,163,60,.35); border-radius: 8px; background: rgba(18,24,32,.9); }
+.ctl { display: grid; gap: 6px; }
+.ctl > span { font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--ink-2); font: 500 12.5px var(--mono); padding: 6px 10px; border-radius: 5px; cursor: pointer; }
+.seg button:hover:not(:disabled) { border-color: var(--datum); color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--datum); border-color: var(--datum); color: var(--ground); }
+.seg button:disabled { opacity: .45; cursor: default; }
+#live-out { font: 400 12px/1.6 var(--mono); color: var(--ink-2); min-height: 3.2em; }
+#live-out b { color: var(--ink); font-weight: 500; }
+#live-out .bad { color: var(--bad); }
+#live-out .good { color: var(--good); }
+
+.caps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 0; padding: 0; list-style: none; font-size: 13.5px; color: var(--ink-2); }
+.caps li { padding-left: 16px; position: relative; }
+.caps li::before { content: ""; position: absolute; left: 0; top: .6em; width: 7px; height: 7px; border-radius: 1px; background: var(--datum); }
+.caps b { color: var(--ink); font-weight: 500; }
+.end-links { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 4px; }
+.end-links a { font: 500 13px var(--mono); }
+.note { font: 400 12px/1.6 var(--mono); color: var(--ink-3); border-left: 2px solid var(--line); padding-left: 12px; }
+
+/* The index: where in the journey from a PDF to a hall this chapter stands. */
+#rail { position: fixed; z-index: 3; right: var(--gutter); top: 50%; transform: translateY(-50%); margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 400 11.5px/1 var(--mono); color: var(--ink-3); }
+#rail .head { padding: 0 10px 10px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+#rail li.st { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: center; padding: 6px 12px 6px 8px; border-left: 2px solid transparent; transition: color .25s, border-color .25s, background .25s; }
+#rail li.st .n { color: var(--ink-3); }
+#rail li.st.on { color: var(--ink); border-left-color: var(--datum); background: rgba(224,163,60,.09); }
+#rail li.st.on .n { color: var(--datum); }
+#rail li.st.done { color: var(--ink-2); }
+#rail .stats { margin-top: 12px; padding: 10px 10px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+#rail .stats b { color: var(--ink-2); font-weight: 500; }
+
+#readout { position: fixed; z-index: 3; left: var(--gutter); bottom: max(16px, env(safe-area-inset-bottom, 0px)); font: 400 11.5px/1.5 var(--mono); color: var(--ink-3); max-width: min(60rem, calc(100% - 2 * var(--gutter))); pointer-events: none; }
+#readout b { color: var(--ink-2); font-weight: 500; }
+
+@media (max-width: 1100px) { #rail { display: none; } }
+@media (max-width: 900px) {
+  #stage::after { background: linear-gradient(0deg, rgba(10,14,18,.95) 0%, rgba(10,14,18,.7) 45%, rgba(10,14,18,0) 72%); }
+  .chapter { align-items: flex-end; padding-block: 48vh 12vh; }
+  .chapter:first-child { padding-top: 46vh; }
+  body { font-size: 15px; }
+  .lede { font-size: 16px; }
+  .clause { grid-template-columns: 1fr auto; }
+  .clause .ref { grid-column: 1 / -1; }
+  .caps, .compare { grid-template-columns: 1fr; }
+  #readout { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { #status i { animation: none; } }
+</style>
+</head>
+<body>
+<div id="stage" aria-hidden="true"></div>
+<div id="labels" aria-hidden="true"></div>
+
+<ol id="rail" aria-label="From specification to data hall">
+  <li class="head" aria-hidden="true">Spec → hall</li>
+  <li class="st" data-from="2" data-to="3"><span class="n">1</span><span>Read the spec</span></li>
+  <li class="st" data-from="4" data-to="4"><span class="n">2</span><span>Parameters</span></li>
+  <li class="st" data-from="5" data-to="7"><span class="n">3</span><span>One module</span></li>
+  <li class="st" data-from="8" data-to="8"><span class="n">4</span><span>Instances</span></li>
+  <li class="st" data-from="9" data-to="9"><span class="n">5</span><span>Self-checks</span></li>
+  <li class="st" data-from="10" data-to="14"><span class="n">6</span><span>Change it</span></li>
+  <li class="st" data-from="15" data-to="15"><span class="n">7</span><span>Bill of materials</span></li>
+  <li class="st" data-from="16" data-to="16"><span class="n">8</span><span>Your turn</span></li>
+  <li class="stats" aria-live="off">
+    <span>features <b data-fig="features">…</b></span>
+    <span>built in <b data-fig="buildS">…</b></span>
+    <span>triangles <b data-fig="triangles">…</b></span>
+  </li>
+</ol>
+
+<div id="readout" aria-live="polite"></div>
+
+<main>
+  <!-- 0 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Morphit <b>·</b> live demo</div>
+      <h1>From a specification to a data hall</h1>
+      <p class="lede">This is a 33.6&nbsp;m ribbon of floor-supported hot aisle containment: <strong>84 racks, 15 portal trusses, five layers of cable tray, busway and a DN250 technical water loop</strong>. It is not a render or a baked mesh. Morphit's geometry kernel is rebuilding it from a parametric document inside this browser tab.</p>
+      <div id="status"><i></i><span>starting the kernel</span></div>
+      <div class="cue">Scroll to see how a standard became this hall</div>
+    </div>
+  </section>
+
+  <!-- 1 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">The problem</div>
+      <h2>Data halls are still drawn from PDFs</h2>
+      <p>Rack standards, steel tables, pipe schedules and busway ratings live in documents. An engineer reads them, then draws lines that happen to agree with them. When the aisle widens or the rack standard changes, somebody redraws the lines and re-checks the clashes by eye.</p>
+      <p>What you are looking at now is that version: <strong>lines</strong>. Nothing in a drawing knows that a rack unit is 44.45&nbsp;mm, or that a tray has to clear the top of a rack.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="chapter">
+    <div class="copy wide">
+      <div class="kicker">Step 1 <b>·</b> OCP Open Rack Base Frame V3 <b>·</b> rev 1.1, 5 March 2024</div>
+      <h2>Read what the specification actually requires</h2>
+      <p>The Open Compute Project's Open Rack V3 is the hyperscale rack. Its base frame specification fixes the rack by clause and figure. These are the requirements Morphit needs, as the document states them:</p>
+      <div class="clauses" role="table" aria-label="Open Rack V3 requirements">
+        <div class="clause" role="row"><span class="ref">§6.1.2</span><span class="what">OpenU, the rack unit</span><span class="val">48 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.2.1</span><span class="what">Mounting holes per OpenU, above its boundary</span><span class="val">9 · 33 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Rack width, latch datum to latch datum</span><span class="val">540.40 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Overall frame width · depth (ref)</span><span class="val">600.24 · 1068.24</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.2.2</span><span class="what">Side holes Ø before paint, thread-forming</span><span class="val">Ø4.50 → M5</span></div>
+        <div class="clause" role="row"><span class="ref">§6.8</span><span class="what">No square cage-nut holes: screws go straight into the sheet</span><span class="val">DIN 7500</span></div>
+        <div class="clause" role="row"><span class="ref">§6.7.2</span><span class="what">Levelling feet lift the casters off the floor<span class="shall">SHALL</span></span><span class="val">≥ 15 mm</span></div>
+      </div>
+      <figure class="holes" style="margin:0">
+        <svg viewBox="0 0 300 330" role="img" aria-labelledby="holes-t">
+          <title id="holes-t">Hole pattern up a post, drawn at 2 pixels per millimetre: EIA-310-E three holes per 44.45 mm unit, OCP Open Rack V3 two holes per 48 mm OpenU</title>
+          <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a2aeb8">
+            <text x="40" y="14" text-anchor="middle">EIA-310-E</text>
+            <text x="196" y="14" text-anchor="middle">OCP ORv3</text>
+          </g>
+          <g id="holes-eia"></g>
+          <g id="holes-ocp"></g>
+        </svg>
+        <figcaption>Three units of each, to scale. EIA puts three square holes in a 44.45&nbsp;mm unit at 6.35, 22.225 and 38.1. Open Rack puts two round holes in a 48&nbsp;mm OpenU at 9 and 33. A pattern drawn "to look right" would be wrong on every rack.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="chapter">
+    <div class="copy wide">
+      <div class="kicker">Step 1 <b>·</b> from clause to data</div>
+      <h2>Each clause becomes one number, with its source attached</h2>
+      <p>Claude read the specification and wrote it into Morphit as a single row of data. Every figure keeps the section or figure it came from, so any engineer can check it against the PDF. Where the document was unreadable, the row says so instead of guessing.</p>
+<pre class="src" aria-label="The Open Rack V3 row in Morphit's standards table"><span class="k">key</span>: <span class="n">"orv3"</span>,
+<span class="c">// OCP Open Rack Base Frame V3, rev 1.1 · §6.1.1, §6.1.2</span>
+<span class="k">unit</span>: <span class="n">48</span>,  <span class="k">unitName</span>: <span class="n">"OU"</span>,     <span class="c">// §6.1.2</span>
+<span class="k">panel</span>: <span class="n">540.40</span>, <span class="k">overallWidth</span>: <span class="n">600.24</span>, <span class="c">// Fig 6.1.1</span>
+<span class="k">holes</span>: [<span class="n">9</span>, <span class="n">33</span>],                 <span class="c">// Fig 6.1.2.1</span>
+<span class="k">bore</span>: <span class="n">4.5</span>, <span class="k">frontBore</span>: <span class="n">5.4</span>,     <span class="c">// Fig 6.1.2.2</span>
+<span class="k">square</span>: <span class="n">null</span>,   <span class="c">// ORv3 has no cage-nut hole</span>
+<span class="k">depth</span>: <span class="n">1068.24</span>, <span class="k">shelfStop</span>: <span class="n">789.0</span></pre>
+      <ol class="flow">
+        <li><b>Specification</b>: the PDF, clause by clause</li>
+        <li><b>Standards table</b>: one row per standard (EIA-310-E, ORv3, Meta ORv3, ORW), every figure sourced</li>
+        <li><b>Nodes</b>: <code>RackFrame</code>, <code>RackPost</code> and <code>RackDevice</code> take a <code>standard</code> argument and generate their holes and heights from that row</li>
+        <li><b>Parametric document</b>: <span data-fig="features">…</span> features in one <span data-fig="kb">…</span>&nbsp;KB JSON file</li>
+        <li><b>Exact solid geometry</b>: then checks and a bill of materials</li>
+      </ol>
+      <div class="figures"><span>this rack's post <b data-fig="GPU_P0.holes">…</b></span><span>height <b data-fig="GPU_P0.height">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 2 <b>·</b> 00 Parameters <b>·</b> 01 Reference</div>
+      <h2>The hall is a handful of numbers</h2>
+      <p>Everything downstream is measured from three datum planes and driven by named parameters. Derived values are formulas over them, so the truss span is always the aisle plus a rack depth, and the services zone is always what the racks leave under the truss.</p>
+      <div class="tablewrap"><table class="params" aria-label="Key parameters, as the kernel evaluated them">
+        <tr><td>N_PITCH</td><td>Rack pitch</td><td data-fig="N_PITCH">…</td></tr>
+        <tr><td>N_DEPTH</td><td>Rack depth</td><td data-fig="N_DEPTH">…</td></tr>
+        <tr><td>N_AISLE</td><td>Hot aisle, clear</td><td data-fig="N_AISLE">…</td></tr>
+        <tr><td>N_UNITS</td><td>Rack height</td><td data-fig="N_UNITS">…</td></tr>
+        <tr><td>N_CLEAR</td><td>Clear under the truss</td><td data-fig="N_CLEAR">…</td></tr>
+        <tr class="derived"><td>X_SPAN</td><td>Truss span = aisle + depth</td><td data-fig="X_SPAN">…</td></tr>
+        <tr class="derived"><td>X_RACKTOP</td><td>Rack top = units × pitch + plinth</td><td data-fig="X_RACKTOP">…</td></tr>
+        <tr class="derived"><td>X_GAP</td><td>Services zone = clear − rack top</td><td data-fig="X_GAP">…</td></tr>
+        <tr class="derived"><td>X_RACKS</td><td>Racks a side, less column bays</td><td data-fig="X_RACKS">…</td></tr>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 3 <b>·</b> MS <b>·</b> TF1 · TF2 · TIE_A · TIE_B</div>
+      <h2>Two welded portal trusses carry everything</h2>
+      <p>Floor-supported containment means the columns go to the slab and the racks stand under the steel. Each truss is a <code>TrussFrame</code> node on an AISC hollow section, and it re-divides its own panels whenever the span changes.</p>
+      <p>The section table uses AISC's design wall, 0.93 of nominal, because that is what the mill delivers. Using the nominal wall would overstate the steel by 7%.</p>
+      <div class="figures"><span><b data-fig="TF1.section">…</b></span><span>span <b data-fig="X_SPAN">…</b></span><span><b data-fig="X_PANELS">…</b> panels</span><span>design wall <b data-fig="TF1.wall">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 3 <b>·</b> MA · MT · MB · MW <b>·</b> 44 service nodes</div>
+      <h2>Services that report their own engineering</h2>
+      <p>Twelve cantilever arms per module carry three fibre trays on each cold side and two low-voltage trays plus a 1600&nbsp;A busway on each hot side. A DN250 supply and return cross the top chords on channel bearers.</p>
+      <p>Each node states the number it would be chosen by. The arm reports its capacity at its reach, and the pipe reports the heat it can carry.</p>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--brass)"></i>arms <span data-fig="ARAF0.cap">…</span></span>
+        <span><i class="sw" style="background:var(--fibre)"></i>fibre tray</span>
+        <span><i class="sw" style="background:var(--lv)"></i>low voltage</span>
+        <span><i class="sw" style="background:var(--power)"></i>busway <span data-fig="BDA.rating">…</span></span>
+        <span><i class="sw" style="background:var(--water)"></i>water <span data-fig="PS.heat">…</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 3 <b>·</b> MK <b>·</b> GPU · MGT · FIB designs</div>
+      <h2>Three rack designs, twelve racks</h2>
+      <p>Only three racks in this module are modelled: a liquid-cooled GPU rack, a management rack and a fibre patch rack, each with frame, posts, devices and levelling feet. The other nine are <strong>instances</strong>, the same geometry placed again. Row B is turned 180°, so the backs face into the hot aisle.</p>
+      <p>Edit the GPU design and <strong><span data-fig="gpuRacks">…</span> GPU racks</strong> across the ribbon change with it.</p>
+      <div class="figures"><span><b data-fig="X_GPUN">…</b> × 4U GPU trays per rack</span><span><b data-fig="IA3.solids">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 4 <b>·</b> 03 Ribbon <b>·</b> Instance + Array</div>
+      <h2>One module becomes a ribbon</h2>
+      <p>A module is what arrives on site. The ribbon is that module placed <span data-fig="N_MODULES">…</span> times, and each copy shares its geometry. The instancing goes two levels deep: modules are instances, and so are most of the racks inside them.</p>
+      <div class="figures"><span>ribbon <b data-fig="X_RIBBON">…</b></span><span><b data-fig="X_RACKS2">…</b> racks</span><span><b data-fig="X_FRAMES">…</b> trusses</span></div>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 5 <b>·</b> 06 Clash <b>·</b> CL_STEEL · CL_SERV · CL_ARMS · CL_JOIN</div>
+      <h2>The model checks itself, by geometry</h2>
+      <p>Four clash nodes test the racks against the steel, the trays and the arms, and each module against its neighbours. They use real solid intersection, not a visual check. This is how the original sample found racks standing with their feet 110&nbsp;mm through the floor, which looked exactly like racks standing on a floor.</p>
+      <div class="figures">
+        <span><b data-fig="CL_STEEL.pairs">…</b> rack-steel pairs</span>
+        <span><b data-fig="CL_SERV.pairs">…</b> rack-tray pairs</span>
+        <span><b data-fig="CL_ARMS.pairs">…</b> rack-arm pairs</span>
+        <span><b data-fig="CL_JOIN.pairs">…</b> module pairs</span>
+        <span class="good"><b data-fig="clashes">…</b> clashes</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_AISLE</div>
+      <h2>Widen the hot aisle and the steel re-divides</h2>
+      <p>Set <code>N_AISLE</code> from 1200 to 1800&nbsp;mm. The span becomes 3000, the truss picks five panels instead of four, row B moves out, and the roof deck follows. The kernel re-executed only what depends on that number.</p>
+      <div class="figures" data-variant="A"><span>re-executed <b data-vfig="A.executed">…</b> of <b data-fig="features">…</b> features</span><span>in <b data-vfig="A.ms">…</b></span><span>span <b data-vfig="A.X_SPAN">…</b></span><span><b data-vfig="A.X_PANELS">…</b> panels</span></div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_UNITS</div>
+      <h2>Ask for taller racks and the model says no</h2>
+      <p>Grow the racks from 48U to 56U. The rack top rises from 2233.6 to 2589.2&nbsp;mm and runs into the second fibre tray. Nobody has to spot it: <code>CL_SERV</code> reports every interference with its depth and volume.</p>
+      <div class="figures" data-variant="B"><span class="bad"><b data-vfig="B.clashes">…</b> clashes</span><span>depth <b data-vfig="B.depth">…</b></span><span>services zone <b data-vfig="B.X_GAP">…</b></span><span>in <b data-vfig="B.ms">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 6 <b>·</b> apply the spec <b>·</b> standard = OCP Open Rack V3</div>
+      <h2>Switch the hall to Open Rack V3</h2>
+      <p>Now apply the specification from step 1. Every rack element switches its <code>standard</code> to ORv3, and the unit pitch becomes the 48&nbsp;mm OpenU. At the same 48 units the racks are 2304&nbsp;mm of frame, which puts them into the lowest fibre tray.</p>
+      <div class="figures" data-variant="C"><span class="bad"><b data-vfig="C.clashes">…</b> clashes</span><span>rack top <b data-vfig="C.X_RACKTOP">…</b></span><span>post <b data-vfig="C.holes">…</b></span><span>rebuilt in <b data-vfig="C.ms">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 6 <b>·</b> N_UNITS = 44 OU</div>
+      <h2>At 44 OpenU it fits, and the cost is on screen</h2>
+      <p>Drop to 44 OpenU, the height Open Rack frames are built to. The clashes clear and the services zone grows. The GPU stack recounts itself, and the page does the arithmetic on what that means for the ribbon.</p>
+      <div class="compare" data-variant="D">
+        <div><h3>EIA-310-E · 48U</h3><div class="big" data-fig="gpuTrays">…</div><div class="sub">GPU trays in the ribbon · <span data-fig="gpus">…</span> GPUs</div></div>
+        <div><h3>OCP ORv3 · 44 OU</h3><div class="big" data-vfig="D.gpuTrays">…</div><div class="sub">GPU trays · <span data-vfig="D.gpus">…</span> GPUs</div></div>
+      </div>
+      <div class="figures" data-variant="D"><span class="good"><b data-vfig="D.clashes">…</b> clashes</span><span>services zone <b data-vfig="D.X_GAP">…</b></span><span><b data-vfig="D.X_GPUN">…</b> trays a rack</span><span>in <b data-vfig="D.ms">…</b></span></div>
+      <p class="note">Tray and GPU counts are X_GPUN × <span data-fig="gpuRacks">…</span> GPU racks × 8 GPUs per 4U tray (the tray's own description). The frame is also 600.24&nbsp;mm across on a 600&nbsp;mm rack pitch, which the kernel reports and a designer should decide on.</p>
+    </div>
+  </section>
+
+  <!-- 14 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_MODULES</div>
+      <h2>Ten modules instead of seven</h2>
+      <p>The ribbon is a count. Set it to ten and the head and tail doors, the slab and every derived total move with it. This is the change a real programme makes every week.</p>
+      <div class="figures" data-variant="E"><span>ribbon <b data-vfig="E.X_RIBBON">…</b></span><span><b data-vfig="E.racks">…</b> racks</span><span><b data-vfig="E.X_FRAMES">…</b> trusses</span><span>in <b data-vfig="E.ms">…</b></span></div>
+    </div>
+  </section>
+
+  <!-- 15 -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">Step 7 <b>·</b> 07 Bill of materials <b>·</b> BOM</div>
+      <h2>The same model is the order list</h2>
+      <p>Bill nodes count what the document contains, with the supplier text each element carries. There is no separate spreadsheet to fall out of date. These are the ribbon's first lines as the kernel produced them:</p>
+      <div class="tablewrap"><table class="params" id="bom" aria-label="Bill of materials, first lines"><tr><td>…</td><td>computing</td><td></td></tr></table></div>
+    </div>
+  </section>
+
+  <!-- 16 -->
+  <section class="chapter" id="try">
+    <div class="copy">
+      <div class="kicker">Step 8 <b>·</b> your turn</div>
+      <h2>Change the hall yourself</h2>
+      <p>Each button sends a real change to the kernel in this tab and redraws what comes back. Nothing here is precomputed.</p>
+      <div class="live">
+        <div class="ctl"><span>Rack standard</span><div class="seg" id="c-std">
+          <button type="button" id="std-eia" data-v="eia" aria-pressed="true">EIA-310-E · 48U</button>
+          <button type="button" id="std-o44" data-v="o44" aria-pressed="false">OCP ORv3 · 44 OU</button>
+          <button type="button" id="std-o48" data-v="o48" aria-pressed="false">OCP ORv3 · 48 OU</button>
+        </div></div>
+        <div class="ctl"><span>Hot aisle</span><div class="seg" id="c-aisle">
+          <button type="button" id="aisle-1200" data-v="1200" aria-pressed="true">1200</button>
+          <button type="button" id="aisle-1500" data-v="1500" aria-pressed="false">1500</button>
+          <button type="button" id="aisle-1800" data-v="1800" aria-pressed="false">1800</button>
+        </div></div>
+        <div class="ctl"><span>Modules</span><div class="seg" id="c-mod">
+          <button type="button" id="mod-5" data-v="5" aria-pressed="false">5</button>
+          <button type="button" id="mod-7" data-v="7" aria-pressed="true">7</button>
+          <button type="button" id="mod-10" data-v="10" aria-pressed="false">10</button>
+        </div></div>
+        <div id="live-out" aria-live="polite">Waiting for the kernel.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17 -->
+  <section class="chapter">
+    <div class="copy wide">
+      <div class="kicker">What you just saw</div>
+      <h2>Standards as code, designs as documents</h2>
+      <p>Physical infrastructure is specified in documents and built from drawings. Morphit turns the documents into typed, sourced parameters and the drawings into regenerable models, so a change of standard is a rebuild measured in seconds rather than a redesign measured in weeks.</p>
+      <ul class="caps">
+        <li><b>Parametric document</b>: history, labels, dependency graph</li>
+        <li><b>Partial rebuilds</b>: only what a change touches</li>
+        <li><b>Standards library</b>: EIA-310-E, OCP ORv3, AISC HSS, ASME B36.10M</li>
+        <li><b>Domain packages</b>: racks, trusses, trays, busway, pipe</li>
+        <li><b>Instancing</b>, two levels deep</li>
+        <li><b>Clash detection</b> by solid geometry</li>
+        <li><b>Engineering reports</b>: arm capacity, heat per pipe</li>
+        <li><b>Bill of materials</b> from the model itself</li>
+        <li><b>Runs in the browser</b>: no install, no server</li>
+        <li><b>AI-readable</b>: specs in, sourced parameters out</li>
+      </ul>
+      <div class="figures"><span><b data-fig="features">…</b> features</span><span><b data-fig="kb">…</b> KB file</span><span>built in <b data-fig="buildS">…</b></span><span><b data-fig="triangles">…</b> triangles on screen</span></div>
+      <p class="note">About this page: the model is Morphit's "Data hall ribbon" sample. For this demo the two entourage figures and their clash node were removed, and the five formulas that hard-coded 44.45&nbsp;mm now read one parameter, <code>N_UPITCH</code>, so the rack standard can change the whole hall. The Open Rack variants are the same file with <code>standard</code> set on its 30 rack elements. The page draws module 1's triangles once per module, which is what the model's Instance nodes specify.</p>
+      <div class="end-links">
+        <a href="https://claude.ai/artifact/6RwchubErKSRTXve59pDHL" target="_blank" rel="noopener">Open Morphit ↗</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="../kernel/kernel.js"></script>
+<script>
+"use strict";
+(function () {
+  const statusEl = document.getElementById("status");
+  const say = (text, cls) => { statusEl.querySelector("span").textContent = text; statusEl.className = cls || ""; };
+  if (typeof THREE === "undefined") { say("three.js did not load, so there is nothing to draw with", "failed"); return; }
+  if (typeof startKernel !== "function") { say("the kernel script did not load", "failed"); return; }
+  const KERNEL_BASE = (document.querySelector('meta[name="kernel-base"]') || {}).content || "../kernel/";
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const sections = Array.from(document.querySelectorAll(".chapter"));
+  const LAST = sections.length - 1;
+
+  /* ------------------------------------------------ the hole-pattern figure */
+  // Drawn from the two standards' own numbers at 2 px per mm, three units each.
+  (function drawHoles() {
+    const NS = "http://www.w3.org/2000/svg";
+    const el = (tag, at, parent) => { const n = document.createElementNS(NS, tag); for (const k in at) n.setAttribute(k, at[k]); parent.appendChild(n); return n; };
+    const S = 2, BASE = 312;
+    function post(group, x0, unit, holes, square, bore, label) {
+      const top = BASE - 3 * unit * S;
+      el("rect", { x: x0, y: top - 6, width: 44, height: 3 * unit * S + 12, fill: "#1a222c", stroke: "#3a4652" }, group);
+      for (let u = 0; u <= 3; u++) {
+        const y = BASE - u * unit * S;
+        el("line", { x1: x0 - 8, x2: x0 + 52, y1: y, y2: y, stroke: "#e0a33c", "stroke-width": 1, "stroke-dasharray": "3 3" }, group);
+      }
+      for (let u = 0; u < 3; u++) for (const h of holes) {
+        const y = BASE - (u * unit + h) * S;
+        if (square) el("rect", { x: x0 + 22 - square, y: y - square, width: square * 2, height: square * 2, fill: "#0a0e12", stroke: "#a2aeb8" }, group);
+        else el("circle", { cx: x0 + 22, cy: y, r: bore, fill: "#0a0e12", stroke: "#a2aeb8" }, group);
+      }
+      // the first unit's hole heights, dimensioned
+      holes.forEach((h, k) => {
+        const y = BASE - h * S;
+        el("line", { x1: x0 + 48, x2: x0 + 60, y1: y, y2: y, stroke: "#6b7885" }, group);
+        const t = el("text", { x: x0 + 63, y: y + 3.5, "font-family": "IBM Plex Mono, monospace", "font-size": 9.5, fill: "#e6ebef" }, group);
+        t.textContent = h;
+      });
+      const t = el("text", { x: x0 + 63, y: BASE - unit * S + 3.5, "font-family": "IBM Plex Mono, monospace", "font-size": 9.5, fill: "#e0a33c" }, group);
+      t.textContent = label;
+    }
+    post(document.getElementById("holes-eia"), 18, 44.45, [6.35, 22.225, 38.1], 4.75, 0, "44.45");
+    post(document.getElementById("holes-ocp"), 174, 48, [9, 33], 0, 2.25, "48");
+  })();
+
+  /* ------------------------------------------------------------- scene */
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.setClearColor(0x0a0e12, 1);
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x0a0e12, 30, 110);
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 400);
+  camera.up.set(0, 0, 1);
+  scene.add(new THREE.HemisphereLight(0xcfe0ee, 0x141a20, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 0.75); key.position.set(-20, -30, 40); scene.add(key);
+  const cool = new THREE.DirectionalLight(0x6fb8ff, 0.35); cool.position.set(30, 25, 10); scene.add(cool);
+
+  // The model is in millimetres; the world is in metres.
+  const world = new THREE.Group(); world.scale.setScalar(0.001); scene.add(world);
+
+  // The slab's grid at 600 mm: the floor tile a 600 mm rack pitch lands on.
+  let tileGrid = null;
+  function buildGrid(len) {
+    if (tileGrid) { world.remove(tileGrid); tileGrid.geometry.dispose(); }
+    const pts = [], x0 = -3000, x1 = len + 3000, y0 = -3000, y1 = 6600;
+    for (let x = x0; x <= x1 + 1; x += 600) pts.push(x, y0, 2, x, y1, 2);
+    for (let y = y0; y <= y1 + 1; y += 600) pts.push(x0, y, 2, x1, y, 2);
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    tileGrid = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x2a3440, transparent: true, opacity: 0.55, depthWrite: false }));
+    world.add(tileGrid);
+  }
+
+  /* ------------------------------------------------ what each thing is */
+  // Colour by trade, as Morphit colours this sample.
+  const CATS = {
+    slab:    { c: 0x0c1014, e: 0x2b3540, eo: 0.35 },
+    steel:   { c: 0xe0823a, e: 0xffc08a, eo: 0.45 },
+    arms:    { c: 0xc9a45c, e: 0xf0d59c, eo: 0.35 },
+    bearers: { c: 0xc9a45c, e: 0xf0d59c, eo: 0.35 },
+    fibre:   { c: 0x53c6e3, e: 0xb5ecf8, eo: 0.35 },
+    lv:      { c: 0x8a96ff, e: 0xc9cfff, eo: 0.35 },
+    bus:     { c: 0xe25a4e, e: 0xffab9f, eo: 0.35 },
+    supply:  { c: 0x3a9bdc, e: 0x9fd2f5, eo: 0.35 },
+    ret:     { c: 0xe0785a, e: 0xffc2ad, eo: 0.35 },
+    roof:    { c: 0x7cc47f, e: 0xb9f0bb, eo: 0.5, glass: 0.2 },
+    door:    { c: 0x7cc47f, e: 0xb9f0bb, eo: 0.5, glass: 0.2 },
+    frame:   { c: 0xb5bfc8, e: 0xe8eef3, eo: 0.3 },
+    gear:    { c: 0x39434d, e: 0x9fb0bf, eo: 0.35 },
+    feet:    { c: 0xb08d4a, e: 0xe0c48a, eo: 0.3 },
+    inst:    { c: 0x7d8995, e: 0xc2ccd5, eo: 0.25 },
+    clash:   { c: 0xff3b2f, e: 0xffc0b8, eo: 0.8, emissive: 0x7a0d06 },
+  };
+  const RACK_KINDS = ["frame", "gear", "feet"];
+  const DESIGNS = ["gpu", "mgt", "fib"];
+  // Materials are shared by every state and every module copy, so one opacity
+  // per category per frame drives the whole ribbon.
+  const MAT = {}, EMAT = {};
+  function matKey(k) { return k.includes(":") ? k.split(":")[1] : k; }
+  function material(k) {
+    if (MAT[k]) return MAT[k];
+    const d = CATS[matKey(k)];
+    MAT[k] = new THREE.MeshStandardMaterial({ color: d.c, roughness: 0.55, metalness: 0.15, transparent: true, side: THREE.DoubleSide, emissive: d.emissive || 0x000000, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    MAT[k].userData.base = d.glass || 1;
+    MAT[k].userData.color = new THREE.Color(d.c);
+    EMAT[k] = new THREE.LineBasicMaterial({ color: d.e, transparent: true, opacity: d.eo, depthWrite: false });
+    EMAT[k].userData.base = d.eo;
+    EMAT[k].userData.color = new THREE.Color(d.e);
+    return MAT[k];
+  }
+
+  /* --------------------------------------------------------- the model */
+  let model = null, parent = {}, byName = {}, typeOf = {};
+  function under(id, root) { for (let p = id; p; p = parent[p]) if (p === root) return true; return false; }
+  function category(f) {
+    const t = typeOf[f.id], id = f.id;
+    if (id === "SLAB") return "slab";
+    if (id === "D0" || id === "D1") return "door";
+    if (t === "TrussFrame" || id === "TIE_A" || id === "TIE_B") return "steel";
+    if (t === "Array" && /^AS/.test(id)) return "arms";
+    if (id === "BRS") return "bearers";
+    if (t === "CableTray") return /^TR.F/.test(id) ? "fibre" : "lv";
+    if (t === "BusDuct") return "bus";
+    if (id === "PS") return "supply";
+    if (id === "PR") return "ret";
+    if (id === "RF") return "roof";
+    if (t === "Instance") return "inst";
+    const rack = DESIGNS.find(r => id.toLowerCase().startsWith(r + "_"));
+    if (rack) {
+      const kind = (t === "RackFrame" || t === "RackPost") ? "frame" : t === "LevellingFoot" ? "feet" : "gear";
+      return rack + ":" + kind;
+    }
+    return null;
+  }
+
+  function merge(list) {
+    let nv = 0, ni = 0, ne = 0;
+    for (const f of list) { nv += f.positions.length; ni += f.index ? f.index.length : f.positions.length / 3; ne += f.edges ? f.edges.length : 0; }
+    const pos = new Float32Array(nv), nor = new Float32Array(nv), idx = new Uint32Array(ni), edg = new Float32Array(ne);
+    let pv = 0, pi = 0, pe = 0, missing = false;
+    for (const f of list) {
+      const base = pv / 3, n = f.positions.length / 3;
+      pos.set(f.positions, pv);
+      if (f.normals && f.normals.length === f.positions.length) nor.set(f.normals, pv); else missing = true;
+      if (f.index) { for (let k = 0; k < f.index.length; k++) idx[pi + k] = f.index[k] + base; pi += f.index.length; }
+      else { for (let k = 0; k < n; k++) idx[pi + k] = base + k; pi += n; }
+      pv += f.positions.length;
+      if (f.edges) { edg.set(f.edges, pe); pe += f.edges.length; }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    if (missing) g.computeVertexNormals();
+    const e = new THREE.BufferGeometry(); e.setAttribute("position", new THREE.BufferAttribute(edg, 3));
+    return { g, e };
+  }
+
+  /* ---------------------------------------------- states of the document */
+  // A state is one evaluation of the document: its meshes, its figures, and
+  // the group that draws it. The base, the four scroll variants and the
+  // viewer's own live edits are all states, drawn the same way.
+  const states = {};
+  let shown = null;
+  let leafIds = [];
+
+  function buildState(st) {
+    const root = new THREE.Group(); root.visible = false;
+    const lists = {};
+    for (const f of st.meshes) {
+      if (!f.positions || !f.positions.length) continue;
+      let k = category(f);
+      if (!k) continue;
+      if (st.clashIds && st.clashIds.has(f.id)) k = "clash";
+      (lists[k] = lists[k] || []).push(f);
+    }
+    const module0 = new THREE.Group(), outside = new THREE.Group();
+    st.cats = {};
+    for (const k in lists) {
+      const { g, e } = merge(lists[k]);
+      const holder = new THREE.Group(); holder.name = k;
+      holder.add(new THREE.Mesh(g, material(k)));
+      holder.add(new THREE.LineSegments(e, EMAT[k]));
+      (k === "slab" || k === "door" ? outside : module0).add(holder);
+      st.cats[k] = holder;
+    }
+    root.add(module0, outside);
+    st.module0 = module0;
+    st.copies = [];
+    for (let i = 1; i < st.modules; i++) { const c = module0.clone(); c.userData.home = i * st.mod; c.position.x = c.userData.home; root.add(c); st.copies.push(c); }
+    world.add(root);
+    st.root = root;
+    return st;
+  }
+  function show(st) {
+    if (!st || st === shown) return;
+    if (shown) shown.root.visible = false;
+    shown = st; st.root.visible = true;
+    if (st.ribbon !== buildGrid.len) { buildGrid(st.ribbon); buildGrid.len = st.ribbon; }
+    buildDims(st);
+  }
+
+  /* ------------------------------------------------ reading the kernel */
+  const num = s => { const m = String(s || "").replace(/,/g, "").match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : NaN; };
+  const fmt = (n, d) => (n === undefined || n === null || Number.isNaN(n)) ? "…" : Number(n).toLocaleString("en-GB", { maximumFractionDigits: d === undefined ? 1 : d });
+  const mm = n => fmt(n) + " mm";
+  function previews(tree) { const p = {}; for (const f of tree.tree.features) p[f.id] = (f.data && f.data.preview) || ""; return p; }
+  function clashInfo(p) {
+    let total = 0, depth = 0; const names = new Set();
+    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS"]) {
+      const s = p[id] || "";
+      const m = s.match(/([\d,]+) clashes/);
+      if (m) total += num(m[1]);
+      for (const x of s.matchAll(/×\s([^·]+?·\s*row [AB]\s*·\s*layer \d)/g)) names.add(x[1].trim());
+      const d = s.match(/([\d.]+) mm in/); if (d) depth = Math.max(depth, Number(d[1]));
+    }
+    const ids = new Set();
+    for (const n of names) if (byName[n]) ids.add(byName[n]);
+    return { total, depth, ids };
+  }
+  function figsOf(p, ms, executed) {
+    const f = {};
+    for (const id of ["N_PITCH", "N_DEPTH", "N_AISLE", "N_UNITS", "N_CLEAR", "N_MODULES", "X_SPAN", "X_RACKTOP", "X_GAP", "X_RACKS", "X_RIBBON", "X_FRAMES", "X_PANELS", "X_GPUN", "X_MOD"]) f[id] = num(p[id]);
+    const c = clashInfo(p);
+    f.clashes = c.total; f.depth = c.depth; f.clashIds = c.ids;
+    f.gpuRacks = 8 * f.N_MODULES;           // 8 GPU racks in each 12-rack module (1 design + 7 instances)
+    f.gpuTrays = f.X_GPUN * f.gpuRacks;
+    f.gpus = f.gpuTrays * 8;                // "4U 8-GPU tray", the tray's own supplier text
+    f.racks = f.X_RACKS * 2;
+    const h = (p.GPU_P0 || "").match(/([\d.]+) mm · (\d+) holes/);
+    f.holes = h ? h[2] + " holes" : "…"; f.height = h ? Number(h[1]) : NaN;
+    f.ms = ms; f.executed = executed;
+    return f;
+  }
+  const P = {};   // the base evaluation's previews
+  let F = {};     // the base evaluation's figures
+
+  function fillFigs() {
+    const tf = P.TF1 || "";
+    const fig = {
+      features: fmt(model.features.length, 0),
+      kb: fmt(modelBytes / 1024, 1),
+      buildS: fmt(buildMs / 1000, 2) + " s",
+      triangles: fmt(triangles, 0),
+      N_PITCH: mm(F.N_PITCH), N_DEPTH: mm(F.N_DEPTH), N_AISLE: mm(F.N_AISLE), N_UNITS: fmt(F.N_UNITS, 0) + " U",
+      N_CLEAR: mm(F.N_CLEAR), N_MODULES: fmt(F.N_MODULES, 0),
+      X_SPAN: mm(F.X_SPAN), X_RACKTOP: mm(F.X_RACKTOP), X_GAP: mm(F.X_GAP), X_RACKS: fmt(F.X_RACKS, 0) + " a side",
+      X_RACKS2: fmt(F.racks, 0), X_RIBBON: fmt(F.X_RIBBON / 1000, 1) + " m", X_FRAMES: fmt(F.X_FRAMES, 0), X_PANELS: fmt(F.X_PANELS, 0),
+      X_GPUN: fmt(F.X_GPUN, 0),
+      "TF1.section": (tf.match(/^(HSS [^·]+?) portal/) || [])[1] || "…",
+      "TF1.wall": ((tf.match(/design wall ([\d.]+ mm)/) || [])[1]) || "…",
+      "ARAF0.cap": (() => { const m = (P.ARAF0 || "").match(/about (\d+ kg) at the end · carrying (\d+ kg)/); return m ? m[1] + " at reach, " + m[2] + " carried" : ""; })(),
+      "BDA.rating": ((P.BDA || "").match(/(\d+ A)/) || [])[1] || "",
+      "PS.heat": ((P.PS || "").match(/carries ([\d,]+ kW at \d+ K)/) || [])[1] || "",
+      "IA3.solids": ((P.IA3 || "").match(/(\d+ solids)/) || [])[1] ? "an instance shares " + (P.IA3.match(/(\d+ solids)/)[1]) : "…",
+      "GPU_P0.holes": F.holes, "GPU_P0.height": mm(F.height),
+      gpuRacks: fmt(F.gpuRacks, 0), gpuTrays: fmt(F.gpuTrays, 0), gpus: fmt(F.gpus, 0),
+      clashes: fmt(F.clashes, 0),
+    };
+    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN"]) fig[id + ".pairs"] = ((P[id] || "").match(/([\d,]+) pairs/) || [])[1] || "…";
+    document.querySelectorAll("[data-fig]").forEach(el => { if (fig[el.dataset.fig] !== undefined) el.textContent = fig[el.dataset.fig]; });
+
+    // The bill: the first lines of BOM, exactly as the kernel wrote them.
+    const rows = [...(P.BOM || "").matchAll(/(\d+)\s×\s(.+?)\s{2}·\s(.+?)\s{2}·/g)].slice(0, 7);
+    const more = ((P.BOM || "").match(/…\s*\+(\d+)/) || [])[1];
+    const table = document.getElementById("bom");
+    table.textContent = "";
+    for (const r of rows) {
+      const tr = table.insertRow();
+      tr.insertCell().textContent = r[1] + " ×";
+      tr.insertCell().textContent = r[2].trim();
+      tr.insertCell().textContent = r[3].trim().replace(/, .*$/, "");
+    }
+    if (more) { const tr = table.insertRow(); tr.insertCell().textContent = "+" + more; tr.insertCell().textContent = "more lines in the full bill"; tr.insertCell(); }
+  }
+  function fillVariant(key, v) {
+    const f = {
+      executed: fmt(v.executed, 0), ms: fmt(v.ms / 1000, 2) + " s",
+      X_SPAN: mm(v.X_SPAN), X_PANELS: fmt(v.X_PANELS, 0), X_GAP: mm(v.X_GAP), X_RACKTOP: mm(v.X_RACKTOP),
+      clashes: fmt(v.clashes, 0), depth: v.depth ? v.depth + " mm" : "0 mm", holes: v.holes,
+      gpuTrays: fmt(v.gpuTrays, 0), gpus: fmt(v.gpus, 0), X_GPUN: fmt(v.X_GPUN, 0),
+      X_RIBBON: fmt(v.X_RIBBON / 1000, 1) + " m", racks: fmt(v.racks, 0), X_FRAMES: fmt(v.X_FRAMES, 0),
+    };
+    document.querySelectorAll('[data-vfig^="' + key + '."]').forEach(el => { const k = el.dataset.vfig.split(".")[1]; if (f[k] !== undefined) el.textContent = f[k]; });
+  }
+
+  /* ------------------------------------------------------ dimensions */
+  const labelsEl = document.getElementById("labels");
+  const dimGroup = new THREE.Group(); world.add(dimGroup);
+  const dimMat = { plan: new THREE.LineBasicMaterial({ color: 0xe0a33c, transparent: true, opacity: 0, depthWrite: false, depthTest: false }) };
+  dimMat.aisle = dimMat.plan.clone();
+  let dims = [];
+  function buildDims(st) {
+    while (dimGroup.children.length) { const c = dimGroup.children.pop(); c.geometry.dispose(); }
+    labelsEl.textContent = ""; dims = [];
+    const aisle = st.figs.N_AISLE, depth = st.figs.N_DEPTH, mod = st.figs.X_MOD, z = 30;
+    const list = [
+      { a: [mod + 700, 0, z], b: [mod + 700, depth, z], t: "N_DEPTH", v: depth, group: "plan" },
+      { a: [mod + 700, depth, z], b: [mod + 700, depth + aisle, z], t: "N_AISLE", v: aisle, group: "plan" },
+      { a: [-700, depth, z], b: [-700, depth + aisle, z], t: "N_AISLE", v: aisle, group: "aisle" },
+      { a: [0, -1100, z], b: [mod, -1100, z], t: "X_MOD", v: mod, group: "plan" },
+    ];
+    for (const d of list) {
+      const pts = [...d.a, ...d.b];
+      const n = d.a[0] === d.b[0] ? [250, 0, 0] : [0, 250, 0];
+      pts.push(d.a[0] - n[0], d.a[1] - n[1], z, d.a[0] + n[0], d.a[1] + n[1], z, d.b[0] - n[0], d.b[1] - n[1], z, d.b[0] + n[0], d.b[1] + n[1], z);
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      const line = new THREE.LineSegments(g, dimMat[d.group]); line.renderOrder = 5; dimGroup.add(line);
+      const el = document.createElement("div"); el.className = "dim";
+      el.innerHTML = "<small>" + d.t + "</small>" + fmt(d.v, 0);
+      labelsEl.appendChild(el);
+      dims.push({ el, mid: new THREE.Vector3((d.a[0] + d.b[0]) / 2000, (d.a[1] + d.b[1]) / 2000, z / 1000), group: d.group });
+    }
+  }
+
+  /* ------------------------------------------------- datums and sweep */
+  const datums = new THREE.Group(); world.add(datums);
+  const datumSheet = new THREE.MeshBasicMaterial({ color: 0xe0a33c, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+  const datumLine = new THREE.LineBasicMaterial({ color: 0xe0a33c, transparent: true, opacity: 0, depthWrite: false });
+  (function buildDatums() {
+    const sheet = (w, h, rot, pos) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), datumSheet); m.rotation.set(...rot); m.position.set(...pos); datums.add(m);
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), datumLine); e.rotation.copy(m.rotation); e.position.copy(m.position); datums.add(e);
+    };
+    sheet(6000, 4800, [0, 0, 0], [2400, 1800, 5]);                 // PL0 Slab
+    sheet(4800, 4200, [0, Math.PI / 2, 0], [0, 1800, 2100]);       // PLX Along the ribbon (normal X)
+    sheet(6000, 4200, [Math.PI / 2, 0, 0], [2400, 0, 2100]);       // PLY Across the ribbon (normal Y)
+    for (const [d, c] of [[[1, 0, 0], 0xe0a33c], [[0, 1, 0], 0xe0a33c], [[0, 0, 1], 0xe0a33c]]) {
+      const a = new THREE.ArrowHelper(new THREE.Vector3(...d), new THREE.Vector3(0, 0, 0), 1600, c, 220, 110);
+      a.traverse(n => { if (n.material) { n.material = n.isLine ? datumLine : datumSheet.clone(); n.material.transparent = true; } });
+      datums.add(a);
+    }
+  })();
+  const sweepMat = new THREE.MeshBasicMaterial({ color: 0x53c6e3, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  const sweep = new THREE.Mesh(new THREE.PlaneGeometry(4600, 4400), sweepMat);
+  sweep.rotation.set(0, Math.PI / 2, 0); sweep.position.set(0, 1800, 2100); world.add(sweep);
+
+  /* ------------------------------------------------------- the story */
+  const smooth = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+  const ramp = (c, a, b) => smooth((c - a) / (b - a));
+  const band = (c, a, b, d, e) => ramp(c, a, b) * (1 - ramp(c, d, e));
+  const v3 = a => new THREE.Vector3(a[0], a[1], a[2]);
+
+  // Metres, Z up. One shot per chapter.
+  const SHOTS = [
+    { at: [-8, -12, 9.5], look: [14, 2, 0.6] },     // 0 hero
+    { at: [-5, -10, 14], look: [15, 2, 0] },        // 1 lines
+    { at: [-0.4, -2.6, 1.9], look: [1.55, 0.6, 1.15] }, // 2 the GPU rack, close
+    { at: [3.4, -2.4, 2.4], look: [1.5, 0.6, 1.1] },    // 3 same rack, other side
+    { at: [1.2, -1.4, 11], look: [1.4, 1.8, 0] },   // 4 plan
+    { at: [-4.5, -6.5, 5], look: [2.4, 1.8, 1.8] }, // 5 steel
+    { at: [-3.6, -5, 5.6], look: [2.4, 1.8, 2.8] }, // 6 services
+    { at: [-3, -5.5, 3.2], look: [2.4, 1.8, 1.1] }, // 7 racks
+    { at: [-6.5, -3.5, 3.8], look: [16, 1.8, 1.4] },// 8 ribbon
+    { at: [-3, 1.8, 1.8], look: [14, 1.8, 1.9] },   // 9 inside the hot aisle
+    { at: [-8.5, -1.2, 2.4], look: [1.5, 2.1, 2.0] },  // 10 end section
+    { at: [-6, -1.4, 3.1], look: [1.5, 1.8, 2.5] },    // 11 tray level
+    { at: [-6.2, -2.2, 3.0], look: [1.5, 1.8, 2.3] },  // 12 ORv3 at 48
+    { at: [-6.6, -2.8, 3.2], look: [1.5, 1.8, 2.1] },  // 13 ORv3 at 44
+    { at: [-10, -20, 16], look: [23, 2, 0] },          // 14 ten modules
+    { at: [42, -12, 10], look: [18, 2, 0.5] },         // 15 bill
+    { at: [-8, -12, 9.5], look: [14, 2, 0.6] },        // 16 your turn
+    { at: [17, -32, 17], look: [17, 2, 0] },           // 17 end
+  ];
+  const PULL = [1.2, 1.15, 1.25, 1.25, 1.0, 1.25, 1.25, 1.25, 1.1, 1.0, 1.1, 1.15, 1.15, 1.15, 1.1, 1.15, 1.2, 1.15];
+  const shotLook = SHOTS.map(s => v3(s.look));
+  const shotPos = SHOTS.map((s, k) => v3(s.at).sub(shotLook[k]).multiplyScalar(PULL[k] || 1).add(shotLook[k]));
+
+  let chapter = 0;
+  function measure() {
+    const mid = scrollY + innerHeight / 2;
+    const centres = sections.map(s => s.offsetTop + s.offsetHeight / 2);
+    if (mid <= centres[0]) { chapter = 0; return; }
+    for (let i = 0; i < LAST; i++) if (mid < centres[i + 1]) { chapter = i + (mid - centres[i]) / (centres[i + 1] - centres[i]); return; }
+    chapter = LAST;
+  }
+
+  const railRows = Array.from(document.querySelectorAll("#rail li.st"));
+  let railLit = -1;
+  function lightRail(i) {
+    if (i === railLit) return; railLit = i;
+    for (const li of railRows) {
+      const a = +li.dataset.from, b = +li.dataset.to;
+      li.classList.toggle("on", i >= a && i <= b);
+      li.classList.toggle("done", i > b);
+    }
+  }
+
+  const readoutEl = document.getElementById("readout");
+  let lastReadout = "";
+  function readout(html) { if (html !== lastReadout) { lastReadout = html; readoutEl.innerHTML = html; } }
+  const esc = s => String(s).replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+  const READ = { 2: "GPU_FR", 3: "GPU_P0", 5: "TF1", 6: "PS", 7: "IA3", 8: "AMK", 9: "CL_SERV", 15: "BOM_GPU" };
+
+  /* ----------------------------------------------------- the kernel */
+  let kernel = null, ready = false, buildMs = 0, triangles = 0, modelBytes = 0;
+  let doc = { std: "eia", aisle: 1200, modules: 7 };   // what the kernel holds right now
+  let busy = Promise.resolve();
+  const STD = { eia: { standard: 0, pitch: 44.45, units: 48 }, o44: { standard: 1, pitch: 48, units: 44 }, o48: { standard: 1, pitch: 48, units: 48 } };
+
+  function makeDoc(t) {
+    const d = JSON.parse(JSON.stringify(model));
+    const s = STD[t.std];
+    for (const f of d.features) {
+      if (f.args && typeof f.args.standard === "number") f.args.standard = s.standard;
+      if (f.id === "N_UPITCH") f.args.value = s.pitch;
+      if (f.id === "N_UNITS") f.args.value = s.units;
+      if (f.id === "N_AISLE") f.args.value = t.aisle;
+      if (f.id === "N_MODULES") f.args.value = t.modules;
+    }
+    return d;
+  }
+  // Move the kernel to target t: a new rack standard is a different document,
+  // loaded whole; anything else is setParameter, which re-runs only what
+  // depends on the number.
+  async function apply(t) {
+    const t0 = performance.now();
+    let executed = new Set(), how;
+    if (t.std !== doc.std) {
+      const r = await kernel.loadModel(makeDoc(t));
+      (r.report.executed || []).forEach(e => executed.add(e.id || e));
+      how = "loaded";
+    } else {
+      for (const [id, key] of [["N_AISLE", "aisle"], ["N_MODULES", "modules"]]) {
+        if (t[key] === doc[key]) continue;
+        const r = await kernel.setParameter(id, "value", t[key]);
+        ((r.report && r.report.executed) || []).forEach(e => executed.add(e.id || e));
+      }
+      how = "setParameter";
+    }
+    doc = { ...t };
+    return { ms: performance.now() - t0, executed: executed.size, how };
+  }
+  async function capture(key, run, meshSome) {
+    const r = run ? await run() : { ms: buildMs, executed: model.features.length };
+    const p = previews(await kernel.tree());
+    const figs = figsOf(p, r.ms, r.executed);
+    const ids = meshSome ? meshSome : leafIds.concat(["D0", "D1", "SLAB"]);
+    const m = await kernel.mesh(ids);
+    let meshes = m.features;
+    if (meshSome) {   // reuse the base module where nothing in it changed
+      const fresh = new Map(meshes.map(f => [f.id, f]));
+      meshes = states.base.meshes.map(f => fresh.get(f.id) || f);
+    }
+    const st = { key, meshes, figs, p, modules: figs.N_MODULES, mod: figs.X_MOD, ribbon: figs.X_RIBBON, clashIds: figs.clashIds };
+    states[key] = buildState(st);
+    return st;
+  }
+
+  async function boot() {
+    let text;
+    try { text = await (await fetch("hac_ribbon.json")).text(); model = JSON.parse(text); modelBytes = text.length; }
+    catch (err) { say("could not read hac_ribbon.json: " + err.message, "failed"); return; }
+    for (const f of model.features) { parent[f.id] = f.parent; typeOf[f.id] = f.type; byName[f.name] = f.id; }
+
+    try {
+      say("unpacking the Morphit kernel · 7.2 MB");
+      kernel = await startKernel({
+        base: KERNEL_BASE,
+        onProgress: t => say(t === "ready" ? "Morphit ready · switching on the Racks package" : "starting Morphit"),
+        onBuild: step => { if (!ready && step && step.total) say((step.stage || "building") + " · " + step.done + " of " + step.total + " features"); },
+      });
+      await kernel.usePackage("rack");
+    } catch (err) { say("the kernel could not start here: " + err.message, "failed"); return; }
+
+    try {
+      const t0 = performance.now();
+      const loaded = await kernel.loadModel(model);
+      buildMs = performance.now() - t0;
+      if (loaded.report.failed && loaded.report.failed.length) console.warn("failed", loaded.report.failed);
+      // What module 1 is made of: every visible leaf under set M that the
+      // page knows how to draw. The copies are this, placed again.
+      const all = await kernel.mesh(model.features.filter(f => under(f.id, "M")).map(f => f.id));
+      leafIds = all.features.filter(f => f.visible !== false && f.triangles && typeOf[f.id] !== "Part" && category(f)).map(f => f.id);
+      const base = await capture("base");
+      Object.assign(P, base.p); F = base.figs;
+      triangles = base.meshes.reduce((s, f) => s + (f.triangles || 0) * (["slab", "door"].includes(category(f)) ? 1 : F.N_MODULES), 0);
+      fillFigs();
+      show(base);
+      ready = true;
+      say(model.features.length + " features regenerated in " + (buildMs / 1000).toFixed(2) + " s, in this tab", "ready");
+    } catch (err) { say("the kernel refused the model: " + err.message, "failed"); console.error(err); return; }
+
+    // The change chapters. Each is a real edit made now, in the background,
+    // so the chapter can show it the moment it is reached.
+    try {
+      const A = await capture("A", async () => apply({ ...doc, aisle: 1800 })); fillVariant("A", A.figs);
+      await apply({ ...doc, aisle: 1200 });
+      const B = await capture("B", async () => { const t = performance.now(); const r = await kernel.setParameter("N_UNITS", "value", 56); return { ms: performance.now() - t, executed: r.report.executed.length }; });
+      fillVariant("B", B.figs);
+      await kernel.setParameter("N_UNITS", "value", 48);
+      const E = await capture("E", async () => apply({ ...doc, modules: 10 }), ["D0", "D1", "SLAB"]); fillVariant("E", E.figs);
+      await apply({ ...doc, modules: 7 });
+      const C = await capture("C", async () => apply({ ...doc, std: "o48" })); fillVariant("C", C.figs);
+      const D = await capture("D", async () => { const t = performance.now(); const r = await kernel.setParameter("N_UNITS", "value", 44); doc.std = "o44"; return { ms: performance.now() - t, executed: r.report.executed.length }; });
+      fillVariant("D", D.figs);
+      liveReady(D);
+    } catch (err) { console.error(err); document.getElementById("live-out").textContent = "The change chapters could not be computed: " + err.message; }
+  }
+
+  /* ------------------------------------------------ your turn, live */
+  const target = { std: "eia", aisle: 1200, modules: 7 };
+  const liveOut = document.getElementById("live-out");
+  const buttons = Array.from(document.querySelectorAll(".live .seg button"));
+  let liveState = null;
+  function liveReady(current) {
+    // The kernel is holding the ORv3 44 OU document from chapter 13; start the
+    // panel there so the first press is a real move away from it.
+    target.std = "o44"; liveState = current;
+    syncButtons();
+    liveOut.innerHTML = "Ready. The kernel is holding <b>OCP ORv3 · 44 OU</b>, aisle 1200, 7 modules.";
+    buttons.forEach(b => b.disabled = false);
+  }
+  function syncButtons() {
+    const on = { "c-std": target.std, "c-aisle": String(target.aisle), "c-mod": String(target.modules) };
+    buttons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === on[b.parentElement.id])));
+  }
+  buttons.forEach(b => {
+    b.disabled = true;
+    b.addEventListener("click", () => {
+      const g = b.parentElement.id;
+      if (g === "c-std") target.std = b.dataset.v;
+      if (g === "c-aisle") target.aisle = +b.dataset.v;
+      if (g === "c-mod") target.modules = +b.dataset.v;
+      syncButtons();
+      const want = { ...target };
+      buttons.forEach(x => x.disabled = true);
+      liveOut.textContent = "Rebuilding…";
+      busy = busy.then(async () => {
+        try {
+          if (liveState && liveState.key === "live") { world.remove(liveState.root); }
+          const st = await capture("live", () => apply(want));
+          liveState = st;
+          const f = st.figs, std = { eia: "EIA-310-E · 48U", o44: "OCP ORv3 · 44 OU", o48: "OCP ORv3 · 48 OU" }[want.std];
+          liveOut.innerHTML = "<b>" + std + "</b> · " + (st.figs.executed) + " features " + (doc && want.std === doc.std ? "" : "") +
+            "rebuilt in <b>" + (f.ms / 1000).toFixed(2) + " s</b><br>" +
+            '<span class="' + (f.clashes ? "bad" : "good") + '">' + fmt(f.clashes, 0) + " clashes</span> · " +
+            fmt(f.racks, 0) + " racks · " + fmt(f.gpuTrays, 0) + " GPU trays · services zone " + mm(f.X_GAP) + " · ribbon " + fmt(f.X_RIBBON / 1000, 1) + " m";
+        } catch (err) { liveOut.textContent = "The kernel refused that: " + err.message; }
+        buttons.forEach(x => x.disabled = false);
+      });
+    });
+  });
+
+  /* ------------------------------------------------------------ frame */
+  const pointer = { x: 0, y: 0, sx: 0, sy: 0 };
+  addEventListener("pointermove", e => { pointer.x = e.clientX / innerWidth - 0.5; pointer.y = e.clientY / innerHeight - 0.5; }, { passive: true });
+  let narrow = false;
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    narrow = w < 900;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.fov = narrow ? 50 : 34;
+    measure();
+    frameOffset(true);
+  }
+  addEventListener("resize", resize);
+  addEventListener("scroll", measure, { passive: true });
+  resize();
+
+  // The close-ups in chapters 2-4 sit further right, clear of the wide copy.
+  var lastShift = -1;   // var: resize() runs before this line is reached
+  function frameOffset(force) {
+    const w = innerWidth, h = innerHeight;
+    const shift = narrow ? 0 : 0.1 + 0.11 * band(chapter, 1.5, 2.0, 4.3, 4.7);
+    if (!force && Math.abs(shift - lastShift) < 0.001) return;
+    lastShift = shift;
+    camera.setViewOffset(w, h, -w * shift, narrow ? h * 0.17 : 0, w, h);
+    camera.updateProjectionMatrix();
+  }
+  function setCat(st, k, o, rise) {
+    const h = st.cats[k];
+    if (!h) return;
+    h.visible = o > 0.004;
+    h.position.z = rise ? -(1 - rise) * 900 : 0;
+  }
+  function opacity(k, o) {
+    const m = MAT[k], e = EMAT[k];
+    if (!m) return;
+    m.opacity = m.userData.base * o;
+    m.depthWrite = m.opacity > 0.97;
+    e.opacity = e.userData.base * Math.min(1, o * 1.4);
+  }
+
+  function stateFor(c) {
+    const pick = (k) => states[k] || states.base;
+    if (c >= 9.55 && c < 10.55) return pick("A");
+    if (c >= 10.55 && c < 11.55) return pick("B");
+    if (c >= 11.55 && c < 12.5) return pick("C");
+    if (c >= 12.5 && c < 13.5) return pick("D");
+    if (c >= 13.5 && c < 14.5) return pick("E");
+    if (c >= 15.5 && c < 16.5 && liveState) return liveState;
+    return states.base;
+  }
+
+  const pos = new THREE.Vector3(), look = new THREE.Vector3(), tmp = new THREE.Vector3(), proj = new THREE.Vector3();
+  const clock = new THREE.Clock();
+  const hi = new THREE.Color(0xe6f3ff);
+
+  function frame() {
+    const time = clock.getElapsedTime();
+    const c = chapter;
+    const i = Math.min(LAST - 1, Math.floor(c)), f = smooth(c - i);
+    pos.lerpVectors(shotPos[i], shotPos[i + 1], f);
+    look.lerpVectors(shotLook[i], shotLook[i + 1], f);
+    if (!reduced) {
+      const sway = (1 - ramp(c, 0, 0.8)) + band(c, 13.5, 13.9, 14.2, 14.6) * 0.5 + band(c, 15.5, 15.9, 16.2, 16.6) * 0.6 + ramp(c, LAST - 0.6, LAST);
+      tmp.copy(pos).sub(look).applyAxisAngle(camera.up, sway * 0.12 * Math.sin(time * 0.15));
+      pos.copy(look).add(tmp);
+      pointer.sx += (pointer.x - pointer.sx) * 0.05; pointer.sy += (pointer.y - pointer.sy) * 0.05;
+      const d = pos.distanceTo(look);
+      tmp.set(-pointer.sx, 0, 0).applyQuaternion(camera.quaternion).multiplyScalar(d * 0.04);
+      pos.add(tmp); pos.z += pointer.sy * d * 0.03;
+    }
+    frameOffset(false);
+    camera.position.copy(pos); camera.lookAt(look);
+    lightRail(Math.round(c));
+
+    if (ready) {
+      const st = stateFor(c);
+      show(st);
+
+      // Drawing mode in chapter 1: the solids go, the lines stay.
+      const lines = band(c, 0.35, 0.85, 1.3, 1.75);
+      // Chapters 2-3 isolate the GPU design rack; 4 shows the datums over a
+      // ghosted module; 5-7 build module 1 up in the order it is assembled.
+      const rackFocus = band(c, 1.5, 1.9, 3.3, 3.7);
+      const plan = band(c, 3.4, 3.8, 4.3, 4.6);
+      const build = c > 4.3 && c < 7.6;
+      const beforeBuild = c >= 1.5 && c <= 4.55;
+      const riseSteel = ramp(c, 4.5, 5.0), riseSvc = k => ramp(c, 5.35 + k * 0.1, 5.55 + k * 0.1);
+      const O = {};
+      const svc = ["arms", "bearers", "fibre", "lv", "bus", "supply", "ret", "roof"];
+      O.slab = 1;
+      O.steel = beforeBuild ? 0.05 * rackFocus : (c < 1.5 ? 1 : riseSteel);
+      svc.forEach((k, n) => { O[k] = beforeBuild ? 0.04 * rackFocus : (c < 1.5 ? 1 : riseSvc(n)); });
+      O.door = beforeBuild ? 0 : (c < 1.5 ? 1 : ramp(c, 7.6, 8.0));
+      const racksGhost = 1 - 0.9 * rackFocus - 0.85 * plan - 0.6 * band(c, 4.6, 4.9, 6.35, 6.6);
+      for (const r of DESIGNS) for (const kind of RACK_KINDS) O[r + ":" + kind] = r === "gpu" ? Math.max(racksGhost, rackFocus) : racksGhost;
+      O.inst = racksGhost;
+      O.clash = 1;
+      for (const k in O) {
+        let o = O[k];
+        o = o * (1 - 0.94 * lines);               // lines only
+        opacity(k, o);
+        if (EMAT[k]) EMAT[k].opacity = Math.max(EMAT[k].opacity, lines * 0.85 * (k === "slab" ? 0.3 : 1));
+        const rise = build ? (k === "steel" ? riseSteel : svc.includes(k) ? riseSvc(svc.indexOf(k)) : 1) : 1;
+        setCat(st, k, Math.max(o, lines), rise);
+      }
+      // Instances light up in chapter 7 against the three designs.
+      const instGlow = band(c, 6.5, 6.9, 7.3, 7.7);
+      if (MAT.inst) { MAT.inst.color.copy(MAT.inst.userData.color).lerp(new THREE.Color(0x53c6e3), instGlow * 0.6); }
+      if (MAT["gpu:frame"]) MAT["gpu:frame"].emissive.setRGB(0.25 * rackFocus, 0.16 * rackFocus, 0.04 * rackFocus);
+      if (MAT.clash) MAT.clash.emissiveIntensity = 0.6 + 0.4 * Math.sin(time * 4);
+
+      // The copies: gone while module 1 is being explained, delivered one by
+      // one in chapter 8.
+      st.copies.forEach((cp, n) => {
+        const k = (1 - ramp(c, 1.4, 1.9)) + ramp(c, 7.45 + n * 0.07, 7.8 + n * 0.07);
+        cp.visible = k > 0.01;
+        cp.position.x = cp.userData.home + (1 - k) * 9000;
+        cp.position.z = (1 - k) * 6000;
+      });
+
+      const d = band(c, 3.5, 3.9, 4.35, 4.7);
+      datumSheet.opacity = 0.07 * d; datumLine.opacity = 0.8 * d;
+      datums.visible = d > 0.01;
+      datums.children.forEach(n => { if (n.type === "Object3D" || n.isGroup) n.traverse(x => { if (x.material && x.material !== datumLine) x.material.opacity = 0.8 * d; }); });
+
+      const planDim = band(c, 3.55, 3.95, 4.3, 4.65), aisleDim = band(c, 9.6, 9.95, 10.3, 10.6);
+      dimMat.plan.opacity = planDim; dimMat.aisle.opacity = aisleDim;
+      for (const dm of dims) {
+        const o = dm.group === "aisle" ? aisleDim : planDim;
+        proj.copy(dm.mid).project(camera);
+        dm.el.style.opacity = o > 0.02 && proj.z < 1 ? o : 0;
+        dm.el.style.left = ((proj.x + 1) / 2 * innerWidth) + "px";
+        dm.el.style.top = ((1 - proj.y) / 2 * innerHeight) + "px";
+      }
+
+      const sw = band(c, 8.5, 8.7, 9.3, 9.5);
+      sweepMat.opacity = 0.16 * sw; sweep.visible = sw > 0.01;
+      sweep.position.x = -300 + ramp(c, 8.55, 9.35) * (st.ribbon + 600);
+
+      const r = Math.round(c);
+      const id = READ[r];
+      readout(id && P[id] ? "<b>" + id + "</b> · " + esc(P[id].slice(0, 210)) + (P[id].length > 210 ? "…" : "") : "");
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><script src="kernel.js"></script>
+<script>
+(async () => {
+  const log = (...a) => console.log(a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" "));
+  try {
+    let t0 = performance.now();
+    const k = await startKernel({ base: "" });
+    log("start ms", Math.round(performance.now()-t0), "calls", Object.keys(k).filter(n=>typeof k[n]==="function").join(","));
+    await k.usePackage("rack");
+    const model = await (await fetch("../hac-narrative/hac_ribbon.json")).json();
+    let t = performance.now();
+    const r = await k.loadModel(model);
+    log("loadModel ms", Math.round(performance.now() - t), "executed", r.report.executed.length, "failed", JSON.stringify(r.report.failed));
+    const want = ["X_MOD","X_RIBBON","X_FRAMES","X_RACKS","X_SPAN","X_PANELS","X_RACKTOP","X_GAP","X_GPUN","HACSEC","TF1","TIE_A","ARAF0","ARAL0","TRAF0","BDA","PS","PR","BR","RF","GPU","GPU_FR","GPU_P0","GPU_T","GPU_TS","GPU_FT0","MGT_DR","FIB_MG0","IA3","AMK","AMS","CL_STEEL","CL_SERV","CL_ARMS","CL_JOIN","BOM","BOM_MOD","BOM_STEEL","BOM_GPU","SLAB","D0"];
+    const dump = (tr, ids) => { for (const f of tr.tree.features) if (ids.includes(f.id)) log("T", f.id, JSON.stringify({values:f.values, data:f.data, report:f.report, texts:f.texts, sizes:f.sizes, lists: f.lists}).slice(0, 1800)); };
+    dump(await k.tree(), want);
+    const clashes = async () => { const tr = await k.tree(); return tr.tree.features.filter(f=>f.type==="Clash").map(f=>f.id+": "+(f.data&&f.data.preview)).join(" | "); };
+    const tests = [["N_AISLE","value",1800],["N_AISLE","value",1200],["N_UNITS","value",56],["N_UNITS","value",48],["HACSEC","profile",12],["HACSEC","profile",11],["N_MODULES","value",10],["N_MODULES","value",7]];
+    for (const [id,arg,v] of tests) {
+      t = performance.now();
+      const s = await k.setParameter(id, arg, v);
+      log("SET", id, arg, v, "ms", Math.round(performance.now()-t), "executed", (s.report&&s.report.executed||[]).length, "failed", JSON.stringify(s.report&&s.report.failed||[]).slice(0,300));
+      log("  clashes", await clashes());
+      if (id==="N_UNITS"&&v===56 || id==="HACSEC"&&v===12) dump(await k.tree(), ["TF1","X_GAP","X_RACKTOP","HACSEC","BOM_STEEL"]);
+    }
+    log("DONE");
+  } catch (e) { log("ERR", e.message, e.stack); }
+})();
+</script>

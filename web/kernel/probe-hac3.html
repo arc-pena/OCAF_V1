@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><script src="kernel.js"></script>
+<script>
+(async () => {
+  const log = (...a) => console.log(a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" "));
+  try {
+    const k = await startKernel({ base: "" });
+    await k.usePackage("rack");
+    const model = await (await fetch("../hac-narrative/hac_ribbon.json")).json();
+    let t = performance.now();
+    const r = await k.loadModel(model);
+    log("loadModel ms", Math.round(performance.now() - t), "executed", r.report.executed.length, "failed", JSON.stringify(r.report.failed));
+    const show = async ids => { const tr = await k.tree(); for (const f of tr.tree.features) if (ids.includes(f.id)) log("  ", f.id, (f.data&&f.data.preview||"").slice(0,420)); };
+    const W = ["GPU_FR","GPU_P0","GPU_T","X_RACKTOP","X_GAP","X_GPUN","X_GPUMM","CL_SERV","CL_STEEL","CL_ARMS","BOM_GPU"];
+    await show(W);
+    const v = JSON.parse(JSON.stringify(model));
+    for (const f of v.features) { if (f.args && f.args.standard === 0) f.args.standard = 1; if (f.id==="N_UPITCH") f.args.value = 48; if (f.id==="N_UNITS") f.args.value = 44; }
+    t = performance.now(); const r2 = await k.loadModel(v);
+    log("ORV3 loadModel ms", Math.round(performance.now()-t), "failed", JSON.stringify(r2.report.failed).slice(0,500));
+    await show(W.concat(["MGT_DR","FIB_MG0","GPU_FT0"]));
+    const seq = [["N_UNITS",48],["N_UNITS",44],["HACSEC",13,"profile"]];
+    for (const [id,v,arg] of seq) {
+      t = performance.now();
+      const s = await k.setParameter(id, arg||"value", v);
+      log("SET", id, v, "ms", Math.round(performance.now()-t), "executed", (s.report&&s.report.executed||[]).length, "failed", JSON.stringify(s.report&&s.report.failed||[]).slice(0,400));
+      await show(W.concat(["TF1"]));
+    }
+    t = performance.now();
+    const m = await k.mesh(["MS","MA","MT","MB","MW","MR","MK","D0","D1","SLAB"]);
+    log("mesh parts ms", Math.round(performance.now()-t), m.features.map(f=>f.id+":"+f.triangles).join(" "));
+    log("DONE");
+  } catch (e) { log("ERR", e.message, e.stack); }
+})();
+</script>
