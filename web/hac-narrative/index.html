@@ -353,11 +353,12 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     <div class="copy">
       <div class="kicker">05 <b>·</b> Checks</div>
       <h2>The model checks itself.</h2>
-      <p>Racks against steel. Racks against trays. Racks against arms. Module against module. Solid against solid.</p>
+      <p>Racks against steel. Racks against trays. Racks against arms. Steel against slab. Module against module. Solid against solid.</p>
       <div class="figures">
         <span><b data-fig="CL_STEEL.pairs">…</b> steel pairs</span>
         <span><b data-fig="CL_SERV.pairs">…</b> tray pairs</span>
         <span><b data-fig="CL_ARMS.pairs">…</b> arm pairs</span>
+        <span><b data-fig="CL_SLAB.pairs">…</b> slab pairs</span>
         <span><b data-fig="CL_JOIN.pairs">…</b> module pairs</span>
         <span class="good"><b data-fig="clashes">…</b> clashes</span>
       </div>
@@ -475,7 +476,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
         <li><b>Readable.</b> A specification in. Parameters out.</li>
       </ul>
       <div class="figures"><span><b data-fig="features">…</b> features</span><span><b data-fig="kb">…</b> KB</span><span><b data-fig="buildS">…</b></span><span><b data-fig="triangles">…</b> triangles</span></div>
-      <p class="note">The model is Morphit's data hall sample. Two scale figures are removed. Unit pitch is a parameter, so the standard drives the hall. The Open Rack versions are the same file with the standard switched on 30 elements. Module one is drawn once per module, as its instances define.</p>
+      <p class="note">The model is Morphit's data hall sample. Two scale figures are removed. A check of steel against slab is added. Unit pitch is a parameter, so the standard drives the hall. The Open Rack versions are the same file with the standard switched on 30 elements. Module one is drawn once per module, as its instances define.</p>
       <div class="end-links">
         <a href="https://claude.ai/artifact/6RwchubErKSRTXve59pDHL#datahall-ocp" target="_blank" rel="noopener">Open in Morphit ↗</a>
       </div>
@@ -697,7 +698,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   function previews(tree) { const p = {}; for (const f of tree.tree.features) p[f.id] = (f.data && f.data.preview) || ""; return p; }
   function clashInfo(p) {
     let total = 0, depth = 0; const names = new Set();
-    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS"]) {
+    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_SLAB"]) {
       const s = p[id] || "";
       const m = s.match(/([\d,]+) clashes/);
       if (m) total += num(m[1]);
@@ -747,7 +748,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       gpuRacks: fmt(F.gpuRacks, 0), gpuTrays: fmt(F.gpuTrays, 0), gpus: fmt(F.gpus, 0),
       clashes: fmt(F.clashes, 0),
     };
-    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN"]) fig[id + ".pairs"] = ((P[id] || "").match(/([\d,]+) pairs/) || [])[1] || "…";
+    for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN", "CL_SLAB"]) fig[id + ".pairs"] = ((P[id] || "").match(/([\d,]+) pairs/) || [])[1] || "…";
     document.querySelectorAll("[data-fig]").forEach(el => { if (fig[el.dataset.fig] !== undefined) el.textContent = fig[el.dataset.fig]; });
 
     // The bill: the first lines of BOM, exactly as the kernel wrote them.

@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8"><script src="kernel.js"></script>
+<script>
+(async () => {
+  const log = (...a) => console.log(a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" "));
+  try {
+    const old = new URLSearchParams(location.search).has("old");
+    if (old) { const f0 = window.fetch; window.fetch = (u, ...r) => f0(String(u).replace("kernel-worker.js.gz", "kernel-worker.old.gz"), ...r); }
+    const k = await startKernel({ base: "" });
+    log(old ? "OLD kernel" : "PATCHED kernel");
+    await k.usePackage("rack");
+    const model = await (await fetch(location.hash.slice(1) || "../hac-narrative/hac_ribbon.json")).json();
+    await k.loadModel(model);
+    const m = await k.mesh(["TF1","TF2","TIE_A","SLAB","GPU_FT0","GPU_FR","D0","RF"]);
+    for (const f of m.features) {
+      const p = f.positions; let lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
+      for (let i=0;i<p.length;i+=3) for (let j=0;j<3;j++){lo[j]=Math.min(lo[j],p[i+j]);hi[j]=Math.max(hi[j],p[i+j]);}
+      // what sits below z=0, and how much of it
+      let below = 0; for (let i=2;i<p.length;i+=3) if (p[i] < -0.01) below++;
+      log(f.id, "z", lo[2].toFixed(2), "→", hi[2].toFixed(2), "x", lo[0].toFixed(0), hi[0].toFixed(0), "y", lo[1].toFixed(0), hi[1].toFixed(0), "verts below 0:", below, "/", p.length/3);
+    }
+    const tr = await k.tree();
+    for (const f of tr.tree.features) if (["CL_SLAB","CL_STEEL"].includes(f.id)) log(f.id, (f.data&&f.data.preview||"").slice(0,260));
+    for (const f of tr.tree.features) if (["TF1"].includes(f.id)) log("TF1 values", JSON.stringify(f.values), (f.data&&f.data.preview||"").slice(0,300));
+    log("DONE");
+  } catch (e) { log("ERR", e.message); }
+})();
+</script>
