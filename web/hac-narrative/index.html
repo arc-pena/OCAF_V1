@@ -190,10 +190,10 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <li class="st" data-from="4" data-to="4"><span class="n">2</span><span>Parameters</span></li>
   <li class="st" data-from="5" data-to="7"><span class="n">3</span><span>One module</span></li>
   <li class="st" data-from="8" data-to="8"><span class="n">4</span><span>Instances</span></li>
-  <li class="st" data-from="9" data-to="9"><span class="n">5</span><span>Self-checks</span></li>
-  <li class="st" data-from="10" data-to="14"><span class="n">6</span><span>Change it</span></li>
-  <li class="st" data-from="15" data-to="15"><span class="n">7</span><span>Bill of materials</span></li>
-  <li class="st" data-from="16" data-to="16"><span class="n">8</span><span>Your turn</span></li>
+  <li class="st" data-from="9" data-to="10"><span class="n">5</span><span>Self-checks</span></li>
+  <li class="st" data-from="11" data-to="15"><span class="n">6</span><span>Change it</span></li>
+  <li class="st" data-from="16" data-to="16"><span class="n">7</span><span>Bill of materials</span></li>
+  <li class="st" data-from="17" data-to="17"><span class="n">8</span><span>Your turn</span></li>
   <li class="stats" aria-live="off">
     <span>features <b data-fig="features">…</b></span>
     <span>built in <b data-fig="buildS">…</b></span>
@@ -365,7 +365,21 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     </div>
   </section>
 
-  <!-- 10 -->
+  <!-- 10: the fix -->
+  <section class="chapter">
+    <div class="copy">
+      <div class="kicker">05 <b>·</b> Found and fixed</div>
+      <h2>It caught our mistake.</h2>
+      <p>The portal base plates hung below the frame, 20&nbsp;mm into the slab. On screen it looked like steel on a floor. It was not.</p>
+      <p>A slab check found it. We fixed the element, not the drawing. The plates now sit on the slab and the columns stand on the plates. Every portal in every model moved up. The clear height did not move.</p>
+      <div class="compare">
+        <div><h3>Before</h3><div class="big" style="color:var(--bad)">4 clashes</div><div class="sub">steel 20.0&nbsp;mm into the slab</div></div>
+        <div><h3>Now</h3><div class="big" style="color:var(--good)"><span data-fig="slabClashes">…</span> clashes</div><div class="sub"><span data-fig="CL_SLAB.pairs">…</span> pairs · clear <span data-fig="N_CLEAR">…</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
   <section class="chapter">
     <div class="copy">
       <div class="kicker">06 <b>·</b> Change</div>
@@ -747,6 +761,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       "GPU_P0.holes": F.holes, "GPU_P0.height": mm(F.height),
       gpuRacks: fmt(F.gpuRacks, 0), gpuTrays: fmt(F.gpuTrays, 0), gpus: fmt(F.gpus, 0),
       clashes: fmt(F.clashes, 0),
+      slabClashes: fmt(num(((P.CL_SLAB || "").match(/([\d,]+) clashes/) || [0, "0"])[1]), 0),
     };
     for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN", "CL_SLAB"]) fig[id + ".pairs"] = ((P[id] || "").match(/([\d,]+) pairs/) || [])[1] || "…";
     document.querySelectorAll("[data-fig]").forEach(el => { if (fig[el.dataset.fig] !== undefined) el.textContent = fig[el.dataset.fig]; });
@@ -783,7 +798,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   let dims = [];
   function buildDims(st) {
     while (dimGroup.children.length) { const c = dimGroup.children.pop(); c.geometry.dispose(); }
-    labelsEl.textContent = ""; dims = [];
+    for (const d of dims) d.el.remove(); dims = [];   // only its own labels: the ghost label lives here too
     const aisle = st.figs.N_AISLE, depth = st.figs.N_DEPTH, mod = st.figs.X_MOD, z = 30;
     const list = [
       { a: [mod + 700, 0, z], b: [mod + 700, depth, z], t: "N_DEPTH", v: depth, group: "plan" },
@@ -822,6 +837,30 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       datums.add(a);
     }
   })();
+  // Where the portal base plates USED to be (z -20..0, inside the slab), for
+  // the "found and fixed" chapter. Placed from the kernel's own TF1/TF2
+  // meshes: a plate is centred on each column and as wide as its `plate` arg.
+  const ghostMat = new THREE.MeshBasicMaterial({ color: 0xff3b2f, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+  const ghostEdge = new THREE.LineBasicMaterial({ color: 0xff8a80, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+  const ghosts = new THREE.Group(); ghosts.renderOrder = 6; world.add(ghosts);
+  const ghostLabel = document.createElement("div"); ghostLabel.className = "dim"; ghostLabel.style.background = "var(--bad)";
+  ghostLabel.innerHTML = "<small>before</small>20 mm into the slab"; labelsEl.appendChild(ghostLabel);
+  let ghostAt = null;
+  function buildGhosts(meshes) {
+    const plate = ((model.features.find(f => f.id === "TF1") || {}).args || {}).plate || 500;
+    for (const f of meshes) {
+      if (f.id !== "TF1" && f.id !== "TF2") continue;
+      const p = f.positions; let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+      for (let i = 0; i < p.length; i += 3) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]); }
+      for (const y of [y0 + plate / 2, y1 - plate / 2]) {
+        const g = new THREE.BoxGeometry(plate, plate, 20);
+        const m = new THREE.Mesh(g, ghostMat); m.position.set((x0 + x1) / 2, y, -10); m.renderOrder = 6; ghosts.add(m);
+        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g), ghostEdge); e.position.copy(m.position); e.renderOrder = 7; ghosts.add(e);
+        const here = new THREE.Vector3((x0 + x1) / 2000, y / 1000, -0.01);   // the cold-aisle foot furthest along: clear of the copy
+        if (!ghostAt || here.x - here.y > ghostAt.x - ghostAt.y) ghostAt = here;
+      }
+    }
+  }
   const sweepMat = new THREE.MeshBasicMaterial({ color: 0x53c6e3, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
   const sweep = new THREE.Mesh(new THREE.PlaneGeometry(4600, 4400), sweepMat);
   sweep.rotation.set(0, Math.PI / 2, 0); sweep.position.set(0, 1800, 2100); world.add(sweep);
@@ -844,7 +883,8 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     { at: [-3, -5.5, 3.2], look: [2.4, 1.8, 1.1] }, // 7 racks
     { at: [-6.5, -3.5, 3.8], look: [16, 1.8, 1.4] },// 8 ribbon
     { at: [-3, 1.8, 1.8], look: [14, 1.8, 1.9] },   // 9 inside the hot aisle
-    { at: [-8.5, -1.2, 2.4], look: [1.5, 2.1, 2.0] },  // 10 end section
+    { at: [-0.5, -1.0, 0.55], look: [0.95, 0.75, 0.08] }, // 10 a portal foot on the slab (racks ghosted: they stand in front of it)
+    { at: [-8.5, -1.2, 2.4], look: [1.5, 2.1, 2.0] },  // 11 end section
     { at: [-6, -1.4, 3.1], look: [1.5, 1.8, 2.5] },    // 11 tray level
     { at: [-6.2, -2.2, 3.0], look: [1.5, 1.8, 2.3] },  // 12 ORv3 at 48
     { at: [-6.6, -2.8, 3.2], look: [1.5, 1.8, 2.1] },  // 13 ORv3 at 44
@@ -853,7 +893,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     { at: [-8, -12, 9.5], look: [14, 2, 0.6] },        // 16 your turn
     { at: [17, -32, 17], look: [17, 2, 0] },           // 17 end
   ];
-  const PULL = [1.2, 1.15, 1.25, 1.25, 1.0, 1.25, 1.25, 1.25, 1.1, 1.0, 1.1, 1.15, 1.15, 1.15, 1.1, 1.15, 1.2, 1.15];
+  const PULL = [1.2, 1.15, 1.25, 1.25, 1.0, 1.25, 1.25, 1.25, 1.1, 1.0, 1.0, 1.1, 1.15, 1.15, 1.15, 1.1, 1.15, 1.2, 1.15];
   const shotLook = SHOTS.map(s => v3(s.look));
   const shotPos = SHOTS.map((s, k) => v3(s.at).sub(shotLook[k]).multiplyScalar(PULL[k] || 1).add(shotLook[k]));
 
@@ -881,7 +921,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   let lastReadout = "";
   function readout(html) { if (html !== lastReadout) { lastReadout = html; readoutEl.innerHTML = html; } }
   const esc = s => String(s).replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
-  const READ = { 2: "GPU_FR", 3: "GPU_P0", 5: "TF1", 6: "PS", 7: "IA3", 8: "AMK", 9: "CL_SERV", 15: "BOM_GPU" };
+  const READ = { 2: "GPU_FR", 3: "GPU_P0", 5: "TF1", 6: "PS", 7: "IA3", 8: "AMK", 9: "CL_SERV", 10: "CL_SLAB", 16: "BOM_GPU" };
 
   /* ----------------------------------------------------- the kernel */
   let kernel = null, ready = false, buildMs = 0, triangles = 0, modelBytes = 0;
@@ -968,6 +1008,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       triangles = base.meshes.reduce((s, f) => s + (f.triangles || 0) * (["slab", "door"].includes(category(f)) ? 1 : F.N_MODULES), 0);
       fillFigs();
       show(base);
+      buildGhosts(base.meshes);
       ready = true;
       say(model.features.length + " features. Built in " + (buildMs / 1000).toFixed(2) + " s, here.", "ready");
     } catch (err) { say("The model did not build. " + err.message, "failed"); console.error(err); return; }
@@ -1075,12 +1116,12 @@ table.params tr.derived td:first-child { color: var(--fibre); }
 
   function stateFor(c) {
     const pick = (k) => states[k] || states.base;
-    if (c >= 9.55 && c < 10.55) return pick("A");
-    if (c >= 10.55 && c < 11.55) return pick("B");
-    if (c >= 11.55 && c < 12.5) return pick("C");
-    if (c >= 12.5 && c < 13.5) return pick("D");
-    if (c >= 13.5 && c < 14.5) return pick("E");
-    if (c >= 15.5 && c < 16.5 && liveState) return liveState;
+    if (c >= 10.55 && c < 11.55) return pick("A");
+    if (c >= 11.55 && c < 12.55) return pick("B");
+    if (c >= 12.55 && c < 13.5) return pick("C");
+    if (c >= 13.5 && c < 14.5) return pick("D");
+    if (c >= 14.5 && c < 15.5) return pick("E");
+    if (c >= 16.5 && c < 17.5 && liveState) return liveState;
     return states.base;
   }
 
@@ -1095,7 +1136,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     pos.lerpVectors(shotPos[i], shotPos[i + 1], f);
     look.lerpVectors(shotLook[i], shotLook[i + 1], f);
     if (!reduced) {
-      const sway = (1 - ramp(c, 0, 0.8)) + band(c, 13.5, 13.9, 14.2, 14.6) * 0.5 + band(c, 15.5, 15.9, 16.2, 16.6) * 0.6 + ramp(c, LAST - 0.6, LAST);
+      const sway = (1 - ramp(c, 0, 0.8)) + band(c, 14.5, 14.9, 15.2, 15.6) * 0.5 + band(c, 16.5, 16.9, 17.2, 17.6) * 0.6 + ramp(c, LAST - 0.6, LAST);
       tmp.copy(pos).sub(look).applyAxisAngle(camera.up, sway * 0.12 * Math.sin(time * 0.15));
       pos.copy(look).add(tmp);
       pointer.sx += (pointer.x - pointer.sx) * 0.05; pointer.sy += (pointer.y - pointer.sy) * 0.05;
@@ -1126,7 +1167,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       O.steel = beforeBuild ? 0.05 * rackFocus : (c < 1.5 ? 1 : riseSteel);
       svc.forEach((k, n) => { O[k] = beforeBuild ? 0.04 * rackFocus : (c < 1.5 ? 1 : riseSvc(n)); });
       O.door = beforeBuild ? 0 : (c < 1.5 ? 1 : ramp(c, 7.6, 8.0));
-      const racksGhost = 1 - 0.9 * rackFocus - 0.85 * plan - 0.6 * band(c, 4.6, 4.9, 6.35, 6.6);
+      const racksGhost = Math.max(0.12, 1 - 0.9 * rackFocus - 0.85 * plan - 0.6 * band(c, 4.6, 4.9, 6.35, 6.6) - 0.85 * band(c, 9.5, 9.8, 10.3, 10.6));
       for (const r of DESIGNS) for (const kind of RACK_KINDS) O[r + ":" + kind] = r === "gpu" ? Math.max(racksGhost, rackFocus) : racksGhost;
       O.inst = racksGhost;
       O.clash = 1;
@@ -1158,7 +1199,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       datums.visible = d > 0.01;
       datums.children.forEach(n => { if (n.type === "Object3D" || n.isGroup) n.traverse(x => { if (x.material && x.material !== datumLine) x.material.opacity = 0.8 * d; }); });
 
-      const planDim = band(c, 3.55, 3.95, 4.3, 4.65), aisleDim = band(c, 9.6, 9.95, 10.3, 10.6);
+      const planDim = band(c, 3.55, 3.95, 4.3, 4.65), aisleDim = band(c, 10.6, 10.95, 11.3, 11.6);
       dimMat.plan.opacity = planDim; dimMat.aisle.opacity = aisleDim;
       for (const dm of dims) {
         const o = dm.group === "aisle" ? aisleDim : planDim;
@@ -1168,6 +1209,16 @@ table.params tr.derived td:first-child { color: var(--fibre); }
         dm.el.style.top = ((1 - proj.y) / 2 * innerHeight) + "px";
       }
 
+      // Found and fixed: the old plates show red in the slab as the chapter
+      // arrives, and are gone by the time it is read to the end.
+      const was = ramp(c, 9.55, 9.85) * (1 - ramp(c, 10.1, 10.4));
+      ghostMat.opacity = 0.55 * was; ghostEdge.opacity = was; ghosts.visible = was > 0.01;
+      if (ghostAt) {
+        proj.copy(ghostAt).project(camera);
+        ghostLabel.style.opacity = was > 0.02 && proj.z < 1 ? was : 0;
+        ghostLabel.style.left = ((proj.x + 1) / 2 * innerWidth) + "px";
+        ghostLabel.style.top = ((1 - proj.y) / 2 * innerHeight + 26) + "px";
+      }
       const sw = band(c, 8.5, 8.7, 9.3, 9.5);
       sweepMat.opacity = 0.16 * sw; sweep.visible = sw > 0.01;
       sweep.position.x = -300 + ramp(c, 8.55, 9.35) * (st.ribbon + 600);
