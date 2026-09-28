@@ -207,42 +207,42 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 0 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Morphit <b>·</b> live demo</div>
-      <h1>From a specification to a data hall</h1>
-      <p class="lede">This is a 33.6&nbsp;m ribbon of floor-supported hot aisle containment: <strong>84 racks, 15 portal trusses, five layers of cable tray, busway and a DN250 technical water loop</strong>. It is not a render or a baked mesh. Morphit's geometry kernel is rebuilding it from a parametric document inside this browser tab.</p>
-      <div id="status"><i></i><span>starting the kernel</span></div>
-      <div class="cue">Scroll to see how a standard became this hall</div>
+      <div class="kicker">Morphit</div>
+      <h1>Specification in. Data hall out.</h1>
+      <p class="lede">Eighty-four racks. Fifteen steel portals. Five tiers of cable, busway and water. Built from a standard, in this browser, as you watch.</p>
+      <div id="status"><i></i><span>Starting</span></div>
+      <div class="cue">Scroll</div>
     </div>
   </section>
 
   <!-- 1 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">The problem</div>
-      <h2>Data halls are still drawn from PDFs</h2>
-      <p>Rack standards, steel tables, pipe schedules and busway ratings live in documents. An engineer reads them, then draws lines that happen to agree with them. When the aisle widens or the rack standard changes, somebody redraws the lines and re-checks the clashes by eye.</p>
-      <p>What you are looking at now is that version: <strong>lines</strong>. Nothing in a drawing knows that a rack unit is 44.45&nbsp;mm, or that a tray has to clear the top of a rack.</p>
+      <div class="kicker">Today</div>
+      <h2>Drawn by hand. Checked by eye.</h2>
+      <p>Standards live in PDFs. Engineers read them, then draw lines that agree. Widen an aisle and the lines are redrawn. Change a rack and the clashes are found on site.</p>
+      <p>A drawing knows nothing. It is <strong>lines</strong>.</p>
     </div>
   </section>
 
   <!-- 2 -->
   <section class="chapter">
     <div class="copy wide">
-      <div class="kicker">Step 1 <b>·</b> OCP Open Rack Base Frame V3 <b>·</b> rev 1.1, 5 March 2024</div>
-      <h2>Read what the specification actually requires</h2>
-      <p>The Open Compute Project's Open Rack V3 is the hyperscale rack. Its base frame specification fixes the rack by clause and figure. These are the requirements Morphit needs, as the document states them:</p>
+      <div class="kicker">01 <b>·</b> The standard</div>
+      <h2>Start with the specification.</h2>
+      <p>OCP Open Rack V3. Base frame, revision 1.1. Seven clauses define the rack.</p>
       <div class="clauses" role="table" aria-label="Open Rack V3 requirements">
-        <div class="clause" role="row"><span class="ref">§6.1.2</span><span class="what">OpenU, the rack unit</span><span class="val">48 mm</span></div>
-        <div class="clause" role="row"><span class="ref">Fig 6.1.2.1</span><span class="what">Mounting holes per OpenU, above its boundary</span><span class="val">9 · 33 mm</span></div>
-        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Rack width, latch datum to latch datum</span><span class="val">540.40 mm</span></div>
-        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Overall frame width · depth (ref)</span><span class="val">600.24 · 1068.24</span></div>
-        <div class="clause" role="row"><span class="ref">Fig 6.1.2.2</span><span class="what">Side holes Ø before paint, thread-forming</span><span class="val">Ø4.50 → M5</span></div>
-        <div class="clause" role="row"><span class="ref">§6.8</span><span class="what">No square cage-nut holes: screws go straight into the sheet</span><span class="val">DIN 7500</span></div>
-        <div class="clause" role="row"><span class="ref">§6.7.2</span><span class="what">Levelling feet lift the casters off the floor<span class="shall">SHALL</span></span><span class="val">≥ 15 mm</span></div>
+        <div class="clause" role="row"><span class="ref">§6.1.2</span><span class="what">OpenU</span><span class="val">48 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.2.1</span><span class="what">Holes per OpenU, from its base</span><span class="val">9 · 33 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Width between latch datums</span><span class="val">540.40 mm</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.1</span><span class="what">Frame width · depth</span><span class="val">600.24 · 1068.24</span></div>
+        <div class="clause" role="row"><span class="ref">Fig 6.1.2.2</span><span class="what">Side holes, before paint</span><span class="val">Ø4.50 → M5</span></div>
+        <div class="clause" role="row"><span class="ref">§6.8</span><span class="what">No cage nuts. Screws form their own thread.</span><span class="val">DIN 7500</span></div>
+        <div class="clause" role="row"><span class="ref">§6.7.2</span><span class="what">Feet lift the casters clear<span class="shall">SHALL</span></span><span class="val">≥ 15 mm</span></div>
       </div>
       <figure class="holes" style="margin:0">
         <svg viewBox="0 0 300 330" role="img" aria-labelledby="holes-t">
-          <title id="holes-t">Hole pattern up a post, drawn at 2 pixels per millimetre: EIA-310-E three holes per 44.45 mm unit, OCP Open Rack V3 two holes per 48 mm OpenU</title>
+          <title id="holes-t">Hole pattern up a post at 2 pixels per millimetre: EIA-310-E, three holes per 44.45 mm unit; OCP Open Rack V3, two holes per 48 mm OpenU</title>
           <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a2aeb8">
             <text x="40" y="14" text-anchor="middle">EIA-310-E</text>
             <text x="196" y="14" text-anchor="middle">OCP ORv3</text>
@@ -250,7 +250,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
           <g id="holes-eia"></g>
           <g id="holes-ocp"></g>
         </svg>
-        <figcaption>Three units of each, to scale. EIA puts three square holes in a 44.45&nbsp;mm unit at 6.35, 22.225 and 38.1. Open Rack puts two round holes in a 48&nbsp;mm OpenU at 9 and 33. A pattern drawn "to look right" would be wrong on every rack.</figcaption>
+        <figcaption>Three units each, to scale. EIA: three square holes in 44.45&nbsp;mm. Open Rack: two round holes in 48&nbsp;mm. Draw it by eye and every rack is wrong.</figcaption>
       </figure>
     </div>
   </section>
@@ -258,44 +258,44 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 3 -->
   <section class="chapter">
     <div class="copy wide">
-      <div class="kicker">Step 1 <b>·</b> from clause to data</div>
-      <h2>Each clause becomes one number, with its source attached</h2>
-      <p>Claude read the specification and wrote it into Morphit as a single row of data. Every figure keeps the section or figure it came from, so any engineer can check it against the PDF. Where the document was unreadable, the row says so instead of guessing.</p>
-<pre class="src" aria-label="The Open Rack V3 row in Morphit's standards table"><span class="k">key</span>: <span class="n">"orv3"</span>,
-<span class="c">// OCP Open Rack Base Frame V3, rev 1.1 · §6.1.1, §6.1.2</span>
+      <div class="kicker">01 <b>·</b> Clause to code</div>
+      <h2>Every number keeps its source.</h2>
+      <p>Each clause becomes a value. Each value carries its clause. Any figure can be checked against the page it came from. Where the document is unclear, the value is left blank.</p>
+<pre class="src" aria-label="The Open Rack V3 entry in Morphit's standards library"><span class="k">key</span>: <span class="n">"orv3"</span>,
+<span class="c">// OCP Open Rack Base Frame V3, rev 1.1</span>
 <span class="k">unit</span>: <span class="n">48</span>,  <span class="k">unitName</span>: <span class="n">"OU"</span>,     <span class="c">// §6.1.2</span>
 <span class="k">panel</span>: <span class="n">540.40</span>, <span class="k">overallWidth</span>: <span class="n">600.24</span>, <span class="c">// Fig 6.1.1</span>
 <span class="k">holes</span>: [<span class="n">9</span>, <span class="n">33</span>],                 <span class="c">// Fig 6.1.2.1</span>
 <span class="k">bore</span>: <span class="n">4.5</span>, <span class="k">frontBore</span>: <span class="n">5.4</span>,     <span class="c">// Fig 6.1.2.2</span>
-<span class="k">square</span>: <span class="n">null</span>,   <span class="c">// ORv3 has no cage-nut hole</span>
+<span class="k">square</span>: <span class="n">null</span>,   <span class="c">// no cage-nut hole</span>
 <span class="k">depth</span>: <span class="n">1068.24</span>, <span class="k">shelfStop</span>: <span class="n">789.0</span></pre>
       <ol class="flow">
-        <li><b>Specification</b>: the PDF, clause by clause</li>
-        <li><b>Standards table</b>: one row per standard (EIA-310-E, ORv3, Meta ORv3, ORW), every figure sourced</li>
-        <li><b>Nodes</b>: <code>RackFrame</code>, <code>RackPost</code> and <code>RackDevice</code> take a <code>standard</code> argument and generate their holes and heights from that row</li>
-        <li><b>Parametric document</b>: <span data-fig="features">…</span> features in one <span data-fig="kb">…</span>&nbsp;KB JSON file</li>
-        <li><b>Exact solid geometry</b>: then checks and a bill of materials</li>
+        <li><b>Specification.</b> The PDF.</li>
+        <li><b>Standard.</b> One entry. Every figure sourced. EIA, ORv3, Meta ORv3, ORW.</li>
+        <li><b>Elements.</b> Frame, post and device read the entry and cut their own holes.</li>
+        <li><b>Model.</b> <span data-fig="features">…</span> features. <span data-fig="kb">…</span>&nbsp;KB.</li>
+        <li><b>Solids.</b> Then checks. Then quantities.</li>
       </ol>
-      <div class="figures"><span>this rack's post <b data-fig="GPU_P0.holes">…</b></span><span>height <b data-fig="GPU_P0.height">…</b></span></div>
+      <div class="figures"><span>this post <b data-fig="GPU_P0.holes">…</b></span><span>height <b data-fig="GPU_P0.height">…</b></span></div>
     </div>
   </section>
 
   <!-- 4 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 2 <b>·</b> 00 Parameters <b>·</b> 01 Reference</div>
-      <h2>The hall is a handful of numbers</h2>
-      <p>Everything downstream is measured from three datum planes and driven by named parameters. Derived values are formulas over them, so the truss span is always the aisle plus a rack depth, and the services zone is always what the racks leave under the truss.</p>
-      <div class="tablewrap"><table class="params" aria-label="Key parameters, as the kernel evaluated them">
+      <div class="kicker">02 <b>·</b> Parameters</div>
+      <h2>A hall is a few numbers.</h2>
+      <p>Three planes. A handful of values. The rest is derived. The span is the aisle plus a rack. The service zone is what the racks leave free.</p>
+      <div class="tablewrap"><table class="params" aria-label="Key parameters">
         <tr><td>N_PITCH</td><td>Rack pitch</td><td data-fig="N_PITCH">…</td></tr>
         <tr><td>N_DEPTH</td><td>Rack depth</td><td data-fig="N_DEPTH">…</td></tr>
-        <tr><td>N_AISLE</td><td>Hot aisle, clear</td><td data-fig="N_AISLE">…</td></tr>
+        <tr><td>N_AISLE</td><td>Hot aisle</td><td data-fig="N_AISLE">…</td></tr>
         <tr><td>N_UNITS</td><td>Rack height</td><td data-fig="N_UNITS">…</td></tr>
-        <tr><td>N_CLEAR</td><td>Clear under the truss</td><td data-fig="N_CLEAR">…</td></tr>
-        <tr class="derived"><td>X_SPAN</td><td>Truss span = aisle + depth</td><td data-fig="X_SPAN">…</td></tr>
+        <tr><td>N_CLEAR</td><td>Clear height</td><td data-fig="N_CLEAR">…</td></tr>
+        <tr class="derived"><td>X_SPAN</td><td>Span = aisle + depth</td><td data-fig="X_SPAN">…</td></tr>
         <tr class="derived"><td>X_RACKTOP</td><td>Rack top = units × pitch + plinth</td><td data-fig="X_RACKTOP">…</td></tr>
-        <tr class="derived"><td>X_GAP</td><td>Services zone = clear − rack top</td><td data-fig="X_GAP">…</td></tr>
-        <tr class="derived"><td>X_RACKS</td><td>Racks a side, less column bays</td><td data-fig="X_RACKS">…</td></tr>
+        <tr class="derived"><td>X_GAP</td><td>Service zone = clear − rack top</td><td data-fig="X_GAP">…</td></tr>
+        <tr class="derived"><td>X_RACKS</td><td>Racks per row</td><td data-fig="X_RACKS">…</td></tr>
       </table></div>
     </div>
   </section>
@@ -303,24 +303,23 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 5 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 3 <b>·</b> MS <b>·</b> TF1 · TF2 · TIE_A · TIE_B</div>
-      <h2>Two welded portal trusses carry everything</h2>
-      <p>Floor-supported containment means the columns go to the slab and the racks stand under the steel. Each truss is a <code>TrussFrame</code> node on an AISC hollow section, and it re-divides its own panels whenever the span changes.</p>
-      <p>The section table uses AISC's design wall, 0.93 of nominal, because that is what the mill delivers. Using the nominal wall would overstate the steel by 7%.</p>
-      <div class="figures"><span><b data-fig="TF1.section">…</b></span><span>span <b data-fig="X_SPAN">…</b></span><span><b data-fig="X_PANELS">…</b> panels</span><span>design wall <b data-fig="TF1.wall">…</b></span></div>
+      <div class="kicker">03 <b>·</b> Structure</div>
+      <h2>Two portals carry everything.</h2>
+      <p>The columns stand on the slab. The racks stand beneath. Change the span and each truss finds its own panels.</p>
+      <p>Steel is sized to the wall the mill delivers, not the catalogue's. The difference is seven per cent.</p>
+      <div class="figures"><span><b data-fig="TF1.section">…</b></span><span>span <b data-fig="X_SPAN">…</b></span><span><b data-fig="X_PANELS">…</b> panels</span><span>wall <b data-fig="TF1.wall">…</b></span></div>
     </div>
   </section>
 
   <!-- 6 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 3 <b>·</b> MA · MT · MB · MW <b>·</b> 44 service nodes</div>
-      <h2>Services that report their own engineering</h2>
-      <p>Twelve cantilever arms per module carry three fibre trays on each cold side and two low-voltage trays plus a 1600&nbsp;A busway on each hot side. A DN250 supply and return cross the top chords on channel bearers.</p>
-      <p>Each node states the number it would be chosen by. The arm reports its capacity at its reach, and the pipe reports the heat it can carry.</p>
+      <div class="kicker">03 <b>·</b> Services</div>
+      <h2>Every service knows its limit.</h2>
+      <p>Fibre on the cold side. Power on the hot. Water above. Each element reports the number it is chosen by: load at reach, current, heat.</p>
       <div class="legend">
         <span><i class="sw" style="background:var(--brass)"></i>arms <span data-fig="ARAF0.cap">…</span></span>
-        <span><i class="sw" style="background:var(--fibre)"></i>fibre tray</span>
+        <span><i class="sw" style="background:var(--fibre)"></i>fibre</span>
         <span><i class="sw" style="background:var(--lv)"></i>low voltage</span>
         <span><i class="sw" style="background:var(--power)"></i>busway <span data-fig="BDA.rating">…</span></span>
         <span><i class="sw" style="background:var(--water)"></i>water <span data-fig="PS.heat">…</span></span>
@@ -331,34 +330,34 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 7 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 3 <b>·</b> MK <b>·</b> GPU · MGT · FIB designs</div>
-      <h2>Three rack designs, twelve racks</h2>
-      <p>Only three racks in this module are modelled: a liquid-cooled GPU rack, a management rack and a fibre patch rack, each with frame, posts, devices and levelling feet. The other nine are <strong>instances</strong>, the same geometry placed again. Row B is turned 180°, so the backs face into the hot aisle.</p>
-      <p>Edit the GPU design and <strong><span data-fig="gpuRacks">…</span> GPU racks</strong> across the ribbon change with it.</p>
-      <div class="figures"><span><b data-fig="X_GPUN">…</b> × 4U GPU trays per rack</span><span><b data-fig="IA3.solids">…</b></span></div>
+      <div class="kicker">03 <b>·</b> Racks</div>
+      <h2>Three designs. Twelve racks.</h2>
+      <p>GPU, management, fibre. Three are modelled. Nine are copies. Row B turns to face the hot aisle.</p>
+      <p>Change the GPU rack once. <strong><span data-fig="gpuRacks">…</span></strong> change with it.</p>
+      <div class="figures"><span><b data-fig="X_GPUN">…</b> GPU trays per rack</span><span><b data-fig="IA3.solids">…</b></span></div>
     </div>
   </section>
 
   <!-- 8 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 4 <b>·</b> 03 Ribbon <b>·</b> Instance + Array</div>
-      <h2>One module becomes a ribbon</h2>
-      <p>A module is what arrives on site. The ribbon is that module placed <span data-fig="N_MODULES">…</span> times, and each copy shares its geometry. The instancing goes two levels deep: modules are instances, and so are most of the racks inside them.</p>
-      <div class="figures"><span>ribbon <b data-fig="X_RIBBON">…</b></span><span><b data-fig="X_RACKS2">…</b> racks</span><span><b data-fig="X_FRAMES">…</b> trusses</span></div>
+      <div class="kicker">04 <b>·</b> Repetition</div>
+      <h2>One module, repeated.</h2>
+      <p>A module is what arrives on site. The ribbon is that module, placed <span data-fig="N_MODULES">…</span> times. Copies share their geometry. So do the racks inside.</p>
+      <div class="figures"><span>ribbon <b data-fig="X_RIBBON">…</b></span><span><b data-fig="X_RACKS2">…</b> racks</span><span><b data-fig="X_FRAMES">…</b> portals</span></div>
     </div>
   </section>
 
   <!-- 9 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 5 <b>·</b> 06 Clash <b>·</b> CL_STEEL · CL_SERV · CL_ARMS · CL_JOIN</div>
-      <h2>The model checks itself, by geometry</h2>
-      <p>Four clash nodes test the racks against the steel, the trays and the arms, and each module against its neighbours. They use real solid intersection, not a visual check. This is how the original sample found racks standing with their feet 110&nbsp;mm through the floor, which looked exactly like racks standing on a floor.</p>
+      <div class="kicker">05 <b>·</b> Checks</div>
+      <h2>The model checks itself.</h2>
+      <p>Racks against steel. Racks against trays. Racks against arms. Module against module. Solid against solid.</p>
       <div class="figures">
-        <span><b data-fig="CL_STEEL.pairs">…</b> rack-steel pairs</span>
-        <span><b data-fig="CL_SERV.pairs">…</b> rack-tray pairs</span>
-        <span><b data-fig="CL_ARMS.pairs">…</b> rack-arm pairs</span>
+        <span><b data-fig="CL_STEEL.pairs">…</b> steel pairs</span>
+        <span><b data-fig="CL_SERV.pairs">…</b> tray pairs</span>
+        <span><b data-fig="CL_ARMS.pairs">…</b> arm pairs</span>
         <span><b data-fig="CL_JOIN.pairs">…</b> module pairs</span>
         <span class="good"><b data-fig="clashes">…</b> clashes</span>
       </div>
@@ -368,74 +367,74 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 10 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_AISLE</div>
-      <h2>Widen the hot aisle and the steel re-divides</h2>
-      <p>Set <code>N_AISLE</code> from 1200 to 1800&nbsp;mm. The span becomes 3000, the truss picks five panels instead of four, row B moves out, and the roof deck follows. The kernel re-executed only what depends on that number.</p>
-      <div class="figures" data-variant="A"><span>re-executed <b data-vfig="A.executed">…</b> of <b data-fig="features">…</b> features</span><span>in <b data-vfig="A.ms">…</b></span><span>span <b data-vfig="A.X_SPAN">…</b></span><span><b data-vfig="A.X_PANELS">…</b> panels</span></div>
+      <div class="kicker">06 <b>·</b> Change</div>
+      <h2>Widen the aisle.</h2>
+      <p>1200 to 1800&nbsp;mm. The span grows. The truss adds a panel. Row B moves out. Only what depends on the aisle is rebuilt.</p>
+      <div class="figures" data-variant="A"><span><b data-vfig="A.executed">…</b> of <b data-fig="features">…</b> rebuilt</span><span><b data-vfig="A.ms">…</b></span><span>span <b data-vfig="A.X_SPAN">…</b></span><span><b data-vfig="A.X_PANELS">…</b> panels</span></div>
     </div>
   </section>
 
   <!-- 11 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_UNITS</div>
-      <h2>Ask for taller racks and the model says no</h2>
-      <p>Grow the racks from 48U to 56U. The rack top rises from 2233.6 to 2589.2&nbsp;mm and runs into the second fibre tray. Nobody has to spot it: <code>CL_SERV</code> reports every interference with its depth and volume.</p>
-      <div class="figures" data-variant="B"><span class="bad"><b data-vfig="B.clashes">…</b> clashes</span><span>depth <b data-vfig="B.depth">…</b></span><span>services zone <b data-vfig="B.X_GAP">…</b></span><span>in <b data-vfig="B.ms">…</b></span></div>
+      <div class="kicker">06 <b>·</b> Change</div>
+      <h2>Ask for too much.</h2>
+      <p>56U racks. The tops rise to 2589&nbsp;mm and meet the fibre tray. Every clash is found. Every depth is measured.</p>
+      <div class="figures" data-variant="B"><span class="bad"><b data-vfig="B.clashes">…</b> clashes</span><span>depth <b data-vfig="B.depth">…</b></span><span>service zone <b data-vfig="B.X_GAP">…</b></span><span><b data-vfig="B.ms">…</b></span></div>
     </div>
   </section>
 
   <!-- 12 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 6 <b>·</b> apply the spec <b>·</b> standard = OCP Open Rack V3</div>
-      <h2>Switch the hall to Open Rack V3</h2>
-      <p>Now apply the specification from step 1. Every rack element switches its <code>standard</code> to ORv3, and the unit pitch becomes the 48&nbsp;mm OpenU. At the same 48 units the racks are 2304&nbsp;mm of frame, which puts them into the lowest fibre tray.</p>
-      <div class="figures" data-variant="C"><span class="bad"><b data-vfig="C.clashes">…</b> clashes</span><span>rack top <b data-vfig="C.X_RACKTOP">…</b></span><span>post <b data-vfig="C.holes">…</b></span><span>rebuilt in <b data-vfig="C.ms">…</b></span></div>
+      <div class="kicker">06 <b>·</b> The standard, applied</div>
+      <h2>Switch to Open Rack.</h2>
+      <p>Every rack moves to ORv3. The unit becomes 48&nbsp;mm. At 48 units the racks reach the lowest tray.</p>
+      <div class="figures" data-variant="C"><span class="bad"><b data-vfig="C.clashes">…</b> clashes</span><span>rack top <b data-vfig="C.X_RACKTOP">…</b></span><span>post <b data-vfig="C.holes">…</b></span><span><b data-vfig="C.ms">…</b></span></div>
     </div>
   </section>
 
   <!-- 13 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 6 <b>·</b> N_UNITS = 44 OU</div>
-      <h2>At 44 OpenU it fits, and the cost is on screen</h2>
-      <p>Drop to 44 OpenU, the height Open Rack frames are built to. The clashes clear and the services zone grows. The GPU stack recounts itself, and the page does the arithmetic on what that means for the ribbon.</p>
+      <div class="kicker">06 <b>·</b> 44 OpenU</div>
+      <h2>Now it fits. See the cost.</h2>
+      <p>The clashes clear. The service zone grows. The GPU count falls. You see it before you build it.</p>
       <div class="compare" data-variant="D">
-        <div><h3>EIA-310-E · 48U</h3><div class="big" data-fig="gpuTrays">…</div><div class="sub">GPU trays in the ribbon · <span data-fig="gpus">…</span> GPUs</div></div>
+        <div><h3>EIA-310-E · 48U</h3><div class="big" data-fig="gpuTrays">…</div><div class="sub">GPU trays · <span data-fig="gpus">…</span> GPUs</div></div>
         <div><h3>OCP ORv3 · 44 OU</h3><div class="big" data-vfig="D.gpuTrays">…</div><div class="sub">GPU trays · <span data-vfig="D.gpus">…</span> GPUs</div></div>
       </div>
-      <div class="figures" data-variant="D"><span class="good"><b data-vfig="D.clashes">…</b> clashes</span><span>services zone <b data-vfig="D.X_GAP">…</b></span><span><b data-vfig="D.X_GPUN">…</b> trays a rack</span><span>in <b data-vfig="D.ms">…</b></span></div>
-      <p class="note">Tray and GPU counts are X_GPUN × <span data-fig="gpuRacks">…</span> GPU racks × 8 GPUs per 4U tray (the tray's own description). The frame is also 600.24&nbsp;mm across on a 600&nbsp;mm rack pitch, which the kernel reports and a designer should decide on.</p>
+      <div class="figures" data-variant="D"><span class="good"><b data-vfig="D.clashes">…</b> clashes</span><span>service zone <b data-vfig="D.X_GAP">…</b></span><span><b data-vfig="D.X_GPUN">…</b> trays per rack</span><span><b data-vfig="D.ms">…</b></span></div>
+      <p class="note">Trays per rack × <span data-fig="gpuRacks">…</span> GPU racks. Eight GPUs per 4U tray. The ORv3 frame is 600.24&nbsp;mm on a 600&nbsp;mm pitch: a call for the designer.</p>
     </div>
   </section>
 
   <!-- 14 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 6 <b>·</b> setParameter <b>·</b> N_MODULES</div>
-      <h2>Ten modules instead of seven</h2>
-      <p>The ribbon is a count. Set it to ten and the head and tail doors, the slab and every derived total move with it. This is the change a real programme makes every week.</p>
-      <div class="figures" data-variant="E"><span>ribbon <b data-vfig="E.X_RIBBON">…</b></span><span><b data-vfig="E.racks">…</b> racks</span><span><b data-vfig="E.X_FRAMES">…</b> trusses</span><span>in <b data-vfig="E.ms">…</b></span></div>
+      <div class="kicker">06 <b>·</b> Change</div>
+      <h2>Ten modules.</h2>
+      <p>The length of the hall is one number. Change it. Doors, slab and totals follow.</p>
+      <div class="figures" data-variant="E"><span>ribbon <b data-vfig="E.X_RIBBON">…</b></span><span><b data-vfig="E.racks">…</b> racks</span><span><b data-vfig="E.X_FRAMES">…</b> portals</span><span><b data-vfig="E.ms">…</b></span></div>
     </div>
   </section>
 
   <!-- 15 -->
   <section class="chapter">
     <div class="copy">
-      <div class="kicker">Step 7 <b>·</b> 07 Bill of materials <b>·</b> BOM</div>
-      <h2>The same model is the order list</h2>
-      <p>Bill nodes count what the document contains, with the supplier text each element carries. There is no separate spreadsheet to fall out of date. These are the ribbon's first lines as the kernel produced them:</p>
-      <div class="tablewrap"><table class="params" id="bom" aria-label="Bill of materials, first lines"><tr><td>…</td><td>computing</td><td></td></tr></table></div>
+      <div class="kicker">07 <b>·</b> Quantities</div>
+      <h2>The model is the order.</h2>
+      <p>Counted from the model. Supplier on every line. No spreadsheet to drift.</p>
+      <div class="tablewrap"><table class="params" id="bom" aria-label="Bill of materials, first lines"><tr><td>…</td><td>Counting</td><td></td></tr></table></div>
     </div>
   </section>
 
   <!-- 16 -->
   <section class="chapter" id="try">
     <div class="copy">
-      <div class="kicker">Step 8 <b>·</b> your turn</div>
-      <h2>Change the hall yourself</h2>
-      <p>Each button sends a real change to the kernel in this tab and redraws what comes back. Nothing here is precomputed.</p>
+      <div class="kicker">08 <b>·</b> Your turn</div>
+      <h2>Change it yourself.</h2>
+      <p>Every press rebuilds the hall. Nothing is recorded.</p>
       <div class="live">
         <div class="ctl"><span>Rack standard</span><div class="seg" id="c-std">
           <button type="button" id="std-eia" data-v="eia" aria-pressed="true">EIA-310-E · 48U</button>
@@ -452,7 +451,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
           <button type="button" id="mod-7" data-v="7" aria-pressed="true">7</button>
           <button type="button" id="mod-10" data-v="10" aria-pressed="false">10</button>
         </div></div>
-        <div id="live-out" aria-live="polite">Waiting for the kernel.</div>
+        <div id="live-out" aria-live="polite">Loading.</div>
       </div>
     </div>
   </section>
@@ -460,25 +459,25 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   <!-- 17 -->
   <section class="chapter">
     <div class="copy wide">
-      <div class="kicker">What you just saw</div>
-      <h2>Standards as code, designs as documents</h2>
-      <p>Physical infrastructure is specified in documents and built from drawings. Morphit turns the documents into typed, sourced parameters and the drawings into regenerable models, so a change of standard is a rebuild measured in seconds rather than a redesign measured in weeks.</p>
+      <div class="kicker">Morphit</div>
+      <h2>Standards become code. Drawings become models.</h2>
+      <p>Infrastructure is specified in documents and built from drawings. Morphit joins the two. A change of standard takes seconds, not weeks.</p>
       <ul class="caps">
-        <li><b>Parametric document</b>: history, labels, dependency graph</li>
-        <li><b>Partial rebuilds</b>: only what a change touches</li>
-        <li><b>Standards library</b>: EIA-310-E, OCP ORv3, AISC HSS, ASME B36.10M</li>
-        <li><b>Domain packages</b>: racks, trusses, trays, busway, pipe</li>
-        <li><b>Instancing</b>, two levels deep</li>
-        <li><b>Clash detection</b> by solid geometry</li>
-        <li><b>Engineering reports</b>: arm capacity, heat per pipe</li>
-        <li><b>Bill of materials</b> from the model itself</li>
-        <li><b>Runs in the browser</b>: no install, no server</li>
-        <li><b>AI-readable</b>: specs in, sourced parameters out</li>
+        <li><b>Parametric.</b> Change one value. Rebuild only what follows.</li>
+        <li><b>Sourced.</b> Every standard figure cites its clause.</li>
+        <li><b>Standards.</b> EIA-310-E, OCP ORv3, AISC HSS, ASME B36.10M.</li>
+        <li><b>Elements.</b> Racks, trusses, trays, busway, pipe.</li>
+        <li><b>Repetition.</b> Copies of copies. One edit.</li>
+        <li><b>Clashes.</b> Found in solids, not on site.</li>
+        <li><b>Engineering.</b> Load, current and heat, on every part.</li>
+        <li><b>Quantities.</b> Straight from the model.</li>
+        <li><b>In the browser.</b> No install. No server.</li>
+        <li><b>Readable.</b> A specification in. Parameters out.</li>
       </ul>
-      <div class="figures"><span><b data-fig="features">…</b> features</span><span><b data-fig="kb">…</b> KB file</span><span>built in <b data-fig="buildS">…</b></span><span><b data-fig="triangles">…</b> triangles on screen</span></div>
-      <p class="note">About this page: the model is Morphit's "Data hall ribbon" sample. For this demo the two entourage figures and their clash node were removed, and the five formulas that hard-coded 44.45&nbsp;mm now read one parameter, <code>N_UPITCH</code>, so the rack standard can change the whole hall. The Open Rack variants are the same file with <code>standard</code> set on its 30 rack elements. The page draws module 1's triangles once per module, which is what the model's Instance nodes specify.</p>
+      <div class="figures"><span><b data-fig="features">…</b> features</span><span><b data-fig="kb">…</b> KB</span><span><b data-fig="buildS">…</b></span><span><b data-fig="triangles">…</b> triangles</span></div>
+      <p class="note">The model is Morphit's data hall sample. Two scale figures are removed. Unit pitch is a parameter, so the standard drives the hall. The Open Rack versions are the same file with the standard switched on 30 elements. Module one is drawn once per module, as its instances define.</p>
       <div class="end-links">
-        <a href="https://claude.ai/artifact/6RwchubErKSRTXve59pDHL#datahall-ocp" target="_blank" rel="noopener">Open this data hall in Morphit ↗</a>
+        <a href="https://claude.ai/artifact/6RwchubErKSRTXve59pDHL#datahall-ocp" target="_blank" rel="noopener">Open in Morphit ↗</a>
       </div>
     </div>
   </section>
@@ -490,8 +489,8 @@ table.params tr.derived td:first-child { color: var(--fibre); }
 (function () {
   const statusEl = document.getElementById("status");
   const say = (text, cls) => { statusEl.querySelector("span").textContent = text; statusEl.className = cls || ""; };
-  if (typeof THREE === "undefined") { say("three.js did not load, so there is nothing to draw with", "failed"); return; }
-  if (typeof startKernel !== "function") { say("the kernel script did not load", "failed"); return; }
+  if (typeof THREE === "undefined") { say("The 3D view could not load.", "failed"); return; }
+  if (typeof startKernel !== "function") { say("Morphit could not load.", "failed"); return; }
   const KERNEL_BASE = (document.querySelector('meta[name="kernel-base"]') || {}).content || "../kernel/";
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const sections = Array.from(document.querySelectorAll(".chapter"));
@@ -735,15 +734,15 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       triangles: fmt(triangles, 0),
       N_PITCH: mm(F.N_PITCH), N_DEPTH: mm(F.N_DEPTH), N_AISLE: mm(F.N_AISLE), N_UNITS: fmt(F.N_UNITS, 0) + " U",
       N_CLEAR: mm(F.N_CLEAR), N_MODULES: fmt(F.N_MODULES, 0),
-      X_SPAN: mm(F.X_SPAN), X_RACKTOP: mm(F.X_RACKTOP), X_GAP: mm(F.X_GAP), X_RACKS: fmt(F.X_RACKS, 0) + " a side",
+      X_SPAN: mm(F.X_SPAN), X_RACKTOP: mm(F.X_RACKTOP), X_GAP: mm(F.X_GAP), X_RACKS: fmt(F.X_RACKS, 0),
       X_RACKS2: fmt(F.racks, 0), X_RIBBON: fmt(F.X_RIBBON / 1000, 1) + " m", X_FRAMES: fmt(F.X_FRAMES, 0), X_PANELS: fmt(F.X_PANELS, 0),
       X_GPUN: fmt(F.X_GPUN, 0),
       "TF1.section": (tf.match(/^(HSS [^·]+?) portal/) || [])[1] || "…",
       "TF1.wall": ((tf.match(/design wall ([\d.]+ mm)/) || [])[1]) || "…",
-      "ARAF0.cap": (() => { const m = (P.ARAF0 || "").match(/about (\d+ kg) at the end · carrying (\d+ kg)/); return m ? m[1] + " at reach, " + m[2] + " carried" : ""; })(),
+      "ARAF0.cap": (() => { const m = (P.ARAF0 || "").match(/about (\d+ kg) at the end · carrying (\d+ kg)/); return m ? m[1] + " at reach, " + m[2] + " load" : ""; })(),
       "BDA.rating": ((P.BDA || "").match(/(\d+ A)/) || [])[1] || "",
       "PS.heat": ((P.PS || "").match(/carries ([\d,]+ kW at \d+ K)/) || [])[1] || "",
-      "IA3.solids": ((P.IA3 || "").match(/(\d+ solids)/) || [])[1] ? "an instance shares " + (P.IA3.match(/(\d+ solids)/)[1]) : "…",
+      "IA3.solids": ((P.IA3 || "").match(/(\d+ solids)/) || [])[1] ? (P.IA3.match(/(\d+ solids)/)[1]) + " per copy" : "…",
       "GPU_P0.holes": F.holes, "GPU_P0.height": mm(F.height),
       gpuRacks: fmt(F.gpuRacks, 0), gpuTrays: fmt(F.gpuTrays, 0), gpus: fmt(F.gpus, 0),
       clashes: fmt(F.clashes, 0),
@@ -762,7 +761,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       tr.insertCell().textContent = r[2].trim();
       tr.insertCell().textContent = r[3].trim().replace(/, .*$/, "");
     }
-    if (more) { const tr = table.insertRow(); tr.insertCell().textContent = "+" + more; tr.insertCell().textContent = "more lines in the full bill"; tr.insertCell(); }
+    if (more) { const tr = table.insertRow(); tr.insertCell().textContent = "+" + more; tr.insertCell().textContent = "more lines"; tr.insertCell(); }
   }
   function fillVariant(key, v) {
     const f = {
@@ -941,18 +940,18 @@ table.params tr.derived td:first-child { color: var(--fibre); }
   async function boot() {
     let text;
     try { text = await (await fetch("hac_ribbon.json")).text(); model = JSON.parse(text); modelBytes = text.length; }
-    catch (err) { say("could not read hac_ribbon.json: " + err.message, "failed"); return; }
+    catch (err) { say("The model could not load. " + err.message, "failed"); return; }
     for (const f of model.features) { parent[f.id] = f.parent; typeOf[f.id] = f.type; byName[f.name] = f.id; }
 
     try {
-      say("unpacking the Morphit kernel · 7.2 MB");
+      say("Loading Morphit");
       kernel = await startKernel({
         base: KERNEL_BASE,
-        onProgress: t => say(t === "ready" ? "Morphit ready · switching on the Racks package" : "starting Morphit"),
-        onBuild: step => { if (!ready && step && step.total) say((step.stage || "building") + " · " + step.done + " of " + step.total + " features"); },
+        onProgress: t => say(t === "ready" ? "Loading the rack library" : "Starting Morphit"),
+        onBuild: step => { if (!ready && step && step.total) say("Building " + step.done + " of " + step.total); },
       });
       await kernel.usePackage("rack");
-    } catch (err) { say("the kernel could not start here: " + err.message, "failed"); return; }
+    } catch (err) { say("Morphit could not start here. " + err.message, "failed"); return; }
 
     try {
       const t0 = performance.now();
@@ -969,8 +968,8 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       fillFigs();
       show(base);
       ready = true;
-      say(model.features.length + " features regenerated in " + (buildMs / 1000).toFixed(2) + " s, in this tab", "ready");
-    } catch (err) { say("the kernel refused the model: " + err.message, "failed"); console.error(err); return; }
+      say(model.features.length + " features. Built in " + (buildMs / 1000).toFixed(2) + " s, here.", "ready");
+    } catch (err) { say("The model did not build. " + err.message, "failed"); console.error(err); return; }
 
     // The change chapters. Each is a real edit made now, in the background,
     // so the chapter can show it the moment it is reached.
@@ -986,7 +985,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       const D = await capture("D", async () => { const t = performance.now(); const r = await kernel.setParameter("N_UNITS", "value", 44); doc.std = "o44"; return { ms: performance.now() - t, executed: r.report.executed.length }; });
       fillVariant("D", D.figs);
       liveReady(D);
-    } catch (err) { console.error(err); document.getElementById("live-out").textContent = "The change chapters could not be computed: " + err.message; }
+    } catch (err) { console.error(err); document.getElementById("live-out").textContent = "Could not prepare the changes: " + err.message; }
   }
 
   /* ------------------------------------------------ your turn, live */
@@ -999,7 +998,7 @@ table.params tr.derived td:first-child { color: var(--fibre); }
     // panel there so the first press is a real move away from it.
     target.std = "o44"; liveState = current;
     syncButtons();
-    liveOut.innerHTML = "Ready. The kernel is holding <b>OCP ORv3 · 44 OU</b>, aisle 1200, 7 modules.";
+    liveOut.innerHTML = "Ready. Now showing <b>OCP ORv3 · 44 OU</b>, 1200 aisle, 7 modules.";
     buttons.forEach(b => b.disabled = false);
   }
   function syncButtons() {
@@ -1016,18 +1015,17 @@ table.params tr.derived td:first-child { color: var(--fibre); }
       syncButtons();
       const want = { ...target };
       buttons.forEach(x => x.disabled = true);
-      liveOut.textContent = "Rebuilding…";
+      liveOut.textContent = "Building…";
       busy = busy.then(async () => {
         try {
           if (liveState && liveState.key === "live") { world.remove(liveState.root); }
           const st = await capture("live", () => apply(want));
           liveState = st;
           const f = st.figs, std = { eia: "EIA-310-E · 48U", o44: "OCP ORv3 · 44 OU", o48: "OCP ORv3 · 48 OU" }[want.std];
-          liveOut.innerHTML = "<b>" + std + "</b> · " + (st.figs.executed) + " features " + (doc && want.std === doc.std ? "" : "") +
-            "rebuilt in <b>" + (f.ms / 1000).toFixed(2) + " s</b><br>" +
+          liveOut.innerHTML = "<b>" + std + "</b>. Rebuilt in " + (f.ms / 1000).toFixed(2) + " s.<br>" +
             '<span class="' + (f.clashes ? "bad" : "good") + '">' + fmt(f.clashes, 0) + " clashes</span> · " +
-            fmt(f.racks, 0) + " racks · " + fmt(f.gpuTrays, 0) + " GPU trays · services zone " + mm(f.X_GAP) + " · ribbon " + fmt(f.X_RIBBON / 1000, 1) + " m";
-        } catch (err) { liveOut.textContent = "The kernel refused that: " + err.message; }
+            fmt(f.racks, 0) + " racks · " + fmt(f.gpuTrays, 0) + " GPU trays · " + mm(f.X_GAP) + " service zone · " + fmt(f.X_RIBBON / 1000, 1) + " m";
+        } catch (err) { liveOut.textContent = "Not possible: " + err.message; }
         buttons.forEach(x => x.disabled = false);
       });
     });
