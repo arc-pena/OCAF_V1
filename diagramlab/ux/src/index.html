@@ -1,0 +1,55 @@
+<title>DiagramLab UX System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/*STYLES*/
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="top-l">
+      <button class="brand" id="brandBtn" aria-label="DiagramLab menu"><span class="mark" data-ic="logo"></span><span>DiagramLab</span></button>
+      <span class="crumb-sep">/</span>
+      <button class="proj" id="projBtn">Riverside Cultural Quarter <span class="zh">滨水文化街区</span> <span class="tag-sample">Sample</span></button>
+    </div>
+    <nav class="seg modes" id="modes" aria-label="Workspace mode">
+      <button data-mode="board" aria-pressed="false"><span data-ic="board"></span><span class="lbl">Board</span><kbd>⌘1</kbd></button>
+      <button data-mode="matrix" aria-pressed="true"><span data-ic="matrix"></span><span class="lbl">Matrix</span><kbd>⌘2</kbd></button>
+      <button data-mode="editor" aria-pressed="false"><span data-ic="editor"></span><span class="lbl">Editor</span><kbd>⌘3</kbd></button>
+      <button data-mode="present" aria-pressed="false"><span data-ic="present"></span><span class="lbl">Present</span><kbd>⌘4</kbd></button>
+    </nav>
+    <div class="top-r">
+      <button class="runchip" id="runChip" hidden><span class="pill info" style="background:none;padding:0"></span><span id="runTxt">Running</span><span class="bar"><i id="runBar"></i></span></button>
+      <button class="btn ghost hide-sm" id="profileBtn"><span data-ic="shield"></span><span class="hide-md">Style Profile</span></button>
+      <button class="btn ghost hide-sm" id="sysBtn"><span data-ic="swatch"></span><span class="hide-md">UX system</span></button>
+      <button class="ib" id="themeBtn" aria-label="Theme"></button>
+      <span class="avatar" title="Freddy R.">FR</span>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <section class="view" id="v-board" aria-label="Board"></section>
+    <section class="view" id="v-matrix" aria-label="Matrix"></section>
+    <section class="view" id="v-editor" aria-label="Editor"></section>
+    <section class="view" id="v-profile" aria-label="Style Profile"></section>
+    <section class="view" id="v-present" aria-label="Present"></section>
+    <section class="view" id="v-system" aria-label="UX system"></section>
+
+    <form class="prompt" id="prompt" autocomplete="off">
+      <span class="sparkle" data-ic="sparkle"></span>
+      <button type="button" class="chip accent scope" id="scopeChip"></button>
+      <input id="promptIn" placeholder="Ask for a layer, an edit or a run…" aria-label="Prompt">
+      <kbd>⌘K</kbd>
+      <button class="btn primary sm" type="submit" aria-label="Send"><span data-ic="send"></span></button>
+    </form>
+  </main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/*DIAGRAMS*/
+</script>
+<script>
+/*APP*/
+</script>
