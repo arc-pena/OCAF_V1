@@ -1131,6 +1131,35 @@ export const SAMPLES = [
            + "or Racks a row and the whole hall follows. Needs the Racks and Harness "
            + "packages. 169 nodes." },
 
+  { key: "atrium-galleries", name: "Atrium — galleries, shopfronts and a cellular roof",
+    file: "samples/atrium_galleries.json", needs: ["atrium", "rack"],
+    summary: "A retail atrium reverse engineered from a visualisation - and the point of "
+           + "it is that almost nothing in it is a curved surface. The floor plates are "
+           + "dead flat, one level and one thickness, and what sweeps is their EDGE: the "
+           + "band you read from across the void is a section run along a plan curve, the "
+           + "balustrade standing on it is a second section on the same curve, and the "
+           + "shopfront behind it is a third. Draw the curve once and the whole storey "
+           + "follows, which is why this is a hundred features and not a mesh. The plan "
+           + "is a PARABOLA each side, meeting at a blunt nose - two numbers open it in "
+           + "the middle and hold the ends apart - and the two gallery levels are "
+           + "different parabolas, which is what makes the bands weave past each other "
+           + "instead of stacking. 6 m floor to floor, a 1.5 m floor zone, and the "
+           + "cladding turned under the slab arris on a SHARP CHAMFER rather than a "
+           + "radius, because a chamfer leaves a line along the bottom of the band and "
+           + "that line is what you read it by. Two retail levels with corridors both "
+           + "sides; above them, on one side only, three floors of flush glazing with no "
+           + "corridor in front and so no balustrade - a facade that stops where that "
+           + "side stops, which is why the void can be drawn as one side as well as a "
+           + "loop. Over the top, a roof of thick walkable members on a VORONOI net - "
+           + "computed from a Lloyd-relaxed scatter rather than drawn, so the cells come "
+           + "out even in area and uneven in shape - with an inflated ETFE cushion in "
+           + "every cell it leaves, structure and cushions built as two features on one "
+           + "set of numbers so they cannot disagree about where a cell is. Drag Floor "
+           + "to floor and the bands, the shopfronts, the upper facade and the roof all "
+           + "move; widen the void and the band, the plate, the balustrade and the "
+           + "frontage move with it, because the frontage is the void set back and not a "
+           + "second drawing of it. Needs the Atrium and Racks packages. 100 nodes." },
+
   { key: "hac-ribbon", name: "Data hall ribbon — floor-supported hot aisle containment",
     file: "samples/hac_ribbon.json", needs: ["rack"],
     summary: "Eighty-four racks in a 33.6 m ribbon, and ONE MODULE is a model. A "

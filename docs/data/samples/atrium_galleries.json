@@ -1,0 +1,1779 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Atrium · galleries, shopfronts and a cellular roof",
+ "units": "mm",
+ "needs": [
+  "atrium",
+  "rack"
+ ],
+ "features": [
+  {
+   "id": "H",
+   "type": "GeometricalSet",
+   "name": "Atrium · galleries, shopfronts and a cellular roof"
+  },
+  {
+   "id": "P",
+   "type": "GeometricalSet",
+   "name": "00 Parameters",
+   "parent": "H"
+  },
+  {
+   "id": "N_LENGTH",
+   "type": "Number",
+   "name": "Void length",
+   "parent": "P",
+   "args": {
+    "value": 90000
+   }
+  },
+  {
+   "id": "N_FLOOR",
+   "type": "Number",
+   "name": "Floor to floor",
+   "parent": "P",
+   "args": {
+    "value": 6000
+   }
+  },
+  {
+   "id": "N_ZONE",
+   "type": "Number",
+   "name": "Floor depth",
+   "parent": "P",
+   "args": {
+    "value": 1500
+   }
+  },
+  {
+   "id": "N_BEVEL",
+   "type": "Number",
+   "name": "Edge chamfer",
+   "parent": "P",
+   "args": {
+    "value": 400
+   }
+  },
+  {
+   "id": "N_BACK",
+   "type": "Number",
+   "name": "Edge section reaches back",
+   "parent": "P",
+   "args": {
+    "value": 2600
+   }
+  },
+  {
+   "id": "N_GALLERY",
+   "type": "Number",
+   "name": "Gallery width",
+   "parent": "P",
+   "args": {
+    "value": 9000
+   }
+  },
+  {
+   "id": "N_RISE",
+   "type": "Number",
+   "name": "Roof rise",
+   "parent": "P",
+   "args": {
+    "value": 9000
+   }
+  },
+  {
+   "id": "N_MEMBER",
+   "type": "Number",
+   "name": "Roof member width",
+   "parent": "P",
+   "args": {
+    "value": 900
+   }
+  },
+  {
+   "id": "N_DEEP",
+   "type": "Number",
+   "name": "Roof member depth",
+   "parent": "P",
+   "args": {
+    "value": 1800
+   }
+  },
+  {
+   "id": "N_CELLS",
+   "type": "Number",
+   "name": "Roof cells",
+   "parent": "P",
+   "args": {
+    "value": 64
+   }
+  },
+  {
+   "id": "N_SEED",
+   "type": "Number",
+   "name": "Roof seed",
+   "parent": "P",
+   "args": {
+    "value": 7
+   }
+  },
+  {
+   "id": "N_CUSHION",
+   "type": "Number",
+   "name": "Cushion rise",
+   "parent": "P",
+   "args": {
+    "value": 950
+   }
+  },
+  {
+   "id": "N_DROP",
+   "type": "Number",
+   "name": "Cushion drop",
+   "parent": "P",
+   "args": {
+    "value": 700
+   }
+  },
+  {
+   "id": "N_PERSON",
+   "type": "Number",
+   "name": "Person",
+   "parent": "P",
+   "args": {
+    "value": 1727
+   }
+  },
+  {
+   "id": "N_W1",
+   "type": "Number",
+   "name": "Level 1 void, half width",
+   "parent": "P",
+   "args": {
+    "value": 11500
+   }
+  },
+  {
+   "id": "N_E1",
+   "type": "Number",
+   "name": "Level 1 void, half width at ends",
+   "parent": "P",
+   "args": {
+    "value": 4600
+   }
+  },
+  {
+   "id": "N_F1",
+   "type": "Number",
+   "name": "Level 1 void, fullness",
+   "parent": "P",
+   "args": {
+    "value": 2
+   }
+  },
+  {
+   "id": "N_W2",
+   "type": "Number",
+   "name": "Level 2 void, half width",
+   "parent": "P",
+   "args": {
+    "value": 13200
+   }
+  },
+  {
+   "id": "N_E2",
+   "type": "Number",
+   "name": "Level 2 void, half width at ends",
+   "parent": "P",
+   "args": {
+    "value": 5400
+   }
+  },
+  {
+   "id": "N_F2",
+   "type": "Number",
+   "name": "Level 2 void, fullness",
+   "parent": "P",
+   "args": {
+    "value": 2.3
+   }
+  },
+  {
+   "id": "X_CLEAR",
+   "type": "Expression",
+   "name": "Clear to the soffit",
+   "parent": "P",
+   "args": {
+    "formula": "a - b",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    },
+    "b": {
+     "value": 1500,
+     "from": "N_ZONE"
+    }
+   }
+  },
+  {
+   "id": "X_ROOFZ",
+   "type": "Expression",
+   "name": "Roof springs at",
+   "parent": "P",
+   "args": {
+    "formula": "a * 5",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "X_CROWN",
+   "type": "Expression",
+   "name": "Crown at",
+   "parent": "P",
+   "args": {
+    "formula": "a * 5 + b",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    },
+    "b": {
+     "value": 9000,
+     "from": "N_RISE"
+    }
+   }
+  },
+  {
+   "id": "X_FRONT",
+   "type": "Expression",
+   "name": "Shopfront line",
+   "parent": "P",
+   "args": {
+    "formula": "a + b",
+    "a": {
+     "value": 2600,
+     "from": "N_BACK"
+    },
+    "b": {
+     "value": 9000,
+     "from": "N_GALLERY"
+    }
+   }
+  },
+  {
+   "id": "X_ROOFW",
+   "type": "Expression",
+   "name": "Roof width",
+   "parent": "P",
+   "args": {
+    "formula": "a * 2 + b * 2 + 6000",
+    "a": {
+     "value": 9000,
+     "from": "N_GALLERY"
+    },
+    "b": {
+     "value": 2600,
+     "from": "N_BACK"
+    }
+   }
+  },
+  {
+   "id": "R",
+   "type": "GeometricalSet",
+   "name": "01 Reference",
+   "parent": "H"
+  },
+  {
+   "id": "PT0",
+   "type": "Point",
+   "name": "Origin",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "parent": "R",
+   "args": {
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   }
+  },
+  {
+   "id": "PL0",
+   "type": "Plane",
+   "name": "Ground",
+   "parent": "R",
+   "args": {
+    "origin": {
+     "ref": "PT0"
+    },
+    "normal": {
+     "ref": "VZ"
+    }
+   }
+  },
+  {
+   "id": "PTL0",
+   "type": "Point",
+   "name": "Level 0 at 0",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "PTL1",
+   "type": "Point",
+   "name": "Level 1 at 6000",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 6000,
+     "from": "X_L1"
+    }
+   }
+  },
+  {
+   "id": "X_L1",
+   "type": "Expression",
+   "name": "Level 1 (mm)",
+   "parent": "R",
+   "args": {
+    "formula": "a * 1",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "PTL2",
+   "type": "Point",
+   "name": "Level 2 at 12000",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 12000,
+     "from": "X_L2"
+    }
+   }
+  },
+  {
+   "id": "X_L2",
+   "type": "Expression",
+   "name": "Level 2 (mm)",
+   "parent": "R",
+   "args": {
+    "formula": "a * 2",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "PTL3",
+   "type": "Point",
+   "name": "Level 3 at 18000",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 18000,
+     "from": "X_L3"
+    }
+   }
+  },
+  {
+   "id": "X_L3",
+   "type": "Expression",
+   "name": "Level 3 (mm)",
+   "parent": "R",
+   "args": {
+    "formula": "a * 3",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "PTL4",
+   "type": "Point",
+   "name": "Level 4 at 24000",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 24000,
+     "from": "X_L4"
+    }
+   }
+  },
+  {
+   "id": "X_L4",
+   "type": "Expression",
+   "name": "Level 4 (mm)",
+   "parent": "R",
+   "args": {
+    "formula": "a * 4",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "PTL5",
+   "type": "Point",
+   "name": "Level 5 at 30000",
+   "parent": "R",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 30000,
+     "from": "X_L5"
+    }
+   }
+  },
+  {
+   "id": "X_L5",
+   "type": "Expression",
+   "name": "Level 5 (mm)",
+   "parent": "R",
+   "args": {
+    "formula": "a * 5",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "G",
+   "type": "GeometricalSet",
+   "name": "02 Galleries · two retail levels, both sides",
+   "parent": "H"
+  },
+  {
+   "id": "G1",
+   "type": "GeometricalSet",
+   "name": "01 Level 1 · gallery",
+   "parent": "G"
+  },
+  {
+   "id": "G1_V",
+   "type": "AtriumVoid",
+   "name": "Void · level 1",
+   "parent": "G1",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL1"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "wide": {
+     "value": 11500,
+     "from": "N_W1"
+    },
+    "ends": {
+     "value": 4600,
+     "from": "N_E1"
+    },
+    "fullness": {
+     "value": 2,
+     "from": "N_F1"
+    }
+   }
+  },
+  {
+   "id": "G1_E",
+   "type": "GeometricalSet",
+   "name": "01 Slab edge",
+   "parent": "G1",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.74,
+     0.71,
+     0.66
+    ],
+    "gloss": 0.18
+   }
+  },
+  {
+   "id": "G1_SE",
+   "type": "SlabEdge",
+   "name": "Edge band · clad and chamfered",
+   "parent": "G1_E",
+   "args": {
+    "side": 0,
+    "upstand": 0,
+    "supplier": "edge cladding, chamfered to the slab arris",
+    "rail": {
+     "ref": "G1_V"
+    },
+    "depth": {
+     "value": 1500,
+     "from": "N_ZONE"
+    },
+    "bevel": {
+     "value": 400,
+     "from": "N_BEVEL"
+    },
+    "back": {
+     "value": 2600,
+     "from": "N_BACK"
+    }
+   }
+  },
+  {
+   "id": "G1_P",
+   "type": "GeometricalSet",
+   "name": "02 Floor plate",
+   "parent": "G1",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.66,
+     0.65,
+     0.62
+    ],
+    "gloss": 0.12
+   }
+  },
+  {
+   "id": "G1_GF",
+   "type": "GalleryFloor",
+   "name": "Floor plate · flat",
+   "parent": "G1_P",
+   "args": {
+    "rail": {
+     "ref": "G1_V"
+    },
+    "inset": {
+     "value": 2600,
+     "from": "N_BACK"
+    },
+    "width": {
+     "value": 9000,
+     "from": "N_GALLERY"
+    },
+    "depth": {
+     "value": 1500,
+     "from": "N_ZONE"
+    }
+   }
+  },
+  {
+   "id": "G1_B",
+   "type": "GeometricalSet",
+   "name": "03 Balustrade",
+   "parent": "G1",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "G1_BA",
+   "type": "Balustrade",
+   "name": "Balustrade · frameless glass",
+   "parent": "G1_B",
+   "args": {
+    "side": 0,
+    "height": 1100,
+    "setback": 140,
+    "glass": 21,
+    "railWidth": 100,
+    "railDepth": 60,
+    "shoe": 200,
+    "shoeHeight": 160,
+    "posts": 0,
+    "supplier": "frameless structural glass in a shoe",
+    "rail": {
+     "ref": "G1_V"
+    }
+   }
+  },
+  {
+   "id": "G1_BR",
+   "type": "Balustrade",
+   "name": "Capping rail",
+   "parent": "G1_B",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.26,
+     0.27,
+     0.29
+    ]
+   },
+   "args": {
+    "side": 0,
+    "height": 1100,
+    "setback": 140,
+    "glass": 1,
+    "railWidth": 100,
+    "railDepth": 60,
+    "shoe": 200,
+    "shoeHeight": 160,
+    "posts": 0,
+    "rail": {
+     "ref": "G1_V"
+    }
+   }
+  },
+  {
+   "id": "G1_S",
+   "type": "GeometricalSet",
+   "name": "04 Shopfront",
+   "parent": "G1",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "G1_PC",
+   "type": "AtriumVoid",
+   "name": "Shopfront line · the void set back",
+   "parent": "G1_S",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL1"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "offset": {
+     "value": 11600,
+     "from": "X_FRONT"
+    },
+    "wide": {
+     "value": 11500,
+     "from": "N_W1"
+    },
+    "ends": {
+     "value": 4600,
+     "from": "N_E1"
+    },
+    "fullness": {
+     "value": 2,
+     "from": "N_F1"
+    }
+   }
+  },
+  {
+   "id": "G1_SF",
+   "type": "Shopfront",
+   "name": "Retail frontage · level 1",
+   "parent": "G1_S",
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 90,
+    "depth": 200,
+    "glass": 32,
+    "band": 700,
+    "sill": 0,
+    "parts": 1,
+    "supplier": "shopfront, signage band at the head",
+    "rail": {
+     "ref": "G1_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "G1_SM",
+   "type": "Shopfront",
+   "name": "Mullions and signage band",
+   "parent": "G1_S",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.13,
+     0.13,
+     0.15
+    ]
+   },
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 110,
+    "depth": 220,
+    "glass": 32,
+    "band": 700,
+    "sill": 0,
+    "parts": 2,
+    "rail": {
+     "ref": "G1_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "G2",
+   "type": "GeometricalSet",
+   "name": "02 Level 2 · gallery",
+   "parent": "G"
+  },
+  {
+   "id": "G2_V",
+   "type": "AtriumVoid",
+   "name": "Void · level 2",
+   "parent": "G2",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL2"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "wide": {
+     "value": 13200,
+     "from": "N_W2"
+    },
+    "ends": {
+     "value": 5400,
+     "from": "N_E2"
+    },
+    "fullness": {
+     "value": 2.3,
+     "from": "N_F2"
+    }
+   }
+  },
+  {
+   "id": "G2_E",
+   "type": "GeometricalSet",
+   "name": "01 Slab edge",
+   "parent": "G2",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.74,
+     0.71,
+     0.66
+    ],
+    "gloss": 0.18
+   }
+  },
+  {
+   "id": "G2_SE",
+   "type": "SlabEdge",
+   "name": "Edge band · clad and chamfered",
+   "parent": "G2_E",
+   "args": {
+    "side": 0,
+    "upstand": 0,
+    "supplier": "edge cladding, chamfered to the slab arris",
+    "rail": {
+     "ref": "G2_V"
+    },
+    "depth": {
+     "value": 1500,
+     "from": "N_ZONE"
+    },
+    "bevel": {
+     "value": 400,
+     "from": "N_BEVEL"
+    },
+    "back": {
+     "value": 2600,
+     "from": "N_BACK"
+    }
+   }
+  },
+  {
+   "id": "G2_P",
+   "type": "GeometricalSet",
+   "name": "02 Floor plate",
+   "parent": "G2",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.66,
+     0.65,
+     0.62
+    ],
+    "gloss": 0.12
+   }
+  },
+  {
+   "id": "G2_GF",
+   "type": "GalleryFloor",
+   "name": "Floor plate · flat",
+   "parent": "G2_P",
+   "args": {
+    "rail": {
+     "ref": "G2_V"
+    },
+    "inset": {
+     "value": 2600,
+     "from": "N_BACK"
+    },
+    "width": {
+     "value": 9000,
+     "from": "N_GALLERY"
+    },
+    "depth": {
+     "value": 1500,
+     "from": "N_ZONE"
+    }
+   }
+  },
+  {
+   "id": "G2_B",
+   "type": "GeometricalSet",
+   "name": "03 Balustrade",
+   "parent": "G2",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "G2_BA",
+   "type": "Balustrade",
+   "name": "Balustrade · frameless glass",
+   "parent": "G2_B",
+   "args": {
+    "side": 0,
+    "height": 1100,
+    "setback": 140,
+    "glass": 21,
+    "railWidth": 100,
+    "railDepth": 60,
+    "shoe": 200,
+    "shoeHeight": 160,
+    "posts": 0,
+    "supplier": "frameless structural glass in a shoe",
+    "rail": {
+     "ref": "G2_V"
+    }
+   }
+  },
+  {
+   "id": "G2_BR",
+   "type": "Balustrade",
+   "name": "Capping rail",
+   "parent": "G2_B",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.26,
+     0.27,
+     0.29
+    ]
+   },
+   "args": {
+    "side": 0,
+    "height": 1100,
+    "setback": 140,
+    "glass": 1,
+    "railWidth": 100,
+    "railDepth": 60,
+    "shoe": 200,
+    "shoeHeight": 160,
+    "posts": 0,
+    "rail": {
+     "ref": "G2_V"
+    }
+   }
+  },
+  {
+   "id": "G2_S",
+   "type": "GeometricalSet",
+   "name": "04 Shopfront",
+   "parent": "G2",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "G2_PC",
+   "type": "AtriumVoid",
+   "name": "Shopfront line · the void set back",
+   "parent": "G2_S",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL2"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "offset": {
+     "value": 11600,
+     "from": "X_FRONT"
+    },
+    "wide": {
+     "value": 13200,
+     "from": "N_W2"
+    },
+    "ends": {
+     "value": 5400,
+     "from": "N_E2"
+    },
+    "fullness": {
+     "value": 2.3,
+     "from": "N_F2"
+    }
+   }
+  },
+  {
+   "id": "G2_SF",
+   "type": "Shopfront",
+   "name": "Retail frontage · level 2",
+   "parent": "G2_S",
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 90,
+    "depth": 200,
+    "glass": 32,
+    "band": 700,
+    "sill": 0,
+    "parts": 1,
+    "supplier": "shopfront, signage band at the head",
+    "rail": {
+     "ref": "G2_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "G2_SM",
+   "type": "Shopfront",
+   "name": "Mullions and signage band",
+   "parent": "G2_S",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.13,
+     0.13,
+     0.15
+    ]
+   },
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 110,
+    "depth": 220,
+    "glass": 32,
+    "band": 700,
+    "sill": 0,
+    "parts": 2,
+    "rail": {
+     "ref": "G2_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "U",
+   "type": "GeometricalSet",
+   "name": "03 Upper floors · flush glazing, one side",
+   "parent": "H",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "U_PC",
+   "type": "AtriumVoid",
+   "name": "Facade line · one side, set back",
+   "parent": "U",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 1,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL2"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "offset": {
+     "value": 11600,
+     "from": "X_FRONT"
+    },
+    "wide": {
+     "value": 13200,
+     "from": "N_W2"
+    },
+    "ends": {
+     "value": 5400,
+     "from": "N_E2"
+    },
+    "fullness": {
+     "value": 2.3,
+     "from": "N_F2"
+    }
+   }
+  },
+  {
+   "id": "U_SF",
+   "type": "Shopfront",
+   "name": "Flush facade · one floor",
+   "parent": "U",
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 90,
+    "depth": 200,
+    "glass": 32,
+    "band": 0,
+    "sill": 0,
+    "parts": 1,
+    "supplier": "unitised glazing, no corridor in front",
+    "rail": {
+     "ref": "U_PC"
+    },
+    "height": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "U_SM",
+   "type": "Shopfront",
+   "name": "Transoms and spandrel",
+   "parent": "U",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.13,
+     0.13,
+     0.15
+    ]
+   },
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 110,
+    "depth": 220,
+    "glass": 32,
+    "band": 600,
+    "sill": 0,
+    "parts": 2,
+    "rail": {
+     "ref": "U_PC"
+    },
+    "height": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "U_AG",
+   "type": "Array",
+   "name": "Glass · three floors",
+   "parent": "U",
+   "args": {
+    "mode": 0,
+    "countX": 1,
+    "spacingX": 0,
+    "countY": 1,
+    "spacingY": 0,
+    "countZ": 3,
+    "source": {
+     "ref": "U_SF"
+    },
+    "spacingZ": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "U_AM",
+   "type": "Array",
+   "name": "Frame · three floors",
+   "parent": "U",
+   "args": {
+    "mode": 0,
+    "countX": 1,
+    "spacingX": 0,
+    "countY": 1,
+    "spacingY": 0,
+    "countZ": 3,
+    "source": {
+     "ref": "U_SM"
+    },
+    "spacingZ": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    }
+   }
+  },
+  {
+   "id": "C",
+   "type": "GeometricalSet",
+   "name": "04 Concourse",
+   "parent": "H"
+  },
+  {
+   "id": "C_F",
+   "type": "GeometricalSet",
+   "name": "01 Floor",
+   "parent": "C",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.66,
+     0.65,
+     0.62
+    ],
+    "gloss": 0.12
+   }
+  },
+  {
+   "id": "PTC",
+   "type": "Point",
+   "name": "Concourse corner",
+   "parent": "C_F",
+   "args": {
+    "x": -58000,
+    "y": -32000,
+    "z": -400
+   }
+  },
+  {
+   "id": "C_SLAB",
+   "type": "Cube",
+   "name": "Concourse floor",
+   "parent": "C_F",
+   "args": {
+    "dx": 116000,
+    "dy": 64000,
+    "dz": 400,
+    "origin": {
+     "ref": "PTC"
+    },
+    "plane": {
+     "ref": "PL0"
+    }
+   }
+  },
+  {
+   "id": "C_S",
+   "type": "GeometricalSet",
+   "name": "02 Ground shopfronts",
+   "parent": "C",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.6,
+     0.72,
+     0.78
+    ],
+    "opacity": 0.17,
+    "gloss": 0.98
+   }
+  },
+  {
+   "id": "C_PC",
+   "type": "AtriumVoid",
+   "name": "Ground shopfront line",
+   "parent": "C_S",
+   "args": {
+    "stations": 30,
+    "nose": 0.65,
+    "run": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTL0"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "offset": {
+     "value": 11600,
+     "from": "X_FRONT"
+    },
+    "wide": {
+     "value": 11500,
+     "from": "N_W1"
+    },
+    "ends": {
+     "value": 4600,
+     "from": "N_E1"
+    },
+    "fullness": {
+     "value": 2,
+     "from": "N_F1"
+    }
+   }
+  },
+  {
+   "id": "C_SF",
+   "type": "Shopfront",
+   "name": "Ground frontage",
+   "parent": "C_S",
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 90,
+    "depth": 200,
+    "glass": 32,
+    "band": 800,
+    "sill": 0,
+    "parts": 1,
+    "supplier": "shopfront, signage band at the head",
+    "rail": {
+     "ref": "C_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "C_SM",
+   "type": "Shopfront",
+   "name": "Mullions and signage band",
+   "parent": "C_S",
+   "appearance": {
+    "finish": "anodised",
+    "color": [
+     0.13,
+     0.13,
+     0.15
+    ]
+   },
+   "args": {
+    "side": 1,
+    "pitch": 1500,
+    "mullion": 110,
+    "depth": 220,
+    "glass": 32,
+    "band": 800,
+    "sill": 0,
+    "parts": 2,
+    "rail": {
+     "ref": "C_PC"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEAR"
+    }
+   }
+  },
+  {
+   "id": "C_C",
+   "type": "GeometricalSet",
+   "name": "03 Columns",
+   "parent": "C",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.84,
+     0.81,
+     0.76
+    ],
+    "gloss": 0.2
+   }
+  },
+  {
+   "id": "PTCOL",
+   "type": "Point",
+   "name": "First column at",
+   "parent": "C_C",
+   "args": {
+    "x": -31500,
+    "y": -16000,
+    "z": 0
+   }
+  },
+  {
+   "id": "C_COL",
+   "type": "FlaredColumn",
+   "name": "Flared column",
+   "parent": "C_C",
+   "args": {
+    "shaft": 850,
+    "head": 4200,
+    "foot": 1150,
+    "flare": 0.62,
+    "sharpness": 2.8,
+    "steps": 18,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTCOL"
+    },
+    "height": {
+     "value": 4500,
+     "from": "X_CLEARC"
+    }
+   }
+  },
+  {
+   "id": "X_CLEARC",
+   "type": "Expression",
+   "name": "Column height",
+   "parent": "C_C",
+   "args": {
+    "formula": "a - b",
+    "a": {
+     "value": 6000,
+     "from": "N_FLOOR"
+    },
+    "b": {
+     "value": 1500,
+     "from": "N_ZONE"
+    }
+   }
+  },
+  {
+   "id": "C_ROW",
+   "type": "Array",
+   "name": "Columns · both sides of the void",
+   "parent": "C_C",
+   "args": {
+    "mode": 0,
+    "countX": 8,
+    "spacingX": 9000,
+    "countY": 2,
+    "spacingY": 32000,
+    "countZ": 1,
+    "spacingZ": 0,
+    "source": {
+     "ref": "C_COL"
+    }
+   }
+  },
+  {
+   "id": "RF",
+   "type": "GeometricalSet",
+   "name": "05 Roof",
+   "parent": "H"
+  },
+  {
+   "id": "PTRF",
+   "type": "Point",
+   "name": "Roof springs at",
+   "parent": "RF",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": {
+     "value": 30000,
+     "from": "X_ROOFZ"
+    }
+   }
+  },
+  {
+   "id": "RF_S",
+   "type": "GeometricalSet",
+   "name": "01 Structure",
+   "parent": "RF",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.93,
+     0.92,
+     0.88
+    ],
+    "gloss": 0.25
+   }
+  },
+  {
+   "id": "RF_NET",
+   "type": "RoofNet",
+   "name": "Walkable net · Voronoi",
+   "parent": "RF_S",
+   "args": {
+    "relax": 2,
+    "parts": 1,
+    "supplier": "walkable structural net",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTRF"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "width": {
+     "value": 29200,
+     "from": "X_ROOFW"
+    },
+    "rise": {
+     "value": 9000,
+     "from": "N_RISE"
+    },
+    "cells": {
+     "value": 64,
+     "from": "N_CELLS"
+    },
+    "seed": {
+     "value": 7,
+     "from": "N_SEED"
+    },
+    "member": {
+     "value": 900,
+     "from": "N_MEMBER"
+    },
+    "deep": {
+     "value": 1800,
+     "from": "N_DEEP"
+    },
+    "cushion": {
+     "value": 950,
+     "from": "N_CUSHION"
+    },
+    "drop": {
+     "value": 700,
+     "from": "N_DROP"
+    }
+   }
+  },
+  {
+   "id": "RF_E",
+   "type": "GeometricalSet",
+   "name": "02 ETFE cushions",
+   "parent": "RF",
+   "appearance": {
+    "finish": "glass",
+    "color": [
+     0.9,
+     0.94,
+     0.97
+    ],
+    "opacity": 0.13,
+    "gloss": 0.9,
+    "edges": false
+   }
+  },
+  {
+   "id": "RF_ETFE",
+   "type": "RoofNet",
+   "name": "ETFE cushions · one a cell",
+   "parent": "RF_E",
+   "args": {
+    "relax": 2,
+    "parts": 2,
+    "supplier": "inflated ETFE cushions",
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTRF"
+    },
+    "length": {
+     "value": 90000,
+     "from": "N_LENGTH"
+    },
+    "width": {
+     "value": 29200,
+     "from": "X_ROOFW"
+    },
+    "rise": {
+     "value": 9000,
+     "from": "N_RISE"
+    },
+    "cells": {
+     "value": 64,
+     "from": "N_CELLS"
+    },
+    "seed": {
+     "value": 7,
+     "from": "N_SEED"
+    },
+    "member": {
+     "value": 900,
+     "from": "N_MEMBER"
+    },
+    "deep": {
+     "value": 1800,
+     "from": "N_DEEP"
+    },
+    "cushion": {
+     "value": 950,
+     "from": "N_CUSHION"
+    },
+    "drop": {
+     "value": 700,
+     "from": "N_DROP"
+    }
+   }
+  },
+  {
+   "id": "S",
+   "type": "GeometricalSet",
+   "name": "06 Scale",
+   "parent": "H",
+   "appearance": {
+    "finish": "matte",
+    "color": [
+     0.84,
+     0.82,
+     0.78
+    ],
+    "edges": false
+   }
+  },
+  {
+   "id": "PTS1",
+   "type": "Point",
+   "name": "Person at",
+   "parent": "S",
+   "args": {
+    "x": -9000,
+    "y": -13000,
+    "z": 0
+   }
+  },
+  {
+   "id": "S1",
+   "type": "Entourage",
+   "name": "Entourage",
+   "parent": "S",
+   "args": {
+    "turn": 0,
+    "figure": 0,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS1"
+    },
+    "height": {
+     "value": 1727,
+     "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "PTS2",
+   "type": "Point",
+   "name": "Person at",
+   "parent": "S",
+   "args": {
+    "x": 4000,
+    "y": -14500,
+    "z": 0
+   }
+  },
+  {
+   "id": "S2",
+   "type": "Entourage",
+   "name": "Entourage",
+   "parent": "S",
+   "args": {
+    "turn": -35,
+    "figure": 2,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS2"
+    },
+    "height": {
+     "value": 1727,
+     "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "PTS3",
+   "type": "Point",
+   "name": "Person at",
+   "parent": "S",
+   "args": {
+    "x": -2000,
+    "y": 14000,
+    "z": 0
+   }
+  },
+  {
+   "id": "S3",
+   "type": "Entourage",
+   "name": "Entourage",
+   "parent": "S",
+   "args": {
+    "turn": 180,
+    "figure": 1,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS3"
+    },
+    "height": {
+     "value": 1727,
+     "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "PTS4",
+   "type": "Point",
+   "name": "Person at",
+   "parent": "S",
+   "args": {
+    "x": -16000,
+    "y": -12200,
+    "z": 6000
+   }
+  },
+  {
+   "id": "S4",
+   "type": "Entourage",
+   "name": "Entourage",
+   "parent": "S",
+   "args": {
+    "turn": 15,
+    "figure": 3,
+    "plane": {
+     "ref": "PL0"
+    },
+    "at": {
+     "ref": "PTS4"
+    },
+    "height": {
+     "value": 1727,
+     "from": "N_PERSON"
+    }
+   }
+  },
+  {
+   "id": "Z",
+   "type": "GeometricalSet",
+   "name": "07 Schedule",
+   "parent": "H"
+  },
+  {
+   "id": "Z_BOM",
+   "type": "Bill",
+   "name": "Schedule · the whole atrium",
+   "parent": "Z",
+   "args": {
+    "show": 0,
+    "of": {
+     "ref": "H"
+    }
+   }
+  },
+  {
+   "id": "Z_LEVEL",
+   "type": "Bill",
+   "name": "Schedule · one gallery level",
+   "parent": "Z",
+   "args": {
+    "show": 0,
+    "of": {
+     "ref": "G1"
+    }
+   }
+  }
+ ]
+}

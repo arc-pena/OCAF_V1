@@ -92,6 +92,10 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # ergonomics is arithmetic over the body - no kernel, no DOM - and
            # its package turns that into a mannequin.
            "ergonomics.js", "ergonomics-plugin.js",
+           # atrium is the arithmetic a mall is laid out by - parabolas in
+           # plan, sections in a plane, and a Voronoi on a dome - with no
+           # kernel and no DOM in it; its package is what sweeps them.
+           "atrium.js", "atrium-plugin.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its
@@ -161,6 +165,7 @@ SAMPLES = [
     ("hyperstack-rack", "hyperstack_rack.json"),
     ("datahall-corridor", "datahall_corridor.json"),
     ("hac-ribbon", "hac_ribbon.json"),
+    ("atrium-galleries", "atrium_galleries.json"),
     ("ergonomics-study", "ergonomics_study.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]

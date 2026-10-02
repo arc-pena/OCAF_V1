@@ -20,6 +20,8 @@ import "../src/rack-plugin.js";
 import "../src/harness-plugin.js";
 //! And the ergonomics study needs the mannequin on the shelf too.
 import "../src/ergonomics-plugin.js";
+//! And the atrium sample needs the atrium package on the shelf.
+import "../src/atrium-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 

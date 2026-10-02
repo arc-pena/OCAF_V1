@@ -16,6 +16,7 @@ import { clearSky, dayLength, findSites, incidence, psychrometrics, readCoordina
 //! EVERY PACKAGE ON THE SHELF, imported for the side effect - a package puts
 //! itself there when its module loads. Section 11 asks its question of all of
 //! them, and a package that is not imported is a package that is not asked.
+import "../src/atrium-plugin.js";
 import "../src/crowd-plugin.js";
 import "../src/drawings-plugin.js";
 import "../src/ifc-plugin.js";
