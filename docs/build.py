@@ -165,6 +165,7 @@ SAMPLES = [
     ("hyperstack-rack", "hyperstack_rack.json"),
     ("datahall-corridor", "datahall_corridor.json"),
     ("hac-ribbon", "hac_ribbon.json"),
+    ("datahall-ocp", "datahall_ocp.json"),
     ("atrium-galleries", "atrium_galleries.json"),
     ("ergonomics-study", "ergonomics_study.json"),
 ]

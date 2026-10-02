@@ -1196,6 +1196,23 @@ export const SAMPLES = [
            + "HSS 8 and fifteen trusses change while the headroom under them does not. "
            + "Needs the Racks package. 366 nodes." },
 
+  //! RECOVERED FROM THE PUBLISHED PAGE. Another session built this one and
+  //! published it to the Artifact without it ever reaching the repository, so
+  //! the next rebuild from source would have deleted it. Carried back in here
+  //! rather than lost: the file below is the payload decoded out of that page.
+  { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
+    file: "samples/datahall_ocp.json", needs: ["rack"],
+    summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "
+           + "file that page rebuilds. It is the ribbon above with the unit pitch made a "
+           + "parameter: five formulas that had 44.45 mm written into them now read "
+           + "N_UPITCH, so switching the racks to OCP Open Rack V3 (48 mm OpenU) moves "
+           + "the rack tops, the GPU stack and the services zone together. Set N_UPITCH "
+           + "to 48 and each rack element's standard to Open Rack V3: at 48 units the "
+           + "racks run into the lowest fibre tray and CL_SERV reports 36 clashes; at "
+           + "44 OpenU it clears with a 788 mm services zone and nine GPU trays a rack "
+           + "instead of ten. Open it straight from a link ending #datahall-ocp. "
+           + "Needs the Racks package. 359 nodes." },
+
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
     //! WHAT IT NEEDS BEFORE IT WILL OPEN. The first sample built out of a
