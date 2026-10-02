@@ -412,6 +412,55 @@ console.log("\nB. and a file that never said what it needs can still be opened")
         packagesProviding(["Cube"]).join(","));
 }
 
+console.log("\nC. every package on the shelf is imported by both entry points");
+{
+  //! THE BUG THAT ONLY THE SERVED PAGE HAS. A package registers itself when its
+  //! module is evaluated, and nothing but an import evaluates a module. The
+  //! single file concatenates every module into one scope, so a package nobody
+  //! imports still registers there and the Artifact works; served as modules it
+  //! is never loaded at all and the first file that uses it opens with
+  //! `unknown feature type`. Caught once, by the Atrium package, after the
+  //! single file had been checked and looked right.
+  //!
+  //! So the check is textual on purpose: it asks the two entry points what they
+  //! import, rather than asking this process, which imports them all itself.
+  const listed = readFileSync("docs/build.py", "utf8");
+  const modules = [...listed.matchAll(/"([a-z0-9-]+-plugin\.js)"/g)].map(m => m[1]);
+  check("build.py lists the plugin modules", modules.length >= 9, modules.length + " modules");
+
+  const page = readFileSync("docs/src/app.js", "utf8");
+  const worker = readFileSync("docs/src/kernel-worker.js", "utf8");
+  const importsOf = src =>
+    [...src.matchAll(/^import[^;]*?from\s+"\.\/([a-z0-9-]+-plugin\.js)";/gm)].map(m => m[1]);
+  const inPage = importsOf(page), inWorker = importsOf(worker);
+
+  const pageMissing = modules.filter(m => !inPage.includes(m));
+  check("app.js imports every one of them", pageMissing.length === 0,
+        pageMissing.length ? "missing " + pageMissing.join(", ")
+                           : inPage.length + " imported");
+  const workerMissing = modules.filter(m => !inWorker.includes(m));
+  check("kernel-worker.js imports every one of them", workerMissing.length === 0,
+        workerMissing.length ? "missing " + workerMissing.join(", ")
+                             : inWorker.length + " imported");
+
+  //! AND THE WORKER KEEPS ITS OWN SHELF - a plugin it imports but leaves out of
+  //! that list has no drivers, which fails later and further away.
+  const shelf = worker.match(/for \(const plugin of \[([^\]]*)\]\)/);
+  const named = shelf ? shelf[1].split(",").map(x => x.trim()).filter(Boolean) : [];
+  check("and shelves everything it imported",
+        named.length === inWorker.length,
+        named.length + " on the shelf, " + inWorker.length + " imported");
+
+  //! The names are the modules' own exports, so an import whose binding never
+  //! reaches the shelf is a typo this catches by name.
+  const bound = [...worker.matchAll(
+    /^import\s*\{\s*([A-Z_0-9]+)\s*\}\s*from\s+"\.\/[a-z0-9-]+-plugin\.js";/gm)]
+    .map(m => m[1]);
+  const offShelf = bound.filter(b => !named.includes(b));
+  check("by the name it imported them under", offShelf.length === 0,
+        offShelf.length ? "not shelved: " + offShelf.join(", ") : bound.join(" "));
+}
+
 console.log("\n11. no package builds its drivers while it is loading");
 {
   //! THE SILENT HANG. A driver builder's first line is `kit.toolkit()`, and a

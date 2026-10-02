@@ -89,7 +89,7 @@ console.log("1. it opens, and every node in it builds");
   const bad = rows.filter(f => f.error);
   check("nothing is in error", bad.length === 0,
         bad.slice(0, 4).map(f => f.id + ": " + f.error).join(" | "));
-  check("it is the size it says it is", model.features.length === 365,
+  check("it is the size it says it is", model.features.length === 366,
         String(model.features.length) + " nodes");
   check("and it opens in a few seconds headless", seconds < 30, seconds.toFixed(1) + " s");
   check("it asks for the package it is built out of",

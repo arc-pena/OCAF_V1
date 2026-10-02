@@ -1462,13 +1462,29 @@ function rackDrivers(kit) {
         //! THE COLUMNS RUN FROM THE FLOOR TO THE TOP CHORD. A portal whose legs
         //! stop at the bottom chord is a frame with a hinge in it.
         const top = clear + depth;
+        //! THE BASE PLATE STANDS ON THE FLOOR, NOT IN IT. It used to be drawn
+        //! from -20 to 0 - under the placement point - on the reasoning that a
+        //! grouted plate IS in the floor. It is not: a grouted plate sits on the
+        //! slab and the grout goes under it, and a portal placed on a floor at
+        //! z = 0 with its plate at -20 is a portal 20 mm into the slab. Measured
+        //! on the ribbon: TF1 and TF2 both reached z = -20 against a slab top at
+        //! 0, four plates a module, every module. Found by somebody else driving
+        //! this element in another model, which is the only way it was ever
+        //! going to be found - from across an atrium a column standing 20 mm
+        //! into the floor looks exactly like a column standing on it.
+        //!
+        //! The column starts ON the plate and the chords are still measured from
+        //! the placement level, so the clear height under the truss and the top
+        //! chord do not move when this changes.
+        const foot = plate > 0 ? 20 : 0;
         for (const [which, y] of [[0, 0], [1, span]]) {
           if (legs === 3) break;
           if (legs === 1 && which === 1) continue;
           if (legs === 2 && which === 0) continue;
-          parts.push(extrudeOutline(frame, section.outline(), [0, y, 0], top, "z"));
+          parts.push(extrudeOutline(frame, section.outline(), [0, y, foot],
+                                    top - foot, "z"));
           if (plate > 0)
-            parts.push(slab(frame, [-plate / 2, y - plate / 2, -20], plate, plate, 20));
+            parts.push(slab(frame, [-plate / 2, y - plate / 2, 0], plate, plate, 20));
         }
 
         //! THE WEB. A Warren truss alternates its diagonals and has no

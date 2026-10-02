@@ -6154,6 +6154,24 @@
    }
   },
   {
+   "id": "CL_SLAB",
+   "type": "Clash",
+   "name": "The steel against the slab",
+   "parent": "C",
+   "args": {
+    "tolerance": 1,
+    "how": 1,
+    "budget": 400,
+    "show": 8,
+    "a": {
+     "ref": "MS"
+    },
+    "b": {
+     "ref": "FL"
+    }
+   }
+  },
+  {
    "id": "Z",
    "type": "GeometricalSet",
    "name": "07 Bill of materials",

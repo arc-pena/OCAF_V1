@@ -616,6 +616,17 @@ console.log("\n12. the containment unit: a portal truss and what hangs off it");
   const footed = await box(TF);
   check("a 500 base plate spreads past the column both ways",
         near(footed.y, 4200 + 500, 0.5), footed.y.toFixed(1) + " across the plates");
+  //! AND IT STANDS ON THE FLOOR RATHER THAN IN IT. Drawn from -20 to 0 - under
+  //! the placement point, on the reasoning that a grouted plate is in the floor -
+  //! every portal placed on a slab at z = 0 sank 20 mm into it, four plates a
+  //! module, every module, and from across an atrium that looks exactly like a
+  //! column standing on a floor. Found by somebody else driving this element in
+  //! another model; this is the measurement that keeps it found.
+  const onFloor = await sizeOf(TF, 10);
+  check("nothing of the truss is below the level it was placed on",
+        near(onFloor, 0, 0.5), "lowest point at z " + onFloor.toFixed(1));
+  check("and the plate has not eaten the clear height under it",
+        near((await box(TF)).z, 2800 + 700, 0.5), (await box(TF)).z.toFixed(1));
 }
 
 console.log("\n13. a handed arm, because a column has two sides");

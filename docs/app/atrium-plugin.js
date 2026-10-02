@@ -291,13 +291,20 @@ function atriumDrivers(kit) {
 
   //! The plan loop offset outward by a distance, as a closed wire at a height.
   //!
-  //! AND AS A POLYLINE, NOT A FITTED CURVE. Measured, building the same ring two
-  //! ways on the same 80 points: as a polyline, the fill and pad took 0.08 s and
-  //! the loft 0.12 s; fitted to a B-spline first, the same two took 30.4 s and
-  //! 48.5 s. Three hundred times, for a curve nobody can tell apart - at a point
-  //! every 1.2 m the facets are 22 mm off the true arc round the sharpest thing
-  //! in the plan, which is the nose, and nothing anywhere else. A ring that
-  //! takes half a minute is a storey that takes ten.
+  //! AND AS A POLYLINE, NOT A FITTED CURVE. Measured, building the same two
+  //! things from the same points both ways - the ring filled and padded, and
+  //! three rings lofted:
+  //!
+  //!     points   polyline            B-spline
+  //!         80   0.08 s / 0.12 s     11.24 s /  17.00 s
+  //!        140   0.03 s / 0.12 s     49.13 s /  69.42 s
+  //!        240   0.06 s / 0.24 s    148.00 s / 215.09 s
+  //!
+  //! Both answers agree to about 20 mm. The fit costs between a hundred and two
+  //! and a half thousand times as much, and it gets worse the finer the curve -
+  //! so the better the rail, the longer the storey takes. At a point every 1.2 m
+  //! the facets are 22 mm off the true arc round the sharpest thing in the plan,
+  //! which is the nose, and nothing measurable anywhere else.
   const ringAt = (plan, across, z) => {
     const base = Math.abs(across) > 1e-9
       ? offsetLoop(plan.loop, across, plan.closed) : plan.loop;

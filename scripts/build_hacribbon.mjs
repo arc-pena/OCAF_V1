@@ -879,10 +879,18 @@ expr("X_DOORH", "Aisle door height (mm)", "" + ROOF, {}, "XD");
 
 /* ------------------------------------------------------------------ 04 Slab */
 
-//! THE FLOOR IT ALL STANDS ON, and the reason there is no raised floor above
-//! it. The truss base plates are drawn 20 mm into this slab because a grouted
-//! base plate IS in the floor, and the Clash node is told 20 mm of tolerance so
-//! it reports that as the joint it is rather than as an interference.
+//! THE FLOOR IT ALL STANDS ON, and the reason there is no raised floor above it.
+//!
+//! AND THE TRUSSES STAND ON IT. This used to say the base plates were drawn
+//! 20 mm INTO the slab, "because a grouted base plate IS in the floor", and the
+//! clash check was given 20 mm of tolerance so it would report that as a joint
+//! rather than an interference. Both halves of that were wrong: a grouted plate
+//! sits on the slab and the grout goes under it, and a tolerance wide enough to
+//! excuse the plate was wide enough to hide anything else 20 mm deep as well.
+//! Found by somebody driving the TrussFrame element in another model, which is
+//! the only way it was going to be found - four plates a module, every module,
+//! and from across the hall a column 20 mm into the floor looks exactly like a
+//! column on it. The element was fixed; this is the check that says so.
 set("FL", "04 Slab", "H", "understructure");
 at("PTSL", "Slab at", -3000, -3000, -150, "FL");
 add("SLAB", "Cube", { name: "Structural slab", parent: "FL",
@@ -935,6 +943,11 @@ add("CL_JOIN", "Clash", { name: "The module against its neighbours", parent: "C"
   refs: { a: "M", b: "X" }, args: { tolerance: 1, how: 0, budget: 400, show: 8 } });
 add("CL_PERSON", "Clash", { name: "The people against the ribbon", parent: "C",
   refs: { a: "S", b: "MOD8" }, args: { tolerance: 1, how: 0, budget: 400, show: 8 } });
+//! AND THE STEEL AGAINST THE SLAB, which is the check this file did not have and
+//! the one that would have caught the base plates. A column that stands 20 mm
+//! into the floor is the easiest thing in a model to not see.
+add("CL_SLAB", "Clash", { name: "The steel against the slab", parent: "C",
+  refs: { a: "MS", b: "FL" }, args: { tolerance: 1, how: 1, budget: 400, show: 8 } });
 
 set("Z", "07 Bill of materials");
 add("BOM", "Bill", { name: "Bill of materials · the ribbon", parent: "Z",
@@ -1305,7 +1318,8 @@ const trianglesOf = shape => {
 /* ------------------------- and nothing is inside anything else ----------- */
 
 {
-  for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN", "CL_PERSON"]) {
+  for (const id of ["CL_STEEL", "CL_SERV", "CL_ARMS", "CL_JOIN", "CL_PERSON",
+                    "CL_SLAB"]) {
     const said = String(await tellOf(id) || "");
     const line = said.split("\n").find(one => /clash|no interference/.test(one)) || said;
     console.log(id.padEnd(11) + line.trim());

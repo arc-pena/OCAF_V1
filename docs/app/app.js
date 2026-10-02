@@ -46,6 +46,7 @@ import { GIZMO_AXES, GIZMO_MODES, GIZMO_ORDER, GIZMO_PLANES, LENSES, TRANSFORM_K
 import { readValue, saysFormula } from "./formula.js";
 import { duplicateEdits, duplicateModel, instantiateEdits, reachesOut, saysReuse, setInputGroups,
          setsIn } from "./reuse.js";
+import { ATRIUM } from "./atrium-plugin.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";

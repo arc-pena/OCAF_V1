@@ -1194,7 +1194,7 @@ export const SAMPLES = [
            + "to 56U and 204 clashes appear. Drag Hot aisle and the truss re-divides its "
            + "panels, the far row moves and the roof follows; switch the HAC section to "
            + "HSS 8 and fifteen trusses change while the headroom under them does not. "
-           + "Needs the Racks package. 365 nodes." },
+           + "Needs the Racks package. 366 nodes." },
 
   { key: "hyperstack-rack", name: "Hyperstack rack — LOD 400",
     file: "samples/hyperstack_rack.json",
