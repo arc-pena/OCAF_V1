@@ -22,6 +22,7 @@ import "../src/harness-plugin.js";
 import "../src/ergonomics-plugin.js";
 //! And the atrium sample needs the atrium package on the shelf.
 import "../src/atrium-plugin.js";
+import "../src/rhino-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 

@@ -69,8 +69,12 @@ export const UNAVAILABLE = [
     reason: "the IGES reader is not compiled into this build. Re-export it "
           + "as STEP, which every system that writes IGES can also write." },
   { extensions: [".3dm"], name: "Rhino 3DM",
-    reason: "reading it needs Rhino's own library, and this page may not fetch one. "
-          + "Export from Rhino as STEP for solids, or OBJ for meshes." },
+    reason: "read by the Rhino package — switch it on and drop the file again. It uses "
+          + "Rhino's own library, which carries the file format and not the kernel, so "
+          + "a surface saved without a render mesh cannot be drawn from a .3dm by "
+          + "anything outside Rhino. For those, run scripts/rhino_export.py inside "
+          + "Rhino and open the .rhj it writes: it meshes with the real kernel and "
+          + "brings the layer tree, the blocks and the attributes with it." },
   { extensions: [".sat", ".sab"], name: "ACIS SAT",
     reason: "ACIS is a licensed format and this modeller cannot read it. Export as STEP." },
   { extensions: [".ifc"], name: "IFC",

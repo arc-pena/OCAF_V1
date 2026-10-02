@@ -38,6 +38,7 @@ import { DRAWINGS } from "./drawings-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { RACK } from "./rack-plugin.js";
+import { RHINO } from "./rhino-plugin.js";
 import { HARNESS } from "./harness-plugin.js";
 
 let kernel = null;
@@ -68,7 +69,8 @@ let kernel = null;
 //! one the worker reads, and the failure lands on the page as "there is no
 //! package called 'harness'" - naming the page's own shelf, which has it.
 const SHELF = {};
-for (const plugin of [ATRIUM, CLIMATE, CROWD, DRAWINGS, ERGO, HARNESS, IFC, PACKING, RACK])
+for (const plugin of [ATRIUM, CLIMATE, CROWD, DRAWINGS, ERGO, HARNESS, IFC, PACKING,
+                      RACK, RHINO])
   SHELF[plugin.id] = plugin;
 
 //! What a driver builder is handed here: the factories and the document, and

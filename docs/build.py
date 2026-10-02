@@ -96,6 +96,7 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # plan, sections in a plane, and a Voronoi on a dome - with no
            # kernel and no DOM in it; its package is what sweeps them.
            "atrium.js", "atrium-plugin.js",
+    "rhino.js", "rhino-plugin.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
            # ifc reads sections and the model language and nothing else; its

@@ -47,6 +47,7 @@ import { readValue, saysFormula } from "./formula.js";
 import { duplicateEdits, duplicateModel, instantiateEdits, reachesOut, saysReuse, setInputGroups,
          setsIn } from "./reuse.js";
 import { ATRIUM } from "./atrium-plugin.js";
+import { RHINO } from "./rhino-plugin.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
@@ -13916,7 +13917,14 @@ async function takeFile(file) {
   //! reader that never asks the kernel anything.
   if (brought) {
     try {
-      const got = brought.open(await file.text(), file.name);
+      //! BYTES OR TEXT, as the reader asked for. A .3dm is binary and read
+      //! as a string it is mangled long before the reader sees it; an IFC is
+      //! text, and handing every reader bytes would make each decode its own.
+      //! Awaited, because a reader may have a library to fetch first.
+      const payload = brought.binary
+        ? new Uint8Array(await file.arrayBuffer())
+        : await file.text();
+      const got = await brought.open(payload, file.name);
       await mdl.run({ op: "model", model: got.model });
       fitView();
       for (const line of (got.say || [])) say(line);
