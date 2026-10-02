@@ -1,0 +1,30 @@
+<title>RMUH Diagram Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/*STYLES*/
+</style>
+<div class="app" id="app">
+  <header class="top">
+    <div class="top-l"><span class="brand"><span class="mark" data-ic="logo"></span>DiagramLab</span><span class="proj">RMUH · Qiddiya D1 Retail Mixed-Use Hub</span></div>
+    <nav class="steps" id="steps" aria-label="Workflow steps"></nav>
+    <div class="top-r"><span class="chip offline" id="aiChip" title="Whether this page can ask Claude"><span class="dot"></span><span id="aiTxt">Claude: checking…</span></span><button class="ib" id="themeBtn" aria-label="Theme"></button></div>
+  </header>
+  <div class="main">
+    <aside class="col left" id="left" aria-label="Current step"></aside>
+    <section class="centre">
+      <div class="vbar"><span class="viewing" id="viewing"></span><div class="otabs" id="otabs" role="group" aria-label="Design option"></div></div>
+      <div class="stage" id="stage"></div>
+      <div class="strip"><div class="strip-h" id="stripH"></div><div class="nodes" id="nodes" aria-label="Pipeline"></div></div>
+    </section>
+    <aside class="col right" id="right" aria-label="Brief and reasoning"></aside>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<input type="file" id="fileIn" accept="image/*" multiple hidden>
+<input type="file" id="xlIn" accept=".xlsx" hidden>
+<input type="file" id="briefIn" accept=".txt,.md,.csv" hidden>
+<script>
+/*SCRIPTS*/
+</script>
