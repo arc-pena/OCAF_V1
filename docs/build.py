@@ -244,6 +244,27 @@ def check_imports():
                          'add it to MODULES' % (name, said))
 
 
+def module_bodies():
+    """Every module's source with its import and export statements stripped, in
+    the order the single file concatenates them - and the check that one shared
+    scope is legal. Two modules may each declare `strutProfile` and be perfectly
+    correct as modules; side by side in one scope they are not.
+
+    This runs BEFORE either target is written. It used to run after the served
+    site, so a refusal here left the site rebuilt and the single file stale -
+    two published things claiming to be the same source, which is the one
+    failure this script exists to prevent."""
+    bodies, seen = [], {}
+    for name in MODULES:
+        text = strip_modules((SRC / name).read_text())
+        for declared in DECLARE.findall(text):
+            if declared in seen:
+                sys.exit("%s redeclares `%s`, already declared in %s" % (name, declared, seen[declared]))
+            seen[declared] = name
+        bodies.append("/* ---- src/%s ---- */\n%s" % (name, text))
+    return bodies
+
+
 def fetch_npm(package, cache_name, member_prefix, marker):
     """Pulls one package from npm and unpacks the files we need. Cached."""
     cache = ROOT / cache_name
@@ -382,6 +403,10 @@ def main():
     if not stage_path.exists():
         sys.exit("missing %s" % stage_path)
 
+    # Both checks first, so neither target is written if one module is wrong.
+    check_imports()
+    bodies = module_bodies()
+
     if args.only != "artifact":
         build_site(shell, glue_path, wasm_path, stage_path)
     if args.only == "site":
@@ -398,8 +423,6 @@ def main():
     stage_packed = base64.b64encode(
         gzip.compress(stage_path.read_bytes(), 9)).decode("ascii")
 
-    check_imports()
-
     # The worker's own script, for the single file: the same glue and the same
     # modules, minus everything that needs a window, with the worker's entry on
     # the end. Packed like every other big piece, unpacked at run time and
@@ -410,15 +433,6 @@ def main():
         for name in worker_modules() + [WORKER_ENTRY]]
     worker_packed = base64.b64encode(
         gzip.compress("\n".join(worker_bodies).encode("utf-8"), 9)).decode("ascii")
-
-    bodies, seen = [], {}
-    for name in MODULES:
-        text = strip_modules((SRC / name).read_text())
-        for declared in DECLARE.findall(text):
-            if declared in seen:
-                sys.exit("%s redeclares `%s`, already declared in %s" % (name, declared, seen[declared]))
-            seen[declared] = name
-        bodies.append("/* ---- src/%s ---- */\n%s" % (name, text))
 
     # The payload rides in a non-JavaScript <script> element on purpose. As a
     # string literal inside the module it costs the browser ~13 s to parse; as
