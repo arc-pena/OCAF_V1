@@ -265,19 +265,36 @@ export function strutSection(channel) {
   const c = typeof channel === "string" ? channelByKey(channel) : channel;
   if (!c) return null;
   const x = c.w / 2, y = c.h / 2, t = c.wall;
-  const lip = (c.w - STRUT_OPENING) / 2;          // 9.5 on a 41.3 channel
-  const r = STRUT_LIP_RETURN;
-  //! Anticlockwise from the bottom left, back at -y and opening at +y.
+  //! THE 22.2 IS BETWEEN THE LIP TIPS' INNER FACES, read off the metric
+  //! section view on 18A p21 at magnification: the 9.5 arrows run from the
+  //! outside of each web in to a line, and 22.2 runs between those two lines,
+  //! and 9.5 + 22.2 + 9.5 = 41.2 which is the 41.3 width. So the lip hangs
+  //! OUTBOARD of that line - its inner face at 11.1 and its outer at 13.8 -
+  //! and the clear slot is 22.2.
+  //!
+  //! This was wrong: the lip was built inboard, from 8.40 to 11.10, which left
+  //! a clear slot of 16.8 mm. A P1007 nut is 20.4 across and would not have
+  //! gone in. The first version of the test measured the gap at the top face
+  //! between the OUTER corners, got 22.2, and passed.
+  const clear = STRUT_OPENING / 2;                 // 11.1 on a 41.3 channel
+  const lipOut = clear + t;                        // 13.8
+  const tip = y - STRUT_LIP_RETURN;                // 7.1 down from the top face
   return [
-    [-x, -y], [x, -y],                            // the back, outside
-    [x, y], [x - lip, y],                         // up the right web, in along the lip
-    [x - lip, y - r],                             // the lip return, pointing down
-    [x - lip - t, y - r], [x - lip - t, y - t],   // back up and in
-    [x - t, y - t], [x - t, -y + t],              // down the inside of the web
-    [-x + t, -y + t], [-x + t, y - t],            // along the inside of the back, up the left
-    [-x + lip + t, y - t], [-x + lip + t, y - r],
-    [-x + lip, y - r], [-x + lip, y],
-    [-x, y],
+    [-x, -y], [x, -y],                   // 0,1  the back, outside
+    [x, y],                              // 2    up the right web, outside
+    [clear, y],                          // 3    in along the top of the flange
+    [clear, tip],                        // 4    down the lip's inner face
+    [lipOut, tip],                       // 5    across the sheared tip
+    [lipOut, y - t],                     // 6    up the lip's outer face
+    [x - t, y - t],                      // 7    the flange underside, out to the web
+    [x - t, -y + t],                     // 8    down the inside of the web
+    [-x + t, -y + t],                    // 9    along the inside of the back
+    [-x + t, y - t],                     // 10   up the inside of the left web
+    [-lipOut, y - t],                    // 11   the left flange underside
+    [-lipOut, tip],                      // 12   down the left lip's outer face
+    [-clear, tip],                       // 13   across its tip
+    [-clear, y],                         // 14   up its inner face
+    [-x, y],                             // 15   and out along the top
   ];
 }
 
@@ -287,11 +304,12 @@ export function strutSection(channel) {
 export function strutSections(channel) {
   const c = typeof channel === "string" ? channelByKey(channel) : channel;
   if (!c) return [];
-  if (!c.doubled) return [{ outline: strutSection(c), at: 0, flip: false }];
+  if (!c.doubled)
+    return [{ outline: strutSection(c), profile: formedProfile(c), at: 0, flip: false }];
   const one = { ...c, h: c.h / 2, doubled: false };
   const half = c.h / 4;
-  return [{ outline: strutSection(one), at: half, flip: false },
-          { outline: strutSection(one), at: -half, flip: true }];
+  return [{ outline: strutSection(one), profile: formedProfile(one), at: half, flip: false },
+          { outline: strutSection(one), profile: formedProfile(one), at: -half, flip: true }];
 }
 
 /* ========================================================== holes along a run
@@ -889,3 +907,124 @@ export function nestPieces(lengths, stock = STOCK_LENGTHS, kerf = CUT_KERF) {
       .reduce((s, p) => s + lengthPlan(p, "cut", sizes).bought, 0),
   };
 }
+
+/* ========================================================= the formed section
+
+   THE SQUARE-CORNERED OUTLINE ABOVE IS NOT A COLD-FORMED SECTION, and that is
+   what strutSection gives: sixteen points, every segment axis-aligned, zero
+   arcs. Extruded it reads as a crude prism rather than as sheet metal, because
+   a channel cold formed from strip has an ARC at every bend and a square corner
+   only where the strip was sheared.
+
+   So the profile is built here as what it actually is: straight runs joined by
+   tangent arcs, sharp only at the two lip tips, which are cut edges.
+
+   WHICH CORNERS ARE WHICH. Going round the material, a corner on the outside of
+   a bend is convex and carries the outer radius r + t; the matching corner on
+   the inside carries r. The two lip tips are sheared ends of the strip and are
+   left square, because they are not bends.
+
+   THE RADIUS IS AN ASSUMPTION AND IS BOUNDED BY THE SECTION. 18A publishes no
+   bend radius. What the geometry allows is not a matter of taste: the flange
+   between the web and the lip is 9.55 mm, and it carries an outer radius at
+   each end, so 2(r + t) <= 9.55 and on 2.7 mm steel r <= 2.07. 1.6 mm is a
+   tight but ordinary cold-formed radius at 0.6t and leaves 0.95 mm of straight
+   flange between the two arcs. Every radius is clamped per segment as well, so
+   a shallower family - a P4100 is 20.6 deep - reduces rather than self-
+   intersects.                                                                */
+
+export const BEND_RADIUS = 1.6;
+
+//! The sixteen corners, each with the radius it wants: outer bends r + t,
+//! inner bends r, and the two sheared lip tips square.
+export function strutCorners(channel, inside = BEND_RADIUS) {
+  const c = typeof channel === "string" ? channelByKey(channel) : channel;
+  if (!c) return null;
+  const pts = strutSection(c);
+  if (!pts) return null;
+  const t = c.wall, out = inside + t;
+  //! By index rather than by a winding test: the two tips are the only square
+  //! corners and naming them is clearer than inferring them, and a winding
+  //! test would also have to be right about which way the outline runs.
+  const sharp = new Set([4, 5, 12, 13]);
+  const outer = new Set([0, 1, 2, 3, 14, 15]);
+  return pts.map((p, i) => ({ p, r: sharp.has(i) ? 0 : (outer.has(i) ? out : inside) }));
+}
+
+const seg2 = (a, b) => [b[0] - a[0], b[1] - a[1]];
+const len2 = v => Math.hypot(v[0], v[1]);
+const unit2 = v => { const l = len2(v) || 1; return [v[0] / l, v[1] / l]; };
+
+//! A closed outline of straight runs and tangent arcs. Each corner's radius is
+//! first reduced until the two setbacks on every segment fit inside it, so a
+//! section too shallow for the asked radius comes out with smaller bends
+//! rather than with arcs that cross each other.
+export function roundCorners(corners) {
+  const n = corners.length;
+  if (n < 3) return null;
+  const r = corners.map(c => Math.max(0, c.r || 0));
+  //! A 90 degree turn sets the tangent point back by exactly R; a shallower
+  //! turn sets it back further, so the setback is computed from the angle
+  //! rather than assumed to be the radius.
+  const setback = (i) => {
+    const prev = corners[(i - 1 + n) % n].p, here = corners[i].p, next = corners[(i + 1) % n].p;
+    const u = unit2(seg2(prev, here)), v = unit2(seg2(here, next));
+    const cross = u[0] * v[1] - u[1] * v[0], dot = u[0] * v[0] + u[1] * v[1];
+    const turn = Math.atan2(cross, dot);              // signed, 0 when straight
+    if (Math.abs(turn) < 1e-9) return 0;
+    return r[i] / Math.tan((Math.PI - Math.abs(turn)) / 2);
+  };
+  //! Clamp, repeatedly: shrinking one corner can let its neighbour grow back
+  //! into the room, so it settles rather than being done once.
+  for (let pass = 0; pass < 8; pass++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const L = len2(seg2(corners[i].p, corners[j].p));
+      const a = setback(i), b = setback(j);
+      if (a + b <= L + 1e-9) continue;
+      const scale = L / (a + b);
+      if (r[i] > 0) r[i] *= scale * 0.999;
+      if (r[j] > 0) r[j] *= scale * 0.999;
+      moved = true;
+    }
+    if (!moved) break;
+  }
+
+  //! EACH CORNER GIVES ITS TWO TANGENT POINTS, and the profile is then the
+  //! arc across each corner followed by the straight run to the next corner's
+  //! entry. Written this way round because the first attempt tried to stitch
+  //! the lines as it went and left a 33 mm gap in the loop - the start of the
+  //! first line has no previous corner to come from until the walk is over.
+  const entry = [], exit = [], mid = [];
+  for (let i = 0; i < n; i++) {
+    const prev = corners[(i - 1 + n) % n].p, here = corners[i].p, next = corners[(i + 1) % n].p;
+    const u = unit2(seg2(prev, here)), v = unit2(seg2(here, next));
+    const d = setback(i);
+    if (!(d > 1e-9)) { entry[i] = here; exit[i] = here; mid[i] = null; continue; }
+    entry[i] = [here[0] - u[0] * d, here[1] - u[1] * d];
+    exit[i] = [here[0] + v[0] * d, here[1] + v[1] * d];
+    const bis = unit2([-u[0] + v[0], -u[1] + v[1]]);
+    const half = Math.acos(Math.max(-1, Math.min(1, -(u[0] * v[0] + u[1] * v[1])))) / 2;
+    const away = r[i] / Math.max(1e-9, Math.sin(half));
+    const centre = [here[0] + bis[0] * away, here[1] + bis[1] * away];
+    const toCorner = unit2(seg2(centre, here));
+    mid[i] = { through: [centre[0] + toCorner[0] * r[i], centre[1] + toCorner[1] * r[i]],
+               centre, radius: r[i] };
+  }
+
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (mid[i]) out.push({ kind: "arc", from: entry[i], through: mid[i].through,
+                           to: exit[i], centre: mid[i].centre, radius: mid[i].radius });
+    const next = entry[(i + 1) % n];
+    if (len2(seg2(exit[i], next)) > 1e-9)
+      out.push({ kind: "line", from: exit[i], to: next });
+  }
+  return out;
+}
+
+export const formedProfile = (channel, inside = BEND_RADIUS) => {
+  const corners = strutCorners(channel, inside);
+  return corners ? roundCorners(corners) : null;
+};

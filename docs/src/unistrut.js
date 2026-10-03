@@ -305,11 +305,11 @@ export function strutSections(channel) {
   const c = typeof channel === "string" ? channelByKey(channel) : channel;
   if (!c) return [];
   if (!c.doubled)
-    return [{ outline: strutSection(c), profile: strutProfile(c), at: 0, flip: false }];
+    return [{ outline: strutSection(c), profile: formedProfile(c), at: 0, flip: false }];
   const one = { ...c, h: c.h / 2, doubled: false };
   const half = c.h / 4;
-  return [{ outline: strutSection(one), profile: strutProfile(one), at: half, flip: false },
-          { outline: strutSection(one), profile: strutProfile(one), at: -half, flip: true }];
+  return [{ outline: strutSection(one), profile: formedProfile(one), at: half, flip: false },
+          { outline: strutSection(one), profile: formedProfile(one), at: -half, flip: true }];
 }
 
 /* ========================================================== holes along a run
@@ -1024,7 +1024,7 @@ export function roundCorners(corners) {
   return out;
 }
 
-export const strutProfile = (channel, inside = BEND_RADIUS) => {
+export const formedProfile = (channel, inside = BEND_RADIUS) => {
   const corners = strutCorners(channel, inside);
   return corners ? roundCorners(corners) : null;
 };

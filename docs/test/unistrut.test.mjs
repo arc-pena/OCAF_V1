@@ -11,7 +11,7 @@
 // that P1006 does NOT fit P3300, because that is the mistake the catalogue is
 // warning about and the one that gets ordered.
 
-import { BEND_RADIUS, strutProfile, strutCorners, CUT_KERF, nestPieces, CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
+import { BEND_RADIUS, formedProfile, strutCorners, CUT_KERF, nestPieces, CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
          FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
          STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
@@ -506,7 +506,7 @@ console.log("\n13. the section as it is FORMED, against the area the catalogue p
   for (const c of STRUT_CHANNELS) {
     if (c.doubled) continue;
     const want = c.area * 645.16;                 // in2 printed on p20 -> mm2
-    const got = areaOf(strutProfile(c.key));
+    const got = areaOf(formedProfile(c.key));
     check(c.key + " has the section area the catalogue prints",
           Math.abs(got - want) / want < 0.03,
           got.toFixed(1) + " mm2 against " + want.toFixed(1)
@@ -534,7 +534,7 @@ console.log("\n13. the section as it is FORMED, against the area the catalogue p
   //! them the sheared lip tips, so twelve arcs - and the square-cornered
   //! polygon this used to extrude had none, which is why it read as a prism
   //! rather than as sheet metal.
-  const p = strutProfile("P1000");
+  const p = formedProfile("P1000");
   const arcs = p.filter(one => one.kind === "arc");
   check("twelve bends, twelve arcs", arcs.length === 12, arcs.length + " arcs");
   check("and the two lip tips stay square",
@@ -549,7 +549,7 @@ console.log("\n13. the section as it is FORMED, against the area the catalogue p
   //! stitching left a 33 mm gap in the loop.
   for (const c of STRUT_CHANNELS) {
     if (c.doubled) continue;
-    const segs = strutProfile(c.key);
+    const segs = formedProfile(c.key);
     let gap = 0;
     for (let i = 0; i < segs.length; i++) {
       const a = segs[i].to, b = segs[(i + 1) % segs.length].from;
@@ -561,7 +561,7 @@ console.log("\n13. the section as it is FORMED, against the area the catalogue p
   //! THE RADIUS IS BOUNDED BY THE SECTION, not chosen freely: the flange
   //! between web and lip carries an outer radius at each end. Asked for an
   //! impossible one, the corners shrink rather than the arcs crossing.
-  const greedy = strutProfile("P1000", 20);
+  const greedy = formedProfile("P1000", 20);
   let gap = 0;
   for (let i = 0; i < greedy.length; i++) {
     const a = greedy[i].to, b = greedy[(i + 1) % greedy.length].from;

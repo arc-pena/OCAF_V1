@@ -28,6 +28,7 @@ import { offerPlugin } from "./plugin.js";
 import { CONNECTION_LOADS, FITTINGS, FITTING_STANDARD, STOCK_LENGTHS, STRUT_CHANNELS,
          STRUT_FINISHES, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText, channelByKey,
          connectionLoad, fittingBlank, fittingByKey, holeStations, lengthPlan,
+         formedProfile,
          nestPieces,
          nutByKey, nutFits, nutsFor, patternByKey, pickHoles, strutLabel,
          strutSections } from "./unistrut.js";
@@ -178,9 +179,20 @@ export function unistrutDrivers(kit) {
     frame.origin[2] + frame.x[2] * u + frame.y[2] * v + frame.z[2] * w,
   ];
 
-  const extrude = (frame, outline, w0, length, lift = 0) => {
-    const pts = outline.map(([u, v]) => at(frame, u, v + lift, w0));
-    const face = H.fill(H.polyline(pts, true));
+  //! THE SECTION AS IT IS FORMED, not as a polygon. Each bend is a real arc
+  //! and the only square corners are the two sheared lip tips - which is the
+  //! difference between a channel that reads as sheet metal and the sixteen
+  //! point prism this drew before.
+  const profileWire = (frame, segments, w0, lift) => {
+    const to3 = ([u, v]) => at(frame, u, v + lift, w0);
+    const runs = segments.map(one => one.kind === "arc"
+      ? H.arc(to3(one.from), to3(one.through), to3(one.to))
+      : H.polyline([to3(one.from), to3(one.to)], false));
+    return runs.length === 1 ? runs[0] : H.chain(runs);
+  };
+
+  const extrude = (frame, segments, w0, length, lift = 0) => {
+    const face = H.fill(profileWire(frame, segments, w0, lift));
     return S.pad(face, [frame.z[0] * length, frame.z[1] * length, frame.z[2] * length]);
   };
 
@@ -209,22 +221,24 @@ export function unistrutDrivers(kit) {
     const centre = across ? at(frame, -deep / 2, u, w) : at(frame, u, -deep / 2, w);
     if (pattern.hole.kind === "round")
       return S.cylinder(axisAt(centre, dir), pattern.hole.d / 2, deep);
-    //! A slot is a rectangle with a half round at each end, swept through.
+    //! A SLOT IS TWO LINES AND TWO SEMICIRCLES, and they have to be arcs. This
+    //! drew the half-round ends as twelve-segment polylines - a twenty-four
+    //! sided polygon standing in for a slot - which is mesh geometry inside a
+    //! B-Rep kernel and is what made the punched channel look faceted.
     const half = pattern.hole.wide / 2, run = (pattern.hole.long - pattern.hole.wide) / 2;
-    const ring = [];
-    for (let i = 0; i <= 12; i++) {
-      const a = Math.PI / 2 - (i * Math.PI) / 12;
-      ring.push([run + half * Math.cos(a), half * Math.sin(a)]);
-    }
-    for (let i = 0; i <= 12; i++) {
-      const a = -Math.PI / 2 - (i * Math.PI) / 12;
-      ring.push([-run + half * Math.cos(a), half * Math.sin(a)]);
-    }
-    //! Drawn in the plane the slot lies in: along the run, and across the face.
-    const pts = ring.map(([a, b]) => across
-      ? at(frame, -deep / 2, u + b, w + a)
-      : at(frame, b, -deep / 2, w + a));
-    const face = H.fill(H.polyline(pts, true));
+    //! In the face's own two directions: `a` along the run, `b` across it.
+    const to3 = (a, b) => across ? at(frame, -deep / 2, u + b, w + a)
+                                 : at(frame, b, -deep / 2, w + a);
+    const ends = [
+      { c: run, s: 1 },      // the far end, swept from +b round to -b
+      { c: -run, s: -1 },    // and the near one back again
+    ];
+    const runs = [];
+    runs.push(H.polyline([to3(-run, half), to3(run, half)], false));
+    runs.push(H.arc(to3(run, half), to3(run + half, 0), to3(run, -half)));
+    runs.push(H.polyline([to3(run, -half), to3(-run, -half)], false));
+    runs.push(H.arc(to3(-run, -half), to3(-run - half, 0), to3(-run, half)));
+    const face = H.fill(H.chain(runs));
     return S.pad(face, [dir[0] * deep, dir[1] * deep, dir[2] * deep]);
   };
 
@@ -292,7 +306,7 @@ export function unistrutDrivers(kit) {
         const { spec } = piece;
         const frame = frameFor(piece.from, piece.to, piece.up, spec.facing, spec.roll);
         for (const part of strutSections(spec.channel)) {
-          let solid = extrude(frame, part.outline, 0, piece.length, part.at);
+          let solid = extrude(frame, part.profile, 0, piece.length, part.at);
           if (spec.pattern.pitch) {
             const stations = holeStations(piece.length, spec.pattern);
             const across = spec.pattern.face === "sides";

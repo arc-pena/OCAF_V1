@@ -28,7 +28,7 @@ import { offerPlugin } from "./plugin.js";
 import { CONNECTION_LOADS, FITTINGS, FITTING_STANDARD, STOCK_LENGTHS, STRUT_CHANNELS,
          STRUT_FINISHES, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText, channelByKey,
          connectionLoad, fittingBlank, fittingByKey, holeStations, lengthPlan,
-         strutProfile,
+         formedProfile,
          nestPieces,
          nutByKey, nutFits, nutsFor, patternByKey, pickHoles, strutLabel,
          strutSections } from "./unistrut.js";
