@@ -11,7 +11,7 @@
 // that P1006 does NOT fit P3300, because that is the mistake the catalogue is
 // warning about and the one that gets ordered.
 
-import { CUT_KERF, nestPieces, CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
+import { BEND_RADIUS, strutProfile, strutCorners, CUT_KERF, nestPieces, CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
          FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
          STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
@@ -472,6 +472,104 @@ console.log("\n12. offcuts, nested the way somebody with a saw would");
         rect.bought + " mm in " + rect.sticks.length);
   check("nesting halves it against a stick per piece",
         rect.unnested === 12192, rect.unnested + " unnested");
+}
+
+console.log("\n13. the section as it is FORMED, against the area the catalogue prints");
+{
+  //! THE AREA IS THE ARBITER, and it is a number nobody here chose: 18A p20
+  //! prints a section area for every channel, and a profile with the right
+  //! amount of metal in the right places has to reproduce it. This is what
+  //! caught the section being wrong twice over.
+  const areaOf = segs => {
+    const pts = [];
+    for (const one of segs) {
+      if (one.kind === "line") { pts.push(one.from); continue; }
+      const c = one.centre, r = one.radius;
+      const a0 = Math.atan2(one.from[1] - c[1], one.from[0] - c[0]);
+      const a1 = Math.atan2(one.to[1] - c[1], one.to[0] - c[0]);
+      let d = a1 - a0;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      for (let i = 0; i < 32; i++) {
+        const a = a0 + (d * i) / 32;
+        pts.push([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]);
+      }
+    }
+    let A = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      A += a[0] * b[1] - b[0] * a[1];
+    }
+    return Math.abs(A) / 2;
+  };
+
+  for (const c of STRUT_CHANNELS) {
+    if (c.doubled) continue;
+    const want = c.area * 645.16;                 // in2 printed on p20 -> mm2
+    const got = areaOf(strutProfile(c.key));
+    check(c.key + " has the section area the catalogue prints",
+          Math.abs(got - want) / want < 0.03,
+          got.toFixed(1) + " mm2 against " + want.toFixed(1)
+            + ", " + ((got - want) / want * 100).toFixed(1) + "%");
+  }
+
+  //! THE SLOT IS 22.2 AND A NUT HAS TO GO IN IT. The first version built the
+  //! lip inboard of the 11.1 line instead of outboard, which left a clear slot
+  //! of 16.8 mm - and a P1007 nut is 20.4 across, so nothing would have fitted.
+  //! The test that passed measured the gap between the OUTER corners at the top
+  //! face, which is 22.2 whichever way the lip hangs. This one measures where
+  //! the nut actually goes.
+  const tip = 41.3 / 2 - 7.1;
+  const atTip = strutSection("P1000").filter(p => near(p[1], tip, 1e-9))
+    .map(p => p[0]).sort((a, b) => a - b);
+  check("four lip-tip corners, two to a lip", atTip.length === 4, JSON.stringify(atTip));
+  check("and the clear slot between the inner faces is 22.2",
+        near(atTip[2] - atTip[1], 22.2, 1e-9), (atTip[2] - atTip[1]).toFixed(2));
+  check("which a 20.4 mm P1007 nut goes into", atTip[2] - atTip[1] > 20.4);
+  //! The lip material hangs OUTBOARD of that line, 2.7 thick.
+  check("and the lip is a wall thickness outboard of it",
+        near(atTip[3] - atTip[2], 2.7, 1e-9), (atTip[3] - atTip[2]).toFixed(2));
+
+  //! A COLD-FORMED SECTION HAS AN ARC AT EVERY BEND. Sixteen corners, four of
+  //! them the sheared lip tips, so twelve arcs - and the square-cornered
+  //! polygon this used to extrude had none, which is why it read as a prism
+  //! rather than as sheet metal.
+  const p = strutProfile("P1000");
+  const arcs = p.filter(one => one.kind === "arc");
+  check("twelve bends, twelve arcs", arcs.length === 12, arcs.length + " arcs");
+  check("and the two lip tips stay square",
+        strutCorners("P1000").filter(one => one.r === 0).length === 4);
+  //! Outer bends carry r + t and inner bends r, which is what a bend IS.
+  const radii = [...new Set(arcs.map(a => Math.round(a.radius * 100) / 100))].sort((a, b) => a - b);
+  check("inner bends at r and outer at r + t",
+        radii.length === 2 && near(radii[0], BEND_RADIUS, 0.01)
+        && near(radii[1], BEND_RADIUS + 2.7, 0.01), radii.join(" and "));
+
+  //! IT HAS TO CLOSE. An open profile does not fill into a face, and the first
+  //! stitching left a 33 mm gap in the loop.
+  for (const c of STRUT_CHANNELS) {
+    if (c.doubled) continue;
+    const segs = strutProfile(c.key);
+    let gap = 0;
+    for (let i = 0; i < segs.length; i++) {
+      const a = segs[i].to, b = segs[(i + 1) % segs.length].from;
+      gap = Math.max(gap, Math.hypot(a[0] - b[0], a[1] - b[1]));
+    }
+    check(c.key + "'s profile closes end to end", gap < 1e-9, gap.toExponential(1));
+  }
+
+  //! THE RADIUS IS BOUNDED BY THE SECTION, not chosen freely: the flange
+  //! between web and lip carries an outer radius at each end. Asked for an
+  //! impossible one, the corners shrink rather than the arcs crossing.
+  const greedy = strutProfile("P1000", 20);
+  let gap = 0;
+  for (let i = 0; i < greedy.length; i++) {
+    const a = greedy[i].to, b = greedy[(i + 1) % greedy.length].from;
+    gap = Math.max(gap, Math.hypot(a[0] - b[0], a[1] - b[1]));
+  }
+  check("an impossible radius is clamped rather than self-intersecting",
+        gap < 1e-9 && areaOf(greedy) > 0,
+        "asked 20 mm, area " + areaOf(greedy).toFixed(0) + " mm2");
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
