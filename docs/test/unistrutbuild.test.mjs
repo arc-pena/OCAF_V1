@@ -14,7 +14,7 @@
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { PluginHost } from "../src/plugin.js";
 import "../src/unistrut-plugin.js";
-import { channelByKey, holeStations, patternByKey, pickHoles, stripLength }
+import { BEND_RADIUS, channelByKey, holeStations, patternByKey, pickHoles, stripLength }
   from "../src/unistrut.js";
 import { readFileSync } from "fs";
 
@@ -39,6 +39,37 @@ const host = new PluginHost({
 await host.load("unistrut");
 
 const tree = async () => (await kernel.tree()).tree;
+const kit = kernel.toolkit();
+
+//! THE SOLID ITSELF, not the row describing it. Everything about the section -
+//! that the bends are arcs and the holes are circles - is a fact about faces,
+//! and a tree row cannot carry it.
+const shapeOf = id => {
+  const f = kit.doc().features().find(one => kit.F.id(one) === id);
+  return f ? kit.F.shape(f) : null;
+};
+const boxOf = id => { const s = shapeOf(id); return s && !s.IsNull() ? kit.extents(s) : null; };
+
+//! Every cylindrical face of a shape, tallied by radius. A cold-formed section
+//! has one per bend - the inner at r, the outer at r + t - and a punched hole
+//! has one per round, or two per slot, one at each end. So this one tally says
+//! whether the section was FORMED and whether the holes were PUNCHED, and a
+//! polygonal approximation of either reads as zero.
+const roundsOf = id => {
+  const shape = shapeOf(id);
+  if (!shape || shape.IsNull()) return null;
+  const tally = new Map();
+  for (const face of kit.subShapes(shape, kit.FACE, kit.oc.TopoDS.Face)) {
+    const surf = new kit.oc.BRepAdaptor_Surface(face, true);
+    if (surf.GetType() !== kit.oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) continue;
+    const r = +surf.Cylinder().Radius().toFixed(3);
+    tally.set(r, (tally.get(r) || 0) + 1);
+  }
+  return tally;
+};
+const sayRounds = tally => tally
+  ? [...tally.entries()].sort((a, b) => a[0] - b[0]).map(([r, n]) => n + "x r" + r).join(", ")
+  : "no shape";
 const model = features => ({ format: "ocaf-parametric-model", version: 1,
                              name: "strut", units: "mm", needs: ["unistrut"], features });
 
@@ -58,6 +89,15 @@ const billOf = built => {
   return String((bom && bom.data && bom.data.preview) || "");
 };
 
+//! And a short one, for the checks that count faces: 2 m of T slots is 1,500
+//! faces to walk, and 500 mm says the same thing in a tenth of the time.
+const SHORT = [
+  { id: "P", type: "Point", name: "P", args: { x: 0, y: 0, z: 0 } },
+  { id: "Q", type: "Point", name: "Q", args: { x: 500, y: 0, z: 0 } },
+  { id: "S", type: "Polyline", name: "Short",
+    args: { points: [{ ref: "P" }, { ref: "Q" }], closed: "Open" } },
+];
+
 console.log("1. a run builds, and is the size the catalogue says");
 {
   await kernel.loadModel(model([...LINE,
@@ -73,12 +113,29 @@ console.log("1. a run builds, and is the size the catalogue says");
   //! body must measure 2000 x 41.3 x 41.3 - and if the section were drawn in
   //! the wrong plane it would come out 41.3 x 2000 instead, which is the way
   //! a frame gets built wrong and still looks like channel.
+  //!
+  //! This used to say `check("the run is a body", !run.error)` under that
+  //! comment and measure nothing at all. The section was wrong for a week -
+  //! square corners, and a lip hanging the wrong way that left a 16.8 mm slot
+  //! for a 20.4 mm nut - and every run of this file was green. A test named
+  //! for a measurement has to take one.
   const run = (await tree()).features.find(f => f.id === "R");
   check("the run is a body", !!run && !run.error, run ? String(run.type) : "missing");
+  const box = boxOf("R");
+  const p1000 = channelByKey("P1000");
+  check("it is 2000 long", !!box && near(box.size[0], 2000, 1e-6),
+        box ? box.size[0].toFixed(3) : "no shape");
+  check("and 41.3 across the back, the catalogue's width",
+        !!box && near(box.size[1], p1000.w, 1e-6),
+        box ? box.size[1].toFixed(3) + " vs " + p1000.w : "no shape");
+  check("and 41.3 deep, the catalogue's height",
+        !!box && near(box.size[2], p1000.h, 1e-6),
+        box ? box.size[2].toFixed(3) + " vs " + p1000.h : "no shape");
 }
 
 console.log("\n2. the holes are the catalogue's, not something drawn");
 {
+  const p1000 = channelByKey("P1000");
   //! Counted off the arithmetic the driver uses, so this is a check that the
   //! driver USES it: 2000 mm of HS at 47.6 with a 10.15 end margin is 41 holes.
   //! 2000 less two 10.15 end margins is 1979.7, which takes 41 whole pitches
@@ -96,6 +153,55 @@ console.log("\n2. the holes are the catalogue's, not something drawn");
   const plain = (await tree()).features.find(f => f.id === "R");
   check("plain channel builds too, with no holes cut", !!plain && !plain.error,
         plain && plain.error ? plain.error : "ok");
+
+  //! AND THE CUT ITSELF IS ROUND. The arithmetic above says where a hole goes;
+  //! it says nothing about what shape was subtracted, and the first version of
+  //! this package punched twenty-four-sided polygons that looked like holes
+  //! from any distance. A cylindrical face is a circle or nothing.
+  //!
+  //! Every one of these runs is 500 mm, so the counts are small enough to
+  //! write down: the 12 bend faces are the section, and the rest are holes.
+  const inner = BEND_RADIUS, outer = +(BEND_RADIUS + p1000.wall).toFixed(3);
+  const bends = tally => (tally.get(inner) || 0) + (tally.get(outer) || 0);
+  const plainRounds = roundsOf("R");
+  check("a plain P1000 has 12 bend faces and nothing else round",
+        !!plainRounds && bends(plainRounds) === 12 && plainRounds.size === 2,
+        sayRounds(plainRounds));
+  check("  six inner bends at r1.6 and six outer at r + t",
+        !!plainRounds && plainRounds.get(inner) === 6 && plainRounds.get(outer) === 6,
+        sayRounds(plainRounds));
+
+  //! HS is a 14.3 round hole: one cylinder per hole, radius 7.15. 500 mm takes
+  //! 11 of them by the same arithmetic checked above.
+  await kernel.loadModel(model([...SHORT,
+    { id: "R", type: "StrutRun", name: "HS",
+      args: { path: { ref: "S" }, channel: "P1000", pattern: "HS", finish: "PG" } }]));
+  const hs = roundsOf("R");
+  check("500 mm of HS cuts 11 round holes, each one cylinder",
+        !!hs && hs.get(7.15) === holeStations(500, "HS").length,
+        sayRounds(hs) + " · " + holeStations(500, "HS").length + " stations");
+  check("  at r7.15, half the catalogue's 14.3", !!hs && hs.has(7.15), sayRounds(hs));
+
+  //! A SLOT IS NOT A HOLE. T is 28.6 x 14.3, so each one ends in two half
+  //! cylinders of the same 7.15 - two faces per slot, not one, and a slot
+  //! drawn as a rectangle would have none.
+  await kernel.loadModel(model([...SHORT,
+    { id: "R", type: "StrutRun", name: "T",
+      args: { path: { ref: "S" }, channel: "P1000", pattern: "T", finish: "PG" } }]));
+  const slot = roundsOf("R");
+  check("a T slot ends in two true arcs, not a cut corner",
+        !!slot && slot.get(7.15) === holeStations(500, "T").length * 2,
+        sayRounds(slot) + " · " + holeStations(500, "T").length + " slots");
+
+  //! SL is 76.2 x 10.3 - a different radius, which is the check that the slot
+  //! end follows the pattern's own width rather than one number for all of them.
+  await kernel.loadModel(model([...SHORT,
+    { id: "R", type: "StrutRun", name: "SL",
+      args: { path: { ref: "S" }, channel: "P1000", pattern: "SL", finish: "PG" } }]));
+  const sl = roundsOf("R");
+  check("an SL slot ends at r5.15, its own half-width",
+        !!sl && sl.get(5.15) === holeStations(500, "SL").length * 2,
+        sayRounds(sl) + " · " + holeStations(500, "SL").length + " slots");
 }
 
 console.log("\n3. a punching the channel is not made in is refused by name");
