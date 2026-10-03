@@ -26,7 +26,7 @@
 import { ARG } from "./ocaf.js";
 import { offerPlugin } from "./plugin.js";
 import { CONNECTION_LOADS, FITTINGS, FITTING_STANDARD, STOCK_LENGTHS, STRUT_CHANNELS,
-         STRUT_FINISHES, STRUT_NUTS, STRUT_PATTERNS, bomOf, bomText, channelByKey,
+         STRUT_FINISHES, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText, channelByKey,
          connectionLoad, fittingBlank, fittingByKey, holeStations, lengthPlan,
          nutByKey, nutFits, nutsFor, patternByKey, pickHoles, strutLabel,
          strutSections } from "./unistrut.js";
@@ -512,7 +512,7 @@ export function unistrutDrivers(kit) {
       //! K.text takes the LINES, not the text - passing a string gives a
       //! `data.lines` that is a string, and the tree's preview then calls
       //! .slice().join() on it and throws a long way from here.
-      return { data: K.text(items.length ? bomText(bomOf(items)).split("\n")
+      return { data: K.text(items.length ? strutBomText(strutBomOf(items)).split("\n")
                                          : ["nothing in there is Unistrut"]) };
     },
   };

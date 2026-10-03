@@ -13,7 +13,7 @@
 
 import { CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
          FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
-         STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, bomOf, bomText,
+         STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
          patternByKey, pickHoles, strutLabel, strutSection, strutSections }
   from "../src/unistrut.js";
@@ -267,7 +267,7 @@ console.log("\n7. length: bought in sticks, used in pieces");
 console.log("\n8. the bill, which is what the model is for");
 {
   const p1000 = channelByKey("P1000");
-  const lines = bomOf([
+  const lines = strutBomOf([
     { part: "P1000 HS-PG", kind: "channel", length: 2000, count: 2,
       kgPer100m: p1000.kgPer100m, drop: 1096 },
     { part: "P1000 HS-PG", kind: "channel", length: 1000, count: 1,
@@ -286,7 +286,7 @@ console.log("\n8. the bill, which is what the model is for");
         near(nut.kg, 0.768, 1e-9), nut.kg.toFixed(3) + " kg");
   check("the drop is carried, not silently dropped", near(channel.drop, 1.096, 1e-9),
         channel.drop + " m");
-  const text = bomText(lines);
+  const text = strutBomText(lines);
   check("and it prints as a bill with a total",
         /P1000 HS-PG/.test(text) && /total/.test(text), text.split("\n").pop().trim());
 }

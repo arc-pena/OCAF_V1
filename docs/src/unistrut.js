@@ -478,7 +478,7 @@ export function strutLabel(channelKey, patternKey, finishKey) {
   return parts.join(" ") + "-" + finish;
 }
 
-export function bomOf(items) {
+export function strutBomOf(items) {
   const lines = new Map();
   for (const item of items || []) {
     const key = item.part;
@@ -497,7 +497,7 @@ export function bomOf(items) {
     a.kind === b.kind ? a.part.localeCompare(b.part) : a.kind.localeCompare(b.kind));
 }
 
-export function bomText(lines) {
+export function strutBomText(lines) {
   const out = [];
   let kg = 0;
   for (const line of lines) {
