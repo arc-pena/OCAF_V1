@@ -512,3 +512,74 @@ export function bomText(lines) {
   out.push("".padEnd(16) + " ".repeat(10) + kg.toFixed(1).padStart(8) + " kg total");
   return out.join("\n");
 }
+
+/* ================================================== the Aisle Containment System
+
+   Atkore/UBS "Unistrut Aisle Containment System with Cable Management", data
+   sheet UCON-CUT-6147-2305 (2023), read off the sheet rather than recalled.
+   It is in this module because it is a CATALOGUED PRODUCT with a fixed option
+   set, not a thing somebody draws: the sheet's own "Product Options" are
+   height, aisle width, aisle length, how many cantilever arms, and which door.
+
+   What it is made of, from the frame table on sheet 2:
+
+     columns        PG steel HSS 4 x 4
+     cantilever arms PG steel grade 1008, Unistrut P1001 - the back-to-back
+                    channel already in the table above
+     door assembly  aluminium extrusion
+     panels         6 mm twinwall polycarbonate, ASTM E84 flame spread < 25
+                    and smoke developed < 450
+
+   The three aisle widths and three heights are the sheet's, in inches, and are
+   the only ones offered; bay width is fixed at 72". Aisle length is variable
+   and arm spacing is custom, which is why those two are numbers here and the
+   others are choices.                                                        */
+
+export const CONTAINMENT = {
+  source: "Atkore / Unistrut Buffalo Supports, UCON-CUT-6147-2305 (2023)",
+  //! Inches on the sheet, millimetres here, exact: 1 in = 25.4 mm.
+  aisleWidths: [1219.2, 1524, 1828.8],            //  48", 60", 72"
+  aisleHeights: [3657.6, 3962.4, 4267.2],         // 144", 156", 168"
+  bayWidth: 1828.8,                               //  72", fixed
+  column: { kind: "HSS", size: 101.6, wall: 6.35, material: "PG steel",
+            note: "HSS 4 x 4 on the sheet; the wall is not dimensioned there" },
+  arm: { channel: "P1001", material: "PG steel grade 1008" },
+  panel: { thickness: 6, material: "twinwall polycarbonate",
+           flameSpread: 25, smokeDeveloped: 450, test: "ASTM E84" },
+  doors: ["Sliding", "Swing"],
+
+  //! THE CROSS BRACING, AND WHERE IT IS NOT. On the sheet's render the X
+  //! bracing sits in the CROSS-AISLE vertical plane and only in the storey
+  //! ABOVE the containment roof - the zone carrying the cantilever arms. The
+  //! enclosure below it is unbraced.
+  //!
+  //! Which is the only place it could go, and the reason is worth keeping: the
+  //! arms hang tray loads out on both sides of a frame two bays wide, so the
+  //! tower above the aisle is a sway frame and has to be triangulated. The
+  //! storey below is a door and polycarbonate panels for its whole length, and
+  //! you cannot put a diagonal through a door.
+  //!
+  //! Read off the render, not off a dimensioned drawing: the sheet's two line
+  //! elevations show the frame WITHOUT the bracing, so the member size and
+  //! which bays are braced are not stated anywhere here. Modelled as every
+  //! bay unless told otherwise, and said so rather than guessed quietly.
+  bracing: { plane: "cross-aisle", storey: "above the containment roof",
+             pattern: "X", bays: "not stated on the sheet",
+             member: "not dimensioned on the sheet",
+             from: "the 3D render; the line elevations omit it" },
+  summary: "A floor-supported hot aisle containment frame: HSS 4x4 columns at "
+         + "72\" bays, P1001 cantilever arms carrying cable tray at custom "
+         + "spacings, twinwall polycarbonate roof panels and a sliding or "
+         + "swing door at the end of the aisle.",
+};
+
+//! The sheet offers three widths and three heights and nothing between them,
+//! so a model that asks for 1500 mm is asking for a product that is not made.
+//! Rounded to the nearest offered size and SAID, rather than drawn to order.
+export function containmentFit(wanted, offered) {
+  const want = Number(wanted);
+  if (!Number.isFinite(want)) return { value: offered[0], asked: wanted, moved: true };
+  let best = offered[0];
+  for (const v of offered) if (Math.abs(v - want) < Math.abs(best - want)) best = v;
+  return { value: best, asked: want, moved: Math.abs(best - want) > 0.5 };
+}
