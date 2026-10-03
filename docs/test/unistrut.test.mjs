@@ -11,7 +11,8 @@
 // that P1006 does NOT fit P3300, because that is the mistake the catalogue is
 // warning about and the one that gets ordered.
 
-import { FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
+import { CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
+         FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
          STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, bomOf, bomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
          patternByKey, pickHoles, strutLabel, strutSection, strutSections }
@@ -356,6 +357,72 @@ console.log("\n10. the fittings, weighed against the page they came off");
   check("overlapping arms are counted once, not added up",
         fittingWeightPer100(tee) < naive * 0.85,
         fittingWeightPer100(tee).toFixed(1) + " against " + naive.toFixed(1) + " added up");
+}
+
+console.log("\n11. weight is not capacity, and capacity is not one number");
+{
+  //! THE READING THAT HAD TO BE CHECKED. "Wt/100 pcs" on p81 could be read as
+  //! a load rating, and a library that confused the two would put a 35 kg
+  //! capacity on a bracket good for 680. It is mass, and the proof is that a
+  //! blank computed from geometry and steel density lands on the catalogue's
+  //! own figure in BOTH unit systems - 76.6 lb/100 against 78, and 34.7 kg/100
+  //! against 35.4. A load rating would have no reason to do that.
+  const p1067 = FITTINGS.find(f => f.key === "P1067");
+  const imperialVolume = 7.25 * 1.625 * 0.25 - 4 * Math.PI * (0.5625 / 2) ** 2 * 0.25;
+  const lbPer100 = imperialVolume * 0.284 * 100;
+  check("P1067's printed 78 lb/100 is the mass of a hundred of them",
+        Math.abs(lbPer100 - 78) / 78 < 0.03, lbPer100.toFixed(1) + " lb computed");
+  check("and the metric column agrees with the imperial one",
+        Math.abs(fittingWeightPer100(p1067) - p1067.kgPer100) / p1067.kgPer100 < 0.03);
+  //! And the two are nowhere near each other, which is the point: a P1026 on
+  //! 12 gauge carries 1,500 lb while weighing well under a pound.
+  check("a connection load is a different order of magnitude from a weight",
+        connectionLoad("P1026", 12).positions[0].lb > 20 * (p1067.kgPer100 / 100 * 2.205),
+        "1500 lb carried against " + (p1067.kgPer100 / 100 * 2.205).toFixed(2) + " lb of steel");
+
+  //! THE LOAD IS NOT A PROPERTY OF THE FITTING. Same part, three channels,
+  //! three answers. Quoting one number against a part number is the error this
+  //! guards.
+  check("the same fitting carries less on thinner channel",
+        connectionLoad("P1026", 12).leastLb > connectionLoad("P1026", 14).leastLb
+        && connectionLoad("P1026", 14).leastLb > connectionLoad("P1026", 16).leastLb,
+        [12, 14, 16].map(g => connectionLoad("P1026", g).leastLb).join(" > "));
+  //! AND NOT EVEN ONE NUMBER PER CHANNEL. p79's heading is "when used in
+  //! position shown", and it prints P1026 twice - 1,500 and 1,000 on the same
+  //! 12 gauge - because the load comes on differently.
+  check("and has more than one capacity on the same channel",
+        connectionLoad("P1026", 12).positions.length === 2,
+        connectionLoad("P1026", 12).positions.map(p => p.lb).join(" and "));
+  check("P1346 likewise, on the arm and hung from concrete",
+        connectionLoad("P1346", 12).positions.length === 2,
+        connectionLoad("P1346", 12).positions.map(p => p.lb).join(" and "));
+  //! When the load case is unknown the only safe quote is the lowest, and it
+  //! is labelled as the lowest rather than returned as "the" capacity.
+  check("the figure offered without a load case is the lowest of them",
+        connectionLoad("P1346", 12).leastLb === 1200,
+        String(connectionLoad("P1346", 12).leastLb));
+
+  //! Refusing is part of being right. A capacity without a gauge is not a
+  //! conservative answer, it is an unsupported one.
+  check("asked without a gauge it refuses and says why",
+        /gauge/.test(connectionLoad("P1026").error || ""));
+  check("and it does not invent a load for a fitting p79 does not tabulate",
+        /publishes no load/.test(connectionLoad("P1067", 12).error || ""));
+
+  //! kN is computed from lb rather than stored beside it: p79 prints both, and
+  //! two columns of the same number can disagree after an edit.
+  check("the kN column is the pounds converted, to the catalogue's figures",
+        near(connectionLoad("P1026", 12).positions[0].kN, 6.67, 0.01)
+        && near(connectionLoad("P2484", 12).positions[0].kN, 13.34, 0.01),
+        connectionLoad("P2484", 12).positions[0].kN + " kN for 3000 lb");
+
+  //! The conditions ARE the number. p79 gives them in three notes and a figure
+  //! repeated without them is unsupported.
+  check("every load carries its conditions",
+        LOAD_CONDITIONS.safetyFactor === 2.5 && /P1010/.test(LOAD_CONDITIONS.nut)
+        && /both ends/i.test(LOAD_CONDITIONS.support));
+  check("and all ten tabulated rows are present",
+        CONNECTION_LOADS.length === 10, CONNECTION_LOADS.length + " rows");
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

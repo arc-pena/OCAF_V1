@@ -749,3 +749,79 @@ export const FITTINGS = [
 ];
 
 export const fittingByKey = key => FITTINGS.find(f => f.key === key) || null;
+
+/* ========================================================== connection loads
+
+   NOT THE WEIGHT. 18A p81 prints "Wt/100 pcs", which is the mass of a hundred
+   pieces - verified rather than assumed, in two unit systems from two
+   densities: a P1067 blank computes to 76.6 lb/100 against a printed 78, and
+   34.7 kg/100 against a printed 35.4, both under 2%. A connection's allowable
+   load is a different number on a different page.
+
+   p79 is that page, and three things about it decide how it must be stored:
+
+   1. THE LOAD DEPENDS ON THE CHANNEL, not on the fitting. The same P1026 is
+      good for 1,500 lb on 12 gauge, 1,000 on 14 and 750 on 16. A capacity
+      quoted against a fitting alone is meaningless.
+
+   2. THE SAME FITTING HAS MORE THAN ONE CAPACITY. The heading says "when used
+      in position shown", and P1026 appears twice at 1,500 and 1,000, and
+      P1346 twice at 2,000 and 1,200. Which way the load comes on is part of
+      the answer, so it is part of the key.
+
+   3. THE CONDITIONS ARE THE NUMBER. p79's own notes: both ends of the beam
+      supported, a P1010 nut and a 1/2" bolt, and a safety factor of 2-1/2 on
+      the ultimate strength of the connection. A figure repeated without those
+      is not conservative, it is unsupported - so they are attached to every
+      row and the lookup will not answer without a gauge.                     */
+
+export const LOAD_CONDITIONS = {
+  nut: "P1010", bolt: "1/2\"", safetyFactor: 2.5,
+  basis: "ultimate strength of the connection",
+  support: "both ends of the beam supported",
+  source: "General Engineering Catalog 18A p79, Design Load Data",
+  note: "Allowable loads. The safety factor is already in them.",
+};
+
+//! lb at 12, 14 and 16 gauge, in that order. kN on the page is these converted
+//! (1,500 lb = 6.67 kN), so only the pounds are stored and kN is computed -
+//! two columns of the same number can disagree after an edit and one of them
+//! then has to be wrong.
+export const CONNECTION_LOADS = [
+  { fittings: ["P1026"], position: "load down on the horizontal arm", lb: [1500, 1000, 750] },
+  { fittings: ["P1026"], position: "load down close to the upright", lb: [1000, 650, 500] },
+  { fittings: ["P1065"], position: "load down on a flat splice", lb: [1000, 800, 600] },
+  { fittings: ["P1068"], position: "load down on the short angle", lb: [500, 500, 500] },
+  { fittings: ["P1325", "P2235"], position: "load spread on the arm", lb: [2000, 2000, 1500] },
+  { fittings: ["P1326"], position: "load down on the short angle", lb: [500, 500, 500] },
+  { fittings: ["P1346"], position: "load down on the arm", lb: [2000, 1500, 900] },
+  { fittings: ["P1346"], position: "hung from concrete, load pulling down", lb: [1200, 1200, 1000] },
+  { fittings: ["P1458", "P1579"], position: "load spread on the arm", lb: [1500, 1000, 1000] },
+  { fittings: ["P2484"], position: "load spread on a gusseted arm", lb: [3000, 2000, 1500] },
+];
+
+const GAUGES = [12, 14, 16];
+
+//! What a connection is good for. Returns every position the catalogue gives
+//! for that fitting, because picking one for the caller would be choosing
+//! their load case for them.
+export function connectionLoad(fitting, gauge) {
+  const g = GAUGES.indexOf(Number(gauge));
+  if (g < 0)
+    return { error: "p79 gives loads at 12, 14 and 16 gauge only, and the load "
+                  + "depends on the channel — say which gauge the fitting bolts to" };
+  const rows = CONNECTION_LOADS.filter(r => r.fittings.includes(String(fitting).toUpperCase()));
+  if (!rows.length)
+    return { error: "p79 publishes no load for " + fitting
+                  + " — it tabulates ten fittings, not the whole catalogue" };
+  return {
+    fitting, gauge: Number(gauge),
+    positions: rows.map(r => ({ position: r.position, lb: r.lb[g],
+                                kN: Math.round(r.lb[g] * 0.0044482 * 100) / 100 })),
+    //! The lowest of them, which is the only one safe to quote when the load
+    //! case is not known - and it is labelled as such rather than returned as
+    //! "the" capacity.
+    leastLb: Math.min(...rows.map(r => r.lb[g])),
+    conditions: LOAD_CONDITIONS,
+  };
+}
