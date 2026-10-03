@@ -18,6 +18,7 @@ import { clearSky, dayLength, findSites, incidence, psychrometrics, readCoordina
 //! them, and a package that is not imported is a package that is not asked.
 import "../src/atrium-plugin.js";
 import "../src/rhino-plugin.js";
+import "../src/unistrut-plugin.js";
 import "../src/crowd-plugin.js";
 import "../src/drawings-plugin.js";
 import "../src/ifc-plugin.js";

@@ -48,6 +48,7 @@ import { duplicateEdits, duplicateModel, instantiateEdits, reachesOut, saysReuse
          setsIn } from "./reuse.js";
 import { ATRIUM } from "./atrium-plugin.js";
 import { RHINO } from "./rhino-plugin.js";
+import { UNISTRUT } from "./unistrut-plugin.js";
 import { CLIMATE } from "./climate-plugin.js";
 import { IFC } from "./ifc-plugin.js";
 import { CROWD } from "./crowd-plugin.js";
