@@ -28,6 +28,7 @@ import { offerPlugin } from "./plugin.js";
 import { CONNECTION_LOADS, FITTINGS, FITTING_STANDARD, STOCK_LENGTHS, STRUT_CHANNELS,
          STRUT_FINISHES, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText, channelByKey,
          connectionLoad, fittingBlank, fittingByKey, holeStations, lengthPlan,
+         nestPieces,
          nutByKey, nutFits, nutsFor, patternByKey, pickHoles, strutLabel,
          strutSections } from "./unistrut.js";
 
@@ -473,16 +474,23 @@ export function unistrutDrivers(kit) {
       if (!of) return null;
       const show = ["Everything", "Channel only", "Nuts and fittings"][F.choice(f, "show", 0)];
       const items = [];
+      //! One cut list per part number, nested once the model has been walked.
+      const cutLists = new Map();
       const walk = one => {
         const spec = F.spec(one);
         if (!spec) return;
         if (spec.type === "StrutRun" && show !== "Nuts and fittings") {
-          const pieces = runPieces(one) || [];
-          for (const p of pieces)
-            items.push({ part: strutLabel(p.spec.channel.key, p.spec.pattern.key,
-                                          p.spec.finish),
-                         kind: "channel", length: p.plan.bought || p.drawn, count: 1,
-                         kgPer100m: p.spec.channel.kgPer100m, drop: p.plan.drop });
+          //! GATHERED, NOT COUNTED YET. Pieces of one part number are cut out
+          //! of the same sticks, so they have to be nested together after the
+          //! whole model is walked - counting them one at a time bought a
+          //! stick per piece and quoted the museum 250 m to install 88.
+          for (const p of runPieces(one) || []) {
+            const part = strutLabel(p.spec.channel.key, p.spec.pattern.key, p.spec.finish);
+            if (!cutLists.has(part))
+              cutLists.set(part, { channel: p.spec.channel, policy: p.spec.policy,
+                                   lengths: [] });
+            cutLists.get(part).lengths.push(p.drawn);
+          }
         }
         if (spec.type === "StrutNut" && show !== "Channel only") {
           const run = F.reference(one, "run");
@@ -509,6 +517,31 @@ export function unistrutDrivers(kit) {
           for (const child of doc.within(one)) walk(child);
       };
       walk(of);
+
+      //! AND NOW THE CUTTING. Only "Cut from sticks" nests: cut to the drawing
+      //! buys no sticks at all, and whole sticks are installed uncut by
+      //! definition, so nesting either would be describing a job nobody does.
+      for (const [part, list] of cutLists) {
+        const channel = list.channel;
+        const total = list.lengths.reduce((s, v) => s + v, 0);
+        if (list.policy === "exact") {
+          items.push({ part, kind: "channel", length: total, count: 1,
+                       kgPer100m: channel.kgPer100m });
+          continue;
+        }
+        if (list.policy === "stock") {
+          let bought = 0;
+          for (const v of list.lengths) bought += lengthPlan(v, "stock").bought;
+          items.push({ part, kind: "channel", length: bought, count: 1,
+                       kgPer100m: channel.kgPer100m, drop: bought - total });
+          continue;
+        }
+        const nested = nestPieces(list.lengths);
+        items.push({ part, kind: "channel", length: nested.bought, count: 1,
+                     kgPer100m: channel.kgPer100m, drop: nested.drop,
+                     note: nested.sticks.length + " sticks, "
+                         + list.lengths.length + " pieces" });
+      }
       //! K.text takes the LINES, not the text - passing a string gives a
       //! `data.lines` that is a string, and the tree's preview then calls
       //! .slice().join() on it and throws a long way from here.

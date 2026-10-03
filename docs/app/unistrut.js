@@ -507,6 +507,12 @@ export function strutBomText(lines) {
                           : String(line.count).padStart(8) + "  ");
     bits.push(line.kg.toFixed(1).padStart(8) + " kg");
     if (line.drop > 0.001) bits.push("drop " + line.drop.toFixed(2) + " m");
+    //! HOW IT WAS CUT, which is the difference between a bill and a total. Two
+    //! sticks holding four pieces and one stick holding one are the same
+    //! metres and a different order, and once the offcuts are nested the
+    //! metres alone cannot tell them apart - a 3.6 m run and four pieces
+    //! adding to 3.6 m both come to two 10 ft sticks.
+    if (line.note) bits.push(line.note);
     out.push(bits.join("  "));
   }
   out.push("".padEnd(16) + " ".repeat(10) + kg.toFixed(1).padStart(8) + " kg total");
@@ -823,5 +829,63 @@ export function connectionLoad(fitting, gauge) {
     //! "the" capacity.
     leastLb: Math.min(...rows.map(r => r.lb[g])),
     conditions: LOAD_CONDITIONS,
+  };
+}
+
+/* =================================================================== nesting
+
+   lengthPlan buys a stick for ONE piece. A bill of a real frame is dozens of
+   pieces of the same part number, and an estimator cuts as many out of each
+   stick as will fit - which is why the museum sample, planned piece by piece,
+   bought 250 m to install 88 and threw away 162 m on paper. A 400 mm arm does
+   not consume a 10 ft stick; seven of them share one.
+
+   First fit decreasing: sort the pieces longest first and drop each into the
+   first stick it fits. It is the heuristic a person uses with a cut list and a
+   pencil, it is within a few per cent of optimal for this kind of mix, and it
+   is stable - the same cut list gives the same answer, which matters when the
+   bill is a document somebody checks.
+
+   THE KERF IS AN ASSUMPTION AND IS MARKED AS ONE. 18A does not publish a cut
+   width; 3 mm is a normal abrasive or bandsaw kerf on 12 gauge and is a
+   setting rather than a catalogue figure. At 3 mm it costs 18 mm over seven
+   cuts, which changes nothing; at 0 it would quietly claim a stick holds one
+   more piece than it does.                                                   */
+
+export const CUT_KERF = 3;
+
+export function nestPieces(lengths, stock = STOCK_LENGTHS, kerf = CUT_KERF) {
+  const want = (lengths || []).map(Number).filter(n => n > 0).sort((a, b) => b - a);
+  const sizes = [...stock].sort((a, b) => a - b);
+  const longest = sizes[sizes.length - 1];
+  const sticks = [];
+  const tooLong = [];
+  for (const piece of want) {
+    //! A piece longer than the longest stick is not a nesting problem, it is a
+    //! splice - and saying so is better than silently buying two sticks and
+    //! pretending one member came out of them.
+    if (piece > longest) { tooLong.push(piece); continue; }
+    let home = sticks.find(s => s.left >= piece + (s.cuts.length ? kerf : 0));
+    if (!home) {
+      //! THE SMALLEST STICK THAT TAKES IT, not always the longest: a cut list
+      //! of 2.8 m pieces wants 10 ft sticks, and buying 20 ft ones would
+      //! double the drop while looking thriftier per metre.
+      const size = sizes.find(s => s >= piece) || longest;
+      home = { length: size, left: size, cuts: [] };
+      sticks.push(home);
+    }
+    home.left -= piece + (home.cuts.length ? kerf : 0);
+    home.cuts.push(piece);
+  }
+  const bought = sticks.reduce((s, one) => s + one.length, 0);
+  const used = want.filter(p => p <= longest).reduce((s, p) => s + p, 0);
+  return {
+    sticks: sticks.map(s => ({ length: s.length, cuts: s.cuts, drop: s.left })),
+    bought, used, drop: bought - used,
+    tooLong,
+    //! What the piece-by-piece plan would have cost, so the saving is in the
+    //! answer rather than left to be worked out.
+    unnested: want.filter(p => p <= longest)
+      .reduce((s, p) => s + lengthPlan(p, "cut", sizes).bought, 0),
   };
 }
