@@ -39,6 +39,7 @@ import { IFC } from "./ifc-plugin.js";
 import { PACKING } from "./packing-plugin.js";
 import { RACK } from "./rack-plugin.js";
 import { RHINO } from "./rhino-plugin.js";
+import { UNISTRUT } from "./unistrut-plugin.js";
 import { HARNESS } from "./harness-plugin.js";
 
 let kernel = null;
@@ -70,7 +71,7 @@ let kernel = null;
 //! package called 'harness'" - naming the page's own shelf, which has it.
 const SHELF = {};
 for (const plugin of [ATRIUM, CLIMATE, CROWD, DRAWINGS, ERGO, HARNESS, IFC, PACKING,
-                      RACK, RHINO])
+                      RACK, RHINO, UNISTRUT])
   SHELF[plugin.id] = plugin;
 
 //! What a driver builder is handed here: the factories and the document, and

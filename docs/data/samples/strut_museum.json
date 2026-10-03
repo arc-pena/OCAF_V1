@@ -1,0 +1,3970 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Unistrut · a museum of assemblages",
+ "units": "mm",
+ "needs": [
+  "unistrut"
+ ],
+ "features": [
+  {
+   "id": "H",
+   "type": "GeometricalSet",
+   "name": "Unistrut · a museum of assemblages"
+  },
+  {
+   "id": "GP",
+   "type": "Point",
+   "name": "Ground corner",
+   "parent": "H",
+   "args": {
+    "x": -2400,
+    "y": -2400,
+    "z": -40
+   }
+  },
+  {
+   "id": "GND",
+   "type": "Cube",
+   "name": "Ground",
+   "parent": "H",
+   "appearance": {
+    "finish": "concrete",
+    "color": [
+     0.8,
+     0.79,
+     0.76
+    ],
+    "gloss": 0.08
+   },
+   "args": {
+    "dx": 16800,
+    "dy": 8800,
+    "dz": 40,
+    "origin": {
+     "ref": "GP"
+    }
+   }
+  },
+  {
+   "id": "B0",
+   "type": "GeometricalSet",
+   "name": "Rack frame",
+   "parent": "H"
+  },
+  {
+   "id": "B0_c1la",
+   "type": "Point",
+   "name": "c1l start",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "B0_c1lb",
+   "type": "Point",
+   "name": "c1l end",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_c1l",
+   "type": "Polyline",
+   "name": "c1l",
+   "parent": "B0",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B0_c1la"
+     },
+     {
+      "ref": "B0_c1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_c1",
+   "type": "StrutRun",
+   "name": "c1",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_c1l"
+    }
+   }
+  },
+  {
+   "id": "B0_c2la",
+   "type": "Point",
+   "name": "c2l start",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "B0_c2lb",
+   "type": "Point",
+   "name": "c2l end",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 0,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_c2l",
+   "type": "Polyline",
+   "name": "c2l",
+   "parent": "B0",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B0_c2la"
+     },
+     {
+      "ref": "B0_c2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_c2",
+   "type": "StrutRun",
+   "name": "c2",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_c2l"
+    }
+   }
+  },
+  {
+   "id": "B0_c3la",
+   "type": "Point",
+   "name": "c3l start",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 1000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B0_c3lb",
+   "type": "Point",
+   "name": "c3l end",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 1000,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_c3l",
+   "type": "Polyline",
+   "name": "c3l",
+   "parent": "B0",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B0_c3la"
+     },
+     {
+      "ref": "B0_c3lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_c3",
+   "type": "StrutRun",
+   "name": "c3",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_c3l"
+    }
+   }
+  },
+  {
+   "id": "B0_c4la",
+   "type": "Point",
+   "name": "c4l start",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 1000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B0_c4lb",
+   "type": "Point",
+   "name": "c4l end",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 1000,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_c4l",
+   "type": "Polyline",
+   "name": "c4l",
+   "parent": "B0",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B0_c4la"
+     },
+     {
+      "ref": "B0_c4lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_c4",
+   "type": "StrutRun",
+   "name": "c4",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_c4l"
+    }
+   }
+  },
+  {
+   "id": "B0_r3000",
+   "type": "Point",
+   "name": "r300 0",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 300
+   }
+  },
+  {
+   "id": "B0_r3001",
+   "type": "Point",
+   "name": "r300 1",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 0,
+    "z": 300
+   }
+  },
+  {
+   "id": "B0_r3002",
+   "type": "Point",
+   "name": "r300 2",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 1000,
+    "z": 300
+   }
+  },
+  {
+   "id": "B0_r3003",
+   "type": "Point",
+   "name": "r300 3",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 1000,
+    "z": 300
+   }
+  },
+  {
+   "id": "B0_r300",
+   "type": "Polyline",
+   "name": "r300",
+   "parent": "B0",
+   "args": {
+    "closed": "Closed",
+    "points": [
+     {
+      "ref": "B0_r3000"
+     },
+     {
+      "ref": "B0_r3001"
+     },
+     {
+      "ref": "B0_r3002"
+     },
+     {
+      "ref": "B0_r3003"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_rail300",
+   "type": "StrutRun",
+   "name": "rail300",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_r300"
+    }
+   }
+  },
+  {
+   "id": "B0_r12000",
+   "type": "Point",
+   "name": "r1200 0",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 1200
+   }
+  },
+  {
+   "id": "B0_r12001",
+   "type": "Point",
+   "name": "r1200 1",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 0,
+    "z": 1200
+   }
+  },
+  {
+   "id": "B0_r12002",
+   "type": "Point",
+   "name": "r1200 2",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 1000,
+    "z": 1200
+   }
+  },
+  {
+   "id": "B0_r12003",
+   "type": "Point",
+   "name": "r1200 3",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 1000,
+    "z": 1200
+   }
+  },
+  {
+   "id": "B0_r1200",
+   "type": "Polyline",
+   "name": "r1200",
+   "parent": "B0",
+   "args": {
+    "closed": "Closed",
+    "points": [
+     {
+      "ref": "B0_r12000"
+     },
+     {
+      "ref": "B0_r12001"
+     },
+     {
+      "ref": "B0_r12002"
+     },
+     {
+      "ref": "B0_r12003"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_rail1200",
+   "type": "StrutRun",
+   "name": "rail1200",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_r1200"
+    }
+   }
+  },
+  {
+   "id": "B0_r21000",
+   "type": "Point",
+   "name": "r2100 0",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_r21001",
+   "type": "Point",
+   "name": "r2100 1",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 0,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_r21002",
+   "type": "Point",
+   "name": "r2100 2",
+   "parent": "B0",
+   "args": {
+    "x": 600,
+    "y": 1000,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_r21003",
+   "type": "Point",
+   "name": "r2100 3",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 1000,
+    "z": 2100
+   }
+  },
+  {
+   "id": "B0_r2100",
+   "type": "Polyline",
+   "name": "r2100",
+   "parent": "B0",
+   "args": {
+    "closed": "Closed",
+    "points": [
+     {
+      "ref": "B0_r21000"
+     },
+     {
+      "ref": "B0_r21001"
+     },
+     {
+      "ref": "B0_r21002"
+     },
+     {
+      "ref": "B0_r21003"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B0_rail2100",
+   "type": "StrutRun",
+   "name": "rail2100",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B0_r2100"
+    }
+   }
+  },
+  {
+   "id": "B0_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B0",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1006-1420",
+    "where": "every 3",
+    "run": {
+     "ref": "B0_rail1200"
+    }
+   }
+  },
+  {
+   "id": "B0_TP",
+   "type": "Point",
+   "name": "Rack frame label point",
+   "parent": "B0",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 2600
+   }
+  },
+  {
+   "id": "B0_TAG",
+   "type": "Tag",
+   "name": "Rack frame",
+   "parent": "B0",
+   "args": {
+    "note": "P1001 uprights, P1000 rails · data hall equipment rack",
+    "size": "Medium",
+    "at": {
+     "ref": "B0_TP"
+    }
+   }
+  },
+  {
+   "id": "B1",
+   "type": "GeometricalSet",
+   "name": "Trapeze hanger",
+   "parent": "H"
+  },
+  {
+   "id": "B1_d1la",
+   "type": "Point",
+   "name": "d1l start",
+   "parent": "B1",
+   "args": {
+    "x": 3400,
+    "y": 0,
+    "z": 2400
+   }
+  },
+  {
+   "id": "B1_d1lb",
+   "type": "Point",
+   "name": "d1l end",
+   "parent": "B1",
+   "args": {
+    "x": 3400,
+    "y": 0,
+    "z": 1500
+   }
+  },
+  {
+   "id": "B1_d1l",
+   "type": "Polyline",
+   "name": "d1l",
+   "parent": "B1",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B1_d1la"
+     },
+     {
+      "ref": "B1_d1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B1_d1",
+   "type": "StrutRun",
+   "name": "d1",
+   "parent": "B1",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B1_d1l"
+    }
+   }
+  },
+  {
+   "id": "B1_d2la",
+   "type": "Point",
+   "name": "d2l start",
+   "parent": "B1",
+   "args": {
+    "x": 4600,
+    "y": 0,
+    "z": 2400
+   }
+  },
+  {
+   "id": "B1_d2lb",
+   "type": "Point",
+   "name": "d2l end",
+   "parent": "B1",
+   "args": {
+    "x": 4600,
+    "y": 0,
+    "z": 1500
+   }
+  },
+  {
+   "id": "B1_d2l",
+   "type": "Polyline",
+   "name": "d2l",
+   "parent": "B1",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B1_d2la"
+     },
+     {
+      "ref": "B1_d2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B1_d2",
+   "type": "StrutRun",
+   "name": "d2",
+   "parent": "B1",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B1_d2l"
+    }
+   }
+  },
+  {
+   "id": "B1_xa",
+   "type": "Point",
+   "name": "x start",
+   "parent": "B1",
+   "args": {
+    "x": 3400,
+    "y": 0,
+    "z": 1500
+   }
+  },
+  {
+   "id": "B1_xb",
+   "type": "Point",
+   "name": "x end",
+   "parent": "B1",
+   "args": {
+    "x": 4600,
+    "y": 0,
+    "z": 1500
+   }
+  },
+  {
+   "id": "B1_x",
+   "type": "Polyline",
+   "name": "x",
+   "parent": "B1",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B1_xa"
+     },
+     {
+      "ref": "B1_xb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B1_cross",
+   "type": "StrutRun",
+   "name": "cross",
+   "parent": "B1",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B1_x"
+    }
+   }
+  },
+  {
+   "id": "B1_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B1",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P4006-1420",
+    "where": "2, -2",
+    "run": {
+     "ref": "B1_cross"
+    }
+   }
+  },
+  {
+   "id": "B1_TP",
+   "type": "Point",
+   "name": "Trapeze hanger label point",
+   "parent": "B1",
+   "args": {
+    "x": 4000,
+    "y": 0,
+    "z": 2900
+   }
+  },
+  {
+   "id": "B1_TAG",
+   "type": "Tag",
+   "name": "Trapeze hanger",
+   "parent": "B1",
+   "args": {
+    "note": "P3300 cross member · pipe and conduit support",
+    "size": "Medium",
+    "at": {
+     "ref": "B1_TP"
+    }
+   }
+  },
+  {
+   "id": "B2",
+   "type": "GeometricalSet",
+   "name": "Wall bracket",
+   "parent": "H"
+  },
+  {
+   "id": "B2_ua",
+   "type": "Point",
+   "name": "u start",
+   "parent": "B2",
+   "args": {
+    "x": 8000,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "B2_ub",
+   "type": "Point",
+   "name": "u end",
+   "parent": "B2",
+   "args": {
+    "x": 8000,
+    "y": 0,
+    "z": 1800
+   }
+  },
+  {
+   "id": "B2_u",
+   "type": "Polyline",
+   "name": "u",
+   "parent": "B2",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B2_ua"
+     },
+     {
+      "ref": "B2_ub"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B2_upright",
+   "type": "StrutRun",
+   "name": "upright",
+   "parent": "B2",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Right",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B2_u"
+    }
+   }
+  },
+  {
+   "id": "B2_a1la",
+   "type": "Point",
+   "name": "a1l start",
+   "parent": "B2",
+   "args": {
+    "x": 8000,
+    "y": 0,
+    "z": 600
+   }
+  },
+  {
+   "id": "B2_a1lb",
+   "type": "Point",
+   "name": "a1l end",
+   "parent": "B2",
+   "args": {
+    "x": 8700,
+    "y": 0,
+    "z": 600
+   }
+  },
+  {
+   "id": "B2_a1l",
+   "type": "Polyline",
+   "name": "a1l",
+   "parent": "B2",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B2_a1la"
+     },
+     {
+      "ref": "B2_a1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B2_a1",
+   "type": "StrutRun",
+   "name": "a1",
+   "parent": "B2",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B2_a1l"
+    }
+   }
+  },
+  {
+   "id": "B2_a2la",
+   "type": "Point",
+   "name": "a2l start",
+   "parent": "B2",
+   "args": {
+    "x": 8000,
+    "y": 0,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B2_a2lb",
+   "type": "Point",
+   "name": "a2l end",
+   "parent": "B2",
+   "args": {
+    "x": 8700,
+    "y": 0,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B2_a2l",
+   "type": "Polyline",
+   "name": "a2l",
+   "parent": "B2",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B2_a2la"
+     },
+     {
+      "ref": "B2_a2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B2_a2",
+   "type": "StrutRun",
+   "name": "a2",
+   "parent": "B2",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B2_a2l"
+    }
+   }
+  },
+  {
+   "id": "B2_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B2",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1008",
+    "where": "1, -1",
+    "run": {
+     "ref": "B2_a1"
+    }
+   }
+  },
+  {
+   "id": "B2_TP",
+   "type": "Point",
+   "name": "Wall bracket label point",
+   "parent": "B2",
+   "args": {
+    "x": 8000,
+    "y": 0,
+    "z": 2300
+   }
+  },
+  {
+   "id": "B2_TAG",
+   "type": "Tag",
+   "name": "Wall bracket",
+   "parent": "B2",
+   "args": {
+    "note": "P1000 upright, P1000 arms · AC unit wall attachment",
+    "size": "Medium",
+    "at": {
+     "ref": "B2_TP"
+    }
+   }
+  },
+  {
+   "id": "B3",
+   "type": "GeometricalSet",
+   "name": "Shelving",
+   "parent": "H"
+  },
+  {
+   "id": "B3_c1la",
+   "type": "Point",
+   "name": "c1l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "B3_c1lb",
+   "type": "Point",
+   "name": "c1l end",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B3_c1l",
+   "type": "Polyline",
+   "name": "c1l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_c1la"
+     },
+     {
+      "ref": "B3_c1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_c1",
+   "type": "StrutRun",
+   "name": "c1",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_c1l"
+    }
+   }
+  },
+  {
+   "id": "B3_c2la",
+   "type": "Point",
+   "name": "c2l start",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "B3_c2lb",
+   "type": "Point",
+   "name": "c2l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B3_c2l",
+   "type": "Polyline",
+   "name": "c2l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_c2la"
+     },
+     {
+      "ref": "B3_c2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_c2",
+   "type": "StrutRun",
+   "name": "c2",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_c2l"
+    }
+   }
+  },
+  {
+   "id": "B3_c3la",
+   "type": "Point",
+   "name": "c3l start",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 0
+   }
+  },
+  {
+   "id": "B3_c3lb",
+   "type": "Point",
+   "name": "c3l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B3_c3l",
+   "type": "Polyline",
+   "name": "c3l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_c3la"
+     },
+     {
+      "ref": "B3_c3lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_c3",
+   "type": "StrutRun",
+   "name": "c3",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_c3l"
+    }
+   }
+  },
+  {
+   "id": "B3_c4la",
+   "type": "Point",
+   "name": "c4l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 0
+   }
+  },
+  {
+   "id": "B3_c4lb",
+   "type": "Point",
+   "name": "c4l end",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B3_c4l",
+   "type": "Polyline",
+   "name": "c4l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_c4la"
+     },
+     {
+      "ref": "B3_c4lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_c4",
+   "type": "StrutRun",
+   "name": "c4",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_c4l"
+    }
+   }
+  },
+  {
+   "id": "B3_f400la",
+   "type": "Point",
+   "name": "f400l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 400
+   }
+  },
+  {
+   "id": "B3_f400lb",
+   "type": "Point",
+   "name": "f400l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 400
+   }
+  },
+  {
+   "id": "B3_f400l",
+   "type": "Polyline",
+   "name": "f400l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_f400la"
+     },
+     {
+      "ref": "B3_f400lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_f400",
+   "type": "StrutRun",
+   "name": "f400",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_f400l"
+    }
+   }
+  },
+  {
+   "id": "B3_b400la",
+   "type": "Point",
+   "name": "b400l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 400
+   }
+  },
+  {
+   "id": "B3_b400lb",
+   "type": "Point",
+   "name": "b400l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 400
+   }
+  },
+  {
+   "id": "B3_b400l",
+   "type": "Polyline",
+   "name": "b400l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_b400la"
+     },
+     {
+      "ref": "B3_b400lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_b400",
+   "type": "StrutRun",
+   "name": "b400",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_b400l"
+    }
+   }
+  },
+  {
+   "id": "B3_f900la",
+   "type": "Point",
+   "name": "f900l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 900
+   }
+  },
+  {
+   "id": "B3_f900lb",
+   "type": "Point",
+   "name": "f900l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 900
+   }
+  },
+  {
+   "id": "B3_f900l",
+   "type": "Polyline",
+   "name": "f900l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_f900la"
+     },
+     {
+      "ref": "B3_f900lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_f900",
+   "type": "StrutRun",
+   "name": "f900",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_f900l"
+    }
+   }
+  },
+  {
+   "id": "B3_b900la",
+   "type": "Point",
+   "name": "b900l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 900
+   }
+  },
+  {
+   "id": "B3_b900lb",
+   "type": "Point",
+   "name": "b900l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 900
+   }
+  },
+  {
+   "id": "B3_b900l",
+   "type": "Polyline",
+   "name": "b900l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_b900la"
+     },
+     {
+      "ref": "B3_b900lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_b900",
+   "type": "StrutRun",
+   "name": "b900",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_b900l"
+    }
+   }
+  },
+  {
+   "id": "B3_f1400la",
+   "type": "Point",
+   "name": "f1400l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B3_f1400lb",
+   "type": "Point",
+   "name": "f1400l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B3_f1400l",
+   "type": "Polyline",
+   "name": "f1400l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_f1400la"
+     },
+     {
+      "ref": "B3_f1400lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_f1400",
+   "type": "StrutRun",
+   "name": "f1400",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_f1400l"
+    }
+   }
+  },
+  {
+   "id": "B3_b1400la",
+   "type": "Point",
+   "name": "b1400l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B3_b1400lb",
+   "type": "Point",
+   "name": "b1400l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B3_b1400l",
+   "type": "Polyline",
+   "name": "b1400l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_b1400la"
+     },
+     {
+      "ref": "B3_b1400lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_b1400",
+   "type": "StrutRun",
+   "name": "b1400",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_b1400l"
+    }
+   }
+  },
+  {
+   "id": "B3_f1900la",
+   "type": "Point",
+   "name": "f1900l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 1900
+   }
+  },
+  {
+   "id": "B3_f1900lb",
+   "type": "Point",
+   "name": "f1900l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 0,
+    "z": 1900
+   }
+  },
+  {
+   "id": "B3_f1900l",
+   "type": "Polyline",
+   "name": "f1900l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_f1900la"
+     },
+     {
+      "ref": "B3_f1900lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_f1900",
+   "type": "StrutRun",
+   "name": "f1900",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_f1900l"
+    }
+   }
+  },
+  {
+   "id": "B3_b1900la",
+   "type": "Point",
+   "name": "b1900l start",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 450,
+    "z": 1900
+   }
+  },
+  {
+   "id": "B3_b1900lb",
+   "type": "Point",
+   "name": "b1900l end",
+   "parent": "B3",
+   "args": {
+    "x": 13200,
+    "y": 450,
+    "z": 1900
+   }
+  },
+  {
+   "id": "B3_b1900l",
+   "type": "Polyline",
+   "name": "b1900l",
+   "parent": "B3",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B3_b1900la"
+     },
+     {
+      "ref": "B3_b1900lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B3_b1900",
+   "type": "StrutRun",
+   "name": "b1900",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P3300",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B3_b1900l"
+    }
+   }
+  },
+  {
+   "id": "B3_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B3",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P4006-1420",
+    "where": "every 2",
+    "run": {
+     "ref": "B3_f900"
+    }
+   }
+  },
+  {
+   "id": "B3_TP",
+   "type": "Point",
+   "name": "Shelving label point",
+   "parent": "B3",
+   "args": {
+    "x": 12000,
+    "y": 0,
+    "z": 2500
+   }
+  },
+  {
+   "id": "B3_TAG",
+   "type": "Tag",
+   "name": "Shelving",
+   "parent": "B3",
+   "args": {
+    "note": "P1000 frame, P3300 bearers · storage racks and shelves",
+    "size": "Medium",
+    "at": {
+     "ref": "B3_TP"
+    }
+   }
+  },
+  {
+   "id": "B4",
+   "type": "GeometricalSet",
+   "name": "Ceiling grid",
+   "parent": "H"
+  },
+  {
+   "id": "B4_d1la",
+   "type": "Point",
+   "name": "d1l start",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 4000,
+    "z": 2800
+   }
+  },
+  {
+   "id": "B4_d1lb",
+   "type": "Point",
+   "name": "d1l end",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_d1l",
+   "type": "Polyline",
+   "name": "d1l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_d1la"
+     },
+     {
+      "ref": "B4_d1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_d1",
+   "type": "StrutRun",
+   "name": "d1",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_d1l"
+    }
+   }
+  },
+  {
+   "id": "B4_d2la",
+   "type": "Point",
+   "name": "d2l start",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 4000,
+    "z": 2800
+   }
+  },
+  {
+   "id": "B4_d2lb",
+   "type": "Point",
+   "name": "d2l end",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_d2l",
+   "type": "Polyline",
+   "name": "d2l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_d2la"
+     },
+     {
+      "ref": "B4_d2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_d2",
+   "type": "StrutRun",
+   "name": "d2",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_d2l"
+    }
+   }
+  },
+  {
+   "id": "B4_d3la",
+   "type": "Point",
+   "name": "d3l start",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 5600,
+    "z": 2800
+   }
+  },
+  {
+   "id": "B4_d3lb",
+   "type": "Point",
+   "name": "d3l end",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 5600,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_d3l",
+   "type": "Polyline",
+   "name": "d3l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_d3la"
+     },
+     {
+      "ref": "B4_d3lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_d3",
+   "type": "StrutRun",
+   "name": "d3",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_d3l"
+    }
+   }
+  },
+  {
+   "id": "B4_d4la",
+   "type": "Point",
+   "name": "d4l start",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 5600,
+    "z": 2800
+   }
+  },
+  {
+   "id": "B4_d4lb",
+   "type": "Point",
+   "name": "d4l end",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 5600,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_d4l",
+   "type": "Polyline",
+   "name": "d4l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_d4la"
+     },
+     {
+      "ref": "B4_d4lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_d4",
+   "type": "StrutRun",
+   "name": "d4",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_d4l"
+    }
+   }
+  },
+  {
+   "id": "B4_r1la",
+   "type": "Point",
+   "name": "r1l start",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_r1lb",
+   "type": "Point",
+   "name": "r1l end",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_r1l",
+   "type": "Polyline",
+   "name": "r1l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_r1la"
+     },
+     {
+      "ref": "B4_r1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_r1",
+   "type": "StrutRun",
+   "name": "r1",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_r1l"
+    }
+   }
+  },
+  {
+   "id": "B4_r2la",
+   "type": "Point",
+   "name": "r2l start",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 5600,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_r2lb",
+   "type": "Point",
+   "name": "r2l end",
+   "parent": "B4",
+   "args": {
+    "x": 2400,
+    "y": 5600,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B4_r2l",
+   "type": "Polyline",
+   "name": "r2l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_r2la"
+     },
+     {
+      "ref": "B4_r2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_r2",
+   "type": "StrutRun",
+   "name": "r2",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_r2l"
+    }
+   }
+  },
+  {
+   "id": "B4_x600la",
+   "type": "Point",
+   "name": "x600l start",
+   "parent": "B4",
+   "args": {
+    "x": 600,
+    "y": 4000,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x600lb",
+   "type": "Point",
+   "name": "x600l end",
+   "parent": "B4",
+   "args": {
+    "x": 600,
+    "y": 5600,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x600l",
+   "type": "Polyline",
+   "name": "x600l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_x600la"
+     },
+     {
+      "ref": "B4_x600lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_x600",
+   "type": "StrutRun",
+   "name": "x600",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Down",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_x600l"
+    }
+   }
+  },
+  {
+   "id": "B4_x1200la",
+   "type": "Point",
+   "name": "x1200l start",
+   "parent": "B4",
+   "args": {
+    "x": 1200,
+    "y": 4000,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x1200lb",
+   "type": "Point",
+   "name": "x1200l end",
+   "parent": "B4",
+   "args": {
+    "x": 1200,
+    "y": 5600,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x1200l",
+   "type": "Polyline",
+   "name": "x1200l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_x1200la"
+     },
+     {
+      "ref": "B4_x1200lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_x1200",
+   "type": "StrutRun",
+   "name": "x1200",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Down",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_x1200l"
+    }
+   }
+  },
+  {
+   "id": "B4_x1800la",
+   "type": "Point",
+   "name": "x1800l start",
+   "parent": "B4",
+   "args": {
+    "x": 1800,
+    "y": 4000,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x1800lb",
+   "type": "Point",
+   "name": "x1800l end",
+   "parent": "B4",
+   "args": {
+    "x": 1800,
+    "y": 5600,
+    "z": 2060
+   }
+  },
+  {
+   "id": "B4_x1800l",
+   "type": "Polyline",
+   "name": "x1800l",
+   "parent": "B4",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B4_x1800la"
+     },
+     {
+      "ref": "B4_x1800lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B4_x1800",
+   "type": "StrutRun",
+   "name": "x1800",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Down",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B4_x1800l"
+    }
+   }
+  },
+  {
+   "id": "B4_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B4",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1010",
+    "where": "every 4",
+    "run": {
+     "ref": "B4_r1"
+    }
+   }
+  },
+  {
+   "id": "B4_TP",
+   "type": "Point",
+   "name": "Ceiling grid label point",
+   "parent": "B4",
+   "args": {
+    "x": 0,
+    "y": 4000,
+    "z": 3300
+   }
+  },
+  {
+   "id": "B4_TAG",
+   "type": "Tag",
+   "name": "Ceiling grid",
+   "parent": "B4",
+   "args": {
+    "note": "P1001 runners, P1000 cross · facade hangers from soffit",
+    "size": "Medium",
+    "at": {
+     "ref": "B4_TP"
+    }
+   }
+  },
+  {
+   "id": "B5",
+   "type": "GeometricalSet",
+   "name": "Cable tray spine",
+   "parent": "H"
+  },
+  {
+   "id": "B5_sa",
+   "type": "Point",
+   "name": "s start",
+   "parent": "B5",
+   "args": {
+    "x": 4000,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B5_sb",
+   "type": "Point",
+   "name": "s end",
+   "parent": "B5",
+   "args": {
+    "x": 6400,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B5_s",
+   "type": "Polyline",
+   "name": "s",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_sa"
+     },
+     {
+      "ref": "B5_sb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_spine",
+   "type": "StrutRun",
+   "name": "spine",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_s"
+    }
+   }
+  },
+  {
+   "id": "B5_a200lla",
+   "type": "Point",
+   "name": "a200ll start",
+   "parent": "B5",
+   "args": {
+    "x": 4200,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a200llb",
+   "type": "Point",
+   "name": "a200ll end",
+   "parent": "B5",
+   "args": {
+    "x": 4200,
+    "y": 3500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a200ll",
+   "type": "Polyline",
+   "name": "a200ll",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a200lla"
+     },
+     {
+      "ref": "B5_a200llb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a200l",
+   "type": "StrutRun",
+   "name": "a200l",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a200ll"
+    }
+   }
+  },
+  {
+   "id": "B5_a200rla",
+   "type": "Point",
+   "name": "a200rl start",
+   "parent": "B5",
+   "args": {
+    "x": 4200,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a200rlb",
+   "type": "Point",
+   "name": "a200rl end",
+   "parent": "B5",
+   "args": {
+    "x": 4200,
+    "y": 4500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a200rl",
+   "type": "Polyline",
+   "name": "a200rl",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a200rla"
+     },
+     {
+      "ref": "B5_a200rlb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a200r",
+   "type": "StrutRun",
+   "name": "a200r",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a200rl"
+    }
+   }
+  },
+  {
+   "id": "B5_a1000lla",
+   "type": "Point",
+   "name": "a1000ll start",
+   "parent": "B5",
+   "args": {
+    "x": 5000,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1000llb",
+   "type": "Point",
+   "name": "a1000ll end",
+   "parent": "B5",
+   "args": {
+    "x": 5000,
+    "y": 3500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1000ll",
+   "type": "Polyline",
+   "name": "a1000ll",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a1000lla"
+     },
+     {
+      "ref": "B5_a1000llb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a1000l",
+   "type": "StrutRun",
+   "name": "a1000l",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a1000ll"
+    }
+   }
+  },
+  {
+   "id": "B5_a1000rla",
+   "type": "Point",
+   "name": "a1000rl start",
+   "parent": "B5",
+   "args": {
+    "x": 5000,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1000rlb",
+   "type": "Point",
+   "name": "a1000rl end",
+   "parent": "B5",
+   "args": {
+    "x": 5000,
+    "y": 4500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1000rl",
+   "type": "Polyline",
+   "name": "a1000rl",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a1000rla"
+     },
+     {
+      "ref": "B5_a1000rlb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a1000r",
+   "type": "StrutRun",
+   "name": "a1000r",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a1000rl"
+    }
+   }
+  },
+  {
+   "id": "B5_a1800lla",
+   "type": "Point",
+   "name": "a1800ll start",
+   "parent": "B5",
+   "args": {
+    "x": 5800,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1800llb",
+   "type": "Point",
+   "name": "a1800ll end",
+   "parent": "B5",
+   "args": {
+    "x": 5800,
+    "y": 3500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1800ll",
+   "type": "Polyline",
+   "name": "a1800ll",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a1800lla"
+     },
+     {
+      "ref": "B5_a1800llb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a1800l",
+   "type": "StrutRun",
+   "name": "a1800l",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a1800ll"
+    }
+   }
+  },
+  {
+   "id": "B5_a1800rla",
+   "type": "Point",
+   "name": "a1800rl start",
+   "parent": "B5",
+   "args": {
+    "x": 5800,
+    "y": 4000,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1800rlb",
+   "type": "Point",
+   "name": "a1800rl end",
+   "parent": "B5",
+   "args": {
+    "x": 5800,
+    "y": 4500,
+    "z": 2000
+   }
+  },
+  {
+   "id": "B5_a1800rl",
+   "type": "Polyline",
+   "name": "a1800rl",
+   "parent": "B5",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B5_a1800rla"
+     },
+     {
+      "ref": "B5_a1800rlb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B5_a1800r",
+   "type": "StrutRun",
+   "name": "a1800r",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B5_a1800rl"
+    }
+   }
+  },
+  {
+   "id": "B5_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B5",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1008",
+    "where": "jump 2 3",
+    "run": {
+     "ref": "B5_spine"
+    }
+   }
+  },
+  {
+   "id": "B5_TP",
+   "type": "Point",
+   "name": "Cable tray spine label point",
+   "parent": "B5",
+   "args": {
+    "x": 4000,
+    "y": 4000,
+    "z": 2700
+   }
+  },
+  {
+   "id": "B5_TAG",
+   "type": "Tag",
+   "name": "Cable tray spine",
+   "parent": "B5",
+   "args": {
+    "note": "P1001 spine, P1000 arms · cable tray supports",
+    "size": "Medium",
+    "at": {
+     "ref": "B5_TP"
+    }
+   }
+  },
+  {
+   "id": "B6",
+   "type": "GeometricalSet",
+   "name": "Braced portal",
+   "parent": "H"
+  },
+  {
+   "id": "B6_c1la",
+   "type": "Point",
+   "name": "c1l start",
+   "parent": "B6",
+   "args": {
+    "x": 8000,
+    "y": 4000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B6_c1lb",
+   "type": "Point",
+   "name": "c1l end",
+   "parent": "B6",
+   "args": {
+    "x": 8000,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B6_c1l",
+   "type": "Polyline",
+   "name": "c1l",
+   "parent": "B6",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B6_c1la"
+     },
+     {
+      "ref": "B6_c1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B6_c1",
+   "type": "StrutRun",
+   "name": "c1",
+   "parent": "B6",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B6_c1l"
+    }
+   }
+  },
+  {
+   "id": "B6_c2la",
+   "type": "Point",
+   "name": "c2l start",
+   "parent": "B6",
+   "args": {
+    "x": 9800,
+    "y": 4000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B6_c2lb",
+   "type": "Point",
+   "name": "c2l end",
+   "parent": "B6",
+   "args": {
+    "x": 9800,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B6_c2l",
+   "type": "Polyline",
+   "name": "c2l",
+   "parent": "B6",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B6_c2la"
+     },
+     {
+      "ref": "B6_c2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B6_c2",
+   "type": "StrutRun",
+   "name": "c2",
+   "parent": "B6",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B6_c2l"
+    }
+   }
+  },
+  {
+   "id": "B6_hla",
+   "type": "Point",
+   "name": "hl start",
+   "parent": "B6",
+   "args": {
+    "x": 8000,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B6_hlb",
+   "type": "Point",
+   "name": "hl end",
+   "parent": "B6",
+   "args": {
+    "x": 9800,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B6_hl",
+   "type": "Polyline",
+   "name": "hl",
+   "parent": "B6",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B6_hla"
+     },
+     {
+      "ref": "B6_hlb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B6_head",
+   "type": "StrutRun",
+   "name": "head",
+   "parent": "B6",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Down",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B6_hl"
+    }
+   }
+  },
+  {
+   "id": "B6_bla",
+   "type": "Point",
+   "name": "bl start",
+   "parent": "B6",
+   "args": {
+    "x": 8000,
+    "y": 4000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B6_blb",
+   "type": "Point",
+   "name": "bl end",
+   "parent": "B6",
+   "args": {
+    "x": 9800,
+    "y": 4000,
+    "z": 2200
+   }
+  },
+  {
+   "id": "B6_bl",
+   "type": "Polyline",
+   "name": "bl",
+   "parent": "B6",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B6_bla"
+     },
+     {
+      "ref": "B6_blb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B6_brace",
+   "type": "StrutRun",
+   "name": "brace",
+   "parent": "B6",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B6_bl"
+    }
+   }
+  },
+  {
+   "id": "B6_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B6",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1010",
+    "where": "1, -1",
+    "run": {
+     "ref": "B6_brace"
+    }
+   }
+  },
+  {
+   "id": "B6_TP",
+   "type": "Point",
+   "name": "Braced portal label point",
+   "parent": "B6",
+   "args": {
+    "x": 8000,
+    "y": 4000,
+    "z": 2700
+   }
+  },
+  {
+   "id": "B6_TAG",
+   "type": "Tag",
+   "name": "Braced portal",
+   "parent": "B6",
+   "args": {
+    "note": "P1001 portal, P1000 brace · seismic and sway bracing",
+    "size": "Medium",
+    "at": {
+     "ref": "B6_TP"
+    }
+   }
+  },
+  {
+   "id": "B7",
+   "type": "GeometricalSet",
+   "name": "Work platform",
+   "parent": "H"
+  },
+  {
+   "id": "B7_l1la",
+   "type": "Point",
+   "name": "l1l start",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 4000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B7_l1lb",
+   "type": "Point",
+   "name": "l1l end",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_l1l",
+   "type": "Polyline",
+   "name": "l1l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_l1la"
+     },
+     {
+      "ref": "B7_l1lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_l1",
+   "type": "StrutRun",
+   "name": "l1",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_l1l"
+    }
+   }
+  },
+  {
+   "id": "B7_l2la",
+   "type": "Point",
+   "name": "l2l start",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 4000,
+    "z": 0
+   }
+  },
+  {
+   "id": "B7_l2lb",
+   "type": "Point",
+   "name": "l2l end",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_l2l",
+   "type": "Polyline",
+   "name": "l2l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_l2la"
+     },
+     {
+      "ref": "B7_l2lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_l2",
+   "type": "StrutRun",
+   "name": "l2",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_l2l"
+    }
+   }
+  },
+  {
+   "id": "B7_l3la",
+   "type": "Point",
+   "name": "l3l start",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 5200,
+    "z": 0
+   }
+  },
+  {
+   "id": "B7_l3lb",
+   "type": "Point",
+   "name": "l3l end",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_l3l",
+   "type": "Polyline",
+   "name": "l3l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_l3la"
+     },
+     {
+      "ref": "B7_l3lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_l3",
+   "type": "StrutRun",
+   "name": "l3",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_l3l"
+    }
+   }
+  },
+  {
+   "id": "B7_l4la",
+   "type": "Point",
+   "name": "l4l start",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 5200,
+    "z": 0
+   }
+  },
+  {
+   "id": "B7_l4lb",
+   "type": "Point",
+   "name": "l4l end",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_l4l",
+   "type": "Polyline",
+   "name": "l4l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_l4la"
+     },
+     {
+      "ref": "B7_l4lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_l4",
+   "type": "StrutRun",
+   "name": "l4",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.56,
+     0.58,
+     0.62
+    ],
+    "gloss": 0.28
+   },
+   "args": {
+    "channel": "P1001",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_l4l"
+    }
+   }
+  },
+  {
+   "id": "B7_d0",
+   "type": "Point",
+   "name": "d 0",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_d1",
+   "type": "Point",
+   "name": "d 1",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_d2",
+   "type": "Point",
+   "name": "d 2",
+   "parent": "B7",
+   "args": {
+    "x": 13800,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_d3",
+   "type": "Point",
+   "name": "d 3",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_d",
+   "type": "Polyline",
+   "name": "d",
+   "parent": "B7",
+   "args": {
+    "closed": "Closed",
+    "points": [
+     {
+      "ref": "B7_d0"
+     },
+     {
+      "ref": "B7_d1"
+     },
+     {
+      "ref": "B7_d2"
+     },
+     {
+      "ref": "B7_d3"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_deck",
+   "type": "StrutRun",
+   "name": "deck",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_d"
+    }
+   }
+  },
+  {
+   "id": "B7_b600la",
+   "type": "Point",
+   "name": "b600l start",
+   "parent": "B7",
+   "args": {
+    "x": 12600,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_b600lb",
+   "type": "Point",
+   "name": "b600l end",
+   "parent": "B7",
+   "args": {
+    "x": 12600,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_b600l",
+   "type": "Polyline",
+   "name": "b600l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_b600la"
+     },
+     {
+      "ref": "B7_b600lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_b600",
+   "type": "StrutRun",
+   "name": "b600",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_b600l"
+    }
+   }
+  },
+  {
+   "id": "B7_b1200la",
+   "type": "Point",
+   "name": "b1200l start",
+   "parent": "B7",
+   "args": {
+    "x": 13200,
+    "y": 4000,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_b1200lb",
+   "type": "Point",
+   "name": "b1200l end",
+   "parent": "B7",
+   "args": {
+    "x": 13200,
+    "y": 5200,
+    "z": 900
+   }
+  },
+  {
+   "id": "B7_b1200l",
+   "type": "Polyline",
+   "name": "b1200l",
+   "parent": "B7",
+   "args": {
+    "closed": "Open",
+    "points": [
+     {
+      "ref": "B7_b1200la"
+     },
+     {
+      "ref": "B7_b1200lb"
+     }
+    ]
+   }
+  },
+  {
+   "id": "B7_b1200",
+   "type": "StrutRun",
+   "name": "b1200",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.7,
+     0.72,
+     0.74
+    ],
+    "gloss": 0.32
+   },
+   "args": {
+    "channel": "P1000",
+    "pattern": "HS",
+    "finish": "PG",
+    "facing": "Up",
+    "roll": 0,
+    "length": "Cut from sticks",
+    "path": {
+     "ref": "B7_b1200l"
+    }
+   }
+  },
+  {
+   "id": "B7_n",
+   "type": "StrutNut",
+   "name": "n",
+   "parent": "B7",
+   "appearance": {
+    "finish": "steel",
+    "color": [
+     0.4,
+     0.42,
+     0.45
+    ],
+    "gloss": 0.55
+   },
+   "args": {
+    "nut": "P1006-1420",
+    "where": "every 5",
+    "run": {
+     "ref": "B7_deck"
+    }
+   }
+  },
+  {
+   "id": "B7_TP",
+   "type": "Point",
+   "name": "Work platform label point",
+   "parent": "B7",
+   "args": {
+    "x": 12000,
+    "y": 4000,
+    "z": 1400
+   }
+  },
+  {
+   "id": "B7_TAG",
+   "type": "Tag",
+   "name": "Work platform",
+   "parent": "B7",
+   "args": {
+    "note": "P1001 legs, P1000 deck · platforms, tables and risers",
+    "size": "Medium",
+    "at": {
+     "ref": "B7_TP"
+    }
+   }
+  },
+  {
+   "id": "BOM",
+   "type": "StrutBill",
+   "name": "Bill of the museum",
+   "parent": "H",
+   "args": {
+    "show": "Everything",
+    "of": {
+     "ref": "H"
+    }
+   }
+  }
+ ]
+}

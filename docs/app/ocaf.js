@@ -1200,6 +1200,21 @@ export const SAMPLES = [
   //! published it to the Artifact without it ever reaching the repository, so
   //! the next rebuild from source would have deleted it. Carried back in here
   //! rather than lost: the file below is the payload decoded out of that page.
+  { key: "strut-museum", name: "Unistrut \u00b7 a museum of assemblages",
+    file: "samples/strut_museum.json", needs: ["unistrut"],
+    summary: "Eight bays of the things people actually build out of strut channel: a "
+           + "rack frame, a trapeze hanger, a wall bracket for a condenser, shelving, "
+           + "a ceiling grid, a cable tray spine, a braced portal and a work platform. "
+           + "Each one is labelled with the system it uses and what it is for. The "
+           + "point is not the geometry - any of these is a few lines of channel - it "
+           + "is that every piece is a PART NUMBER out of General Engineering Catalog "
+           + "18A, so the bill at the end is the sum of all eight and can be ordered. "
+           + "Change a run from P1000 to P1100 and the weight follows; ask for a "
+           + "punching the family is not made in and it is refused by name. The drop "
+           + "is large because each piece buys its own stick: the bill does not nest "
+           + "offcuts, which is what an estimator would do next. "
+           + "Needs the Unistrut package. 252 nodes." },
+
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
     file: "samples/datahall_ocp.json", needs: ["rack"],
     summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "

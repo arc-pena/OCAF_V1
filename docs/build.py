@@ -168,6 +168,7 @@ SAMPLES = [
     ("datahall-corridor", "datahall_corridor.json"),
     ("hac-ribbon", "hac_ribbon.json"),
     ("datahall-ocp", "datahall_ocp.json"),
+    ("strut-museum", "strut_museum.json"),
     ("atrium-galleries", "atrium_galleries.json"),
     ("ergonomics-study", "ergonomics_study.json"),
 ]
