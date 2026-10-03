@@ -11,7 +11,7 @@
 // that P1006 does NOT fit P3300, because that is the mistake the catalogue is
 // warning about and the one that gets ordered.
 
-import { CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
+import { CUT_KERF, nestPieces, CONNECTION_LOADS, LOAD_CONDITIONS, connectionLoad,
          FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
          STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, strutBomOf, strutBomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
@@ -423,6 +423,55 @@ console.log("\n11. weight is not capacity, and capacity is not one number");
         && /both ends/i.test(LOAD_CONDITIONS.support));
   check("and all ten tabulated rows are present",
         CONNECTION_LOADS.length === 10, CONNECTION_LOADS.length + " rows");
+}
+
+console.log("\n12. offcuts, nested the way somebody with a saw would");
+{
+  //! EIGHT 400 mm ARMS. A 10 ft stick is 3048; seven pieces take 2800 of it
+  //! and six 3 mm kerfs another 18, so seven fit and the eighth starts a
+  //! second stick. Two sticks, 6096 mm - against eight sticks and 24,384 mm
+  //! when each piece is planned on its own. Worked out on paper first.
+  const eight = nestPieces(Array(8).fill(400));
+  check("eight 400 mm arms cut out of two sticks", eight.sticks.length === 2,
+        eight.sticks.map(s => s.cuts.length + " cuts").join(" + "));
+  check("seven in the first, one in the second",
+        eight.sticks[0].cuts.length === 7 && eight.sticks[1].cuts.length === 1);
+  check("6096 mm bought, not 24384", eight.bought === 6096 && eight.unnested === 24384,
+        eight.bought + " against " + eight.unnested);
+  //! THE KERF IS WHAT MAKES IT SEVEN AND NOT EIGHT. 8 x 400 is 3200, over a
+  //! 3048 stick anyway - but at a 2 mm kerf seven still fit and at 100 mm only
+  //! six would, so the setting has to be in the arithmetic rather than assumed
+  //! to be nothing.
+  check("the kerf is counted between cuts, not before the first",
+        nestPieces([3048]).sticks.length === 1,
+        "a piece exactly a stick long still fits one stick");
+  check("and a fatter kerf takes a piece off the stick",
+        nestPieces(Array(8).fill(400), [3048], 100).sticks[0].cuts.length === 6,
+        String(nestPieces(Array(8).fill(400), [3048], 100).sticks[0].cuts.length));
+  check("the default kerf is 3 mm and is a setting, not a catalogue figure",
+        CUT_KERF === 3);
+
+  //! THE SMALLEST STICK THAT TAKES IT. Four 2.8 m pieces want four 10 ft
+  //! sticks; buying 20 ft ones would hold one each too and double the drop.
+  const long = nestPieces([2800, 2800, 2800, 2800]);
+  check("a 2.8 m cut list buys 10 ft sticks, not 20",
+        long.sticks.every(s => s.length === 3048), long.sticks.map(s => s.length).join(","));
+
+  //! A PIECE LONGER THAN THE LONGEST STICK IS NOT A NESTING PROBLEM. Quietly
+  //! buying two sticks would claim one member came out of them.
+  const over = nestPieces([7000, 400]);
+  check("a 7 m member is reported rather than silently spliced",
+        over.tooLong.length === 1 && over.tooLong[0] === 7000,
+        JSON.stringify(over.tooLong));
+  check("and the rest is still nested", over.sticks.length === 1);
+
+  //! The rectangle from the build suite, so both suites agree on one number.
+  const rect = nestPieces([1000, 800, 1000, 800]);
+  check("1000+800+1000+800 is two sticks and 6096 mm",
+        rect.sticks.length === 2 && rect.bought === 6096,
+        rect.bought + " mm in " + rect.sticks.length);
+  check("nesting halves it against a stick per piece",
+        rect.unnested === 12192, rect.unnested + " unnested");
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

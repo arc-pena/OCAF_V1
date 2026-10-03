@@ -1210,9 +1210,9 @@ export const SAMPLES = [
            + "is that every piece is a PART NUMBER out of General Engineering Catalog "
            + "18A, so the bill at the end is the sum of all eight and can be ordered. "
            + "Change a run from P1000 to P1100 and the weight follows; ask for a "
-           + "punching the family is not made in and it is refused by name. The drop "
-           + "is large because each piece buys its own stick: the bill does not nest "
-           + "offcuts, which is what an estimator would do next. "
+           + "punching the family is not made in and it is refused by name. The bill "
+           + "nests: 82 pieces of P1000 come out of 31 sticks with 6.4 m of drop, "
+           + "where buying a stick per piece would have taken 250 m to install 88. "
            + "Needs the Unistrut package. 252 nodes." },
 
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",

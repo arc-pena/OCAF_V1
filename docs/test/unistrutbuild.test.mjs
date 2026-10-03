@@ -197,8 +197,13 @@ console.log("\n6. four lines are four pieces, which is what a bill counts");
   check("a closed rectangle of channel builds", !!built && !built.error,
         built && built.error ? built.error : "ok");
   const bill = billOf(await tree());
-  check("and the bill buys four sticks, not one", /12\.19/.test(bill),
-        bill.replace(/\s+/g, " ").slice(0, 120));
+  //! NESTED, the metres no longer tell four pieces from one bent run: 1000 +
+  //! 800 + 1000 + 800 cuts out of two 10 ft sticks, and so would a single
+  //! 3600 mm run. So the bill says how it was CUT, and that is what is checked.
+  check("the bill nests the four pieces into two sticks",
+        /2 sticks, 4 pieces/.test(bill), bill.replace(/\s+/g, " ").slice(0, 140));
+  check("and buys 6.10 m rather than a stick per piece",
+        /6\.10 m/.test(bill), bill.replace(/\s+/g, " ").slice(0, 100));
   check("named by the part number somebody orders", /P1000 HS-PG/.test(bill),
         bill.replace(/\s+/g, " ").slice(0, 80));
 }
