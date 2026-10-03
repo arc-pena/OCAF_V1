@@ -11,7 +11,8 @@
 // that P1006 does NOT fit P3300, because that is the mistake the catalogue is
 // warning about and the one that gets ordered.
 
-import { STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, bomOf, bomText,
+import { FITTINGS, FITTING_STANDARD, fittingWeightPer100, stripHoles, stripLength,
+         STOCK_LENGTHS, STRUT_CHANNELS, STRUT_NUTS, STRUT_PATTERNS, bomOf, bomText,
          channelByKey, holeEndMargin, holeStations, lengthPlan, nutFits, nutsFor,
          patternByKey, pickHoles, strutLabel, strutSection, strutSections }
   from "../src/unistrut.js";
@@ -297,6 +298,64 @@ console.log("\n9. the part number somebody orders");
         strutLabel("P1000", "HS", "HG") === "P1000 HS-HG", strutLabel("P1000", "HS", "HG"));
   check("the finish is always on the end",
         strutLabel("P3300", "T", "GR") === "P3300 T-GR", strutLabel("P3300", "T", "GR"));
+}
+
+console.log("\n10. the fittings, weighed against the page they came off");
+{
+  //! The rule in the box under 18A p81's drawings, which governs every 1-5/8"
+  //! fitting unless its own drawing overrides it.
+  const std = FITTING_STANDARD;
+  check("the standard fitting is a 41.3 strip of 6.35 plate",
+        near(std.width, 41.3) && near(std.thickness, 6.35));
+  check("punched 14.3 at 47.6 centres, 20.6 from the end",
+        near(std.holeDiameter, 14.3) && near(std.holePitch, 47.6)
+        && near(std.holeFromEnd, 20.6));
+  //! Four holes at that spacing is 184.0, and p81 dimensions P1067 at
+  //! 7-1/4" = 184.15. The rule and the drawing agree to a fifth of a
+  //! millimetre, which is what says the rule is the right one.
+  check("four holes make a 7-1/4\" plate", near(stripLength(4), 184.0, 0.05),
+        stripLength(4).toFixed(2) + " against 184.15 dimensioned");
+  check("and the length reads back as four holes", stripHoles(184.15) === 4);
+
+  //! THE EXTERNAL ANSWER. The catalogue prints a weight per hundred pieces for
+  //! every fitting, so a generated blank can be weighed against a number
+  //! nobody here chose. Square corners and an undimensioned end radius put a
+  //! few per cent between them; more than six says the SHAPE is wrong, which
+  //! is how P1334 was caught being described as an ell when it is a square.
+  let worst = 0, worstPart = "";
+  for (const f of FITTINGS) {
+    const got = fittingWeightPer100(f);
+    const err = Math.abs(got - f.kgPer100) / f.kgPer100 * 100;
+    if (f.confirmed === false) continue;
+    if (err > worst) { worst = err; worstPart = f.key; }
+    check(f.key + " weighs what the catalogue says", err <= 6,
+          got.toFixed(1) + " kg/100 against " + f.kgPer100 + ", " + err.toFixed(1) + "%");
+  }
+  check("and the worst confirmed part is within six per cent", worst <= 6,
+        worstPart + " at " + worst.toFixed(1) + "%");
+
+  //! A SHAPE THE WEIGHT DOES NOT SUPPORT IS MARKED, NOT TRIMMED. Inventing a
+  //! chamfer until the number agrees is fitting the evidence to the model.
+  const unsure = FITTINGS.filter(f => f.confirmed === false);
+  check("the ones the check does not settle are marked unconfirmed",
+        unsure.length === 2 && unsure.every(f => /P1334|P1028/.test(f.key)),
+        unsure.map(f => f.key).join(", "));
+  for (const f of unsure) {
+    const err = Math.abs(fittingWeightPer100(f) - f.kgPer100) / f.kgPer100 * 100;
+    check("  " + f.key + " is marked because it really does disagree", err > 6,
+          err.toFixed(1) + "%");
+  }
+
+  //! A tee is three arms crossing in one square, and that square must be
+  //! counted ONCE. Added up instead, a tee comes out 22% heavy and the weight
+  //! check above would blame the outline rather than the arithmetic.
+  const tee = FITTINGS.find(f => f.key === "P1031");
+  const naive = tee.arms.reduce((sum, a) =>
+    sum + (stripLength(a.holes) * std.width), 0) * std.thickness
+    * std.density * 100;
+  check("overlapping arms are counted once, not added up",
+        fittingWeightPer100(tee) < naive * 0.85,
+        fittingWeightPer100(tee).toFixed(1) + " against " + naive.toFixed(1) + " added up");
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");

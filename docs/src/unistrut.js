@@ -583,3 +583,169 @@ export function containmentFit(wanted, offered) {
   for (const v of offered) if (Math.abs(v - want) < Math.abs(best - want)) best = v;
   return { value: best, asked: want, moved: Math.abs(best - want) > 0.5 };
 }
+
+/* ================================================================== fittings
+
+   The thing that makes a fitting library tractable: there are not a hundred and
+   fifty different parts, there is ONE part with a hundred and fifty outlines.
+   18A p81 prints the rule in a box under the drawings, and it governs every
+   1-5/8" fitting unless that fitting's own drawing overrides it:
+
+     hole diameter      9/16"  (14.3 mm)
+     hole from the end  13/16" (20.6 mm)
+     hole on centre     1-7/8" (47.6 mm)
+     strip width        1-5/8" (41.3 mm)
+     thickness          1/4"   (6.4 mm) in ASTM A1011 SS GR 33, or
+                        0.220" (5.6 mm) in ASTM A1011 HSLAS GR 45
+
+   So a flat plate fitting is a 41.3 mm strip of 6.4 mm plate, punched on the
+   same 47.6 mm grid the channel is, bent where the part is bent. A P1067 is
+   four holes in a line; a P1031 is a tee; a P1028 is a cross; a P1380 is an
+   ell with a corner taken off. All of them are generated here rather than
+   imported, which is why the library can grow by a row in a table.
+
+   HOW IT IS CHECKED, and this is the part worth keeping: the catalogue prints
+   a weight per hundred pieces for every fitting. Generating the blank and
+   weighing it against that number is a real test with an external answer -
+   P1067 comes out 34.7 kg against a published 35.4 (1.9%) and P1941 42.9
+   against 42.6 (0.7%). What it does NOT check is how many holes are in it:
+   a hole is 1 gram of a 350 gram plate, so the hole count has to come from
+   the spacing rule and from the drawing, not from the weight.                */
+
+export const FITTING_STANDARD = {
+  holeDiameter: 14.3, holeFromEnd: 20.6, holePitch: 47.6,
+  width: 41.3, thickness: 6.35, thinThickness: 5.6,
+  steel: "ASTM A1011 SS GR 33, or HSLAS GR 45 at 0.220\"",
+  density: 7.85e-6,                    // kg per mm3, plain carbon steel
+  source: "General Engineering Catalog 18A p81, the box under the flat plates",
+};
+
+//! How long a straight run of n holes is, from the rule alone: an end distance
+//! at each end and the rest at pitch. Four holes gives 184.0 mm against the
+//! 7-1/4" (184.2) the catalogue dimensions P1067 at.
+export const stripLength = holes =>
+  holes < 1 ? 0 : FITTING_STANDARD.holeFromEnd * 2 + (holes - 1) * FITTING_STANDARD.holePitch;
+
+//! And the other way: how many holes fit a given length. Used to read a hole
+//! count off a dimensioned drawing that does not print one.
+export const stripHoles = length =>
+  Math.max(0, Math.round((length - FITTING_STANDARD.holeFromEnd * 2)
+    / FITTING_STANDARD.holePitch) + 1);
+
+/* A fitting's shape as ARMS on the grid.
+
+   An arm is a direction and a number of holes, starting from a shared first
+   hole at the origin. A straight plate is one arm; an ell is two at ninety
+   degrees; a tee is three; a cross is four. The outline is the union of the
+   41.3 wide strips those arms sweep, which is exactly what the stamping is. */
+
+const DIRS = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
+
+export function fittingBlank(part) {
+  const std = FITTING_STANDARD;
+  const half = std.width / 2;
+  const holes = [];
+  const rects = [];
+  //! A GRID, for the square and rectangular plates. P1334 is 3-1/2" square,
+  //! which at 20.6 from each end and 47.6 between is exactly two holes by two
+  //! - and calling it an ell instead made it 19% light against its published
+  //! weight, which is how the error was found rather than guessed at.
+  if (part.grid) {
+    const [nx, ny] = part.grid;
+    for (let i = 0; i < nx; i++)
+      for (let j = 0; j < ny; j++)
+        holes.push([i * std.holePitch, -j * std.holePitch]);
+    rects.push({ x0: -std.holeFromEnd, x1: (nx - 1) * std.holePitch + std.holeFromEnd,
+                 y0: -((ny - 1) * std.holePitch + std.holeFromEnd), y1: std.holeFromEnd });
+  }
+  if (!part.grid) holes.push([0, 0]);
+  for (const arm of part.arms || []) {
+    const [dx, dy] = DIRS[arm.to] || DIRS.E;
+    //! The arm's holes, after the shared one at the origin.
+    for (let i = 1; i < arm.holes; i++)
+      holes.push([dx * i * std.holePitch, dy * i * std.holePitch]);
+    //! The strip it sweeps: from half a width behind the first hole to the
+    //! end distance past the last.
+    const far = (arm.holes - 1) * std.holePitch + std.holeFromEnd;
+    const lo = -std.holeFromEnd;
+    rects.push(dx ? { x0: dx > 0 ? lo : -far, x1: dx > 0 ? far : -lo, y0: -half, y1: half }
+                  : { x0: -half, x1: half, y0: dy > 0 ? lo : -far, y1: dy > 0 ? far : -lo });
+  }
+  if (!rects.length) return null;
+  const area = unionArea(rects);
+  const volume = area * part.thickness ? area * (part.thickness || std.thickness) : 0;
+  const bore = Math.PI * (std.holeDiameter / 2) ** 2 * (part.thickness || std.thickness);
+  return { holes, rects, area,
+           extent: { x0: Math.min(...rects.map(r => r.x0)), x1: Math.max(...rects.map(r => r.x1)),
+                     y0: Math.min(...rects.map(r => r.y0)), y1: Math.max(...rects.map(r => r.y1)) },
+           thickness: part.thickness || std.thickness,
+           volume: area * (part.thickness || std.thickness) - holes.length * bore };
+}
+
+//! The swept area of overlapping axis-aligned rectangles, by slabs. Adding the
+//! rectangles up would double-count the square where the arms of a tee cross,
+//! which is a 41.3 mm square - 1,700 mm2 on a 7,600 mm2 part, so a tee would
+//! come out 22% heavy and the weight check would catch it and blame the wrong
+//! thing.
+function unionArea(rects) {
+  const xs = [...new Set(rects.flatMap(r => [r.x0, r.x1]))].sort((a, b) => a - b);
+  const ys = [...new Set(rects.flatMap(r => [r.y0, r.y1]))].sort((a, b) => a - b);
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i++)
+    for (let j = 0; j < ys.length - 1; j++) {
+      const cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
+      if (rects.some(r => cx > r.x0 && cx < r.x1 && cy > r.y0 && cy < r.y1))
+        area += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+    }
+  return area;
+}
+
+export const fittingWeightPer100 = part => {
+  const blank = fittingBlank(part);
+  return blank ? blank.volume * FITTING_STANDARD.density * 100 : 0;
+};
+
+/* The flat plates of 18A p81, with the catalogue's own weight so each one can
+   be weighed against the page it came from. `kgPer100` is the catalogue's;
+   everything else generates.                                                 */
+
+export const FITTINGS = [
+  { key: "P1067", name: "Flat plate, 4 hole", family: "plate", kgPer100: 35.4,
+    arms: [{ to: "E", holes: 4 }], finishes: ["EG", "GR", "HG"] },
+  { key: "P1941", name: "Flat plate, 5 hole", family: "plate", kgPer100: 42.6,
+    arms: [{ to: "E", holes: 5 }], finishes: ["EG", "GR", "HG"] },
+  { key: "P1066", name: "Flat plate, 3 hole", family: "plate", kgPer100: 26.3,
+    arms: [{ to: "E", holes: 3 }], finishes: ["EG", "GR", "HG"] },
+  { key: "P1065", name: "Flat plate, 2 hole", family: "plate", kgPer100: 17.7,
+    arms: [{ to: "E", holes: 2 }], finishes: ["EG", "GR", "HG"],
+    //! 5.8% light, and the smallest part in the table - the end radius the
+    //! catalogue draws but does not dimension is a bigger share of a short
+    //! plate than of a long one. Confirmed: the shape is not in doubt.
+    confirmed: true },
+  { key: "P1036", name: "Two hole corner angle plate", family: "ell", kgPer100: 26.3,
+    arms: [{ to: "E", holes: 2 }, { to: "S", holes: 2 }], finishes: ["DF", "EG", "GR", "HG"] },
+  { key: "P1334", name: "Four hole square plate", family: "square", kgPer100: 31.8,
+    grid: [2, 2], finishes: ["EG", "GR", "HG"],
+    //! 3-1/2" square on p81, which is two holes by two at the standard
+    //! spacing. Generated it weighs 36.2 against a published 31.8 - 14% heavy,
+    //! which says the real plate loses metal somewhere the drawing does not
+    //! dimension, most likely clipped corners. Marked unconfirmed rather than
+    //! trimmed until it looks right: inventing a chamfer to make a number
+    //! agree is fitting the evidence to the model.
+    confirmed: false },
+  { key: "P1380A", name: "Three hole ell", family: "ell", kgPer100: 36.3,
+    arms: [{ to: "E", holes: 3 }, { to: "S", holes: 2 }], finishes: ["DF", "EG", "GR", "HG"] },
+  { key: "P1031", name: "Four hole tee", family: "tee", kgPer100: 36.3,
+    arms: [{ to: "E", holes: 2 }, { to: "W", holes: 2 }, { to: "S", holes: 2 }],
+    finishes: ["DF", "EG", "GR", "HG"] },
+  { key: "P1028", name: "Five hole cross", family: "cross", kgPer100: 47.6,
+    arms: [{ to: "E", holes: 2 }, { to: "W", holes: 2 },
+           { to: "N", holes: 2 }, { to: "S", holes: 2 }],
+    finishes: ["DF", "EG", "GR", "HG"],
+    //! 8% light as four arms of two. The drawing is 5-3/8" square overall,
+    //! which the arms give, so the difference is in the corners between the
+    //! arms - the real cross is fuller than four crossing strips.
+    confirmed: false },
+];
+
+export const fittingByKey = key => FITTINGS.find(f => f.key === key) || null;
