@@ -1938,6 +1938,11 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         ior: F.real(f, "ior", 1.5),
         emissionStrength: F.real(f, "emission", 0),
         tiles: Math.max(0.01, F.real(f, "tiles", 1)),
+        //! CARRIED, NOT INTERPRETED. No renderer reads this: it is a sentence
+        //! for an image model, and it rides with the material so that every
+        //! body wearing the material gets the same answer without anybody
+        //! repeating it.
+        hint: F.text(f, "hint", ""),
         maps,
       };
       //! The bodies it paints ride on the data rather than being looked up

@@ -192,6 +192,138 @@ export function referenceBrief(references) {
   return lines.join(" ");
 }
 
+/* ---------------------------------------------------------- the object mask
+
+   A SECOND IMAGE THAT SAYS WHICH PIXEL IS WHICH OBJECT.
+
+   A prompt can say "make the cladding timber" and the model has to work out
+   from the picture which part of it is cladding. Often it does; when a facade
+   has four materials on it, it guesses. So the view goes with a second image
+   in which every visible object is one flat unique colour, and the prompt
+   names each colour and says what that object should be.
+
+   The colours are generated here and the LEGEND IS CORRECTED FROM THE RENDER
+   rather than trusted: see maskColour. Three things can move a colour between
+   asking for it and its arriving in a PNG - the renderer's output encoding,
+   tone mapping, and antialiasing along every silhouette - so what goes in the
+   prompt is the colour that is actually in the image, found by reading the
+   pixels back. An object with no pixels left after that is occluded, and
+   naming a colour the mask does not contain is worse than saying nothing.   */
+
+//! WELL SEPARATED BY CONSTRUCTION, AND NEVER BLACK.
+//!
+//! The first version stepped the hue by the golden angle, which spreads hues
+//! evenly but says nothing about RGB distance - and a test over forty indices
+//! found #9500FF and #8100FF twenty apart in summed channel distance. That is
+//! still clear of the six the page matches within, but it gets thinner with
+//! every object and the failure it leads to is two objects read as one region.
+//!
+//! So the colours come off a COARSE GRID instead, ordered farthest-point
+//! first: every channel is one of a few widely spaced values, which puts a
+//! floor under how close any two can be, and the ordering means that the
+//! first n of them are about as spread as n colours off that grid can be.
+//! Black is dropped because black is the mask's background, and an object
+//! coloured like the background is one the prompt names and the model cannot
+//! find.
+//! ONE SEQUENCE, REFINED IN TIERS, with nothing repeated.
+//!
+//! The first attempt kept a palette per grid and stepped from one to the next
+//! when it ran out. The grids overlap - 0 and 255 are in all of them - so the
+//! step produced a DUPLICATE: index 60 came back #0000FF, which index 2 had
+//! already had. Two objects with one colour is two objects read as one region,
+//! which is the exact failure the whole palette exists to avoid, and a probe
+//! over sixty-one indices found it as "closest pair 0 apart".
+//!
+//! So it is built once as a single list: the coarse grid in farthest-point
+//! order, then whatever the finer grid adds that is not already in it, and so
+//! on. Any prefix is well spread, nothing appears twice, and the tiers only
+//! ever extend the sequence rather than replacing it.
+let MASK_PALETTE = null;
+
+function maskPalette() {
+  if (MASK_PALETTE) return MASK_PALETTE;
+  const gap = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+  const out = [];
+  const had = new Set();
+  const take = one => {
+    const key = (one.r << 16) | (one.g << 8) | one.b;
+    if (had.has(key)) return false;
+    had.add(key);
+    out.push(one);
+    return true;
+  };
+  for (const steps of [4, 6, 11]) {
+    const levels = Array.from({ length: steps },
+      (_, i) => Math.round((i * 255) / (steps - 1)));
+    const left = [];
+    for (const r of levels) for (const g of levels) for (const b of levels) {
+      //! Near-black goes with black: the mask's background is black, and a
+      //! #003300 region against it is one nobody can separate.
+      if (r + g + b < 120) continue;
+      const key = (r << 16) | (g << 8) | b;
+      if (had.has(key)) continue;
+      left.push({ r, g, b });
+    }
+    //! FARTHEST POINT FIRST, measured against everything already in the
+    //! sequence - including the earlier tiers - so a tier's additions are
+    //! placed in the gaps the coarse grid left rather than beside each other.
+    if (!out.length && left.length) {
+      const red = left.findIndex(one => one.r === 255 && !one.g && !one.b);
+      take(left.splice(red < 0 ? 0 : red, 1)[0]);
+    }
+    while (left.length) {
+      let bestAt = 0, bestGap = -1;
+      for (let i = 0; i < left.length; i++) {
+        let near = Infinity;
+        for (const one of out) near = Math.min(near, gap(left[i], one));
+        if (near > bestGap) { bestGap = near; bestAt = i; }
+      }
+      take(left.splice(bestAt, 1)[0]);
+    }
+  }
+  MASK_PALETTE = out.map(one => ({ ...one,
+    hex: "#" + [one.r, one.g, one.b]
+      .map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase() }));
+  return MASK_PALETTE;
+}
+
+//! How many objects can be told apart at all. Beyond this two share a colour,
+//! and the page drops whichever it cannot separate rather than naming it
+//! wrongly - see maskSnapshot, which reads the legend back out of the render.
+export const maskColourCount = () => maskPalette().length;
+
+export function maskColour(index) {
+  const palette = maskPalette();
+  const at = Math.max(0, Math.floor(index));
+  return palette[at % palette.length];
+}
+
+//! THE SENTENCE THAT TURNS A MASK INTO INSTRUCTIONS. One line per object that
+//! has something said about it, and a plain naming for the rest - the model
+//! needs to know a colour is an object even when there is nothing particular
+//! to do to it, or it may treat the region as something to change.
+//!
+//! \p legend [{ hex, name, hint }] in the order they were coloured.
+export function maskBrief(legend, maskAt, viewAt) {
+  const seen = (legend || []).filter(one => one && one.hex);
+  if (!seen.length) return "";
+  const said = ["Image " + maskAt + " is a colour-coded object map for image "
+    + viewAt + ": each flat colour marks one object in the view."];
+  const told = seen.filter(one => one.hint && String(one.hint).trim());
+  for (const one of told)
+    said.push("The " + one.hex + " region is " + (one.name || "an object")
+      + " \u2014 " + String(one.hint).trim().replace(/\.*$/, "") + ".");
+  const quiet = seen.filter(one => !(one.hint && String(one.hint).trim()));
+  if (quiet.length)
+    said.push("These regions are named but have no instruction of their own, so "
+      + "leave them as they are: "
+      + quiet.map(one => one.hex + " is " + (one.name || "an object")).join(", ") + ".");
+  said.push("Do not draw the mask or its colours into the result, and keep the "
+    + "camera, the lighting and every unmasked region as they are in image "
+    + viewAt + ".");
+  return said.join(" ");
+}
+
 /* --------------------------------------------------------------- the request */
 
 //! A data URL split into what the service needs: the type and the base64.
@@ -209,7 +341,8 @@ export function dataUrlParts(url) {
 //! which is what makes the shape of the call something a test can read.
 export function nanoRequest({ prompt, image, mime = "image/png", key,
                               model = NANO_DEFAULT_MODEL, ratio = null,
-                              size = null, references = [] } = {}) {
+                              size = null, references = [], mask = null,
+                              legend = [] } = {}) {
   const said = String(prompt || "").trim();
   if (!said) throw new Error("there is no prompt to send");
   if (!image) throw new Error("there is no picture to send");
@@ -220,11 +353,22 @@ export function nanoRequest({ prompt, image, mime = "image/png", key,
   //! while image 3 is the building.
   const refs = (references || []).filter(one => one && one.data)
                                  .slice(0, MAX_REFERENCES);
-  const brief = referenceBrief(refs);
+  //! THE VIEW, THEN THE MASK, after the references. The mask is about the
+  //! view, so it is the one image that has to be named relative to another -
+  //! which is why both numbers are worked out here and handed to maskBrief
+  //! rather than written into a sentence somewhere else. The brief and the
+  //! list are built in one pass for the same reason they always were.
+  const viewAt = refs.length + 1;
+  const maskAt = viewAt + 1;
+  const parts = [referenceBrief(refs)];
+  if (mask && mask.data) parts.push(maskBrief(legend, maskAt, viewAt));
+  const brief = parts.filter(Boolean).join(" ");
   const input = [{ type: "text", text: brief ? brief + "\n\n" + said : said }];
   for (const one of refs)
     input.push({ type: "image", mime_type: one.mime || "image/png", data: one.data });
   input.push({ type: "image", mime_type: mime, data: image });
+  if (mask && mask.data)
+    input.push({ type: "image", mime_type: mask.mime || "image/png", data: mask.data });
   const body = { model: model || NANO_DEFAULT_MODEL, input };
   //! ASKED FOR ONLY WHEN THERE IS SOMETHING TO ASK. An empty response_format
   //! is a field the service has to interpret, and the default - whatever the

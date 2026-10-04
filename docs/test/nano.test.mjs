@@ -16,8 +16,9 @@
 import {
   MAX_REFERENCES, NANO_DEFAULT_MODEL, NANO_ENDPOINT, NANO_RATIOS, PROMPT_IDEAS,
   REFERENCE_MAX_EDGE, REFERENCE_ROLES,
-  base64Bytes, crc32, dataUrlParts, galleryName, imageFromReply, nanoRequest,
-  ratioFor, referenceBrief, roleInfoFor, storeZip, troubleFromReply,
+  base64Bytes, crc32, dataUrlParts, galleryName, imageFromReply, maskBrief,
+  maskColour, maskColourCount, nanoRequest, ratioFor, referenceBrief, roleInfoFor, storeZip,
+  troubleFromReply,
 } from "../src/nano.js";
 
 let failures = 0;
@@ -259,9 +260,11 @@ console.log("\n11. references ride with the view, and the prompt says which is w
   check("then every reference, in order",
         images.length === 3 && images[0].data === A && images[1].data === B,
         images.map(one => one.data[0]).join(","));
-  //! THE VIEW LAST, and this is the check that matters. A reference appended
-  //! after it would be numbered as the view by the brief above.
-  check("and the view is last",
+  //! THE VIEW AFTER THE REFERENCES, which is the check that matters: a
+  //! reference appended after it would be numbered as the view by the brief.
+  //! With no mask the view is also the last image; with one it is second to
+  //! last, and section 14 below pins that.
+  check("and the view comes after them",
         images[images.length - 1].data === VIEW,
         images[images.length - 1].data[0]);
   check("each reference keeps its own type",
@@ -349,6 +352,130 @@ console.log("\n13. every role says what it is for, in the voice of an instructio
   check("references are sent at a workable size",
         REFERENCE_MAX_EDGE >= 512 && REFERENCE_MAX_EDGE <= 2048,
         REFERENCE_MAX_EDGE + " px on the long edge");
+}
+
+console.log("\n14. the object mask is numbered against the view it describes");
+{
+  //! WHAT WOULD BE SILENTLY WRONG. The mask is the one image that has to be
+  //! named RELATIVE to another: "image 3 is a map for image 2". Every other
+  //! image only needs its own number. So there are two numbers to get right
+  //! and they come from the length of the reference list - which means adding
+  //! a reference must move both, together. If they ever drift, the prompt
+  //! tells the model to apply a colour map to a photograph of a mood board,
+  //! and what comes back is a plausible render of nothing anybody asked for.
+  const VIEW = "V".repeat(400), MASK = "M".repeat(400), REF = "R".repeat(400);
+  const legend = [{ hex: "#FF0000", name: "Cladding", hint: "shiny copper" },
+                  { hex: "#00FF00", name: "Slab" }];
+
+  const plain = nanoRequest({ prompt: "evening", image: VIEW, key: "K",
+                              mask: { data: MASK }, legend });
+  const pics = plain.body.input.filter(one => one.type === "image");
+  check("the view comes before the mask",
+        pics.length === 2 && pics[0].data === VIEW && pics[1].data === MASK,
+        pics.map(one => one.data[0]).join(","));
+  check("and the brief numbers them 1 and 2",
+        /Image 2 is a colour-coded object map for image 1/.test(plain.body.input[0].text),
+        (plain.body.input[0].text.match(/Image \d is a colour-coded[^:]*/) || ["missing"])[0]);
+
+  //! THE SAME THING WITH REFERENCES IN FRONT, which is where the two numbers
+  //! can drift apart.
+  const withRefs = nanoRequest({ prompt: "evening", image: VIEW, key: "K",
+    mask: { data: MASK }, legend,
+    references: [{ role: "style", data: REF }, { role: "context", data: REF }] });
+  const many = withRefs.body.input.filter(one => one.type === "image");
+  check("two references, then the view, then the mask",
+        many.length === 4 && many[2].data === VIEW && many[3].data === MASK,
+        many.map(one => one.data[0]).join(","));
+  const text = withRefs.body.input[0].text;
+  check("the brief calls the view image 3",
+        /Image 3 is the view to work on/.test(text),
+        (text.match(/Image \d is the view[^.]*/) || ["missing"])[0]);
+  check("and the mask image 4, pointing back at 3",
+        /Image 4 is a colour-coded object map for image 3/.test(text),
+        (text.match(/Image \d is a colour-coded object map for image \d/) || ["missing"])[0]);
+
+  //! NO MASK, NO MASK TALK. A prompt that explains a colour map that was not
+  //! sent is a prompt telling the model to look for something that is not
+  //! there.
+  const none = nanoRequest({ prompt: "evening", image: VIEW, key: "K" });
+  check("with no mask the prompt says nothing about one",
+        !/colour-coded/.test(none.body.input[0].text), none.body.input[0].text);
+  check("and only the view is sent",
+        none.body.input.filter(one => one.type === "image").length === 1);
+}
+
+console.log("\n15. and it says what to do with each colour, and what not to");
+{
+  const said = maskBrief([{ hex: "#FF0000", name: "Cladding", hint: "shiny copper." },
+                          { hex: "#00FF00", name: "Slab", hint: "" },
+                          { hex: "#0000FF", name: "Glazing", hint: "clear, slim frames" }],
+                         2, 1);
+  check("an object with a hint gets an instruction",
+        /The #FF0000 region is Cladding \u2014 shiny copper\./.test(said),
+        (said.match(/The #FF0000[^.]*\./) || ["missing"])[0]);
+  check("and so does the second one",
+        /#0000FF region is Glazing/.test(said));
+  //! A COLOUR WITH NOTHING TO SAY IS STILL NAMED. Left out, the model has a
+  //! region in the mask that the prompt never mentions, and the obvious
+  //! reading of that is "this one is for you to decide".
+  check("an object with no hint is named and told to stay as it is",
+        /no instruction of their own, so leave them as they are: #00FF00 is Slab/.test(said),
+        (said.match(/no instruction[^.]*\./) || ["missing"])[0]);
+  //! THE MASK MUST NOT BE PAINTED INTO THE ANSWER. Without saying so, a model
+  //! handed a field of flat colours sometimes returns one.
+  check("and the mask is told not to appear in the result",
+        /Do not draw the mask/.test(said));
+  check("the camera and the lighting are protected",
+        /keep the camera, the lighting/.test(said));
+  check("an empty legend says nothing at all", maskBrief([], 2, 1) === "");
+}
+
+console.log("\n16. the mask palette is usable as a palette");
+{
+  //! INDEX 0 MUST NOT BE BLACK, because black is the background: an object
+  //! coloured like the background is an object the prompt names and the model
+  //! cannot find.
+  const first = maskColour(0);
+  check("the first colour is not the background",
+        first.r + first.g + first.b > 60, first.hex);
+  //! NO TWO CLOSE ENOUGH TO CONFUSE, at any count. The page matches a
+  //! rendered pixel back to its object within 3 of summed channel distance,
+  //! so two colours closer than that would make two objects one region - and
+  //! the whole palette has to clear it, not just the first handful.
+  const TOLERANCE = 3;
+  const closest = n => {
+    const made = Array.from({ length: n }, (_, i) => maskColour(i));
+    let nearest = Infinity, pair = "";
+    for (let i = 0; i < made.length; i++)
+      for (let j = i + 1; j < made.length; j++) {
+        const gap = Math.abs(made[i].r - made[j].r) + Math.abs(made[i].g - made[j].g)
+                  + Math.abs(made[i].b - made[j].b);
+        if (gap < nearest) { nearest = gap; pair = made[i].hex + " / " + made[j].hex; }
+      }
+    return { nearest, pair, made };
+  };
+  const forty = closest(40);
+  check("forty colours are far apart", forty.nearest >= 60,
+        "closest pair " + forty.nearest + " apart: " + forty.pair);
+  //! THE WHOLE PALETTE, which is where the first version of this was wrong:
+  //! it stopped at forty, and the tier boundary at index 60 was producing an
+  //! exact duplicate that a check over sixty-one indices found at once.
+  const all = closest(maskColourCount());
+  check("and so is the whole palette, by a clear margin",
+        all.nearest > TOLERANCE * 2,
+        maskColourCount() + " colours, closest pair " + all.nearest
+          + " apart (tolerance " + TOLERANCE + "): " + all.pair);
+  check("every one of them is distinct",
+        new Set(all.made.map(one => one.hex)).size === all.made.length,
+        new Set(all.made.map(one => one.hex)).size + " of " + all.made.length);
+  check("and each is a legal six-digit hex",
+        all.made.every(one => /^#[0-9A-F]{6}$/.test(one.hex)), all.made[0].hex);
+  //! AND IT WRAPS RATHER THAN HANDING BACK NOTHING. A scene with more objects
+  //! than colours is a scene where two share one, which the page resolves by
+  //! dropping what it cannot separate - but maskColour must still answer.
+  check("asking past the end still answers",
+        /^#[0-9A-F]{6}$/.test(maskColour(maskColourCount() + 5).hex),
+        maskColour(maskColourCount() + 5).hex);
 }
 
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");

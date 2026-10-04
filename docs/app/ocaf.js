@@ -2756,7 +2756,20 @@ export const CATALOGUE = [
            //! flat, correctly lit, perfectly plausible and missing the one map
            //! that makes it look like concrete.
            ref("normalMap", "Normal from", ["shade"]),
-           ref("aoMap", "Occlusion from", ["shade"])] },
+           ref("aoMap", "Occlusion from", ["shade"]),
+           //! WHAT TO TELL AN IMAGE MODEL THIS IS. Not geometry and not a
+           //! number the renderer uses: a sentence, carried on the material
+           //! because a material is the thing that is SHARED. Said once on a
+           //! concrete, it covers every body wearing that concrete, which is
+           //! the whole reason it lives here rather than on each object - and
+           //! a body with no material of its own still has somewhere to put
+           //! one, on its appearance, which the page resolves second.
+           //!
+           //! Appended, like the two above it: an argument's place in this
+           //! list is its OCAF child tag.
+           text("hint", "AI prompt hint", "",
+                "how this should look in a rendered image \u2014 "
+                + "\u201cshiny copper with fine speckles\u201d")] },
 
   { type: "EvaluateCurve", guid: "9a1b2c30-0060-4c00-9e00-caf000000060", category: "analysis",
     produces: "point",

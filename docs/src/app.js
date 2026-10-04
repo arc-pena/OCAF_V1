@@ -60,6 +60,9 @@ import { RACK } from "./rack-plugin.js";
 import { HARNESS } from "./harness-plugin.js";
 import { ERGO } from "./ergonomics-plugin.js";
 import { NANO } from "./nano-plugin.js";
+//! The mask's palette, from the pure module, so the colour a region is given
+//! and the colour the prompt names come from one function.
+import { maskColour } from "./nano.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
@@ -440,6 +443,35 @@ const showsInModel = (id, group) => {
   if (entry) return entry.visible !== false && !hiddenHere(id);
   return group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
 };
+
+//! WHAT TO TELL AN IMAGE MODEL ABOUT ONE OBJECT, and where that came from.
+//!
+//! TWO PLACES, IN ORDER. A material is the thing that is SHARED, so a sentence
+//! said once on a concrete covers every body wearing it - that is the first
+//! place looked. A body with no material still needs somewhere to put one, so
+//! its own appearance is the second.
+//!
+//! The order within the materials is the same rule applyMaterials uses: the
+//! tree is walked forwards and the last material that owns the body wins,
+//! because that is what stacking means everywhere else in this program.
+//!
+//! Which of the two answered comes back as well, so the panel can say that an
+//! object's own hint is being overridden rather than leaving somebody typing
+//! into a field that has no effect.
+function hintForObject(id) {
+  let fromMaterial = null;
+  for (const entry of (state.tree.features || [])) {
+    if (entry.type !== "Material") continue;
+    const data = entry.data;
+    if (!data || !data.material || !(data.of || []).includes(id)) continue;
+    const said = String(data.material.hint || "").trim();
+    if (said) fromMaterial = { hint: said, from: "material", name: entry.name };
+  }
+  if (fromMaterial) return fromMaterial;
+  const own = feature(id);
+  const said = String((own && own.appearance && own.appearance.hint) || "").trim();
+  return said ? { hint: said, from: "object", name: own.name || id } : null;
+}
 
 //! THE FEATURES AS THE VIEWPORT ACTUALLY SHOWS THEM.
 //!
@@ -10276,6 +10308,11 @@ function buildPanel() {
   // What it is made of. A property of the object, like its size - held on the
   // feature, written into the model file, and read by both renderers.
   if (wearsMaterial(entry)) host.appendChild(materialField(entry));
+  //! AND WHAT TO TELL AN IMAGE MODEL IT IS. Beside the material because it is
+  //! the same kind of fact - a property of the object that travels with it and
+  //! is saved with the file - and offered on the same things, because a datum
+  //! has no appearance to describe.
+  if (wearsMaterial(entry)) host.appendChild(hintField(entry));
   //! HOW ITS POINTS ARE DRAWN, for anything that draws any. A property of the
   //! object like its material, in the same place for the same reason - and
   //! offered on a DivideCurve as readily as on a Point, because two hundred
@@ -10644,6 +10681,61 @@ function nodeColourField(entry, args) {
 //! in the scene: pick the nearest thing off the shelf, then move the sliders.
 //! What is written down is the name and whatever was moved, so a document says
 //! "brass" rather than four numbers that happen to be brass.
+//! The sentence an image model is given about this object. Written onto the
+//! object's appearance, which is where a per-object fact that is not geometry
+//! lives; the MATERIAL's own hint wins over it when there is one, and the note
+//! under the field says so by name rather than leaving the field looking
+//! broken.
+function hintField(entry) {
+  const field = document.createElement("div");
+  field.className = "field";
+  const head = document.createElement("div");
+  head.className = "field-head";
+  const label = document.createElement("label");
+  label.textContent = "AI prompt hint";
+  label.htmlFor = "hint-" + entry.id;
+  head.appendChild(label);
+  field.appendChild(head);
+
+  const box = document.createElement("textarea");
+  box.id = "hint-" + entry.id;
+  box.className = "line hint-box";
+  box.rows = 2;
+  box.spellcheck = false;
+  box.placeholder = "how this should look in a rendered image";
+  box.value = String((entry.appearance && entry.appearance.hint) || "");
+  //! ON BLUR AND ON ENTER, not on every keystroke: each write is an undo step
+  //! and a rebuild of the tree, and a sentence is forty of them.
+  const write = () => {
+    const said = box.value.trim();
+    const was = String((entry.appearance && entry.appearance.hint) || "");
+    if (said === was) return;
+    //! MERGED, never replaced. An appearance carries the finish, the marks and
+    //! the poche as well, and writing only the hint would take the rest off.
+    const next = { ...(entry.appearance || {}) };
+    if (said) next.hint = said; else delete next.hint;
+    entry.appearance = next;
+    edit({ op: "appearance", id: entry.id, appearance: next }, { keepPanel: true });
+  };
+  box.addEventListener("blur", write);
+  box.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); box.blur(); }
+  });
+  field.appendChild(box);
+
+  const found = hintForObject(entry.id);
+  const note = document.createElement("p");
+  note.className = "hint";
+  note.textContent = found && found.from === "material"
+    ? "The material \u201c" + (found.name || "") + "\u201d says \u201c" + found.hint
+      + "\u201d, and a material wins \u2014 anything typed here is kept but not sent."
+    : "Sent with the object mask when Nano Banana renders this view, naming this "
+      + "object by its colour. Put it on the material instead to cover every body "
+      + "wearing it.";
+  field.appendChild(note);
+  return field;
+}
+
 function materialField(entry) {
   const field = document.createElement("div");
   field.className = "field material";
@@ -13897,7 +13989,12 @@ function refreshStageSelection() {
 async function applyFinish(key) {
   const entry = feature(state.selected);
   if (!entry) return;
-  const appearance = appearanceOf(key);
+  //! MERGED, NOT REPLACED. A finish used to be written over the whole
+  //! appearance record, which took the marks, the poche and now the AI prompt
+  //! hint off with it - and the only sign was a field that had been typed into
+  //! going empty later. Every other writer in this file merges; this was the
+  //! outlier.
+  const appearance = { ...(entry.appearance || {}), ...appearanceOf(key) };
   showroom.paint(entry.id, appearance);
   try {
     await mdl.run({ op: "appearance", id: entry.id, appearance }, { keepPanel: true });
@@ -14479,6 +14576,138 @@ const packageKit = {
     readers.set(reader.key, reader);
     refreshAccept();
     return () => { readers.delete(reader.key); refreshAccept(); };
+  },
+
+  //! WHAT TO TELL AN IMAGE MODEL ABOUT ONE OBJECT, and where that came from.
+  //!
+  //! TWO PLACES, IN ORDER. A material is the thing that is shared, so a
+  //! sentence said once on a concrete covers every body wearing it - that is
+  //! the first place looked. A body with no material still needs somewhere to
+  //! put one, so its own appearance is the second.
+  //!
+  //! The ORDER matters and is the same rule applyMaterials uses: the tree is
+  //! walked forwards and the last material that owns the body wins, because
+  //! that is what stacking means everywhere else in this program. Which of
+  //! the two answered is handed back as well, so the panel can say why an
+  //! object's own hint is being ignored rather than leaving somebody typing
+  //! into a field that has no effect.
+  hintFor: id => hintForObject(id),
+
+  //! WHICH PIXEL IS WHICH OBJECT, as a second image.
+  //!
+  //! A prompt can say "make the cladding timber"; with four materials on one
+  //! facade the model has to guess which part is cladding. So the view is sent
+  //! with a mask in which every visible object is one flat colour, and the
+  //! prompt names the colours.
+  //!
+  //! THE LEGEND IS READ BACK OUT OF THE PICTURE, not trusted. Between asking
+  //! for a colour and its arriving in a PNG there is the renderer's output
+  //! encoding, tone mapping, and an antialiased edge around every silhouette -
+  //! so the colour named in the prompt is the colour actually present, found
+  //! by counting pixels. An object that has no pixels left is behind something
+  //! else, and naming a colour the mask does not contain is worse than saying
+  //! nothing about it.
+  maskSnapshot() {
+    const kept = [];
+    const want = [];
+    let at = 0;
+    for (const [id, held] of shapes) {
+      const entry = feature(id);
+      if (!entry || entry.category === "datum" || entry.category === "data") continue;
+      if (!showsInModel(id, held.group)) continue;
+      let meshes = 0;
+      held.group.traverse(one => { if (one.isMesh) meshes++; });
+      if (!meshes) continue;
+      const colour = maskColour(at++);
+      want.push({ id, name: entry.name || id, ...colour,
+                  hint: (hintForObject(id) || {}).hint || "" });
+      held.group.traverse(one => {
+        if (!one.isMesh) return;
+        kept.push({ one, was: one.material });
+        one.material = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(colour.r / 255, colour.g / 255, colour.b / 255),
+          //! FLAT, AND FLAT MEANS ALL OF THIS. No lighting is the obvious
+          //! part; no fog, no transparency and no tone mapping are the parts
+          //! that would otherwise shade a region that has to be one value.
+          fog: false, toneMapped: false, transparent: false, opacity: 1,
+          side: THREE.DoubleSide,
+        });
+      });
+    }
+    //! EVERYTHING THAT IS NOT A BODY GOES AWAY: the grid, the axes, the
+    //! datums, the highlight outlines, the gizmos. A grid line across a
+    //! region makes two regions out of it.
+    const hidden = [];
+    for (const one of [grid, axes]) if (one && one.visible) { hidden.push(one); one.visible = false; }
+    world.traverse(one => {
+      if (one === world || one.isMesh) return;
+      if ((one.isLine || one.isLineSegments || one.isPoints) && one.visible) {
+        hidden.push(one); one.visible = false;
+      }
+    });
+
+    let made = null;
+    try {
+      if (!want.length) return null;
+      renderer.render(scene, camera);
+      const gl = renderer.domElement;
+      const flat = document.createElement("canvas");
+      flat.width = gl.width;
+      flat.height = gl.height;
+      const pen = flat.getContext("2d", { willReadFrequently: true });
+      pen.fillStyle = "#000000";
+      pen.fillRect(0, 0, flat.width, flat.height);
+      pen.drawImage(gl, 0, 0, flat.width, flat.height);
+      //! COUNTED, so a legend can be cut down to what is really there. One
+      //! pass over the pixels; a 1600x1000 grab is 1.6 million of them, which
+      //! is a few milliseconds and happens once per send.
+      const seen = new Map();
+      const pixels = pen.getImageData(0, 0, flat.width, flat.height).data;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const key = (pixels[i] << 16) | (pixels[i + 1] << 8) | pixels[i + 2];
+        seen.set(key, (seen.get(key) || 0) + 1);
+      }
+      const near = one => {
+        //! THE NEAREST COLOUR ACTUALLY PRESENT, within a small distance. An
+        //! exact match is the normal case; the tolerance is there for an
+        //! encoding that moves a channel by one, which is not worth losing an
+        //! object over. Anything further away is a different object's colour.
+        let best = null;
+        for (const [key, count] of seen) {
+          if (count < 24) continue;                 // an antialiased fringe
+          const r = (key >> 16) & 255, g = (key >> 8) & 255, b = key & 255;
+          if (!r && !g && !b) continue;             // the background
+          const gap = Math.abs(r - one.r) + Math.abs(g - one.g) + Math.abs(b - one.b);
+          //! THREE, not six. The palette's closest pair is 255 apart at eight
+          //! objects, 85 at forty and 8 across the whole 1349 of it - so a
+          //! tolerance of 3 keeps better than a factor of two even in the
+          //! worst case, while still absorbing a channel that an encoding
+          //! moved by one. PNG is lossless, so an exact match is the normal
+          //! case and this is only here for the abnormal one.
+          if (gap <= 3 && (!best || gap < best.gap)) best = { gap, r, g, b, count };
+        }
+        return best;
+      };
+      const legend = [];
+      for (const one of want) {
+        const found = near(one);
+        if (!found) continue;                        // occluded, or too small
+        legend.push({ id: one.id, name: one.name, hint: one.hint,
+                      pixels: found.count,
+                      hex: "#" + [found.r, found.g, found.b]
+                        .map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase() });
+      }
+      made = { data: flat.toDataURL("image/png"), legend,
+               asked: want.length, found: legend.length };
+    } finally {
+      for (const { one, was } of kept) { one.material.dispose(); one.material = was; }
+      for (const one of hidden) one.visible = true;
+      //! AND PUT THE PICTURE BACK, because the last thing drawn into the
+      //! canvas is what the person is looking at. Without this the viewport is
+      //! left showing a field of flat colours until something else redraws.
+      draw();
+    }
+    return made;
   },
 
   //! WHAT IS ON THE SCREEN, as a PNG data URL. Not "the model, rendered

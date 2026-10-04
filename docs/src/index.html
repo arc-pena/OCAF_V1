@@ -2586,6 +2586,13 @@ body.bare .nb-bar, body.bare .nb-refs, body.bare .nb-shelf, body.bare .nb-keys
 #heads.driving { opacity: .55; pointer-events: none; }
 
 
+/* The per-object sentence an image model is given. A textarea rather than an
+   input because a useful hint is a clause, not a word. */
+.hint-box {
+  width: 100%; min-height: 40px; resize: vertical; padding: 6px 8px;
+  font-family: inherit; font-size: 12px; line-height: 1.35;
+}
+
 /* ------------------------------------------------- Nano Banana (nb-*)
 
    A tab on the right edge, a bar along the bottom, the answer over the model
@@ -2756,6 +2763,9 @@ body.staging .nb-over { z-index: 7; }
                 display: flex; align-items: center; gap: 8px; }
 .nb-refs-note { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .nb-refs-btn.on { border-color: var(--accent); color: var(--accent); }
+.nb-mask { display: flex; align-items: center; gap: 5px; flex: none;
+           font-size: 11px; color: var(--ink-2); white-space: nowrap; cursor: pointer; }
+.nb-mask input { margin: 0; }
 
 /* --------------------------------------------------- Space Packing mode */
 body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }

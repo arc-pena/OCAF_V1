@@ -135,6 +135,10 @@ class NanoView {
                  aria-label="Drag between the render and the viewport">
           <span class="nb-read">render</span>
         </label>
+        <label class="nb-mask" title="Send a colour-coded object map, so a hint can name one object by its colour">
+          <input type="checkbox" class="nb-mask-on" checked>
+          <span>Object mask</span>
+        </label>
         <button class="btn nb-refs-btn" type="button">References</button>
         <button class="btn nb-save" type="button" hidden>Save image</button>
         <button class="btn nb-shelf-btn" type="button">Gallery</button>
@@ -301,6 +305,7 @@ class NanoView {
     this.send.addEventListener("click", () => this.run());
     q(".nb-gear").addEventListener("click", () => this.openKeys(this.keys.hidden));
     q(".nb-shelf-btn").addEventListener("click", () => this.openShelf(this.shelf.hidden));
+    this.maskOn = q(".nb-mask-on");
     this.refsBtn = q(".nb-refs-btn");
     this.refsBtn.addEventListener("click", () => this.openRefs(this.refsPanel.hidden));
     this.wireRefs();
@@ -634,6 +639,31 @@ class NanoView {
       return;
     }
 
+    //! THE MASK, FROM THE SAME MOMENT. Taken right after the view and from the
+    //! same camera, because a mask of a different frame names regions that are
+    //! not where it says they are - which would be worse than no mask at all.
+    //! Its legend is whatever the page could actually find in the picture, so
+    //! an occluded object is simply absent rather than named wrongly.
+    let mask = null, legend = [];
+    if (this.maskOn.checked && this.kit.maskSnapshot) {
+      const over = !this.over.hidden;
+      this.over.hidden = true;
+      let made = null;
+      try { made = this.kit.maskSnapshot(); }
+      catch (err) { made = null; }
+      this.over.hidden = !over;
+      const bits = made && dataUrlParts(made.data);
+      if (bits) {
+        mask = { data: bits.data, mime: bits.mime };
+        legend = made.legend || [];
+        if (made.found < made.asked)
+          this.kit.say(made.found + " of " + made.asked
+            + " objects are visible in the mask \u2014 the rest are behind something");
+      } else {
+        this.note.textContent = "no object mask this time \u2014 nothing visible to mask";
+      }
+    }
+
     const shape = this.ratio.value === NANO_RATIOS[0]
       ? ratioFor(window.innerWidth, window.innerHeight) : this.ratio.value;
     let request;
@@ -641,7 +671,8 @@ class NanoView {
       request = nanoRequest({ prompt: said, image: parts.data, mime: parts.mime,
                               key: apiKey, model: apiModel, ratio: shape,
                               size: this.size.value,
-                              references: this.refs.filter(one => one.on) });
+                              references: this.refs.filter(one => one.on),
+                              mask, legend });
     } catch (err) { this.note.textContent = err.message; return; }
 
     this.working(true, said);
@@ -706,8 +737,10 @@ class NanoView {
     const tick = () => {
       const seconds = Math.round((Date.now() - began) / 1000);
       const refs = this.refs.filter(one => one.on).length;
+      const masked = this.maskOn.checked ? " and an object mask" : "";
       this.note.textContent = "asking " + apiModel
         + (refs ? " with " + refs + (refs === 1 ? " reference" : " references") : "")
+        + masked
         + " — " + seconds + "s"
         + (seconds > 45 ? " (a 2K or 4K image takes a while)" : "");
     };
