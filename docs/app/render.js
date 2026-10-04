@@ -409,9 +409,14 @@ export class RenderEngine {
     //! enough: two different images of the same length whose first thirty
     //! bytes agree would be the same JPEG header and a coincidence nobody has
     //! had.
+    //! The key is taken BEFORE the bytes are looked up, from what identifies
+    //! the image rather than from the image: which feature holds it, and what
+    //! is being done to it. Keying on the base64 would mean building the
+    //! megabyte string on every call, which is the cost this change exists to
+    //! remove.
     const stamp = program.op === "image"
       ? "image|" + program.role + "|" + program.flip + "|" + program.brightness
-        + "|" + (program.image || "").length + "|" + (program.image || "").slice(0, 40)
+        + "|" + (program.at || "") + "|" + (program.image || "").length
       : JSON.stringify(program);
     const key = kind + "|" + tiles + "|" + stamp;
     const had = this._textures.get(key);
@@ -421,7 +426,13 @@ export class RenderEngine {
     //! A PHOTOGRAPH, not a program to evaluate. The browser decodes it; this
     //! only has to say which colour space it is in and how it repeats.
     if (program.op === "image") {
-      if (!program.image) return null;
+      //! The bytes live on the Texture node this points at. Looked up rather
+      //! than carried, so one image is in the document once however many
+      //! materials wear it.
+      const held = program.image ? program
+        : (program.at && this.imagery ? this.imagery.get(program.at) : null);
+      if (!held || !held.image) return null;
+      program = { ...program, image: held.image };
       const texture = new THREE.Texture();
       texture.colorSpace = program.space === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -595,6 +606,15 @@ export class RenderEngine {
   //! overrides an earlier one on the same body - the same rule the tree uses
   //! everywhere else, and the one a person expects from stacking.
   applyMaterials(features) {
+    //! WHERE THE IMAGES ARE. A Material's map says which feature holds its
+    //! bytes rather than carrying them - see shadeFrom in the kernel - so this
+    //! is the index that turns one into the other. Built per rebuild from the
+    //! tree that is already in hand, which costs nothing: it is a map of a
+    //! dozen ids to programs that are already here.
+    this.imagery = new Map();
+    for (const entry of features)
+      if (entry.data && entry.data.program && entry.data.program.op === "image")
+        this.imagery.set(entry.id, entry.data.program);
     //! WHO A MATERIAL OWNS, so that changing a finish on a body that has one
     //! does not quietly undo it. The finish swatches are still live - a body
     //! wears both - but the Material is the more particular statement and the

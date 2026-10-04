@@ -1775,7 +1775,25 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   //! Point in a colour slot should say so rather than come out black.
   const shadeFrom = (f, key) => {
     const source = F.reference(f, key);
-    return source ? dataProgram(F.data(source)) : null;
+    if (!source) return null;
+    const program = dataProgram(F.data(source));
+    //! AN IMAGE IS REFERENCED, NOT COPIED.
+    //!
+    //! Every other shade resolves its inputs INTO the material, so a Material
+    //! carries the whole of what it means and the renderer never walks the
+    //! document. A checker is twenty bytes and that is free. An image is one
+    //! and a half megabytes of base64, and a material with four maps was
+    //! carrying six megabytes of it - on top of the six the Texture nodes
+    //! already hold - re-serialised on every rebuild and shipped to the page
+    //! in every tree read. A drive measuring it did not fail, it STOPPED:
+    //! page.evaluate sat waiting on a main thread doing JSON.stringify.
+    //!
+    //! So an image shade carries where its bytes are instead of the bytes. The
+    //! self-containment argument does not hold for one: the renderer has to go
+    //! and get a megabyte of JPEG from somewhere whatever this says.
+    if (program && program.op === "image")
+      return { ...program, image: undefined, at: F.id(source) };
+    return program;
   };
 
   //! A PROGRAM IS A TREE AND THE DOCUMENT STORES STRINGS, so it travels as
