@@ -13,7 +13,7 @@
 import { chromium } from "/tmp/claude-0/node_modules/playwright/index.mjs";
 import { readFileSync, writeFileSync, appendFileSync } from "fs";
 const D = process.env.DRIVE_OUT || "/tmp/";
-const LOG = D + "pick2.out"; writeFileSync(LOG, "");
+const LOG = D + "pick6.out"; writeFileSync(LOG, "");
 const log = (...a) => appendFileSync(LOG, a.join(" ") + "\n");
 let bad = 0;
 const check = (name, ok, detail = "") => {
@@ -217,11 +217,42 @@ const hullAt = y => page.evaluate(([list, atY]) => {
 }, [corners, y]);
 
 log("\n2. and it stays accurate at any zoom");
+//! THE MARKS ARE PUT AWAY FOR THIS SECTION, and that is the point rather than
+//! a convenience.
+//!
+//! Two rules are being measured in this file and they meet at a corner: where
+//! the silhouette is, and how far a mark's reach extends over the body it sits
+//! on. Both marks here ARE on corners, which is where a setting-out point
+//! actually is - so a scanline across the cube's left edge at twenty times out
+//! was measuring the mark rule and reporting the answer as the silhouette's
+//! error. Hidden here, measured on their own in section 3.
 {
   //! NOT FOUR TIMES IN. Fitting a 400 mm cube puts the camera about 700 mm
   //! from its centre, so a quarter of that is 175 mm - inside the cube. The
   //! factors here keep the camera outside it, which is the only range where
   //! "where is the silhouette" is a question with an answer.
+  //! EVERY MARK, not the two this drive made. The document arrives with an
+  //! origin point of its own inside the ORIGIN set, and that one was still
+  //! competing - which is why hiding the drive's own two changed nothing and
+  //! the twenty-times-out scanline still answered with a point. Asked of the
+  //! document rather than listed here, so a datum added to the starting
+  //! document tomorrow is covered.
+  const marks = await page.evaluate(() => window.__cad.packages().kit.tree()
+    .features.filter(f => f.produces === "point").map(f => f.id));
+  log("  marks put away for this section: " + marks.join(", "));
+  //! THROUGH THE HIDE SET, not through the `shown` edit. They are two
+  //! different things: `shown` un-swallows a body an operation consumed and
+  //! will not hide anything that was not consumed, so the first version of
+  //! this put away three points, was told it had, and then measured a pointer
+  //! that was correctly still finding them. Verified below rather than
+  //! assumed.
+  await page.evaluate(ids => ids.forEach(id => window.__cad.hide(id, true)), marks);
+  await page.waitForTimeout(900);
+  const stillShown = await page.evaluate(ids =>
+    ids.filter(id => !window.__cad.packages().kit.hidden().has(id)), marks);
+  check("and they really are put away", stillShown.length === 0,
+        stillShown.length ? "still shown: " + stillShown.join(", ")
+                          : marks.length + " in the hide set");
   for (const [label, by] of [["zoomed in, 1.7x", 0.6], ["zoomed out, 5x", 5],
                              ["zoomed out, 20x", 4]]) {
     await page.evaluate(f => window.__cad.zoom(f), by);
@@ -255,8 +286,9 @@ log("\n2. and it stays accurate at any zoom");
           "found " + found + ", drawn at " + seen.left.toFixed(1)
             + " - " + Math.abs(found - seen.left).toFixed(1) + " px out");
   }
+  await page.evaluate(ids => ids.forEach(id => window.__cad.hide(id, false)), marks);
   await page.evaluate(() => window.__cad.fit());
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(900);
 }
 
 log("\n3. a mark beats the body it sits on, and only within a dozen pixels");
@@ -284,6 +316,49 @@ log("\n3. a mark beats the body it sits on, and only within a dozen pixels");
   log("  the mark wins out to " + reach + " px from its centre, on a corner");
   check("which is about the dozen pixels the code says it is",
         reach >= 5 && reach <= 24, reach + " px");
+}
+
+log("\n3b. and stops beating it when the body is too small to spare the room");
+{
+  //! THE FAULT THIS SECTION EXISTS FOR, measured both ways round.
+  //!
+  //! A dozen pixels is the right reach when the body behind the mark is a
+  //! hand's width across, and the wrong reach when the body is twenty-seven
+  //! pixels wide: the halo then covers most of it and the body cannot be
+  //! clicked at all. Zoom out on a building and every beam with a setting-out
+  //! point on it stops being pickable - which reads as picking being broken.
+  //!
+  //! So the reach is now the smaller of a dozen pixels and a share of the
+  //! body's apparent radius. Both halves are checked here, because a fix that
+  //! only ever let the body win would have taken marks away entirely.
+  await page.evaluate(() => window.__cad.fit());
+  await page.waitForTimeout(700);
+  const big = await hullAt(Math.round((box.top + box.bottom) / 2));
+  const bigMid = await hoverAt(Math.round((big.left + big.right) / 2),
+                               Math.round((box.top + box.bottom) / 2));
+  check("at a workable size the middle of the body is the body",
+        bigMid === made.cube, String(bigMid));
+  const corner = (await project([[400, 400, 400]]))[0];
+  check("and its mark is still pickable by pointing at it",
+        (await hoverAt(Math.round(corner[0]), Math.round(corner[1]))) === made.mark,
+        String(await hoverAt(Math.round(corner[0]), Math.round(corner[1]))));
+
+  //! AND FAR ENOUGH OUT THAT THE OLD RULE SWALLOWED IT. 20x out put the cube
+  //! at 27 px across and its own origin point answered everywhere on it.
+  await page.evaluate(() => window.__cad.zoom(20));
+  await page.waitForTimeout(700);
+  const small = await hullAt(await page.evaluate(() => Math.round(window.innerHeight / 2)));
+  if (small.inside || small.missed) {
+    log("  --   the cube is not on the mid line at this zoom, skipped");
+  } else {
+    const y = await page.evaluate(() => Math.round(window.innerHeight / 2));
+    const across = small.right - small.left;
+    const mid = await hoverAt(Math.round((small.left + small.right) / 2), y);
+    check("at " + Math.round(across) + " px across the middle is the BODY, not its mark",
+          mid === made.cube, String(mid));
+  }
+  await page.evaluate(() => window.__cad.fit());
+  await page.waitForTimeout(700);
 }
 
 log("\n4. and a right-click knows what is under it");
@@ -338,7 +413,7 @@ log("\n4. and a right-click knows what is under it");
 
 log("\nerrors: " + (errs.length ? errs.slice(0, 5).join(" | ") : "none"));
 if (errs.length) bad++;
-await page.screenshot({ path: D + "pick2.png" });
+await page.screenshot({ path: D + "pick6.png" });
 await browser.close();
 log(bad ? "\n" + bad + " check(s) failed" : "\nall checks passed");
-log("=== pick2 drive done ===");
+log("=== pick6 drive done ===");

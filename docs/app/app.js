@@ -7448,6 +7448,11 @@ function buildGizmo(at) {
 
 const raycaster = new THREE.Raycaster();
 
+//! THE DOZEN PIXELS, written once. It was a literal 12 in the threshold and
+//! the word "dozen" in two comments, and the cap in idUnder has to be the same
+//! number or the two rules disagree about what a mark's reach is.
+const MARK_PIXELS = 12;
+
 //! Where a ray comes closest to an axis through a point - the whole of what
 //! dragging one arrow means.
 //! The three.js spelling of the ruler in handle.js. One sum, in one place:
@@ -7471,7 +7476,7 @@ function rayFrom(event) {
   //! which makes a point exactly as easy to hit at arm's length as across a
   //! building.
   const tall = Math.max(1, rect.height);
-  raycaster.params.Points.threshold = view.distance * (12 / tall);
+  raycaster.params.Points.threshold = view.distance * (MARK_PIXELS / tall);
   return raycaster;
 }
 
@@ -7582,6 +7587,26 @@ function pickableNow() {
   return rayList;
 }
 
+//! HOW MANY MODEL UNITS ONE PIXEL IS, at a given depth from the camera. The
+//! one piece of arithmetic that turns "a dozen pixels" into something the
+//! raycaster can use, and the reason it takes a DEPTH is the whole of the
+//! correction below: a pixel is a different size in the model at the front of
+//! a building and at the back of it.
+function unitsPerPixel(depth) {
+  const tall = Math.max(1, renderer.domElement.clientHeight);
+  return 2 * Math.tan(camera.fov * Math.PI / 360) * Math.max(depth, 1e-6) / tall;
+}
+
+//! HOW BIG THE THING HIT IS ON THE SCREEN, as a radius in pixels. Read off the
+//! bounding sphere the group already carries - taken once when the triangles
+//! arrived - so this costs nothing per pointer move.
+function apparentRadius(hit) {
+  const group = hit.object.parent;
+  const ball = group && group.userData.ball;
+  if (!ball) return Infinity;
+  return ball.r / unitsPerPixel(hit.distance);
+}
+
 function idUnder(ray) {
   const hits = ray.intersectObjects(pickableNow(), false);
   //! A MARK BEATS EVERYTHING. A point is a few pixels across and is nearly
@@ -7591,7 +7616,28 @@ function idUnder(ray) {
   //! that is what was being aimed at.
   const mark = hits.find(hit => hit.object.userData.mark);
   const solid = hits.find(hit => !hit.object.userData.datum);
-  const won = mark || solid || hits[0];
+  //! UP TO A POINT, AND THE POINT IS HOW BIG THE BODY IS ON THE SCREEN.
+  //!
+  //! A dozen pixels is the right reach when the body behind the mark is a
+  //! hand's width across. It is the wrong reach when the body is twenty-seven
+  //! pixels wide, because then the mark's twelve-pixel halo covers most of it
+  //! and the body cannot be clicked at all - measured: zoomed out until a 400
+  //! mm cube was 27 px across, its own origin point answered everywhere on it
+  //! AND fourteen pixels clear of it. Zoom out on a building and every beam
+  //! with a setting-out point on it stops being clickable, which reads as
+  //! picking being broken rather than as a rule doing its job.
+  //!
+  //! So the reach is the smaller of a dozen pixels and a share of the body's
+  //! own apparent radius. On anything of a workable size the first wins and
+  //! nothing changes; on something too small to spare the room, the body does.
+  let won = solid || hits[0];
+  if (mark) {
+    const near = mark.distanceToRay === undefined
+      ? 0 : mark.distanceToRay / unitsPerPixel(mark.distance);
+    const room = solid ? Math.min(MARK_PIXELS, apparentRadius(solid) * 0.45)
+                       : Infinity;
+    if (near <= room) won = mark;
+  }
   return won ? won.object.userData.id : null;
 }
 
@@ -14318,6 +14364,14 @@ globalThis.__cad = {
   //! control at opacity 0 is still found by querySelector and still looks
   //! right to anything that does not measure it.
   bareNow: on => setBare(on),
+  //! HIDING, THE WAY THE EYE IN THE TREE DOES IT. There are two different
+  //! things a drive can mean by "hide" and they are not interchangeable: the
+  //! `shown` edit is about a body an operation SWALLOWED and will not hide
+  //! anything that was not consumed, while this is the hide set - what the
+  //! eye, the ring and the tree's menu all go through. A drive that reached
+  //! for the edit put away three points, was told it had, and measured a
+  //! pointer that correctly still found them.
+  hide: (id, on) => showFeature(id, on !== false ? false : true),
   pickCount: () => pickable.length,
   hovered: () => state.hover || null,
   selected: () => state.selected || null,
