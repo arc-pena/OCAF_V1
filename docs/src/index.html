@@ -1960,7 +1960,14 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
 /* The material library, as swatches you can see rather than a list of names.
    A material is a thing you RECOGNISE - the whole reason a library beats four
    sliders - so the chip is the colour first and the name second. */
-.lb-body { max-height: 52vh; overflow-y: auto; margin: 2px -2px 0; padding: 0 2px; }
+/* --sky, not vh. Everything in a dialog sits inside `zoom`, and zoom scales a
+   box after the browser has worked it out - it does NOT scale what a viewport
+   unit already resolved to. So `52vh` inside a panel at --ui 1.3 is 52 % of
+   the window and then renders a third taller than that, which runs the chip
+   grid off the bottom of the screen on a large monitor. --sky is the window in
+   the units a scaled panel thinks in, and is the same number at --ui 1. */
+.lb-body { max-height: calc(var(--sky) * 0.52); overflow-y: auto;
+           margin: 2px -2px 0; padding: 0 2px; }
 .lb-group {
   font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
   color: var(--ink-3); margin: 10px 0 5px;
