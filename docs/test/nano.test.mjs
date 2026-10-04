@@ -14,9 +14,10 @@
 // one field name away from being found and is reported as "no image".
 
 import {
-  NANO_DEFAULT_MODEL, NANO_ENDPOINT, NANO_RATIOS, PROMPT_IDEAS,
+  MAX_REFERENCES, NANO_DEFAULT_MODEL, NANO_ENDPOINT, NANO_RATIOS, PROMPT_IDEAS,
+  REFERENCE_MAX_EDGE, REFERENCE_ROLES,
   base64Bytes, crc32, dataUrlParts, galleryName, imageFromReply, nanoRequest,
-  ratioFor, storeZip, troubleFromReply,
+  ratioFor, referenceBrief, roleInfoFor, storeZip, troubleFromReply,
 } from "../src/nano.js";
 
 let failures = 0;
@@ -234,6 +235,120 @@ console.log("\n10. every suggested prompt says the geometry must not move");
   check("and each has a label short enough for the menu",
         PROMPT_IDEAS.every(i => i.label.length <= 34),
         PROMPT_IDEAS.map(i => i.label.length).join(" "));
+}
+
+console.log("\n11. references ride with the view, and the prompt says which is which");
+{
+  //! WHAT COULD BE SILENTLY WRONG HERE, which is the only reason this section
+  //! exists: the ORDER. The service is handed a flat list of images with no
+  //! labels - it has no role field, no captions, nothing - so the only way to
+  //! say "the third one is the mood board" is to write it into the text. Two
+  //! places deciding that order independently is how a prompt comes to call
+  //! image 3 the mood board while image 3 is the building, and the result
+  //! would be a plausible render of the wrong intent. No error, nothing to
+  //! look at.
+  const A = "A".repeat(400), B = "B".repeat(400), VIEW = "V".repeat(400);
+  const made = nanoRequest({
+    prompt: "make it evening", image: VIEW, key: "K",
+    references: [{ role: "style", data: A, mime: "image/jpeg", name: "mood.jpg" },
+                 { role: "material", data: B, mime: "image/png", name: "brick.png",
+                   note: "the darker one" }],
+  });
+  const images = made.body.input.filter(one => one.type === "image");
+  check("the text comes first", made.body.input[0].type === "text");
+  check("then every reference, in order",
+        images.length === 3 && images[0].data === A && images[1].data === B,
+        images.map(one => one.data[0]).join(","));
+  //! THE VIEW LAST, and this is the check that matters. A reference appended
+  //! after it would be numbered as the view by the brief above.
+  check("and the view is last",
+        images[images.length - 1].data === VIEW,
+        images[images.length - 1].data[0]);
+  check("each reference keeps its own type",
+        images[0].mime_type === "image/jpeg" && images[1].mime_type === "image/png",
+        images.map(one => one.mime_type).join(", "));
+
+  const text = made.body.input[0].text;
+  check("the brief numbers them the way they are sent",
+        /Image 1 is a style reference/.test(text)
+        && /Image 2 is a material reference/.test(text),
+        text.slice(0, 70));
+  check("and names the view by the right number",
+        /Image 3 is the view to work on/.test(text),
+        (text.match(/Image \d is the view[^.]*/) || ["missing"])[0]);
+  check("a note on a reference reaches the prompt",
+        /the darker one/.test(text));
+  check("and the person's own words are still in there",
+        text.includes("make it evening"));
+
+  //! NO REFERENCES, NO BRIEF. A prompt that opens by explaining an empty list
+  //! of images is a prompt with instructions in it about nothing.
+  const plain = nanoRequest({ prompt: "just this", image: VIEW, key: "K" });
+  check("with no references the prompt is untouched",
+        plain.body.input[0].text === "just this", plain.body.input[0].text);
+  check("and only the view is sent",
+        plain.body.input.filter(one => one.type === "image").length === 1);
+}
+
+console.log("\n12. and the service's own limits are respected");
+{
+  const VIEW = "V".repeat(400);
+  //! FOURTEEN IS THE PUBLISHED CEILING across the image models; the per-model
+  //! breakdowns are narrower still. Sending more would be a request the
+  //! service refuses, and a refusal for a reason the person cannot see.
+  check("the ceiling is the published one", MAX_REFERENCES === 14,
+        String(MAX_REFERENCES));
+  const many = Array.from({ length: 20 }, (_, i) =>
+    ({ role: "object", data: String(i).padStart(400, "x"), mime: "image/jpeg" }));
+  const made = nanoRequest({ prompt: "x", image: VIEW, key: "K", references: many });
+  const images = made.body.input.filter(one => one.type === "image");
+  check("twenty references are cut to fourteen plus the view",
+        images.length === MAX_REFERENCES + 1, images.length + " images");
+  check("and the brief still names the view correctly",
+        new RegExp("Image " + (MAX_REFERENCES + 1) + " is the view")
+          .test(made.body.input[0].text),
+        (made.body.input[0].text.match(/Image \d+ is the view[^.]*/) || ["missing"])[0]);
+
+  //! A REFERENCE WITH NO BYTES is dropped rather than sent as an empty image,
+  //! which would be a request the service rejects for a reason nobody can see.
+  const gappy = nanoRequest({ prompt: "x", image: VIEW, key: "K",
+    references: [{ role: "style", data: "" }, { role: "style", data: "Q".repeat(400) },
+                 null] });
+  check("an empty reference is dropped, not sent",
+        gappy.body.input.filter(one => one.type === "image").length === 2);
+  check("and the numbering closes up behind it",
+        /Image 2 is the view to work on/.test(gappy.body.input[0].text),
+        (gappy.body.input[0].text.match(/Image \d is the view[^.]*/) || ["missing"])[0]);
+}
+
+console.log("\n13. every role says what it is for, in the voice of an instruction");
+{
+  check("there are enough kinds to be useful", REFERENCE_ROLES.length >= 6,
+        REFERENCE_ROLES.length + " roles");
+  const bad = REFERENCE_ROLES.filter(one =>
+    !one.key || !one.label || !one.says || one.says.length < 12);
+  check("each has a key, a label and a sentence", bad.length === 0,
+        bad.map(one => one.key || "?").join(", "));
+  const keys = new Set(REFERENCE_ROLES.map(one => one.key));
+  check("and the keys are distinct", keys.size === REFERENCE_ROLES.length,
+        keys.size + " of " + REFERENCE_ROLES.length);
+  //! AN UNKNOWN ROLE MUST NOT LOSE THE PICTURE. A saved reference from a
+  //! version with a role this one has never heard of should still be sent as
+  //! something rather than dropped or crashed on.
+  check("an unknown role falls back rather than throwing",
+        roleInfoFor("no-such-role").key === REFERENCE_ROLES[0].key,
+        roleInfoFor("no-such-role").key);
+  check("and the brief for one still reads",
+        /Image 1 is a/.test(referenceBrief([{ role: "nonsense", data: "x" }])),
+        referenceBrief([{ role: "nonsense", data: "x" }]).slice(0, 48));
+
+  //! THE SHRINK SIZE. A mood board off a phone is 4000 px and 3 MB; six of
+  //! those is eighteen megabytes of base64 in one POST. The number is a
+  //! judgement, so what is checked is that it is a judgement somebody made
+  //! rather than a stray value.
+  check("references are sent at a workable size",
+        REFERENCE_MAX_EDGE >= 512 && REFERENCE_MAX_EDGE <= 2048,
+        REFERENCE_MAX_EDGE + " px on the long edge");
 }
 
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");

@@ -29,9 +29,10 @@
 
 import { offerPlugin } from "./plugin.js";
 import {
-  NANO_DEFAULT_MODEL, NANO_MODELS, NANO_RATIOS, NANO_SIZES, PROMPT_IDEAS,
+  MAX_REFERENCES, NANO_DEFAULT_MODEL, NANO_MODELS, NANO_RATIOS, NANO_SIZES,
+  PROMPT_IDEAS, REFERENCE_MAX_EDGE, REFERENCE_ROLES,
   base64Bytes, dataUrlParts, galleryName, imageFromReply, nanoRequest,
-  ratioFor, storeZip, troubleFromReply,
+  ratioFor, roleInfoFor, storeZip, troubleFromReply,
 } from "./nano.js";
 
 const built = (tag, className, html) => {
@@ -68,6 +69,12 @@ class NanoView {
     //! A reload loses them, which is why Save and the zip are on the shelf and
     //! not hidden behind a menu.
     this.gallery = [];
+    //! THE MOOD BOARD. Pictures of what the view should be LIKE, sent with it
+    //! in one call - a style, a material, a street, a light. Kept in memory
+    //! beside the gallery and for the same reason: they are somebody's
+    //! reference images, and writing them into browser storage uninvited
+    //! would be deciding that for them.
+    this.refs = [];
     this.at = -1;                       // which one is being shown, or -1
     this.split = 0;                     // where the compare bar is, 0..1
     this.busy = false;
@@ -113,6 +120,7 @@ class NanoView {
                  aria-label="Drag between the render and the viewport">
           <span class="nb-read">render</span>
         </label>
+        <button class="btn nb-refs-btn" type="button">References</button>
         <button class="btn nb-save" type="button" hidden>Save image</button>
         <button class="btn nb-shelf-btn" type="button">Gallery</button>
       </div>`;
@@ -140,6 +148,35 @@ class NanoView {
         <span class="nb-shelf-note"></span>
       </div>`;
     document.body.appendChild(this.shelf);
+
+    //! THREE WAYS IN, because a reference arrives three ways: it is already on
+    //! the clipboard, it is a file on disk, or it is a picture on a web page.
+    //! Paste, drop and open cover the first two; a URL covers the third and is
+    //! the one that can fail for reasons that are nothing to do with this page
+    //! - see addFromUrl.
+    this.refsPanel = built("aside", "float nb-refs");
+    this.refsPanel.hidden = true;
+    this.refsPanel.innerHTML = `
+      <div class="panel-head"><h2>References</h2></div>
+      <div class="nb-refs-ways">
+        <div class="nb-row">
+          <input type="url" class="nb-url" spellcheck="false" autocomplete="off"
+                 placeholder="paste an image URL" aria-label="Image URL">
+          <button class="btn nb-url-add" type="button">Add</button>
+        </div>
+        <div class="nb-row">
+          <button class="btn nb-open" type="button">Open a file…</button>
+          <input type="file" class="nb-file" accept="image/*" multiple hidden>
+          <span class="nb-fine">or drop images here, or paste one</span>
+        </div>
+      </div>
+      <div class="nb-refs-body"></div>
+      <div class="nb-refs-foot">
+        <span class="nb-refs-note"></span>
+        <span class="nb-grow"></span>
+        <button class="btn nb-refs-clear" type="button">Clear all</button>
+      </div>`;
+    document.body.appendChild(this.refsPanel);
 
     this.keys = built("aside", "float nb-keys");
     this.keys.hidden = true;
@@ -202,6 +239,13 @@ class NanoView {
       open: () => this.openShelf(true),
       isShut: () => this.shelf.hidden,
     });
+    kit.closesWith(this.refsPanel, {
+      title: "Close the references", name: "the reference images",
+      into: ".panel-head",
+      close: () => { this.refsPanel.hidden = true; },
+      open: () => this.openRefs(true),
+      isShut: () => this.refsPanel.hidden,
+    });
     kit.closesWith(this.keys, {
       title: "Close", into: ".panel-head",
       close: () => { this.keys.hidden = true; },
@@ -242,6 +286,9 @@ class NanoView {
     this.send.addEventListener("click", () => this.run());
     q(".nb-gear").addEventListener("click", () => this.openKeys(this.keys.hidden));
     q(".nb-shelf-btn").addEventListener("click", () => this.openShelf(this.shelf.hidden));
+    this.refsBtn = q(".nb-refs-btn");
+    this.refsBtn.addEventListener("click", () => this.openRefs(this.refsPanel.hidden));
+    this.wireRefs();
     this.saveBtn.addEventListener("click", () => this.saveOne(this.at));
 
     this.range.addEventListener("input", () => this.setSplit(Number(this.range.value) / 1000));
@@ -302,6 +349,250 @@ class NanoView {
       : "the gear takes an API key";
   }
 
+  /* ---------------------------------------------------------- the references */
+
+  wireRefs() {
+    const panel = this.refsPanel;
+    const url = panel.querySelector(".nb-url");
+    const file = panel.querySelector(".nb-file");
+    panel.querySelector(".nb-open").addEventListener("click", () => file.click());
+    file.addEventListener("change", () => {
+      this.addFiles(file.files);
+      file.value = "";
+    });
+    const fromUrl = () => {
+      const said = url.value.trim();
+      if (!said) return;
+      url.value = "";
+      this.addFromUrl(said);
+    };
+    panel.querySelector(".nb-url-add").addEventListener("click", fromUrl);
+    url.addEventListener("keydown", event => {
+      if (event.key === "Enter") { event.preventDefault(); fromUrl(); }
+    });
+    panel.querySelector(".nb-refs-clear").addEventListener("click", () => {
+      this.refs = [];
+      this.paintRefs();
+    });
+
+    //! DROPPED ON THE PANEL, AND STOPPED THERE.
+    //!
+    //! The page already listens for a drop on the window, and two or more
+    //! images dropped together are read as a PBR material and installed as
+    //! nodes in the document - which is the right answer for a window and
+    //! exactly the wrong one for a mood board. The window's listener is on the
+    //! bubble phase, so stopping propagation here is what keeps six
+    //! photographs of concrete from becoming six Texture features.
+    panel.addEventListener("dragover", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      panel.classList.add("taking");
+    });
+    panel.addEventListener("dragleave", () => panel.classList.remove("taking"));
+    panel.addEventListener("drop", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      panel.classList.remove("taking");
+      const dt = event.dataTransfer;
+      if (dt && dt.files && dt.files.length) { this.addFiles(dt.files); return; }
+      //! A DRAG FROM ANOTHER TAB is not a file - it is a URL, and sometimes
+      //! an <img> whose src is the only thing that crossed.
+      const said = dt && (dt.getData("text/uri-list") || dt.getData("text/plain"));
+      if (said) this.addFromUrl(said.split(/\s+/)[0]);
+    });
+
+    //! PASTED, from anywhere, as long as the bar is up. A paste carrying text
+    //! is left alone so that typing a prompt still works normally; one
+    //! carrying an image becomes a reference wherever the caret happens to be,
+    //! because that is what somebody means by pasting a screenshot.
+    this.onPaste = event => {
+      if (this.bar.hidden) return;
+      const items = event.clipboardData && event.clipboardData.items;
+      if (!items) return;
+      const pictures = [...items].filter(one => one.type && one.type.startsWith("image/"));
+      if (!pictures.length) return;
+      event.preventDefault();
+      this.addFiles(pictures.map(one => one.getAsFile()).filter(Boolean));
+      this.openRefs(true);
+    };
+    window.addEventListener("paste", this.onPaste);
+  }
+
+  openRefs(on) {
+    this.refsPanel.hidden = !on;
+    if (on) this.paintRefs();
+  }
+
+  //! A REFERENCE, SHRUNK ON THE WAY IN.
+  //!
+  //! A photograph off a phone is four thousand pixels wide and three
+  //! megabytes; six of those is eighteen megabytes of base64 in one POST, for
+  //! a model that will look at them at a fraction of that. So each one is
+  //! drawn down to REFERENCE_MAX_EDGE on its long side and re-encoded as JPEG,
+  //! which is what a reference is - a picture to look at, not an asset.
+  //!
+  //! Returns null rather than throwing for anything the browser will not
+  //! decode: the caller's answer to that is a sentence on screen naming the
+  //! file, not a stack trace.
+  async shrink(blob, name) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise((done, fail) => {
+        const img = new Image();
+        img.onload = () => done(img);
+        img.onerror = () => fail(new Error("the browser would not decode it"));
+        img.src = url;
+      });
+      const wide = image.naturalWidth || image.width;
+      const tall = image.naturalHeight || image.height;
+      if (!wide || !tall) return null;
+      const scale = Math.min(1, REFERENCE_MAX_EDGE / Math.max(wide, tall));
+      const w = Math.max(1, Math.round(wide * scale));
+      const h = Math.max(1, Math.round(tall * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const pen = canvas.getContext("2d");
+      //! A WHITE GROUND UNDER IT. A PNG with transparency re-encoded as JPEG
+      //! gets black wherever it was clear, which turns a cut-out object
+      //! reference into a silhouette on a black field.
+      pen.fillStyle = "#ffffff";
+      pen.fillRect(0, 0, w, h);
+      pen.drawImage(image, 0, 0, w, h);
+      const made = canvas.toDataURL("image/jpeg", 0.9);
+      const parts = dataUrlParts(made);
+      if (!parts) return null;
+      return { name: name || "reference", role: REFERENCE_ROLES[0].key, note: "",
+               on: true, data: parts.data, mime: parts.mime, w, h,
+               was: [wide, tall] };
+    } catch (err) {
+      return null;
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  async addFiles(list) {
+    const files = [...(list || [])].filter(one => one);
+    if (!files.length) return;
+    this.openRefs(true);
+    let refused = [];
+    for (const one of files) {
+      if (this.refs.length >= MAX_REFERENCES) {
+        refused.push(one.name || "a file");
+        continue;
+      }
+      const made = await this.shrink(one, one.name);
+      if (made) this.refs.push(made);
+      else refused.push(one.name || "a file");
+    }
+    this.paintRefs();
+    if (refused.length)
+      this.note.textContent = refused.length + " not added \u2014 "
+        + (this.refs.length >= MAX_REFERENCES
+            ? MAX_REFERENCES + " is the most the service takes"
+            : "the browser would not read " + refused.slice(0, 2).join(", "));
+  }
+
+  //! A REFERENCE FROM A URL, which is the one way in that can fail for
+  //! reasons that have nothing to do with this page. A picture on somebody
+  //! else's site is only readable from script if that site allows it; without
+  //! the right header the fetch is refused by the browser before it starts,
+  //! and no amount of code here changes that. So the failure says what to do
+  //! instead rather than reading as a bug.
+  async addFromUrl(said) {
+    const link = String(said || "").trim();
+    if (!/^https?:\/\//i.test(link)) {
+      this.note.textContent = "that is not an http address";
+      return;
+    }
+    if (this.refs.length >= MAX_REFERENCES) {
+      this.note.textContent = MAX_REFERENCES + " references is the most the service takes";
+      return;
+    }
+    this.note.textContent = "fetching that picture\u2026";
+    try {
+      const answer = await fetch(link, { mode: "cors" });
+      if (!answer.ok) throw new Error("the site answered " + answer.status);
+      const blob = await answer.blob();
+      if (!/^image\//.test(blob.type || ""))
+        throw new Error("that address is not a picture");
+      const made = await this.shrink(blob, link.split("/").pop().split("?")[0]);
+      if (!made) throw new Error("the browser would not decode it");
+      this.refs.push(made);
+      this.paintRefs();
+      this.sayReady();
+    } catch (err) {
+      this.note.textContent = "could not fetch that picture \u2014 " + err.message
+        + ". Save it and drop it in instead.";
+    }
+  }
+
+  paintRefs() {
+    const body = this.refsPanel.querySelector(".nb-refs-body");
+    body.textContent = "";
+    if (!this.refs.length) {
+      body.appendChild(built("p", "nb-fine",
+        "Nothing yet. Add pictures of what this view should be LIKE — a style, "
+        + "a material, a street, a light — and they are sent with it in one "
+        + "call, each one named in the prompt by what it is for."));
+    }
+    this.refs.forEach((one, at) => {
+      const row = built("div", "nb-ref" + (one.on ? "" : " off"));
+      const thumb = built("img", "nb-thumb");
+      thumb.src = "data:" + one.mime + ";base64," + one.data;
+      thumb.alt = "";
+      thumb.title = one.name;
+
+      const words = built("div", "nb-words");
+      const roles = built("select", "nb-role");
+      for (const role of REFERENCE_ROLES) {
+        const option = document.createElement("option");
+        option.value = role.key;
+        option.textContent = role.label;
+        roles.appendChild(option);
+      }
+      roles.value = one.role;
+      roles.addEventListener("change", () => {
+        one.role = roles.value;
+        this.paintRefs();
+      });
+      const note = built("input", "nb-ref-note");
+      note.type = "text";
+      note.placeholder = "anything to add about it (optional)";
+      note.value = one.note || "";
+      note.addEventListener("input", () => { one.note = note.value; });
+      words.append(roles, note);
+      words.appendChild(built("p", "nb-fine",
+        escaped(one.name) + " \u00b7 " + one.w + "\u00d7" + one.h
+        + (one.was && one.was[0] > one.w ? " (from " + one.was[0] + "\u00d7"
+            + one.was[1] + ")" : "")
+        + " \u00b7 " + inBytes(Math.round(one.data.length * 0.75))));
+
+      const use = built("button", "icon-btn nb-ref-use", one.on ? "\u25cf" : "\u25cb");
+      use.type = "button";
+      use.title = one.on ? "Sent with the next render" : "Kept, but not sent";
+      use.addEventListener("click", () => { one.on = !one.on; this.paintRefs(); });
+      const drop = built("button", "icon-btn nb-ref-drop", "\u00d7");
+      drop.type = "button";
+      drop.title = "Remove this reference";
+      drop.addEventListener("click", () => {
+        this.refs.splice(at, 1);
+        this.paintRefs();
+      });
+      row.append(thumb, words, use, drop);
+      body.appendChild(row);
+    });
+    const live = this.refs.filter(one => one.on);
+    const bytes = live.reduce((n, one) => n + Math.round(one.data.length * 0.75), 0);
+    this.refsPanel.querySelector(".nb-refs-note").textContent = live.length
+      ? live.length + " of " + this.refs.length + " sent \u00b7 " + inBytes(bytes)
+      : this.refs.length ? "none of " + this.refs.length + " will be sent" : "";
+    //! The count on the button, so the bar says there are references without
+    //! the panel having to be open.
+    this.refsBtn.textContent = live.length ? "References " + live.length : "References";
+    this.refsBtn.classList.toggle("on", live.length > 0);
+    this.sayReady();
+  }
+
   /* ---------------------------------------------------------------- the call */
 
   async run() {
@@ -334,7 +625,8 @@ class NanoView {
     try {
       request = nanoRequest({ prompt: said, image: parts.data, mime: parts.mime,
                               key: apiKey, model: apiModel, ratio: shape,
-                              size: this.size.value });
+                              size: this.size.value,
+                              references: this.refs.filter(one => one.on) });
     } catch (err) { this.note.textContent = err.message; return; }
 
     this.working(true, said);
@@ -367,8 +659,13 @@ class NanoView {
         return;
       }
       this.working(false);
+      //! WHAT IT WAS MADE FROM, kept with it. A render that came out well and
+      //! cannot be repeated because nobody wrote down which four references
+      //! were switched on is a render to be made again by guesswork.
       this.keep({ data: made.data, mime: made.mime, prompt: said,
-                  when: Date.now(), model: apiModel });
+                  when: Date.now(), model: apiModel,
+                  refs: this.refs.filter(one => one.on)
+                    .map(one => roleInfoFor(one.role).label + ": " + one.name) });
     } catch (err) {
       this.working(false);
       this.note.textContent = "the request did not get there — " + err.message;
@@ -393,7 +690,10 @@ class NanoView {
     const began = Date.now();
     const tick = () => {
       const seconds = Math.round((Date.now() - began) / 1000);
-      this.note.textContent = "asking " + apiModel + " — " + seconds + "s"
+      const refs = this.refs.filter(one => one.on).length;
+      this.note.textContent = "asking " + apiModel
+        + (refs ? " with " + refs + (refs === 1 ? " reference" : " references") : "")
+        + " — " + seconds + "s"
         + (seconds > 45 ? " (a 2K or 4K image takes a while)" : "");
     };
     tick();
@@ -470,7 +770,10 @@ class NanoView {
       words.appendChild(built("p", "nb-fine",
         new Date(entry.when).toLocaleTimeString() + " · "
         + escaped(entry.model || "") + " · "
-        + inBytes(Math.round(entry.data.length * 0.75))));
+        + inBytes(Math.round(entry.data.length * 0.75))
+        + ((entry.refs || []).length
+            ? " · " + entry.refs.length
+              + (entry.refs.length === 1 ? " reference" : " references") : "")));
       const get = built("button", "btn nb-get", "Save");
       get.type = "button";
       get.addEventListener("click", () => this.saveOne(index));
@@ -515,7 +818,9 @@ class NanoView {
     //! no prompts in it is a folder nobody can use a week later.
     const said = this.gallery.map((entry, index) =>
       galleryName(entry, index) + "\n  " + new Date(entry.when).toISOString()
-      + "\n  " + (entry.model || "") + "\n  " + entry.prompt + "\n").join("\n");
+      + "\n  " + (entry.model || "") + "\n  " + entry.prompt + "\n"
+      + ((entry.refs || []).length
+          ? "  references: " + entry.refs.join("; ") + "\n" : "")).join("\n");
     files.push({ name: "prompts.txt",
                  bytes: new TextEncoder().encode(
                    "What was asked for, in the order the images were made.\n\n" + said) });
@@ -538,7 +843,12 @@ class NanoView {
 
   dispose() {
     clearInterval(this.ticking);
-    for (const node of [this.tab, this.bar, this.over, this.shelf, this.keys])
+    //! The paste listener is on the WINDOW, so it outlives the panel it feeds
+    //! unless it is taken off by name. A package put away has to leave the
+    //! page as it found it.
+    if (this.onPaste) window.removeEventListener("paste", this.onPaste);
+    for (const node of [this.tab, this.bar, this.over, this.shelf, this.keys,
+                        this.refsPanel])
       if (node && node.parentNode) node.remove();
   }
 }

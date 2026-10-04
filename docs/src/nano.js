@@ -110,6 +110,88 @@ export function ratioFor(width, height) {
   return best && best.gap < 0.08 ? best.name : null;
 }
 
+/* ------------------------------------------------------- the references
+
+   MULTI-REFERENCE IN-CONTEXT LEARNING, which is a long name for: send the
+   view AND a handful of pictures of what it should be like, and say which is
+   which.
+
+   The service takes several images in one call - up to fourteen, and the
+   published per-model breakdown is narrower than that total:
+
+     gemini-3.1-flash-lite-image   up to 14 object images
+     gemini-3.1-flash-image        up to 10 object, 4 character, 3 style
+     gemini-3-pro-image            up to 6 object, 5 character
+
+   What it does NOT publish is any way to LABEL one. There is no role field,
+   no name, no caption - the images arrive as an ordered list and that is all
+   the model is told. So the labels below are not an API feature and must not
+   be described as one: they are a sentence this page writes into the prompt,
+   naming each picture in the order they are sent, because a model given six
+   unlabelled photographs has to guess which one was the mood board and which
+   one was the building.
+   
+   Whether that sentence helps is not something any test here can establish,
+   because nothing here reaches the service. It is a reasonable way to use an
+   ordered list and it is visible in the request, which is the most that can
+   honestly be claimed for it.                                              */
+
+export const MAX_REFERENCES = 14;
+
+//! WHAT A REFERENCE IS FOR. The key is stored; the sentence is what the model
+//! is actually told. Written as instructions about THIS view rather than
+//! descriptions of the reference, for the same reason every suggested prompt
+//! ends by forbidding the geometry from moving.
+export const REFERENCE_ROLES = [
+  { key: "style", label: "Style",
+    says: "the overall look, mood and treatment to follow" },
+  { key: "material", label: "Material",
+    says: "a surface finish to apply to the building" },
+  { key: "context", label: "Context",
+    says: "the kind of surroundings to place it in" },
+  { key: "lighting", label: "Lighting",
+    says: "the light, time of day and weather to match" },
+  { key: "palette", label: "Palette",
+    says: "the colours to work within" },
+  { key: "object", label: "Object",
+    says: "an object to include in the scene" },
+  { key: "person", label: "Person",
+    says: "a person to include, at a believable scale" },
+  { key: "detail", label: "Detail",
+    says: "a detail or component to reproduce faithfully" },
+];
+
+export const roleInfoFor = key =>
+  REFERENCE_ROLES.find(one => one.key === key) || REFERENCE_ROLES[0];
+
+//! HOW BIG A REFERENCE IS SENT. A mood board photograph off a phone is four
+//! thousand pixels wide and three megabytes; six of those is eighteen
+//! megabytes of base64 in one POST, for a model that is going to look at them
+//! at a fraction of that. 1024 on the long edge is enough to read a style off
+//! and keeps the whole call to a size that will actually leave the browser.
+export const REFERENCE_MAX_EDGE = 1024;
+
+//! THE SENTENCE THAT SAYS WHICH PICTURE IS WHICH. Numbered from the order the
+//! images are sent in, with the view named last because that is where it is
+//! put - see nanoRequest, which builds both from the same list so the words
+//! and the order cannot drift apart.
+export function referenceBrief(references) {
+  const used = (references || []).filter(one => one && one.data);
+  if (!used.length) return "";
+  const lines = used.map((one, at) => {
+    const role = roleInfoFor(one.role);
+    return "Image " + (at + 1) + " is a " + role.label.toLowerCase()
+      + " reference: " + role.says
+      + (one.note ? " \u2014 " + String(one.note).trim() : "") + ".";
+  });
+  //! AND WHICH ONE IS THE BUILDING. Without this the view is just the last of
+  //! seven pictures and the model has no reason to treat it as the subject.
+  lines.push("Image " + (used.length + 1)
+    + " is the view to work on: keep its geometry, camera and composition, "
+    + "and apply the references above to it.");
+  return lines.join(" ");
+}
+
 /* --------------------------------------------------------------- the request */
 
 //! A data URL split into what the service needs: the type and the base64.
@@ -127,13 +209,22 @@ export function dataUrlParts(url) {
 //! which is what makes the shape of the call something a test can read.
 export function nanoRequest({ prompt, image, mime = "image/png", key,
                               model = NANO_DEFAULT_MODEL, ratio = null,
-                              size = null } = {}) {
+                              size = null, references = [] } = {}) {
   const said = String(prompt || "").trim();
   if (!said) throw new Error("there is no prompt to send");
   if (!image) throw new Error("there is no picture to send");
   if (!key) throw new Error("there is no API key - the gear on the prompt bar takes one");
-  const input = [{ type: "text", text: said },
-                 { type: "image", mime_type: mime, data: image }];
+  //! THE REFERENCES FIRST, THE VIEW LAST, and the words that say so built from
+  //! the same list in the same order. Two places deciding the order
+  //! independently is how a prompt comes to call the mood board "image 3"
+  //! while image 3 is the building.
+  const refs = (references || []).filter(one => one && one.data)
+                                 .slice(0, MAX_REFERENCES);
+  const brief = referenceBrief(refs);
+  const input = [{ type: "text", text: brief ? brief + "\n\n" + said : said }];
+  for (const one of refs)
+    input.push({ type: "image", mime_type: one.mime || "image/png", data: one.data });
+  input.push({ type: "image", mime_type: mime, data: image });
   const body = { model: model || NANO_DEFAULT_MODEL, input };
   //! ASKED FOR ONLY WHEN THERE IS SOMETHING TO ASK. An empty response_format
   //! is a field the service has to interpret, and the default - whatever the
