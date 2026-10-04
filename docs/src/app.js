@@ -14199,6 +14199,24 @@ globalThis.__cad = {
   //! right-click says there is nothing under the pointer. That is exactly what
   //! happened when a missing import threw inside the rebuild, so it is now a
   //! thing a drive can ask about rather than a thing a person reports.
+  //! WHAT THE RENDERER ACTUALLY HOLDS for a body. A texture can be in the
+  //! material, in the tree and in the save file and never be sampled, and the
+  //! render would look exactly like one without it. Comparing pixels could not
+  //! tell the two apart - path-tracing noise at seven samples is larger than
+  //! the grain a concrete adds - so this asks the renderer instead.
+  renderParts: id => {
+    const part = showroom.ready && showroom.parts.get(id);
+    if (!part) return null;
+    const say = map => (map && map.image
+      ? { width: map.image.width || 0, height: map.image.height || 0,
+          space: map.colorSpace }
+      : map ? { width: 0, height: 0, space: map.colorSpace } : null);
+    const m = part.material;
+    return { colour: [m.color.r, m.color.g, m.color.b].map(v => +v.toFixed(3)),
+             roughness: +m.roughness.toFixed(3), metalness: +m.metalness.toFixed(3),
+             map: say(m.map), roughnessMap: say(m.roughnessMap),
+             normalMap: say(m.normalMap) };
+  },
   pickCount: () => pickable.length,
   hovered: () => state.hover || null,
   selected: () => state.selected || null,
