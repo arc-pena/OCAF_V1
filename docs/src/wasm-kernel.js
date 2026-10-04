@@ -1806,6 +1806,37 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     },
   };
 
+  //! A TEXTURE IS A SHADE WHOSE PATTERN IS A PHOTOGRAPH. The driver does not
+  //! decode anything - it runs in a worker, where there is no image decoder and
+  //! nothing to draw on - it hands the bytes on with what they are FOR, and the
+  //! page turns that into a texture. The pure evaluator reads the same program
+  //! and answers with a neutral value, so a document full of textures still
+  //! bakes, measures and tests without a browser.
+  const TEXTURE_ROLES = ["colour", "roughness", "metalness", "normal",
+                         "occlusion", "height", "opacity", "emission"];
+
+  builders.Texture = {
+    build: f => {
+      const image = F.code(f, "image", "");
+      const role = TEXTURE_ROLES[Feature_choice(f, "role")] || "colour";
+      const program = {
+        op: "image", role,
+        //! sRGB for the two that are SEEN and linear for the rest, which are
+        //! numbers the shader uses as they stand. Encode a roughness map and
+        //! every rough surface comes out polished.
+        space: role === "colour" || role === "emission" ? "srgb" : "linear",
+        flip: role === "normal" && Feature_choice(f, "flip") === 1,
+        brightness: F.real(f, "brightness", 1),
+        from: F.text(f, "from", ""),
+        image,
+      };
+      const kb = Math.round(image.length * 0.75 / 1024);
+      return asShade(program, image
+        ? role + " \u00b7 " + (kb ? kb + " kB" : "an image")
+        : role + " \u00b7 no image yet");
+    },
+  };
+
   builders.Checker = shadeBuilder("checker",
     f => ({ scale: Math.max(1, F.real(f, "scale", 8)) }),
     p => trimNumber(p.scale) + " squares across");

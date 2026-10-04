@@ -403,11 +403,49 @@ export class RenderEngine {
   textureFor(program, tiles, kind) {
     if (!program) return null;
     if (!this._textures) this._textures = new Map();
-    const key = kind + "|" + tiles + "|" + JSON.stringify(program);
+    //! The image's own bytes are the key's bulk, so a material with four 1 MB
+    //! maps would make a four-megabyte string every time this is called. The
+    //! length and the first forty characters of the base64 identify it well
+    //! enough: two different images of the same length whose first thirty
+    //! bytes agree would be the same JPEG header and a coincidence nobody has
+    //! had.
+    const stamp = program.op === "image"
+      ? "image|" + program.role + "|" + program.flip + "|" + program.brightness
+        + "|" + (program.image || "").length + "|" + (program.image || "").slice(0, 40)
+      : JSON.stringify(program);
+    const key = kind + "|" + tiles + "|" + stamp;
     const had = this._textures.get(key);
     if (had) return had;
 
     const THREE = this.PT.THREE;
+    //! A PHOTOGRAPH, not a program to evaluate. The browser decodes it; this
+    //! only has to say which colour space it is in and how it repeats.
+    if (program.op === "image") {
+      if (!program.image) return null;
+      const texture = new THREE.Texture();
+      texture.colorSpace = program.space === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(tiles, tiles);
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      const image = new Image();
+      image.onload = () => {
+        texture.image = image;
+        texture.needsUpdate = true;
+        //! The scene was handed over before this arrived, so the tracer is
+        //! holding a texture with no pixels in it. Re-reading the materials is
+        //! cheap - it does not touch the BVH - and is what puts the picture in.
+        this.refreshMaterials();
+        this.restart();
+      };
+      image.onerror = () => this.onTrouble("a texture would not decode"
+        + (program.from ? " \u2014 " + program.from : ""));
+      //! The bytes are base64 in the document, which is what a data URL is
+      //! already, so there is nothing to decode here: the browser does it.
+      image.src = "data:image/*;base64," + program.image;
+      this._textures.set(key, texture);
+      return texture;
+    }
     const size = bakeSize(program);
     const linear = bakeShade(program, size, tiles);
     const bytes = new Uint8Array(size * size * 4);
@@ -487,6 +525,15 @@ export class RenderEngine {
     put("roughnessMap", "roughness");
     put("metalnessMap", "metalness");
     put("emissiveMap", "emission");
+    put("normalMap", "normal");
+    put("aoMap", "occlusion");
+    //! A DIRECTX NORMAL, FLIPPED HERE rather than in the image. three has a
+    //! scale for exactly this and it costs nothing; re-encoding a megabyte of
+    //! JPEG with its green inverted costs a second and loses quality.
+    if (m.normalMap) {
+      const dx = maps.normal && maps.normal.flip;
+      m.normalScale = new THREE.Vector2(1, dx ? -1 : 1);
+    }
     //! A map multiplies the value beside it, so a roughness map on a material
     //! whose roughness is 0.2 can never make anything rougher than 0.2. The
     //! number becomes the CEILING once a map is wired, which is almost never

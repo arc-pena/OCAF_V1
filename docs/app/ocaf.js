@@ -2618,6 +2618,34 @@ export const CATALOGUE = [
            real("green", "Green", 0.8, 0, 1, 0.01, ""),
            real("blue", "Blue", 0.8, 0, 1, 0.01, "")] },
 
+  //! AN IMAGE, AS A SHADE. A photograph of concrete and a procedural checker
+  //! are the same kind of thing to everything downstream - a pattern over a
+  //! surface - so a texture is a shade and wires into the same slots, through
+  //! the same ports, saved by the same format. No second mechanism.
+  //!
+  //! The bytes travel IN THE DOCUMENT, like every other blob here: a model
+  //! file that needs a folder of JPEGs beside it is a model file that opens
+  //! grey on somebody else's machine. See the blob kind in ARG.
+  { type: "Texture", guid: "9a1b2c30-0159-4c00-9e00-caf000000159", category: "material",
+    produces: "shade",
+    summary: "One image, as a pattern on a surface. Drop a material's zip on the "
+           + "window and you get one of these per map, already wired. What it "
+           + "IS decides how it is read: a colour map is sRGB, a roughness map "
+           + "is a number the renderer uses as it stands, and reading one as "
+           + "the other is the difference between a rough wall and a polished one.",
+    args: [blob("image", "Image", "a colour, roughness, metal, normal or other map"),
+           choice("role", "What it is",
+                  ["Colour", "Roughness", "Metal", "Normal", "Occlusion",
+                   "Height", "Opacity", "Emission"], 0),
+           text("from", "From", "", "the file it came out of"),
+           //! A normal map written for DirectX has its green channel upside
+           //! down. Both conventions are in the wild and the file name is
+           //! usually the only thing that says which - so when it does, this
+           //! is set, and when it does not, somebody can flip it here.
+           when(choice("flip", "Green channel", ["As it is (OpenGL)", "Flipped (DirectX)"], 0),
+                "role", 3),
+           real("brightness", "Brightness", 1, 0, 4, 0.01, "")] },
+
   { type: "Checker", guid: "9a1b2c30-0151-4c00-9e00-caf000000151", category: "material",
     produces: "shade",
     summary: "Squares, alternating. The count is how many across the tile, so 8 "

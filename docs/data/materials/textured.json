@@ -1,0 +1,86 @@
+{
+ "note": "Textured PBR materials, 1K JPEG, CC0 from ambientCG.com. Served beside the page, not packed into the single file. Only the maps the renderer reads are kept - colour, roughness, the OpenGL normal and metalness where there is one - which is about a fifth of what the original zip holds. Drop any library's zip on the window to install your own.",
+ "resolution": "1K-JPG",
+ "materials": [
+  {
+   "id": "Concrete034",
+   "group": "concrete",
+   "name": "Concrete, fair-faced",
+   "asset": "Concrete034",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg"
+   },
+   "bytes": 1308890,
+   "credit": "Concrete, fair-faced"
+  },
+  {
+   "id": "Bricks105",
+   "group": "masonry",
+   "name": "Brick",
+   "asset": "Bricks105",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg"
+   },
+   "bytes": 1783081,
+   "credit": "Brick"
+  },
+  {
+   "id": "WoodFloor043",
+   "group": "timber",
+   "name": "Wood floor",
+   "asset": "WoodFloor043",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg",
+    "metalness": "metalness.jpg"
+   },
+   "bytes": 1278659,
+   "credit": "Wood floor"
+  },
+  {
+   "id": "Metal049A",
+   "group": "metal",
+   "name": "Brushed metal",
+   "asset": "Metal049A",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg",
+    "metalness": "metalness.jpg"
+   },
+   "bytes": 1088891,
+   "credit": "Brushed metal"
+  },
+  {
+   "id": "PaintedPlaster017",
+   "group": "paint",
+   "name": "Painted plaster",
+   "asset": "PaintedPlaster017",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg"
+   },
+   "bytes": 1687145,
+   "credit": "Painted plaster"
+  },
+  {
+   "id": "Tiles139",
+   "group": "floor",
+   "name": "Tile",
+   "asset": "Tiles139",
+   "maps": {
+    "colour": "colour.jpg",
+    "roughness": "roughness.jpg",
+    "normal": "normal.jpg"
+   },
+   "bytes": 2340967,
+   "credit": "Tile"
+  }
+ ]
+}

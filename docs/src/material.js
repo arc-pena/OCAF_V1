@@ -92,6 +92,10 @@ export const SHADE_OPS = {
   bricks:   { inputs: ["a", "b"], summary: "courses, with every other one offset" },
   mix:      { inputs: ["a", "b", "by"], summary: "two shades, blended by a third" },
   adjust:   { inputs: ["a"], summary: "invert, brighten or harden one shade" },
+  //! AN IMAGE. It has no inputs because a photograph is not made of anything
+  //! else, and the pure evaluator cannot read it - there is no image decoder
+  //! here, on purpose. See evalShade.
+  image:    { inputs: [], summary: "a photograph, read by the renderer" },
 };
 
 export const WHITE = [1, 1, 1];
@@ -122,6 +126,28 @@ export function evalShade(program, u, v, depth = 0) {
   switch (program.op) {
     case "colour":
       return Array.isArray(program.colour) ? program.colour : WHITE;
+
+    //! AN IMAGE, WHICH THIS CANNOT READ, and says so by answering with a
+    //! neutral value rather than with black.
+    //!
+    //! Decoding a JPEG needs a decoder, and this file deliberately has none:
+    //! it is the arithmetic, it runs in a worker and in a test, and dragging
+    //! an image decoder in here to make `evalShade` complete would make every
+    //! other thing it does depend on one. So a texture evaluates to the middle
+    //! of its own role - mid grey for a colour, half rough, not metal, flat
+    //! for a normal - which is what the surface would be if the image were
+    //! missing, and is a sane thing for a bake or a test to get.
+    //!
+    //! The renderer does not come through here for one of these. It sees
+    //! `op: "image"` and makes a real texture out of the bytes.
+    case "image": {
+      const neutral = {
+        colour: [0.5, 0.5, 0.5], roughness: [0.5, 0.5, 0.5], metalness: BLACK,
+        normal: [0.5, 0.5, 1], occlusion: WHITE, height: [0.5, 0.5, 0.5],
+        opacity: WHITE, emission: BLACK,
+      };
+      return neutral[program.role] || [0.5, 0.5, 0.5];
+    }
 
     //! SQUARES. scale is how many squares across the tile, so 8 gives an
     //! 8 x 8 board - which is how a person thinks about it, and is not the

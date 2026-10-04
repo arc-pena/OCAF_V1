@@ -88,6 +88,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # three. The kernel's drivers assemble shade programs with it and
            # the renderer evaluates them, so it comes before both.
            "material.js",
+           # texture.js reads a dropped PBR set - the zip format and the naming
+           # conventions, as arithmetic. Pure, so the worker never reaches it.
+           "texture.js",
            # generate reads reuse, and the kernel reads both.
            "generate.js",
            "wasm-kernel.js", "http-kernel.js", "mdl.js",

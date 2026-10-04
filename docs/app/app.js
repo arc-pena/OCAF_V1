@@ -7,6 +7,7 @@ import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, QUALITIES, RenderEngine } from "./render.js";
 import { PICKER_CSS, closePicker, colourSwatch } from "./picker.js";
+import { IMAGE_TYPES, materialFromFiles, readZip, unpack } from "./texture.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS,
          VIEW_STYLES, appearanceOf, edgeRibbon, findFinish, findMark, findStyle,
@@ -10314,6 +10315,7 @@ function markField(entry) {
    ================================================================== */
 
 let materialBook = null;
+let texturedBook;
 
 async function openMaterialBook(id) {
   if (!materialBook) {
@@ -10321,6 +10323,16 @@ async function openMaterialBook(id) {
       materialBook = await (await resource("material-book",
         "data/materials/architectural.json", "the material library")).json();
     } catch (err) { showError("the material library would not open: " + err.message); return; }
+  }
+  //! The textured ones are files beside the page, so there are none in the
+  //! single file and asking is how we find out. Asked once either way.
+  if (texturedBook === undefined) {
+    texturedBook = null;
+    if (SKY_URL) {
+      try {
+        texturedBook = await (await fetch("data/materials/textured.json")).json();
+      } catch (err) { texturedBook = null; }
+    }
   }
   const entry = feature(id);
   if (!entry) return;
@@ -10333,6 +10345,51 @@ async function openMaterialBook(id) {
   const draw = () => {
     const want = search.value.trim().toLowerCase();
     body.textContent = "";
+
+    //! THE TEXTURED ONES FIRST, because they are the ones somebody came here
+    //! for. Served beside the page and therefore absent from the single file,
+    //! where this section says so rather than being quietly empty - a library
+    //! that is shorter in one build than the other, with no explanation, reads
+    //! as a page that failed to load.
+    const sets = (texturedBook && texturedBook.materials) || [];
+    const wanted = sets.filter(m => !want || (m.name + " " + m.asset).toLowerCase().includes(want));
+    if (wanted.length || (!want && !SKY_URL)) {
+      const head = document.createElement("div");
+      head.className = "lb-group";
+      head.textContent = SKY_URL ? "Textured \u00b7 real maps" : "Textured";
+      body.appendChild(head);
+      if (!SKY_URL) {
+        const why = document.createElement("div");
+        why.className = "summary";
+        why.style.margin = "0 0 6px";
+        why.textContent = "Nine megabytes of images, so they are beside the served "
+          + "page rather than inside this one. Drop any library's zip on the window "
+          + "and it installs here either way.";
+        body.appendChild(why);
+      }
+      const grid = document.createElement("div");
+      grid.className = "lb-grid";
+      for (const m of wanted) {
+        const button = document.createElement("button");
+        button.className = "lb-chip";
+        button.type = "button";
+        //! The colour map itself as the swatch, which is the only honest
+        //! preview of a textured material - a flat colour would say nothing
+        //! about what makes it worth having.
+        button.innerHTML = '<i style="background-image:url(' + SKY_URL.replace("sky/", "materials/")
+          + m.asset + "/" + m.maps.colour + ');background-size:cover"></i><span>'
+          + escapeHtml(m.name) + "</span>";
+        button.title = m.name + " \u00b7 " + Object.keys(m.maps).join(", ")
+          + " \u00b7 " + readable(m.bytes) + " \u00b7 CC0 from ambientCG";
+        button.addEventListener("click", async () => {
+          dialog.close();
+          await installTextured(m);
+        });
+        grid.appendChild(button);
+      }
+      body.appendChild(grid);
+    }
+
     for (const group of materialBook.groups) {
       const mine = materialBook.materials.filter(m => m.group === group.key
         && (!want || (m.name + " " + m.key).toLowerCase().includes(want)));
@@ -15086,6 +15143,14 @@ async function takeFiles(list) {
     const format = formatFor(file.name);
     return !!format && format.key === "model";
   };
+  //! A MATERIAL FIRST, because a material is a pile of files that mean ONE
+  //! thing and taking them one at a time would import eight pictures. A zip of
+  //! maps, or several image files dropped together, is a material; a single
+  //! image on its own is not - that is somebody dropping a photograph, and
+  //! guessing it is a texture would be a guess.
+  const asMaterial = await maybeMaterial(files);
+  if (asMaterial) return;
+
   const models = files.filter(isModel);
   const order = [...models.slice(0, 1), ...files.filter(file => !isModel(file))];
   if (models.length > 1)
@@ -15102,6 +15167,149 @@ async function takeFiles(list) {
         + " still to come, drop them again after");
       return;
     }
+  }
+}
+
+/* ================================================== a material, dropped
+
+   Every PBR library ships the same thing in a different envelope: a zip, or a
+   folder, of images named by a convention nobody agreed on. texture.js reads
+   the envelope and works out what each file is FOR; this turns that into
+   nodes.
+
+   One Texture node per map and one Material wired to them all - rather than
+   one node holding eight pictures - because then the maps are in the tree, in
+   the node graph, and on the end of ordinary wires. Unwire the roughness and
+   put a Checker there instead; that is the whole point of having built the
+   material graph first.
+
+   The bytes go IN THE DOCUMENT, like every other blob here. A model file that
+   needs a folder of JPEGs beside it opens grey on somebody else's machine.  */
+
+//! A TEXTURED LIBRARY ENTRY, installed exactly as a dropped one is - the files
+//! are fetched rather than dragged and everything after that is the same code,
+//! so there is one way a textured material gets into a document and not two.
+async function installTextured(entry) {
+  const base = SKY_URL.replace("sky/", "materials/") + entry.asset + "/";
+  say("fetching " + entry.name + "\u2026");
+  try {
+    const files = [];
+    for (const [role, name] of Object.entries(entry.maps)) {
+      const answer = await fetch(base + name);
+      if (!answer.ok) throw new Error(name + " is not beside the page");
+      files.push({ role, name: entry.asset + "_" + role + ".jpg",
+                   bytes: new Uint8Array(await answer.arrayBuffer()) });
+    }
+    //! Named by role already, so the recogniser has nothing to guess - but it
+    //! is still the recogniser that decides, because then there is one answer
+    //! to "what is this file for" rather than two that can drift apart.
+    const made = materialFromFiles(files, entry.name);
+    made.name = entry.name;
+    await installMaterial(made);
+  } catch (err) { showError(entry.name + " would not install: " + err.message); }
+}
+
+//! Is this drop a material? Only if it is a zip, or two or more images that
+//! between them carry maps. Returns true when it has dealt with the files.
+async function maybeMaterial(files) {
+  const zips = files.filter(file => /\.zip$/i.test(file.name));
+  const images = files.filter(file => IMAGE_TYPES.test(file.name));
+  if (!zips.length && images.length < 2) return false;
+
+  let any = false;
+  for (const zip of zips) any = (await installZip(zip)) || any;
+  if (!zips.length && images.length >= 2) {
+    const read = await Promise.all(images.map(async file => ({
+      name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) })));
+    any = (await installMaterial(materialFromFiles(read, "Dropped material"))) || any;
+  }
+  return any;
+}
+
+async function installZip(file) {
+  let entries;
+  try {
+    entries = readZip(new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    //! Not a zip, or not one this reads. Said by name and NOT swallowed: the
+    //! drop then falls through to the ordinary importers, one of which may
+    //! know what it is.
+    say(file.name + " \u2014 " + err.message);
+    return false;
+  }
+  const made = materialFromFiles(entries, file.name.replace(/\.zip$/i, ""));
+  if (!made.usable) {
+    say(file.name + " has no texture maps in it \u2014 " + made.said
+      + (made.ignored.length ? " \u00b7 ignored " + made.ignored.slice(0, 4).join(", ") : ""));
+    return false;
+  }
+  //! Unpacked here rather than in texture.js, which is pure and has no
+  //! decompressor: stored entries come straight out, deflated ones go through
+  //! the browser's own.
+  for (const [role, entry] of Object.entries(made.maps))
+    made.maps[role] = { name: entry.name, bytes: await unpack(entry) };
+  return installMaterial(made);
+}
+
+//! THE SIZE A DOCUMENT CAN CARRY. A 1K JPEG set is about 1.3 MB and is
+//! nothing; a 4K set is twenty times that, and five of those is a model file
+//! nobody can email. Not refused - somebody who drops 4K meant 4K - but said,
+//! because a document that has quietly grown to 90 MB is a document that fails
+//! to save at the worst possible moment.
+const LOUD_TEXTURE = 8 * 1024 * 1024;
+
+const ROLE_INDEX = ["colour", "roughness", "metalness", "normal",
+                    "occlusion", "height", "opacity", "emission"];
+const ROLE_SLOT = { colour: "colourMap", roughness: "roughMap",
+                    metalness: "metalMap", emission: "emitMap" };
+
+async function installMaterial(made) {
+  const roles = Object.keys(made.maps);
+  if (!roles.length) return false;
+  const bytes = roles.reduce((n, role) => n + (made.maps[role].bytes || []).length, 0);
+
+  try {
+    //! THE MATERIAL FIRST, so the textures have something to be wired to and
+    //! so a failure part way through leaves a material rather than a litter of
+    //! orphaned images.
+    const material = await edit({ op: "add", type: "Material" });
+    if (!material || !material.id) return false;
+    await edit({ op: "rename", id: material.id, name: made.name });
+
+    for (const role of roles) {
+      const at = ROLE_INDEX.indexOf(role);
+      if (at < 0) continue;
+      const born = await edit({ op: "add", type: "Texture" });
+      if (!born || !born.id) continue;
+      await edit.many([
+        { op: "rename", id: born.id, name: made.name + " \u00b7 " + role },
+        { op: "set", id: born.id, key: "role", value: at },
+        ...(role === "normal" && made.flipGreen
+            ? [{ op: "set", id: born.id, key: "flip", value: 1 }] : []),
+      ]);
+      await edit({ op: "code", id: born.id, key: "image",
+                   text: toBase64(made.maps[role].bytes) });
+      await edit({ op: "set", id: born.id, key: "from",
+                   value: String(made.maps[role].name).split("/").pop() });
+      //! Only four of the eight have a slot on a Material today - occlusion,
+      //! height and opacity are read by the renderer through the set rather
+      //! than through a wire, and wiring them to nothing would be a wire that
+      //! does nothing. They are still nodes, still named, still in the graph.
+      const slot = ROLE_SLOT[role];
+      if (slot) await edit({ op: "connect", id: material.id, key: slot, from: born.id });
+    }
+
+    select(material.id, true);
+    say(made.name + " installed \u00b7 " + made.said
+      + " \u00b7 " + readable(bytes) + " in the document"
+      + (made.ignored.length ? " \u00b7 ignored " + made.ignored.slice(0, 3).join(", ") : "")
+      + " \u2014 pick it on any object's Wears list"
+      + (bytes > LOUD_TEXTURE
+         ? ". That is a lot to carry in a model file; a 1K set is about 1.3 MB." : ""));
+    return true;
+  } catch (err) {
+    showError("that material would not install: " + err.message);
+    return false;
   }
 }
 
