@@ -14,7 +14,7 @@ import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGH
          rgbOf } from "./styles.js";
 import { Mdl, defaultRefs } from "./mdl.js";
 import { acceptsFrom, branchOf, branchesIn, cappedTo, dataLines, lightenModel, round,
-         SAMPLES, sliderRange, sliderSpan, typeSpec } from "./ocaf.js";
+         SAMPLES, sliderRange, sliderSpan, trimNumber, typeSpec } from "./ocaf.js";
 import { armSliderEditor, closeSliderEditor, holdOnTrack,
          openSliderEditor } from "./slider.js";
 import { GraphEditor } from "./graph.js";
@@ -7204,12 +7204,25 @@ function buildLightList() {
   const anyExcluded = lights.some(one => {
     const l = lightOf(one); return l && l.exclude && l.exclude.length;
   });
+  //! WHAT IS ACTUALLY TRUE TODAY, which is less than a lister usually implies.
+  //!
+  //! On and the source's visibility reach the renderer and are obeyed. An
+  //! exclusion list is STORED, listed and saved - and no renderer applies it
+  //! yet. Saying otherwise here would be the worst kind of wrong: somebody
+  //! would clear a tick, wait four minutes for a render, and see the same
+  //! picture with nothing to tell them why.
+  //!
+  //! The path tracer cannot have it without shader surgery: it follows light,
+  //! and light either reaches a surface or it does not - there is no per-light
+  //! pass to leave anything out of, which is what makes it a rasteriser's
+  //! trick. The modelling view could, through three's own layers, once it
+  //! builds the document's lights at all - today it has its own fixed three.
   note.textContent = anyExcluded
-    ? "Exclusion lists are obeyed in the Rendered style. Ray traced ignores them: "
-      + "it follows light, and light either reaches a surface or it does not — there "
-      + "is no per-light pass to leave anything out of."
-    : "On and the source's visibility are obeyed everywhere. Exclusion lists are "
-      + "obeyed in Rendered and ignored by the path tracer.";
+    ? "On and the source's visibility are obeyed. Exclusion lists are stored and "
+      + "saved but no renderer applies them yet — the path tracer follows light, "
+      + "and light either reaches a surface or it does not."
+    : "On and the source's visibility are obeyed by the path tracer. Exclusion "
+      + "lists are stored for when the modelling view builds these lights too.";
   lightPanel.appendChild(note);
 
   const foot = document.createElement("div");
@@ -10282,6 +10295,110 @@ function markField(entry) {
   return field;
 }
 
+/* ================================================================== 
+   THE MATERIAL LIBRARY.
+
+   Seventy-two surfaces a building is actually made of, as PBR numbers:
+   concretes, masonry, stone, timber, metals, glass, paint, floors, fabric and
+   roofing. It is a STARTING POINT and says so - the reflectances are the
+   published typical values a daylight calculation uses, and the roughnesses
+   are a judgement about how a surface scatters, because nobody publishes a
+   GGX roughness for board-marked concrete.
+
+   Picking one makes a Material node wired to the body, which is the PBR path:
+   it goes to the path tracer whole, it is a node you can then take apart in
+   the graph, and it saves in the model file. The finish swatches above it are
+   the quick answer; this is the one that is about what a thing is made of.
+   ================================================================== */
+
+let materialBook = null;
+
+async function openMaterialBook(id) {
+  if (!materialBook) {
+    try {
+      materialBook = await (await resource("material-book",
+        "data/materials/architectural.json", "the material library")).json();
+    } catch (err) { showError("the material library would not open: " + err.message); return; }
+  }
+  const entry = feature(id);
+  if (!entry) return;
+
+  const dialog = document.getElementById("modal-library");
+  const body = document.getElementById("library-body");
+  body.textContent = "";
+  const search = document.getElementById("library-search");
+
+  const draw = () => {
+    const want = search.value.trim().toLowerCase();
+    body.textContent = "";
+    for (const group of materialBook.groups) {
+      const mine = materialBook.materials.filter(m => m.group === group.key
+        && (!want || (m.name + " " + m.key).toLowerCase().includes(want)));
+      if (!mine.length) continue;
+      const head = document.createElement("div");
+      head.className = "lb-group";
+      head.textContent = group.name;
+      body.appendChild(head);
+      const grid = document.createElement("div");
+      grid.className = "lb-grid";
+      for (const m of mine) {
+        const button = document.createElement("button");
+        button.className = "lb-chip";
+        button.type = "button";
+        //! The swatch is the material as it LOOKS, which for a metal is its
+        //! F0 and for glass is almost nothing - so a transmissive one is
+        //! drawn pale with the chequer behind it rather than as a solid
+        //! block, which would say "pale blue plastic".
+        button.innerHTML = '<i style="background:' + hexOf(m.colour.map(v => Math.pow(v, 1 / 2.2)))
+          + (m.transmission ? ";opacity:.45" : "") + '"></i><span>'
+          + escapeHtml(m.name) + "</span>";
+        button.title = m.name + " \u00b7 reflectance " + m.reflectance
+          + " \u00b7 roughness " + m.roughness
+          + (m.metalness ? " \u00b7 metal" : "")
+          + (m.transmission ? " \u00b7 transmits " + m.transmission : "");
+        button.addEventListener("click", async () => {
+          dialog.close();
+          await applyLibraryMaterial(id, m);
+        });
+        grid.appendChild(button);
+      }
+      body.appendChild(grid);
+    }
+  };
+  search.oninput = draw;
+  draw();
+  document.getElementById("library-for").textContent = entry.name || entry.id;
+  dialog.showModal();
+}
+
+//! One library entry onto one body. Re-uses the Material node the body
+//! already has rather than making a second one: two materials pointing at the
+//! same body is a document where the later one wins and the earlier one looks
+//! broken.
+async function applyLibraryMaterial(id, m) {
+  const entry = feature(id);
+  const already = materialNodeFor(id);
+  const numbers = {
+    red: m.colour[0], green: m.colour[1], blue: m.colour[2],
+    roughness: m.roughness, metalness: m.metalness || 0,
+    transmission: m.transmission || 0, ior: m.ior || 1.5,
+  };
+  try {
+    let target = already && already.id;
+    if (!target) {
+      const born = await edit({ op: "add", type: "Material", refs: { of: id } });
+      target = born && born.id;
+      if (target) await edit({ op: "rename", id: target, name: m.name });
+    }
+    if (!target) return;
+    await edit.many(Object.entries(numbers).map(([key, value]) =>
+      ({ op: "set", id: target, key, value })));
+    say(entry.name + " is " + m.name.toLowerCase()
+        + " \u00b7 reflectance " + m.reflectance + ", roughness " + m.roughness
+        + " \u2014 published typical values, not measurements; move them");
+  } catch (err) { showError(err.message); }
+}
+
 //! A node's own colour, as one swatch over its three numbers.
 //!
 //! LINEAR, because that is what these arguments are: render.js hands a
@@ -10304,9 +10421,16 @@ function nodeColourField(entry, args) {
   line.appendChild(kind);
   field.appendChild(line);
 
+  //! `entry.values`, not `entry.args`. The row carries the numbers the kernel
+  //! last built with under `values`; `args` is the SAVE format and does not
+  //! exist on a tree row at all - reading it gave undefined, which became NaN,
+  //! which the picker showed as `#NaNNaNNaN`. Found by a drive that read the
+  //! hex field rather than by looking at the swatch, which was the right
+  //! colour the whole time because the swatch is painted from the same
+  //! undefined by a different route.
   const read = () => args.map(arg => {
     const now = feature(entry.id);
-    const held = now && now.args ? now.args[arg.key] : undefined;
+    const held = now && now.values ? now.values[arg.key] : undefined;
     return typeof held === "number" ? held : arg.def;
   });
   //! Dragging writes the three numbers live so the model follows the cursor;
@@ -10512,10 +10636,20 @@ function materialField(entry) {
       field.appendChild(row);
     }
 
+    const library = document.createElement("button");
+    library.type = "button";
+    library.className = "btn";
+    library.style.marginTop = "8px";
+    library.style.width = "100%";
+    library.textContent = "Material library\u2026";
+    library.title = "Seventy-two architectural surfaces as PBR numbers";
+    library.addEventListener("click", () => openMaterialBook(entry.id));
+    field.appendChild(library);
+
     const made = document.createElement("button");
     made.type = "button";
     made.className = "btn";
-    made.style.marginTop = "8px";
+    made.style.marginTop = "6px";
     made.textContent = already ? "Edit its material graph" : "Build a material\u2026";
     made.title = already
       ? "Open the node graph on the Material painting this body"
@@ -11563,7 +11697,8 @@ function exclusionField(entry, arg) {
     + '<p class="hint">' + (lamp
       ? "This light reaches everything until you clear its tick. Clearing a set clears "
         + "everything in it - and anything added to the model later is lit from the "
-        + "moment it exists. The path tracer ignores this; see the light lister."
+        + "moment it exists. Stored and saved; no renderer applies it yet — see the "
+        + "light lister, which says why."
       : "Everything is in the drawing until you clear its tick. Clearing a "
         + "set clears everything in it - and anything added to the model later is in the "
         + "drawing from the moment it exists.")
@@ -13516,11 +13651,19 @@ document.getElementById("ai-prompt").addEventListener("keydown", event => {
    The modelling view and the stage are two renderers over one document: the
    kernel's triangles go to both, and neither owns the model.                */
 
+//! WHERE THE PHOTOGRAPHED SKIES ARE. Only ever beside the page: five
+//! megabytes of HDR cannot go in a 16 MB single file that is already at 14.6,
+//! so the Artifact has none and the renderer paints its dome instead. Set to
+//! null when the page carries its own payloads, which is how it knows.
+const SKY_URL = document.getElementById("kernel-payload") ? null : "data/sky/";
+
 const showroom = new RenderEngine({
   canvas: document.getElementById("stage-canvas"),
   payloadId: "render-payload",
   payloadUrl: STAGE_URL,
 });
+showroom.skyUrl = SKY_URL;
+showroom.onTrouble = message => say(message);
 const stage = document.getElementById("showroom");
 const stageUi = document.getElementById("stage-ui");
 let staging = false;
@@ -13951,6 +14094,22 @@ globalThis.__cad = {
   style: key => setStyle(key),
   styleNow: () => state.style,
   showroomReady: () => showroom.ready,
+  //! The lights as the DOCUMENT has them, so a drive can check that a switch
+  //! in the lister changed the model rather than only the button.
+  lights: () => lightsInModel().map(one => ({ id: one.id, name: one.name,
+    type: one.type, on: !!(lightOf(one) || {}).on, seen: !!(lightOf(one) || {}).seen,
+    excluded: ((lightOf(one) || {}).exclude || []).length })),
+  select: id => select(id, true),
+  lightPanel: on => toggleLights(on),
+  //! WHAT THE RAYCASTER IS ACTUALLY OFFERED, and what it last found. A rebuild
+  //! that threw part way through leaves the pick list empty and everything
+  //! still LOOKS right - the model is on screen, nothing highlights, and a
+  //! right-click says there is nothing under the pointer. That is exactly what
+  //! happened when a missing import threw inside the rebuild, so it is now a
+  //! thing a drive can ask about rather than a thing a person reports.
+  pickCount: () => pickable.length,
+  hovered: () => state.hover || null,
+  selected: () => state.selected || null,
   tracing: () => tracing,
   samples: () => (showroom.ready ? showroom.samples : -1),
   sample: n => [...shapes.entries()].slice(0, n).map(([id, held]) => ({
@@ -14511,6 +14670,8 @@ document.getElementById("btn-step-close").addEventListener("click", () => stepDi
 
 /* The renderer's own controls. */
 document.getElementById("trace-save").addEventListener("click", openRenderDialog);
+document.getElementById("btn-library-close").addEventListener("click", () =>
+  document.getElementById("modal-library").close());
 document.getElementById("btn-render-go").addEventListener("click", runRender);
 document.getElementById("btn-render-stop").addEventListener("click", () => { renderStop = true; });
 document.getElementById("btn-render-close").addEventListener("click", () => {

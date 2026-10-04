@@ -1959,6 +1959,31 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
   color: var(--ink); font: inherit; font-size: 11.5px; padding: 2px 5px;
 }
 #modal-render .cli { font-variant-numeric: tabular-nums; }
+
+/* The material library, as swatches you can see rather than a list of names.
+   A material is a thing you RECOGNISE - the whole reason a library beats four
+   sliders - so the chip is the colour first and the name second. */
+.lb-body { max-height: 52vh; overflow-y: auto; margin: 2px -2px 0; padding: 0 2px; }
+.lb-group {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); margin: 10px 0 5px;
+}
+.lb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 4px; }
+.lb-chip {
+  display: flex; align-items: center; gap: 7px; padding: 4px 7px 4px 5px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2);
+  color: var(--ink); font: inherit; font-size: 11px; cursor: pointer; text-align: left;
+}
+.lb-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+.lb-chip i {
+  flex: none; width: 20px; height: 20px; border-radius: 4px; display: block;
+  border: 1px solid var(--line);
+  background-image:
+    linear-gradient(45deg, rgba(128,128,128,.3) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128,128,128,.3) 25%, transparent 25%);
+  background-size: 8px 8px;
+}
+.lb-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* In the showroom the stage has its own trays along the bottom, so the trace
    bar goes above them rather than under them. Measured against the trays'
    own height rather than nudged: two rows of chips plus the hint line. */
@@ -2921,6 +2946,27 @@ to find.">
   <span class="tool-sep"></span>
   <button class="btn" id="trace-save">Save image…</button>
 </div>
+
+<dialog id="modal-library">
+  <div class="dhead">
+    <h3>Material library</h3>
+    <p>Seventy-two surfaces a building is made of, as PBR numbers. The
+       reflectances are the published typical values a daylight calculation
+       uses; the roughnesses are a judgement about how a surface scatters —
+       nobody publishes one for board-marked concrete. A starting point to
+       move, not a specification.</p>
+  </div>
+  <div class="field">
+    <div class="field-head"><label for="library-search">For</label>
+      <span class="kind" id="library-for"></span></div>
+    <input id="library-search" class="line" type="text" spellcheck="false"
+           autocomplete="off" placeholder="concrete, oak, anodised…">
+  </div>
+  <div class="lb-body" id="library-body"></div>
+  <div class="dfoot">
+    <button class="btn" id="btn-library-close">Close</button>
+  </div>
+</dialog>
 
 <dialog id="modal-render">
   <div class="dhead">

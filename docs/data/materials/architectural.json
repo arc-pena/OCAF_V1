@@ -1,0 +1,1001 @@
+{
+ "note": "A working library of the surfaces a building is actually made of, as PBR numbers. Say which of the three each number is, because they are not the same kind of thing: REFLECTANCE is the published typical value for the material class - the ranges lighting engineers have used for decades and that CIBSE and IESNA tabulate for daylight and interior lighting calculations - converted to a linear RGB triple at the stated hue. ROUGHNESS and METALNESS are a judgement about how a surface scatters, not a measurement: nobody publishes a GGX roughness for fair-faced concrete, and anyone who tells you they do has fitted one to a render they liked. IOR is the published refractive index where the material has one. Nothing here was measured by this program.",
+ "reflectance": "`reflectance` is the LUMINOUS REFLECTANCE of the surface - the fraction of the light landing on it that comes back into the room. It is the number a daylight or interior-lighting calculation wants, and it is the published typical value for the material class, not a measurement made here. A fair-faced concrete is anywhere from 0.20 to 0.40 depending on the cement, the aggregate and the weather it cured in; this is the middle of that.",
+ "version": 1,
+ "groups": [
+  {
+   "key": "concrete",
+   "name": "Concrete and screed"
+  },
+  {
+   "key": "masonry",
+   "name": "Masonry"
+  },
+  {
+   "key": "stone",
+   "name": "Stone"
+  },
+  {
+   "key": "timber",
+   "name": "Timber"
+  },
+  {
+   "key": "metal",
+   "name": "Metal"
+  },
+  {
+   "key": "glass",
+   "name": "Glass"
+  },
+  {
+   "key": "paint",
+   "name": "Paint and plaster"
+  },
+  {
+   "key": "floor",
+   "name": "Floor finishes"
+  },
+  {
+   "key": "fabric",
+   "name": "Fabric and soft"
+  },
+  {
+   "key": "roof",
+   "name": "Roofing and cladding"
+  }
+ ],
+ "materials": [
+  {
+   "key": "concrete-fair",
+   "name": "Concrete, fair-faced",
+   "group": "concrete",
+   "reflectance": 0.3,
+   "colour": [
+    0.3,
+    0.296,
+    0.282
+   ],
+   "roughness": 0.78,
+   "metalness": 0
+  },
+  {
+   "key": "concrete-board",
+   "name": "Concrete, board-marked",
+   "group": "concrete",
+   "reflectance": 0.27,
+   "colour": [
+    0.27,
+    0.264,
+    0.249
+   ],
+   "roughness": 0.86,
+   "metalness": 0
+  },
+  {
+   "key": "concrete-polished",
+   "name": "Concrete, power-floated",
+   "group": "concrete",
+   "reflectance": 0.32,
+   "colour": [
+    0.32,
+    0.318,
+    0.31
+   ],
+   "roughness": 0.34,
+   "metalness": 0
+  },
+  {
+   "key": "concrete-precast",
+   "name": "Concrete, white precast",
+   "group": "concrete",
+   "reflectance": 0.55,
+   "colour": [
+    0.556,
+    0.55,
+    0.531
+   ],
+   "roughness": 0.7,
+   "metalness": 0
+  },
+  {
+   "key": "screed",
+   "name": "Sand-cement screed",
+   "group": "concrete",
+   "reflectance": 0.35,
+   "colour": [
+    0.354,
+    0.342,
+    0.316
+   ],
+   "roughness": 0.88,
+   "metalness": 0
+  },
+  {
+   "key": "blockwork",
+   "name": "Blockwork, fair-faced",
+   "group": "concrete",
+   "reflectance": 0.34,
+   "colour": [
+    0.341,
+    0.338,
+    0.325
+   ],
+   "roughness": 0.9,
+   "metalness": 0
+  },
+  {
+   "key": "brick-red",
+   "name": "Brick, red stock",
+   "group": "masonry",
+   "reflectance": 0.17,
+   "colour": [
+    0.262,
+    0.131,
+    0.09
+   ],
+   "roughness": 0.88,
+   "metalness": 0
+  },
+  {
+   "key": "brick-london",
+   "name": "Brick, London stock",
+   "group": "masonry",
+   "reflectance": 0.26,
+   "colour": [
+    0.34,
+    0.268,
+    0.172
+   ],
+   "roughness": 0.9,
+   "metalness": 0
+  },
+  {
+   "key": "brick-engineering",
+   "name": "Brick, blue engineering",
+   "group": "masonry",
+   "reflectance": 0.09,
+   "colour": [
+    0.077,
+    0.088,
+    0.108
+   ],
+   "roughness": 0.52,
+   "metalness": 0
+  },
+  {
+   "key": "brick-white",
+   "name": "Brick, white glazed",
+   "group": "masonry",
+   "reflectance": 0.7,
+   "colour": [
+    0.7,
+    0.704,
+    0.696
+   ],
+   "roughness": 0.12,
+   "metalness": 0
+  },
+  {
+   "key": "mortar",
+   "name": "Mortar joint",
+   "group": "masonry",
+   "reflectance": 0.4,
+   "colour": [
+    0.404,
+    0.398,
+    0.38
+   ],
+   "roughness": 0.92,
+   "metalness": 0
+  },
+  {
+   "key": "limestone",
+   "name": "Limestone, Portland",
+   "group": "stone",
+   "reflectance": 0.48,
+   "colour": [
+    0.49,
+    0.479,
+    0.444
+   ],
+   "roughness": 0.72,
+   "metalness": 0
+  },
+  {
+   "key": "sandstone",
+   "name": "Sandstone, buff",
+   "group": "stone",
+   "reflectance": 0.38,
+   "colour": [
+    0.41,
+    0.355,
+    0.268
+   ],
+   "roughness": 0.8,
+   "metalness": 0
+  },
+  {
+   "key": "granite-grey",
+   "name": "Granite, grey honed",
+   "group": "stone",
+   "reflectance": 0.22,
+   "colour": [
+    0.221,
+    0.22,
+    0.218
+   ],
+   "roughness": 0.42,
+   "metalness": 0
+  },
+  {
+   "key": "granite-polished",
+   "name": "Granite, black polished",
+   "group": "stone",
+   "reflectance": 0.07,
+   "colour": [
+    0.07,
+    0.07,
+    0.072
+   ],
+   "roughness": 0.09,
+   "metalness": 0
+  },
+  {
+   "key": "marble-white",
+   "name": "Marble, white",
+   "group": "stone",
+   "reflectance": 0.6,
+   "colour": [
+    0.605,
+    0.6,
+    0.584
+   ],
+   "roughness": 0.18,
+   "metalness": 0
+  },
+  {
+   "key": "slate",
+   "name": "Slate",
+   "group": "stone",
+   "reflectance": 0.11,
+   "colour": [
+    0.106,
+    0.11,
+    0.118
+   ],
+   "roughness": 0.48,
+   "metalness": 0
+  },
+  {
+   "key": "terrazzo",
+   "name": "Terrazzo",
+   "group": "stone",
+   "reflectance": 0.42,
+   "colour": [
+    0.428,
+    0.421,
+    0.404
+   ],
+   "roughness": 0.22,
+   "metalness": 0
+  },
+  {
+   "key": "oak",
+   "name": "Oak, natural",
+   "group": "timber",
+   "reflectance": 0.33,
+   "colour": [
+    0.42,
+    0.3,
+    0.165
+   ],
+   "roughness": 0.55,
+   "metalness": 0
+  },
+  {
+   "key": "oak-limed",
+   "name": "Oak, limed",
+   "group": "timber",
+   "reflectance": 0.45,
+   "colour": [
+    0.5,
+    0.45,
+    0.372
+   ],
+   "roughness": 0.62,
+   "metalness": 0
+  },
+  {
+   "key": "birch-ply",
+   "name": "Birch plywood",
+   "group": "timber",
+   "reflectance": 0.42,
+   "colour": [
+    0.52,
+    0.408,
+    0.254
+   ],
+   "roughness": 0.58,
+   "metalness": 0
+  },
+  {
+   "key": "walnut",
+   "name": "Walnut",
+   "group": "timber",
+   "reflectance": 0.13,
+   "colour": [
+    0.18,
+    0.11,
+    0.066
+   ],
+   "roughness": 0.42,
+   "metalness": 0
+  },
+  {
+   "key": "douglas-fir",
+   "name": "Douglas fir",
+   "group": "timber",
+   "reflectance": 0.35,
+   "colour": [
+    0.46,
+    0.318,
+    0.182
+   ],
+   "roughness": 0.6,
+   "metalness": 0
+  },
+  {
+   "key": "clt",
+   "name": "Cross-laminated timber",
+   "group": "timber",
+   "reflectance": 0.38,
+   "colour": [
+    0.48,
+    0.36,
+    0.222
+   ],
+   "roughness": 0.68,
+   "metalness": 0
+  },
+  {
+   "key": "timber-charred",
+   "name": "Timber, charred",
+   "group": "timber",
+   "reflectance": 0.05,
+   "colour": [
+    0.05,
+    0.048,
+    0.046
+   ],
+   "roughness": 0.74,
+   "metalness": 0
+  },
+  {
+   "key": "timber-painted",
+   "name": "Timber, painted white",
+   "group": "timber",
+   "reflectance": 0.75,
+   "colour": [
+    0.752,
+    0.75,
+    0.738
+   ],
+   "roughness": 0.36,
+   "metalness": 0
+  },
+  {
+   "key": "aluminium-mill",
+   "name": "Aluminium, mill finish",
+   "group": "metal",
+   "reflectance": 0.7,
+   "colour": [
+    0.912,
+    0.914,
+    0.92
+   ],
+   "roughness": 0.36,
+   "metalness": 1
+  },
+  {
+   "key": "aluminium-anodised",
+   "name": "Aluminium, anodised",
+   "group": "metal",
+   "reflectance": 0.55,
+   "colour": [
+    0.82,
+    0.826,
+    0.836
+   ],
+   "roughness": 0.28,
+   "metalness": 1
+  },
+  {
+   "key": "aluminium-ppc",
+   "name": "Aluminium, powder-coated",
+   "group": "metal",
+   "reflectance": 0.3,
+   "colour": [
+    0.3,
+    0.302,
+    0.306
+   ],
+   "roughness": 0.45,
+   "metalness": 0.1
+  },
+  {
+   "key": "steel-galvanised",
+   "name": "Steel, galvanised",
+   "group": "metal",
+   "reflectance": 0.45,
+   "colour": [
+    0.69,
+    0.7,
+    0.706
+   ],
+   "roughness": 0.52,
+   "metalness": 1
+  },
+  {
+   "key": "steel-stainless",
+   "name": "Stainless steel, brushed",
+   "group": "metal",
+   "reflectance": 0.55,
+   "colour": [
+    0.78,
+    0.784,
+    0.79
+   ],
+   "roughness": 0.3,
+   "metalness": 1
+  },
+  {
+   "key": "steel-mirror",
+   "name": "Stainless steel, mirror",
+   "group": "metal",
+   "reflectance": 0.65,
+   "colour": [
+    0.82,
+    0.824,
+    0.83
+   ],
+   "roughness": 0.03,
+   "metalness": 1
+  },
+  {
+   "key": "steel-weathering",
+   "name": "Weathering steel",
+   "group": "metal",
+   "reflectance": 0.12,
+   "colour": [
+    0.232,
+    0.112,
+    0.062
+   ],
+   "roughness": 0.72,
+   "metalness": 0.6
+  },
+  {
+   "key": "brass",
+   "name": "Brass",
+   "group": "metal",
+   "reflectance": 0.45,
+   "colour": [
+    0.83,
+    0.66,
+    0.31
+   ],
+   "roughness": 0.22,
+   "metalness": 1
+  },
+  {
+   "key": "bronze",
+   "name": "Bronze, dark patina",
+   "group": "metal",
+   "reflectance": 0.12,
+   "colour": [
+    0.22,
+    0.16,
+    0.105
+   ],
+   "roughness": 0.46,
+   "metalness": 1
+  },
+  {
+   "key": "copper",
+   "name": "Copper",
+   "group": "metal",
+   "reflectance": 0.45,
+   "colour": [
+    0.955,
+    0.638,
+    0.538
+   ],
+   "roughness": 0.2,
+   "metalness": 1
+  },
+  {
+   "key": "copper-verdigris",
+   "name": "Copper, verdigris",
+   "group": "metal",
+   "reflectance": 0.25,
+   "colour": [
+    0.163,
+    0.277,
+    0.244
+   ],
+   "roughness": 0.8,
+   "metalness": 0
+  },
+  {
+   "key": "zinc",
+   "name": "Zinc, pre-weathered",
+   "group": "metal",
+   "reflectance": 0.3,
+   "colour": [
+    0.432,
+    0.44,
+    0.448
+   ],
+   "roughness": 0.56,
+   "metalness": 1
+  },
+  {
+   "key": "lead",
+   "name": "Lead",
+   "group": "metal",
+   "reflectance": 0.18,
+   "colour": [
+    0.268,
+    0.272,
+    0.28
+   ],
+   "roughness": 0.62,
+   "metalness": 1
+  },
+  {
+   "key": "glass-clear",
+   "name": "Glass, clear float",
+   "group": "glass",
+   "reflectance": 0.08,
+   "colour": [
+    0.96,
+    0.98,
+    0.97
+   ],
+   "roughness": 0.01,
+   "metalness": 0,
+   "transmission": 1,
+   "ior": 1.52
+  },
+  {
+   "key": "glass-low-e",
+   "name": "Glass, low-E double",
+   "group": "glass",
+   "reflectance": 0.11,
+   "colour": [
+    0.88,
+    0.94,
+    0.92
+   ],
+   "roughness": 0.02,
+   "metalness": 0,
+   "transmission": 0.72,
+   "ior": 1.52
+  },
+  {
+   "key": "glass-solar",
+   "name": "Glass, solar control",
+   "group": "glass",
+   "reflectance": 0.22,
+   "colour": [
+    0.7,
+    0.79,
+    0.8
+   ],
+   "roughness": 0.02,
+   "metalness": 0,
+   "transmission": 0.4,
+   "ior": 1.52
+  },
+  {
+   "key": "glass-frosted",
+   "name": "Glass, acid-etched",
+   "group": "glass",
+   "reflectance": 0.3,
+   "colour": [
+    0.9,
+    0.92,
+    0.92
+   ],
+   "roughness": 0.38,
+   "metalness": 0,
+   "transmission": 0.62,
+   "ior": 1.52
+  },
+  {
+   "key": "glass-mirror",
+   "name": "Mirror",
+   "group": "glass",
+   "reflectance": 0.85,
+   "colour": [
+    0.96,
+    0.965,
+    0.97
+   ],
+   "roughness": 0.01,
+   "metalness": 1
+  },
+  {
+   "key": "polycarbonate",
+   "name": "Polycarbonate, opal",
+   "group": "glass",
+   "reflectance": 0.45,
+   "colour": [
+    0.92,
+    0.93,
+    0.925
+   ],
+   "roughness": 0.3,
+   "metalness": 0,
+   "transmission": 0.55,
+   "ior": 1.585
+  },
+  {
+   "key": "paint-white",
+   "name": "Paint, white matt",
+   "group": "paint",
+   "reflectance": 0.82,
+   "colour": [
+    0.824,
+    0.822,
+    0.81
+   ],
+   "roughness": 0.88,
+   "metalness": 0
+  },
+  {
+   "key": "paint-white-eggshell",
+   "name": "Paint, white eggshell",
+   "group": "paint",
+   "reflectance": 0.8,
+   "colour": [
+    0.804,
+    0.802,
+    0.792
+   ],
+   "roughness": 0.46,
+   "metalness": 0
+  },
+  {
+   "key": "paint-offwhite",
+   "name": "Paint, off-white",
+   "group": "paint",
+   "reflectance": 0.72,
+   "colour": [
+    0.728,
+    0.718,
+    0.69
+   ],
+   "roughness": 0.84,
+   "metalness": 0
+  },
+  {
+   "key": "paint-grey",
+   "name": "Paint, mid grey",
+   "group": "paint",
+   "reflectance": 0.35,
+   "colour": [
+    0.352,
+    0.352,
+    0.352
+   ],
+   "roughness": 0.8,
+   "metalness": 0
+  },
+  {
+   "key": "paint-dark",
+   "name": "Paint, near black",
+   "group": "paint",
+   "reflectance": 0.05,
+   "colour": [
+    0.05,
+    0.05,
+    0.052
+   ],
+   "roughness": 0.78,
+   "metalness": 0
+  },
+  {
+   "key": "plaster-skim",
+   "name": "Plaster, skim",
+   "group": "paint",
+   "reflectance": 0.6,
+   "colour": [
+    0.612,
+    0.6,
+    0.574
+   ],
+   "roughness": 0.84,
+   "metalness": 0
+  },
+  {
+   "key": "render-through",
+   "name": "Render, through-coloured",
+   "group": "paint",
+   "reflectance": 0.55,
+   "colour": [
+    0.56,
+    0.548,
+    0.516
+   ],
+   "roughness": 0.9,
+   "metalness": 0
+  },
+  {
+   "key": "lime-plaster",
+   "name": "Lime plaster",
+   "group": "paint",
+   "reflectance": 0.65,
+   "colour": [
+    0.664,
+    0.652,
+    0.618
+   ],
+   "roughness": 0.76,
+   "metalness": 0
+  },
+  {
+   "key": "oak-floor",
+   "name": "Oak board floor",
+   "group": "floor",
+   "reflectance": 0.3,
+   "colour": [
+    0.388,
+    0.272,
+    0.148
+   ],
+   "roughness": 0.4,
+   "metalness": 0
+  },
+  {
+   "key": "vinyl",
+   "name": "Vinyl sheet",
+   "group": "floor",
+   "reflectance": 0.28,
+   "colour": [
+    0.282,
+    0.28,
+    0.272
+   ],
+   "roughness": 0.36,
+   "metalness": 0
+  },
+  {
+   "key": "linoleum",
+   "name": "Linoleum",
+   "group": "floor",
+   "reflectance": 0.25,
+   "colour": [
+    0.256,
+    0.248,
+    0.222
+   ],
+   "roughness": 0.55,
+   "metalness": 0
+  },
+  {
+   "key": "carpet-tile",
+   "name": "Carpet tile",
+   "group": "floor",
+   "reflectance": 0.14,
+   "colour": [
+    0.142,
+    0.142,
+    0.146
+   ],
+   "roughness": 0.96,
+   "metalness": 0
+  },
+  {
+   "key": "rubber-stud",
+   "name": "Rubber, studded",
+   "group": "floor",
+   "reflectance": 0.1,
+   "colour": [
+    0.1,
+    0.102,
+    0.104
+   ],
+   "roughness": 0.7,
+   "metalness": 0
+  },
+  {
+   "key": "ceramic-tile",
+   "name": "Ceramic tile, glazed",
+   "group": "floor",
+   "reflectance": 0.45,
+   "colour": [
+    0.456,
+    0.452,
+    0.44
+   ],
+   "roughness": 0.1,
+   "metalness": 0
+  },
+  {
+   "key": "raised-floor",
+   "name": "Raised access floor",
+   "group": "floor",
+   "reflectance": 0.3,
+   "colour": [
+    0.302,
+    0.302,
+    0.306
+   ],
+   "roughness": 0.44,
+   "metalness": 0
+  },
+  {
+   "key": "fabric-wool",
+   "name": "Wool upholstery",
+   "group": "fabric",
+   "reflectance": 0.22,
+   "colour": [
+    0.222,
+    0.224,
+    0.232
+   ],
+   "roughness": 0.98,
+   "metalness": 0
+  },
+  {
+   "key": "fabric-linen",
+   "name": "Linen",
+   "group": "fabric",
+   "reflectance": 0.5,
+   "colour": [
+    0.51,
+    0.498,
+    0.462
+   ],
+   "roughness": 0.95,
+   "metalness": 0
+  },
+  {
+   "key": "leather",
+   "name": "Leather, tan",
+   "group": "fabric",
+   "reflectance": 0.18,
+   "colour": [
+    0.26,
+    0.16,
+    0.092
+   ],
+   "roughness": 0.52,
+   "metalness": 0
+  },
+  {
+   "key": "acoustic-felt",
+   "name": "Acoustic felt",
+   "group": "fabric",
+   "reflectance": 0.16,
+   "colour": [
+    0.162,
+    0.164,
+    0.17
+   ],
+   "roughness": 1.0,
+   "metalness": 0
+  },
+  {
+   "key": "blind-fabric",
+   "name": "Blind fabric, white",
+   "group": "fabric",
+   "reflectance": 0.6,
+   "colour": [
+    0.608,
+    0.606,
+    0.596
+   ],
+   "roughness": 0.92,
+   "metalness": 0,
+   "transmission": 0.12
+  },
+  {
+   "key": "epdm",
+   "name": "EPDM membrane",
+   "group": "roof",
+   "reflectance": 0.07,
+   "colour": [
+    0.07,
+    0.071,
+    0.074
+   ],
+   "roughness": 0.78,
+   "metalness": 0
+  },
+  {
+   "key": "single-ply-grey",
+   "name": "Single-ply, light grey",
+   "group": "roof",
+   "reflectance": 0.45,
+   "colour": [
+    0.452,
+    0.454,
+    0.458
+   ],
+   "roughness": 0.66,
+   "metalness": 0
+  },
+  {
+   "key": "standing-seam",
+   "name": "Standing seam, zinc",
+   "group": "roof",
+   "reflectance": 0.3,
+   "colour": [
+    0.432,
+    0.44,
+    0.448
+   ],
+   "roughness": 0.5,
+   "metalness": 1
+  },
+  {
+   "key": "clay-tile",
+   "name": "Clay roof tile",
+   "group": "roof",
+   "reflectance": 0.18,
+   "colour": [
+    0.278,
+    0.15,
+    0.098
+   ],
+   "roughness": 0.86,
+   "metalness": 0
+  },
+  {
+   "key": "fibre-cement",
+   "name": "Fibre cement panel",
+   "group": "roof",
+   "reflectance": 0.38,
+   "colour": [
+    0.382,
+    0.38,
+    0.372
+   ],
+   "roughness": 0.8,
+   "metalness": 0
+  },
+  {
+   "key": "etfe",
+   "name": "ETFE foil",
+   "group": "roof",
+   "reflectance": 0.12,
+   "colour": [
+    0.95,
+    0.955,
+    0.95
+   ],
+   "roughness": 0.06,
+   "metalness": 0,
+   "transmission": 0.9,
+   "ior": 1.4
+  },
+  {
+   "key": "green-roof",
+   "name": "Sedum roof",
+   "group": "roof",
+   "reflectance": 0.17,
+   "colour": [
+    0.15,
+    0.2,
+    0.11
+   ],
+   "roughness": 0.94,
+   "metalness": 0
+  }
+ ],
+ "colour_note": "`colour` is NOT always the same quantity as `reflectance`, and conflating them is the commonest way a material library goes quietly wrong. For a DIELECTRIC - anything with metalness 0 and no transmission - the colour IS the diffuse albedo and its luminance equals the reflectance; the tests check that, for all 53 of them. For a METAL the colour is F0, the specular reflectance at normal incidence, which is what gives brass its yellow and is a different and larger number than what the panel sends back into the room. For a TRANSMISSIVE material the colour is the tint light picks up going through it, which for clear glass is almost white while its surface reflectance is 0.08. Both numbers are given for every entry so that the renderer can have the one it needs and a daylight calculation can have the other.",
+ "roughness_note": "`roughness` and `metalness` are a JUDGEMENT about how a surface scatters, not a measurement. Nobody publishes a GGX roughness for board-marked concrete; anyone who gives you one has fitted it to a render they liked. They are a starting point to move, which is what the sliders are for.",
+ "ior_note": "`ior` is the published refractive index where the material has one - 1.52 for soda-lime glass, 1.585 for polycarbonate, 1.40 for ETFE."
+}

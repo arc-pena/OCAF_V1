@@ -44,6 +44,10 @@ import { WebGLPathTracer, PhysicalCamera, EquirectCamera, DenoiseMaterial,
          BlurredEnvMapGenerator, GradientEquirectTexture, ProceduralEquirectTexture,
          ShapedAreaLight, PhysicalSpotLight, FogVolumeMaterial } from "three-gpu-pathtracer";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
+//! Radiance .hdr is the format a sky is distributed in and no browser decodes
+//! it. three's own loader does, and it is 6 kB - cheaper than any of the
+//! alternatives and already the one everybody's files were written for.
+import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 window.PT = {
   THREE, REVISION: THREE.REVISION,
@@ -51,7 +55,7 @@ window.PT = {
   WebGLPathTracer, PhysicalCamera, EquirectCamera, DenoiseMaterial,
   BlurredEnvMapGenerator, GradientEquirectTexture, ProceduralEquirectTexture,
   ShapedAreaLight, PhysicalSpotLight, FogVolumeMaterial,
-  FullScreenQuad, RoomEnvironment,
+  FullScreenQuad, RoomEnvironment, RGBELoader,
   versions: ${JSON.stringify(PINS)},
 };
 `;

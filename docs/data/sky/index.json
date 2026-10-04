@@ -1,0 +1,51 @@
+{
+ "note": "Equirectangular HDR skies, 1k, CC0 from polyhaven.com. Served beside the page, not packed into the single file - see docs/data/sky/README.md.",
+ "resolution": "1k",
+ "skies": [
+  {
+   "key": "studio",
+   "asset": "studio_small_09",
+   "name": "Photo studio",
+   "why": "Large softboxes on a white infinity cyc. The reference light for a product shot, and the one that flatters a detail model.",
+   "file": "studio.hdr",
+   "bytes": 1615248,
+   "authors": [
+    "Sergej Majboroda"
+   ]
+  },
+  {
+   "key": "overcast",
+   "asset": "kloofendal_48d_partly_cloudy_puresky",
+   "name": "Partly cloudy",
+   "why": "A bright sky with soft-edged cloud. Shadows with an edge you can see but not a hard one - the condition most of a temperate year is.",
+   "file": "overcast.hdr",
+   "bytes": 1435119,
+   "authors": [
+    "Greg Zaal",
+    "Jarod Guest"
+   ]
+  },
+  {
+   "key": "clear",
+   "asset": "syferfontein_18d_clear",
+   "name": "Clear sun",
+   "why": "A clear sky with the sun high. Hard shadows and a strong sky-blue fill in them, which is what makes a white wall read as two colours.",
+   "file": "clear.hdr",
+   "bytes": 1503820,
+   "authors": [
+    "Greg Zaal"
+   ]
+  },
+  {
+   "key": "sunset",
+   "asset": "venice_sunset",
+   "name": "Low sun",
+   "why": "A low warm sun over water. Long shadows and a raking light down a facade, which is the condition an elevation is usually drawn for.",
+   "file": "sunset.hdr",
+   "bytes": 1440400,
+   "authors": [
+    "Greg Zaal"
+   ]
+  }
+ ]
+}

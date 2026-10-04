@@ -664,6 +664,7 @@ export class RenderEngine {
   //! material and light tables costing a slot for nothing.
   applyLights(features) {
     const THREE = this.PT.THREE;
+    this.lastFeatures = features;
     this.disposeLights();
     //! A SKYLIGHT REPLACED THE ENVIRONMENT, so deleting one has to put the
     //! preset's dome back. Noticed by comparing what was there last time:
@@ -783,7 +784,21 @@ export class RenderEngine {
     //! Cached, because painting one is 512 x 1024 evaluations of the dome and
     //! doing it on every rebuild would make dragging a light's rotation feel
     //! like dragging the whole model.
-    const texture = said.sky === 4 ? this.loadedSky : this.builtInSky(said.sky);
+    //! THE REAL SKY IF IT CAN BE REACHED, the painted one if it cannot.
+    //!
+    //! "Overcast" means overcast. Whether it is a photograph of an overcast
+    //! sky or four lines of arithmetic that look like one depends on where
+    //! this page is: served, the HDR is a file beside it; in the single file,
+    //! fetching is not allowed at all and there is nothing to fetch. So the
+    //! node asks for a CONDITION and the renderer answers with the best source
+    //! it has - and says which, so nobody has to guess why one is sharper.
+    //!
+    //! Asked for once and remembered. The fetch is started here and the dome
+    //! is painted meanwhile, so a skylight lights the scene on the first frame
+    //! and sharpens when the file lands rather than showing nothing until it
+    //! does.
+    let texture = said.sky === 4 ? this.loadedSky : this.skyFile(said.sky);
+    if (!texture && said.sky !== 4) texture = this.builtInSky(said.sky);
     if (!texture) {
       //! Asked for a file and none has arrived. Say so rather than leaving the
       //! scene lit by whatever was there before, which looks like the skylight
@@ -793,11 +808,44 @@ export class RenderEngine {
     }
     this.scene.environment = texture;
     this.scene.background = said.seen ? texture : null;
+    this.skySource = said.sky === 4 ? "the image you opened"
+      : (this.skyFiles && this.skyFiles.get(["studio", "overcast", "clear", "sunset"][said.sky])
+         ? "a photographed sky" : "a painted dome");
     this.scene.environmentIntensity = said.power;
     this.scene.backgroundIntensity = said.power;
     this.scene.environmentRotation = new THREE.Euler(0, said.turn * Math.PI / 180, 0);
     this.scene.backgroundRotation = new THREE.Euler(0, said.turn * Math.PI / 180, 0);
     this.sky = said;
+  }
+
+  //! The photographed sky for a condition, once it has arrived. Null until it
+  //! has, and null for ever in the single file, where there is nothing beside
+  //! the page to fetch.
+  //!
+  //! One request per sky per session, whether it worked or not: a page with no
+  //! sky files beside it must not ask four times on every rebuild.
+  skyFile(which) {
+    const keys = ["studio", "overcast", "clear", "sunset"];
+    const key = keys[Math.max(0, Math.min(keys.length - 1, Math.round(which || 0)))];
+    if (!this.skyFiles) this.skyFiles = new Map();
+    if (this.skyFiles.has(key)) return this.skyFiles.get(key);
+    this.skyFiles.set(key, null);                       // asked; do not ask again
+    if (!this.skyUrl) return null;
+    new this.PT.RGBELoader().load(this.skyUrl + key + ".hdr",
+      texture => {
+        texture.mapping = this.PT.THREE.EquirectangularReflectionMapping;
+        this.skyFiles.set(key, texture);
+        //! The scene is already lit by the painted dome, so this is a swap
+        //! rather than a first paint: rebuild the lights and start the
+        //! average again, because the light has genuinely changed.
+        if (this.sky && this.lastFeatures) {
+          this.applyLights(this.lastFeatures);
+          this.refreshScene();
+        }
+      },
+      undefined,
+      () => { /* no file beside this page; the painted dome stands */ });
+    return null;
   }
 
   //! The four built-in domes, by the Skylight node's own order. Named here

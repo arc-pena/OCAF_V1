@@ -151,7 +151,12 @@ GENERATED = {GLUE_MODULE}
 # base64'd, in a script element the HTML tokenizer scans straight past. Unpacked
 # only when the package is loaded, so a session that never opens it never pays.
 DATA = ROOT / "data"
-PAYLOADS = [("climate-sites", "cities.json")]
+PAYLOADS = [("climate-sites", "cities.json"),
+            # The architectural material library. Twelve kilobytes of numbers,
+            # so it rides in both builds rather than being served only - a
+            # material library that is there on one page and not the other is
+            # a document that opens differently in two places.
+            ("material-book", "materials/architectural.json")]
 
 # A sample kept as a model file rides the same way. These are models somebody
 # BUILT in the program and saved, so they are data and not source: the folder
