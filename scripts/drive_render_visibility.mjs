@@ -12,7 +12,7 @@
 import { chromium } from "/tmp/claude-0/node_modules/playwright/index.mjs";
 import { readFileSync, writeFileSync, appendFileSync } from "fs";
 const D = process.env.DRIVE_OUT || "/tmp/";
-const LOG = D + "four.out"; writeFileSync(LOG, "");
+const LOG = D + "setcase.out"; writeFileSync(LOG, "");
 const log = (...a) => appendFileSync(LOG, a.join(" ") + "\n");
 let bad = 0;
 const check = (name, ok, detail = "") => {
@@ -205,7 +205,7 @@ check("and the bar it opens is usable", after.bar > 0.9 && !after.shut,
 
 log("\nerrors: " + (errs.length ? errs.slice(0, 5).join(" | ") : "none"));
 if (errs.length) bad++;
-await page.screenshot({ path: D + "four.png" });
+await page.screenshot({ path: D + "setcase.png" });
 await browser.close();
 log(bad ? "\n" + bad + " check(s) failed" : "\nall checks passed");
-log("=== four drive done ===");
+log("=== setcase drive done ===");
