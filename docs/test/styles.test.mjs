@@ -86,16 +86,27 @@ console.log("\n2. what is written down");
 console.log("\n3. the styles are a table");
 {
   const keys = VIEW_STYLES.map(s => s.key);
-  check("three of them, each with its own name", new Set(keys).size === keys.length,
-        keys.join(", "));
+  check("each with its own name", new Set(keys).size === keys.length, keys.join(", "));
   check("every one says what it is for",
         VIEW_STYLES.every(s => s.label && s.summary && s.summary.length > 40));
   check("shaded is the one that draws tangent edges",
         findStyle("shaded").edges && !findStyle("rendered").edges
         && !findStyle("arctic").edges);
-  check("rendered is the only one that obeys materials",
-        VIEW_STYLES.filter(s => s.materials).map(s => s.key).join() === "rendered",
+  //! THE TWO THAT ARE ABOUT APPEARANCE, and only those two. This said
+  //! "rendered is the only one" and was right until a path tracer arrived
+  //! beside it - the premise moved, not the rule. Shaded and Arctic ignore
+  //! materials on purpose: one is for modelling and one is for form.
+  check("the appearance styles are the ones that obey materials",
+        VIEW_STYLES.filter(s => s.materials).map(s => s.key).join() === "rendered,raytraced",
         VIEW_STYLES.filter(s => s.materials).map(s => s.key).join());
+  //! And a style that traces light and then ignores what things are made of
+  //! would be an expensive way to draw grey.
+  check("and every style that traces obeys them",
+        VIEW_STYLES.filter(s => s.traced).every(s => s.materials),
+        VIEW_STYLES.filter(s => s.traced).map(s => s.key).join() || "none trace");
+  check("exactly one of them traces",
+        VIEW_STYLES.filter(s => s.traced).length === 1,
+        VIEW_STYLES.filter(s => s.traced).map(s => s.key).join());
   check("arctic is the only one that paints everything the same clay",
         VIEW_STYLES.filter(s => s.clay).map(s => s.key).join() === "arctic");
   check("and it is a pale clay, not white - white has nowhere left to go",

@@ -16,7 +16,7 @@
 // three-gpu-pathtracer over three.js, both MIT, bundled by
 // scripts/build_pathtracer.mjs and vendored - see docs/vendor/README.md. The
 // bundle hangs its exports off `window.PT`, which is the same shape the
-// showroom loaded PlayCanvas in, so payload.js carries it unchanged: unpacked
+// showroom used to load PlayCanvas in, so payload.js carries it unchanged: unpacked
 // from the document in the single file, fetched from beside the page when
 // served, and not loaded at all until somebody asks to render.
 //
@@ -364,7 +364,7 @@ export class RenderEngine {
     if (!this.groundMaterial) return;
     this.groundMaterial.roughness = Math.max(0.02, 1 - strength);
     this.groundMaterial.metalness = 0;
-    this.refreshScene();
+    this.refreshMaterials();
   }
 
   /* ---------------------------------------------------------------- maps */
@@ -602,7 +602,7 @@ export class RenderEngine {
       m.transparent = false;
     }
     m.needsUpdate = true;
-    if (!quiet) this.refreshScene();
+    if (!quiet) this.refreshMaterials();
   }
 
   /* ------------------------------------------------------------ the tracer */
@@ -613,6 +613,17 @@ export class RenderEngine {
   refreshScene() {
     if (!this.tracer || this.exporting) return;
     this.tracer.setScene(this.scene, this.camera);
+  }
+
+  //! ONLY THE MATERIALS CHANGED. setScene walks every triangle into a BVH;
+  //! this re-reads the material table and the textures and leaves the BVH
+  //! alone. Painting a part is the commonest thing anybody does in a renderer
+  //! and it must not cost what adding a part costs - on a building that is the
+  //! difference between a swatch answering at once and the window stopping
+  //! for a second every time you touch one.
+  refreshMaterials() {
+    if (!this.tracer || this.exporting) return;
+    this.tracer.updateMaterials();
   }
 
   //! The camera moved, or a dial did. Cheap: throws the average away and starts
@@ -657,7 +668,18 @@ export class RenderEngine {
     const [ex, ey, ez] = toY(eye);
     const [tx, ty, tz] = toY(target);
     this.camera.position.set(ex, ey, ez);
+    //! LOOKING STRAIGHT DOWN is the one direction an up vector cannot answer.
+    //! In TOP the view direction is within a few degrees of the up axis, and
+    //! lookAt resolves the roll from a cross product that is nearly zero - so
+    //! the picture spins on its own axis for a pixel of camera movement, and
+    //! every spin throws the average away and starts again. Tilted up is a
+    //! point exactly on the far side, which is well defined and is what the
+    //! modelling view's own near-vertical cap already gives it.
+    const look = [tx - ex, ty - ey, tz - ez];
+    const len = Math.hypot(look[0], look[1], look[2]) || 1;
+    const vertical = Math.abs(look[1] / len);
     this.camera.up.set(0, 1, 0);
+    if (vertical > 0.9995) this.camera.up.set(0, 0, look[1] > 0 ? 1 : -1);
     this.camera.lookAt(tx, ty, tz);
     if (fov && Math.abs(fov - this.camera.fov) > 1e-4) {
       this.camera.fov = fov;

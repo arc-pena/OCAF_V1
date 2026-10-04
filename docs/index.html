@@ -1907,6 +1907,12 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
   color: var(--ink); font: inherit; font-size: 11.5px; padding: 2px 5px;
 }
 #modal-render .cli { font-variant-numeric: tabular-nums; }
+/* In the showroom the stage has its own trays along the bottom, so the trace
+   bar goes above them rather than under them. Measured against the trays'
+   own height rather than nudged: two rows of chips plus the hint line. */
+body.staging #trace-bar {
+  left: calc(var(--span) / 2); bottom: 136px; z-index: 8;
+}
 body.staging .fades { opacity: 0; pointer-events: none; }
 /* The view tools stay through a mode, and they are the exception on purpose.
    Flow and Climate are things you look AT through this window; how the window
