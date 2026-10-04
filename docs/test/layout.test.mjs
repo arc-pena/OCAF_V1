@@ -187,6 +187,96 @@ console.log("\n4. what can be put away can be brought back");
         (bare.match(/body\.barred #status\s*\{[^}]*\}/) || [""])[0]);
 }
 
+console.log("\n4c. and that includes the panels a PACKAGE floats over the model");
+{
+  //! THE GAP 4b HAD. Section 4b finds panels two ways: written into the page
+  //! with an id, or built in app.js with an id. A package builds its own DOM -
+  //! that is the arrangement, index.html must not know a package exists - and
+  //! it has no reason to give anything an id, because it holds the node. So
+  //! every panel a package puts over the model was invisible to the rule, and
+  //! the rule is the one the whole interface is held to.
+  //!
+  //! Checked by a different route for a different construction: a package gets
+  //! `closesWith` through the kit, so what this looks for is that each `float`
+  //! it creates is handed to it. The count is the check - a package that makes
+  //! three floating panels and closes two is the exact failure.
+  const { readdirSync } = await import("fs");
+  const here = new URL("../src/", import.meta.url);
+  const plugins = readdirSync(here).filter(name => /-plugin\.js$/.test(name));
+  check("there are packages to check", plugins.length >= 8, plugins.length + " packages");
+
+  const bad = [];
+  let floats = 0, closed = 0;
+  for (const name of plugins) {
+    const src = readFileSync(new URL(name, here), "utf8");
+    //! Anything given the page's own floating-panel class, however it is
+    //! built: `built("aside", "float nb-shelf")`, `el("section", "float an-bar")`,
+    //! or a className assignment.
+    const made = [...src.matchAll(/["'`]float(?:\s+[a-z0-9-]+)*["'`]/g)].length;
+    if (!made) continue;
+    const shut = [...src.matchAll(/closesWith\(/g)].length;
+    floats += made;
+    closed += shut;
+    //! A MODE BAR IS NOT A PANEL OVER THE MODEL in the same sense: Analyse and
+    //! Flow put theirs up only while their own mode is open and take them away
+    //! on leave, and the chip that opened the mode is the way out - which 4b
+    //! accepts for the page's own mode bars too. So a package whose floats all
+    //! belong to a declared view is excused, and one with no view is not.
+    const hasView = /\bview:\s*\{/.test(src);
+    if (shut < made && !hasView)
+      bad.push(name + " makes " + made + " and closes " + shut);
+  }
+  check("packages do float panels over the model", floats >= 3, floats + " of them");
+  check("and every one that is not part of a mode can be put away",
+        bad.length === 0, bad.length ? bad.join("; ") : closed + " closed");
+
+  //! AND THROUGH THE KIT, not a copy. closesWith is what marks a panel as put
+  //! away, which is what lets "bring the panels back" offer it by name; a
+  //! package that built its own cross would look identical and be invisible to
+  //! the menu - which is exactly what happened to the light lister.
+  const appSrc = readFileSync(new URL("app.js", here), "utf8");
+  const kitHandsItOver = /closesWith:\s*\(panel, options\)\s*=>\s*closesWith\(panel, options\)/
+    .test(appSrc);
+  check("the kit hands the page's own close mechanism to packages", kitHandsItOver,
+        kitHandsItOver ? "kit.closesWith" : "packages would have to roll their own");
+  //! AND EACH ONE IS OFFERED BACK BY NAME. A cross with no `name` closes the
+  //! panel and tells the menu nothing, so it can never be brought back.
+  const nano = readFileSync(new URL("nano-plugin.js", here), "utf8");
+  const named = [...nano.matchAll(/closesWith\([\s\S]{0,400}?name:\s*"([^"]+)"/g)]
+    .map(m => m[1]);
+  check("and names them, so the menu can offer them back",
+        named.length >= 2, named.join(" / ") || "none named");
+
+  //! THE STYLESHEET IS IN THE SOURCE PAGE, NOT THE BUILT ONE.
+  //!
+  //! docs/index.html is a BUILD OUTPUT. build.py reads docs/src/index.html,
+  //! puts the modules and the payloads into it, and writes the result over
+  //! docs/index.html - so a rule typed into the output is live until the next
+  //! build and silently gone after it. What is left is an interface with no
+  //! styling on the part that was just added, which is not a kind of broken
+  //! anybody thinks to look for: the elements are all there in the DOM.
+  //!
+  //! That is exactly what happened to this package. Its tab was measured 1037
+  //! px from the right edge of an 1100 px window, with `position: fixed;
+  //! right: 0` written in the generated file and nowhere else.
+  //!
+  //! So: every class rule in the built page has to be in the source page too.
+  //! Exact, with nothing to judge - the built page is the source page plus
+  //! modules and payloads, and a rule it has that the source does not is a
+  //! rule in the wrong file.
+  const sourcePage = readFileSync(new URL("index.html", here), "utf8");
+  const builtPage = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const rulesIn = text => new Set(
+    [...text.matchAll(/^\s*(\.[a-z][a-z0-9-]*)(?=[\s,{:[.>#])/gm)].map(m => m[1]));
+  const built = rulesIn(builtPage), source = rulesIn(sourcePage);
+  check("the built page has a stylesheet in it", built.size > 100, built.size + " class rules");
+  const strays = [...built].filter(one => !source.has(one));
+  check("and every rule in it came from docs/src/index.html",
+        strays.length === 0,
+        strays.length ? "typed into the generated file: " + strays.slice(0, 8).join(", ")
+                      : built.size + " rules, all from the source");
+}
+
 console.log("\n4b. nothing floats over the model that cannot be put away");
 {
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");

@@ -2575,6 +2575,132 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
 #heads.driving { opacity: .55; pointer-events: none; }
 
 
+/* ------------------------------------------------- Nano Banana (nb-*)
+
+   A tab on the right edge, a bar along the bottom, the answer over the model
+   and a shelf of everything this session has made.
+
+   The tab and the bar are deliberately NOT in the body.bare list further down.
+   Everything else on the page fades out in full screen because the model is
+   the point; these stay, because full screen is the case the feature was asked
+   for and a tab you cannot reach is not a tab.                              */
+
+.nb-tab {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+  z-index: 10; width: 22px; padding: 14px 0;
+  border: 1px solid var(--line); border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--panel); color: var(--ink-2);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  cursor: pointer; font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; font-family: var(--mono);
+}
+.nb-tab span { writing-mode: vertical-rl; display: block; }
+.nb-tab:hover { color: var(--ink); }
+.nb-tab.on { color: var(--accent); border-color: var(--accent); }
+
+.nb-bar {
+  left: var(--middle); bottom: var(--edge); transform: translateX(-50%);
+  width: min(900px, var(--free));
+  z-index: 10; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 7px;
+}
+.nb-bar[hidden], .nb-shelf[hidden], .nb-keys[hidden], .nb-over[hidden] { display: none; }
+.nb-row { display: flex; align-items: center; gap: 8px; }
+.nb-ask { align-items: flex-end; }
+.nb-ideas { flex: none; max-width: 150px; }
+.nb-prompt {
+  flex: 1 1 auto; min-width: 0; min-height: 28px; max-height: 96px;
+  padding: 6px 10px; resize: none; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2);
+  color: var(--ink); font-size: 12.5px; font-family: inherit; line-height: 1.35;
+}
+.nb-prompt:focus { outline: none; border-color: var(--accent); }
+.nb-gear { flex: none; font-size: 13px; line-height: 1; }
+.nb-state { min-height: 24px; }
+.nb-grow { flex: 1 1 auto; }
+.nb-note { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap;
+           overflow: hidden; text-overflow: ellipsis; max-width: 42%; }
+/* No percentage, because there is none to report: it is one request and the
+   service sends nothing until it is done. The sweep says "away", the seconds
+   beside it say how long, and neither of them pretends to know how far. */
+.nb-track { flex: none; width: 86px; height: 3px; border-radius: 2px;
+            background: var(--panel-2); overflow: hidden; }
+.nb-fill { height: 100%; width: 34%; border-radius: 2px; background: var(--accent); }
+.nb-fill.sweeping { animation: nb-sweep 1.4s ease-in-out infinite; }
+@keyframes nb-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(295%); }
+}
+.nb-cmp { display: flex; align-items: center; gap: 7px; flex: 0 1 260px; min-width: 150px; }
+.nb-tag { flex: none; font-family: var(--mono); font-size: 9.5px; letter-spacing: .09em;
+          text-transform: uppercase; color: var(--ink-3); }
+.nb-split { flex: 1 1 60px; min-width: 60px; }
+.nb-read { flex: none; width: 76px; font-family: var(--mono); font-size: 10px;
+           text-align: right; color: var(--ink-1); }
+
+/* The answer, over the model. Above the showroom and the trace stage, under
+   every bar and panel - what it replaces is the view, not the interface. */
+.nb-over { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+.nb-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; background: #000;
+}
+.nb-edge {
+  position: absolute; top: 0; bottom: 0; width: 13px; margin-left: -6px;
+  cursor: ew-resize; pointer-events: auto;
+  display: flex; align-items: center; justify-content: center;
+}
+.nb-edge::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 1px;
+  background: rgba(255,255,255,.85); box-shadow: 0 0 6px rgba(0,0,0,.6);
+}
+.nb-grip {
+  width: 13px; height: 34px; border-radius: 7px;
+  background: rgba(255,255,255,.9); box-shadow: 0 1px 6px rgba(0,0,0,.5);
+}
+
+.nb-shelf {
+  right: calc(var(--edge) + 34px); bottom: calc(var(--edge) + 58px);
+  width: 330px; max-height: calc(var(--sky) * 0.6);
+  z-index: 10; display: flex; flex-direction: column; overflow: hidden;
+}
+.nb-shelf-body { overflow: auto; padding: 4px 10px 8px; display: flex;
+                 flex-direction: column; gap: 7px; }
+.nb-item { display: flex; align-items: center; gap: 8px; padding: 4px;
+           border: 1px solid transparent; border-radius: 8px; }
+.nb-item.on { border-color: var(--accent); background: var(--panel-2); }
+.nb-thumb { flex: none; width: 58px; height: 40px; object-fit: cover;
+            border-radius: 5px; background: #000; cursor: pointer; }
+.nb-words { flex: 1 1 auto; min-width: 0; }
+.nb-said { margin: 0; font-size: 11.5px; color: var(--ink-1); line-height: 1.3;
+           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+           overflow: hidden; }
+.nb-get { flex: none; }
+.nb-shelf-foot { flex: none; padding: 7px 10px 9px; border-top: 1px solid var(--line);
+                 display: flex; align-items: center; gap: 8px; }
+.nb-shelf-note { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+
+.nb-keys {
+  right: calc(var(--edge) + 34px); bottom: calc(var(--edge) + 58px);
+  width: 310px; z-index: 10; padding: 0 12px 11px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.nb-field { display: flex; flex-direction: column; gap: 3px; }
+.nb-field > span { font-family: var(--mono); font-size: 9.5px; letter-spacing: .09em;
+                   text-transform: uppercase; color: var(--ink-3); }
+.nb-field input[type="password"], .nb-field input[type="text"] {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel-2); color: var(--ink); font-size: 12.5px;
+  font-family: var(--mono);
+}
+.nb-field input:focus { outline: none; border-color: var(--accent); }
+.nb-two { flex-direction: row; gap: 8px; }
+.nb-two label { flex: 1 1 0; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.nb-two select { width: 100%; }
+.nb-fine { margin: 0; font-size: 10.5px; line-height: 1.45; color: var(--ink-3); }
+
 /* --------------------------------------------------- Space Packing mode */
 body.packing .fades:not(#chip) { opacity: 0; pointer-events: none; }
 .sp-bar {
@@ -2955,6 +3081,13 @@ to find.">
      that decide how long it takes. Shown in Ray traced and in the showroom,
      because they are the same renderer and the same question. -->
 <div class="float" id="trace-bar" hidden>
+  <!-- WHETHER IT IS COLLECTING, and nothing else decides it. A path trace at
+       seven samples and at seventy is the same picture with different grain,
+       so a trace that has stopped looks exactly like one that is being slow -
+       which is why this is a button with a state on it rather than something
+       inferred from the picture. -->
+  <button class="icon-btn" id="trace-run" aria-pressed="true"
+          title="Pause collecting samples"><span>⏸</span></button>
   <span class="tr-count" id="trace-count">—</span>
   <span class="tool-sep"></span>
   <span class="tr-seg" id="trace-quality"></span>

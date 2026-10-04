@@ -23,6 +23,7 @@ import "../src/crowd-plugin.js";
 import "../src/drawings-plugin.js";
 import "../src/ifc-plugin.js";
 import "../src/packing-plugin.js";
+import "../src/nano-plugin.js";
 import { CATALOGUE, registerTypes, typeSpec } from "../src/ocaf.js";
 import { readFileSync } from "fs";
 import { gzipSync } from "zlib";
@@ -440,10 +441,33 @@ console.log("\nC. every package on the shelf is imported by both entry points");
   check("app.js imports every one of them", pageMissing.length === 0,
         pageMissing.length ? "missing " + pageMissing.join(", ")
                            : inPage.length + " imported");
-  const workerMissing = modules.filter(m => !inWorker.includes(m));
-  check("kernel-worker.js imports every one of them", workerMissing.length === 0,
+  //! THE WORKER ONLY NEEDS THE ONES WITH NODES IN THEM, and that is the whole
+  //! of the reason written above: a package the worker has never evaluated has
+  //! no drivers there, and the symptom is `unknown feature type` on a node.
+  //! A package that declares no nodes cannot produce that symptom, and there
+  //! is a real cost to importing one anyway - Nano Banana is a bar, an overlay
+  //! and a fetch, so putting it in the worker bundle would ship DOM code to a
+  //! thread that has no DOM.
+  //!
+  //! The exemption is read out of the module's own text, like everything else
+  //! in this section, AND cross-checked against the shelf below - so a package
+  //! that writes `nodes: []` and then registers some anyway is not excused.
+  const nodeless = modules.filter(m =>
+    /\bnodes:\s*\[\s*\]/.test(readFileSync("docs/src/" + m, "utf8")));
+  const needWorker = modules.filter(m => !nodeless.includes(m));
+  const workerMissing = needWorker.filter(m => !inWorker.includes(m));
+  check("kernel-worker.js imports every package that has nodes",
+        workerMissing.length === 0,
         workerMissing.length ? "missing " + workerMissing.join(", ")
-                             : inWorker.length + " imported");
+                             : inWorker.length + " imported, "
+                               + nodeless.length + " exempt as nodeless");
+  //! THE CROSS-CHECK. The text said which packages have no nodes; the shelf
+  //! knows. If they disagree, the exemption above is excusing something.
+  const reallyNodeless = availablePlugins().filter(p => !(p.nodes || []).length);
+  check("and the ones it excuses really do declare no nodes",
+        reallyNodeless.length === nodeless.length,
+        reallyNodeless.map(p => p.id).join(", ") + " vs "
+          + nodeless.map(m => m.replace("-plugin.js", "")).join(", "));
 
   //! AND THE WORKER KEEPS ITS OWN SHELF - a plugin it imports but leaves out of
   //! that list has no drivers, which fails later and further away.

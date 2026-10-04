@@ -14312,6 +14312,12 @@ globalThis.__cad = {
   //! the flags were trapped in place and every write to them recorded with the
   //! stack that did it. Nothing in the program reads this.
   showroomEngine: () => showroom,
+  //! FULL SCREEN, FROM OUTSIDE. Not a convenience: whether a control survives
+  //! Tab is not readable from the source, because the page does not hide
+  //! panels in full screen - it fades them to nothing and makes them deaf. A
+  //! control at opacity 0 is still found by querySelector and still looks
+  //! right to anything that does not measure it.
+  bareNow: on => setBare(on),
   pickCount: () => pickable.length,
   hovered: () => state.hover || null,
   selected: () => state.selected || null,

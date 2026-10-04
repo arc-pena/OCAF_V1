@@ -116,6 +116,13 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
     "unistrut.js", "unistrut-plugin.js",
            "rack.js", "rack-plugin.js",
            "harness.js", "harness-plugin.js",
+           # nano is the shape of a call to Google's image model and the shape
+           # of what comes back - no kernel, no DOM, no network - and its
+           # package is the bar, the overlay and the gallery. It is the one
+           # package that adds no nodes at all, which is why it is safe to have
+           # switched on from the start: a model saved with it loaded is the
+           # same file as one saved without it.
+           "nano.js", "nano-plugin.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",

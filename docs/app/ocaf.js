@@ -2741,7 +2741,22 @@ export const CATALOGUE = [
            ref("colourMap", "Colour from", ["shade"]),
            ref("roughMap", "Roughness from", ["shade"]),
            ref("metalMap", "Metal from", ["shade"]),
-           ref("emitMap", "Emission from", ["shade"])] },
+           ref("emitMap", "Emission from", ["shade"]),
+           //! APPENDED, AND THAT IS NOT A STYLE CHOICE. An argument's position
+           //! in this list IS its OCAF child tag, so putting these two up
+           //! beside the other maps - where they obviously belong to read -
+           //! would renumber every argument after them and silently repoint
+           //! every Material in every file ever saved. They go on the end.
+           //!
+           //! Why they are here at all: the renderer has always had a
+           //! normalMap and an aoMap and read them from the material's map
+           //! set, and nothing could ever put anything in them. So dropping a
+           //! PBR set installed its normal map as a node, named it, gave it
+           //! its role, and wired it to nothing - and the concrete rendered
+           //! flat, correctly lit, perfectly plausible and missing the one map
+           //! that makes it look like concrete.
+           ref("normalMap", "Normal from", ["shade"]),
+           ref("aoMap", "Occlusion from", ["shade"])] },
 
   { type: "EvaluateCurve", guid: "9a1b2c30-0060-4c00-9e00-caf000000060", category: "analysis",
     produces: "point",
@@ -4933,8 +4948,22 @@ export class Doc {
     const spec = F.spec(f);
     // Text and code share the attribute and the edit; a one-line field and a
     // full editor are two controls over one string.
+    //! AND SO DOES A BLOB. An image is base64 on the same AsciiString
+    //! attribute: the loader writes one through F.setCode, the drivers read it
+    //! back through F.code, and lightenModel knows where to find it to leave
+    //! it out of a summary. The only path that refused a blob was this one -
+    //! which is the path a PERSON'S edit takes.
+    //!
+    //! So dropping a material's zip on the window made the Material, made a
+    //! Texture per map, named each one, set each one's role, wired each to its
+    //! slot, said "9 MB in the document", and wrote none of the images. The
+    //! tree was right, the save file was right, the references were right, and
+    //! every textured material rendered untextured. The storage test passed
+    //! throughout because it loaded its image from a MODEL FILE, which is the
+    //! ungated write - so the one path nothing covered was the only one
+    //! anybody uses.
     const arg = spec && spec.args.find(a => a.key === key &&
-      (a.kind === "code" || a.kind === "text"));
+      (a.kind === "code" || a.kind === "text" || a.kind === "blob"));
     if (!arg) throw new Error(F.name(f) + " has no text to edit at '" + key + "'");
     if (typeof text !== "string") throw new Error("the code must be text");
     F.setCode(f, key, text);
