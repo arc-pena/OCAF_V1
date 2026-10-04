@@ -187,6 +187,140 @@ console.log("\n4. what can be put away can be brought back");
         (bare.match(/body\.barred #status\s*\{[^}]*\}/) || [""])[0]);
 }
 
+console.log("\n4b. nothing floats over the model that cannot be put away");
+{
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  //! THE RULE, as a check rather than as care.
+  //!
+  //! A panel over the viewport is in front of the thing a person is trying to
+  //! look at. That is fine while it is wanted and intolerable when it is not,
+  //! so every one of them must carry the same cross in the same corner - and
+  //! carry it through closesWith, which is what marks the panel as PUT AWAY
+  //! and is therefore what lets the menu offer it back. A hand-rolled cross
+  //! looks identical and is not the same thing: the light lister had one, and
+  //! "Bring the panels back" had never heard of it.
+  //!
+  //! Driven off the DOM and the source rather than a list kept here, so a
+  //! panel added tomorrow is in this check tomorrow.
+  const floats = [...html.matchAll(/id="([a-z-]+)"[^>]*class="[^"]*\bfloat\b/g),
+                  ...html.matchAll(/class="[^"]*\bfloat\b[^"]*"[^>]*id="([a-z-]+)"/g)]
+    .map(m => m[1]);
+  //! The ones built in app.js rather than written in the page.
+  const made = [...app.matchAll(/\.className\s*=\s*"float[^"]*";[\s\S]{0,120}?\.id\s*=\s*"([a-z-]+)"/g)]
+    .map(m => m[1]);
+  const all = [...new Set([...floats, ...made])];
+  check("the page floats a few panels over the model", all.length >= 4, all.join(", "));
+
+  //! Which of them closesWith knows about. Matched by the element the call is
+  //! given, which is either `document.getElementById("x")`, a bare `xPanel`
+  //! variable, or `traceBar()` - so the check reads the call sites rather than
+  //! assuming a naming convention.
+  const closed = new Set();
+  for (const m of app.matchAll(/closesWith\(\s*([^,]+),/g)) {
+    const who = m[1].trim();
+    const byId = who.match(/getElementById\(["']([a-z-]+)["']\)/);
+    if (byId) { closed.add(byId[1]); continue; }
+    //! THE NEAREST ASSIGNMENT ABOVE THE CALL, not the first in the file. Three
+    //! functions here each have a local called `host`, so taking the first
+    //! match resolved log-pop's cross to the definition panel - a wrong
+    //! answer that still looked like an answer.
+    const before = app.slice(0, m.index);
+    const near = [...before.matchAll(
+      new RegExp("\\b" + who.replace(/\(\)$/, "")
+                 + "\\s*=\\s*document\\.getElementById\\([\"']([a-z-]+)[\"']\\)", "g"))];
+    if (near.length) { closed.add(near[near.length - 1][1]); continue; }
+    //! `lensPanel` -> #lens-panel, `traceBar()` -> #trace-bar: the variable is
+    //! declared beside its own id, so look that up rather than guess.
+    const name = who.replace(/\(\)$/, "");
+    //! Three ways a panel's element gets a name here, all of them in use:
+    //!   lensPanel.id = "lens-panel"            built in app.js
+    //!   const traceBar = () => getElementById   a getter, so it is never stale
+    //!   const host = getElementById("log-pop")  a local, which is why log-pop
+    //!                                           read as having no way out when
+    //!                                           it has had a cross all along
+    const decl = new RegExp(name + "\\.id\\s*=\\s*[\"']([a-z-]+)[\"']").exec(app)
+      || new RegExp("const\\s+" + name + "\\s*=\\s*\\(\\)\\s*=>\\s*document\\.getElementById\\([\"']([a-z-]+)[\"']\\)").exec(app)
+      || new RegExp("\\b" + name + "\\s*=\\s*document\\.getElementById\\([\"']([a-z-]+)[\"']\\)").exec(app);
+    if (decl) closed.add(decl[1]);
+    else closed.add(who);
+  }
+  check("and closesWith is given several of them", closed.size >= 4,
+        [...closed].join(", "));
+
+  //! A WAY OUT, which is not the same as a cross.
+  //!
+  //! The rule is that nothing floats over the model that a person can be left
+  //! stuck behind - not that everything wears the same button. A mode bar with
+  //! Done on it can be closed; so can one that says Esc. What must not exist
+  //! is a panel with neither: no cross, no exit, no switch, just there.
+  //!
+  //! So: a cross through closesWith, or a cross in the markup, or a visible
+  //! way out written beside wherever it is built.
+  //! THE ELEMENT'S OWN MARKUP, cut at the next panel or dialog rather than a
+  //! fixed number of characters. A 2500-character window spilled into
+  //! whatever came next in the page and borrowed its Close button - so a
+  //! deliberately stuck panel inserted right before the render bar passed,
+  //! and so did the render bar with its own cross taken away. Both mutations
+  //! were supposed to fail; both passed, which made this check decoration.
+  const markupOf = one => {
+    const at = html.indexOf('id="' + one + '"');
+    if (at < 0) return "";
+    const from = html.lastIndexOf("<", at);
+    const rest = html.slice(from + 1);
+    const ends = [rest.search(/class="[^"]*\bfloat\b/), rest.search(/<dialog/)]
+      .filter(n => n > 40);
+    return rest.slice(0, ends.length ? Math.min(...ends) : 2500);
+  };
+
+  const wayOut = one => {
+    if (closed.has(one)) return true;
+    const seg = markupOf(one);
+    if (/panel-shut/.test(seg) || /\b(Done|Close|Cancel|Leave|Exit|Modelling)\b/.test(seg))
+      return true;
+    //! A PHONE SHEET's way out is the dock it came from: pressing the same
+    //! dock button again closes it, because openSheet toggles. Recognised by
+    //! that toggle rather than by the name, so a sheet added with no dock
+    //! button, or a openSheet that stopped toggling, would still be caught.
+    if (/^sheet-/.test(one))
+      return /was === name \? "" :/.test(app) && /dataset\.sheet/.test(app)
+          && /#dock button/.test(app);
+    //! Built in app.js: look where it is created for the word that is its exit.
+    const made = app.search(new RegExp('\\.id\\s*=\\s*["\']' + one + '["\']'));
+    if (made < 0) return false;
+    //! Cut at the next panel built in app.js, for the same reason as above.
+    const after = app.slice(made);
+    const next = after.slice(60).search(/\.className\s*=\s*"float/);
+    return /\b(Done|Close|Cancel|Leave|Exit|Esc|Escape)\b/
+      .test(app.slice(Math.max(0, made - 800), made + (next > 0 ? next + 60 : 4500)));
+  };
+
+  //! THE PERMANENT CHROME, which is a different kind of thing and says so.
+  //! The chip, the rail and the view tools are the program's furniture rather
+  //! than panels over the model: they are switched from the chip, which
+  //! section 4 above checks is there, and the status line stands down on its
+  //! own when a bar takes its row.
+  const furniture = new Set(["chip", "rail", "sketch-rail", "view-tools", "status",
+                             "viewport", "showroom"]);
+  const stuck = all.filter(one => !furniture.has(one) && !wayOut(one));
+  check("every floating panel has a way out", !stuck.length,
+        stuck.join(", ") || (all.length - furniture.size) + " panels, every one closable");
+
+  //! And the check can tell the two apart: a panel with no cross, no exit and
+  //! no switch must be found. Built from the real markup so it is the same
+  //! shape as a real one.
+  const pretend = '<section class="float fades" id="stuck-bar"><span>no way out</span></section>';
+  const wouldFind = !/panel-shut|\b(Done|Close|Cancel|Leave|Exit)\b/.test(pretend);
+  check("  and a panel with neither would be found", wouldFind);
+
+  //! AND BROUGHT BACK, which is the half that makes crossing one safe. A
+  //! panel closed with no `name` is gone until somebody remembers its letter.
+  const named = [...app.matchAll(/closesWith\([\s\S]{0,200}?name:\s*"([^"]+)"/g)].map(m => m[1]);
+  check("and the ones worth losing say what they are called",
+        named.length >= 3, named.join(" \u00b7 "));
+  check("and the menu offers them back by that name",
+        /Bring the panels back/.test(app) && /putAway\(\)/.test(app));
+}
+
 console.log("\n5. the tree reads, folds and searches");
 {
   // A TREE THAT TRUNCATES IS A TREE YOU CANNOT READ, and one that scrolls

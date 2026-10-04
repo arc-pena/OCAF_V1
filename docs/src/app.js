@@ -7103,15 +7103,17 @@ function buildLightList() {
   count.textContent = lights.length ? lit + " of " + lights.length + " on" : "";
   head.appendChild(title);
   head.appendChild(count);
-  //! The one cross every floating panel here carries, in the same corner.
-  const shut = document.createElement("button");
-  shut.className = "icon-btn panel-shut";
-  shut.title = "Close (L)";
-  shut.setAttribute("aria-label", "Close");
-  shut.innerHTML = svg('<path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>');
-  shut.addEventListener("click", () => toggleLights(false));
-  head.appendChild(shut);
   lightPanel.appendChild(head);
+  //! THROUGH closesWith, not a cross of its own. A hand-rolled one looks the
+  //! same and is not the same: it does not mark the panel as put away, so the
+  //! menu's "Bring the panels back" never mentions it and somebody who crossed
+  //! it a week ago has to remember the letter. Every floating panel here goes
+  //! through the one function, and this one did not.
+  closesWith(lightPanel, {
+    name: "the lights", title: "Put the lights away \u00b7 L brings them back",
+    close: () => toggleLights(false), open: () => toggleLights(true),
+    into: ".lt-head",
+  });
 
   const list = document.createElement("div");
   list.className = "lt-list";
@@ -10388,13 +10390,28 @@ async function applyLibraryMaterial(id, m) {
     if (!target) {
       const born = await edit({ op: "add", type: "Material", refs: { of: id } });
       target = born && born.id;
-      if (target) await edit({ op: "rename", id: target, name: m.name });
     }
     if (!target) return;
-    await edit.many(Object.entries(numbers).map(([key, value]) =>
-      ({ op: "set", id: target, key, value })));
+    //! REPLACED, NOT PATCHED. Setting the numbers and leaving the map slots
+    //! wired means picking Concrete over a brick wall gives you concrete
+    //! numbers under a brick pattern - which reads as the library not working,
+    //! and is worse than it not working because it half did.
+    //!
+    //! So every shade is pulled off first. The shade NODES stay in the
+    //! document, because they are somebody's work and deleting them would be
+    //! a library entry quietly throwing away a graph; they simply stop being
+    //! wired to this material. Re-wire them and they are back.
+    const maps = ["colourMap", "roughMap", "metalMap", "emitMap"];
+    await edit.many([
+      ...maps.map(key => ({ op: "disconnect", id: target, key })),
+      ...Object.entries(numbers).map(([key, value]) => ({ op: "set", id: target, key, value })),
+    ]);
+    //! And it takes the library entry's name, so the tree, the dropdown and
+    //! the lister all say what it is rather than "Material.1".
+    await edit({ op: "rename", id: target, name: m.name });
     say(entry.name + " is " + m.name.toLowerCase()
         + " \u00b7 reflectance " + m.reflectance + ", roughness " + m.roughness
+        + (already ? " \u00b7 replaced what was there" : "")
         + " \u2014 published typical values, not measurements; move them");
   } catch (err) { showError(err.message); }
 }
@@ -13781,6 +13798,7 @@ async function enterShowroom() {
     stage.classList.add("on");
     requestAnimationFrame(() => stageUi.classList.add("shown"));
     showroom.frame(null, 950);
+    traceBarShut = false;
     buildTraceBar();
     syncTraceBar();
     button.textContent = was;
@@ -13944,6 +13962,7 @@ async function syncTracing() {
     if (!tracedStyle() || staging) return;
     showroom.paused = false;
     tracing = true;
+    traceBarShut = false;
     document.getElementById("showroom").classList.add("tracing");
     buildTraceBar();
     refreshTrace();
@@ -14013,8 +14032,24 @@ function buildTraceBar() {
   syncTraceBar();
 }
 
+//! PUT AWAY BY A PERSON, which is not the same as not applying. The bar is
+//! offered whenever there is a render to say something about; crossing it says
+//! "not now", and it stays away until the menu brings it back or the style is
+//! turned off and on again. Nothing on it is the only way to do anything -
+//! quality and scene are on the Material and Skylight nodes, and Save image is
+//! in the menu - so putting it away can never trap anybody.
+let traceBarShut = false;
+
 function syncTraceBar() {
-  traceBar().hidden = !(tracing || (staging && showroom.ready));
+  traceBar().hidden = traceBarShut || !(tracing || (staging && showroom.ready));
+  if (!traceBar().hidden)
+    closesWith(traceBar(), {
+      name: "the render bar",
+      title: "Put the render bar away \u00b7 the menu brings it back",
+      close: () => { traceBarShut = true; syncTraceBar(); layout(); },
+      open: () => { traceBarShut = false; syncTraceBar(); layout(); },
+      inline: true,
+    });
   for (const button of document.querySelectorAll("#trace-quality button"))
     button.setAttribute("aria-pressed",
       button.dataset.quality === showroom.quality ? "true" : "false");
@@ -14681,6 +14716,13 @@ document.getElementById("btn-render-close").addEventListener("click", () => {
   renderStop = true;
   document.getElementById("modal-render").close();
 });
+//! AND ESCAPE DOES THE SAME AS THE BUTTON. A <dialog> closes on Escape by
+//! itself, which is right - but it closes without running the button's
+//! handler, so an export started and then dismissed with Escape would have
+//! gone on rendering at the export size behind a dialog that was no longer
+//! there. The `close` event fires however it was shut, which is the one place
+//! to hang this.
+document.getElementById("modal-render").addEventListener("close", () => { renderStop = true; });
 document.getElementById("btn-step-copy").addEventListener("click", async () => {
   const button = document.getElementById("btn-step-copy");
   const area = document.getElementById("step-text");

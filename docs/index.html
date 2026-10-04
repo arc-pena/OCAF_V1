@@ -1933,10 +1933,23 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
    camera; it is not steering it. */
 #showroom.tracing { opacity: 1; pointer-events: none; z-index: 1; }
 
+/* DOWN THE LEFT, not across the middle. Centred, it sat over the model in the
+   one place a person is looking while they judge a render - and a bar you have
+   to work around is a bar in the way. Clear of whatever the left side has
+   taken, so it slides over when the tree opens rather than under it. */
 #trace-bar {
-  left: var(--middle); bottom: calc(var(--edge) + var(--bar-h) + 6px);
-  transform: translateX(-50%); z-index: 7;
-  display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px;
+  /* --rail-dock, not --left-dock. The left dock is everything down that side
+     INCLUDING the tree, which is wide: measured on a 1100 px window the bar
+     landed at x=451, which is nearly the middle and is the thing it was moved
+     to stop being. The rail dock is the tool rail alone, so the bar sits under
+     the tree and above the status line - the bottom left corner, aligned with
+     the tree's own edge, which is where it was asked to be. */
+  left: calc(var(--edge) + var(--rail-dock));
+  /* Above the status row, and above the log when the log is open - they share
+     this corner, and --log-dock is what the page measured the log to be. */
+  bottom: calc(var(--edge) + var(--bar-h) + var(--log-dock) + 6px);
+  z-index: 7;
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px;
 }
 #trace-bar[hidden] { display: none; }
 #trace-bar .tr-count {
@@ -1994,9 +2007,9 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
 /* In the showroom the stage has its own trays along the bottom, so the trace
    bar goes above them rather than under them. Measured against the trays'
    own height rather than nudged: two rows of chips plus the hint line. */
-body.staging #trace-bar {
-  left: calc(var(--span) / 2); bottom: 136px; z-index: 8;
-}
+/* In the showroom the chrome is gone, so there is no left dock to clear - and
+   the stage has its own trays along the bottom, so this goes above them. */
+body.staging #trace-bar { left: var(--edge); bottom: 136px; z-index: 8; }
 body.staging .fades { opacity: 0; pointer-events: none; }
 /* The view tools stay through a mode, and they are the exception on purpose.
    Flow and Climate are things you look AT through this window; how the window
