@@ -1,0 +1,809 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Material gallery",
+ "units": "mm",
+ "note": "One sphere per material graph. Open it in Ray traced or in the showroom: the glass refracts, the lit panel lights the slab, and the worn paint is a noise field used as a mask on both the colour and the roughness. Built by scripts/build_materialgallery.mjs.",
+ "features": [
+  {
+   "id": "SLAB0",
+   "type": "Point",
+   "name": "Slab corner",
+   "args": {
+    "x": -320,
+    "y": -320,
+    "z": -134
+   }
+  },
+  {
+   "id": "SLAB",
+   "type": "Cube",
+   "name": "Floor slab",
+   "args": {
+    "origin": {
+     "ref": "SLAB0"
+    },
+    "dx": 1600,
+    "dy": 960,
+    "dz": 24
+   }
+  },
+  {
+   "id": "C0",
+   "type": "Point",
+   "name": "Checker plate centre",
+   "args": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "S0",
+   "type": "Sphere",
+   "name": "Checker plate",
+   "args": {
+    "center": {
+     "ref": "C0"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T0",
+   "type": "Tag",
+   "name": "Checker plate label",
+   "args": {
+    "at": {
+     "ref": "C0"
+    },
+    "note": "Checker plate",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N1",
+   "type": "Shade",
+   "name": "Steel",
+   "args": {
+    "red": 0.55,
+    "green": 0.57,
+    "blue": 0.6
+   }
+  },
+  {
+   "id": "N2",
+   "type": "Shade",
+   "name": "Darker",
+   "args": {
+    "red": 0.3,
+    "green": 0.31,
+    "blue": 0.33
+   }
+  },
+  {
+   "id": "N3",
+   "type": "Checker",
+   "name": "Plate",
+   "args": {
+    "scale": 10,
+    "a": {
+     "ref": "N1"
+    },
+    "b": {
+     "ref": "N2"
+    }
+   }
+  },
+  {
+   "id": "M0",
+   "type": "Material",
+   "name": "Checker plate material",
+   "args": {
+    "of": [
+     {
+      "ref": "S0"
+     }
+    ],
+    "red": 0.5,
+    "green": 0.52,
+    "blue": 0.55,
+    "metalness": 1,
+    "roughness": 0.3,
+    "tiles": 2,
+    "colourMap": {
+     "ref": "N3"
+    }
+   }
+  },
+  {
+   "id": "C1",
+   "type": "Point",
+   "name": "Brick centre",
+   "args": {
+    "x": 320,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "S1",
+   "type": "Sphere",
+   "name": "Brick",
+   "args": {
+    "center": {
+     "ref": "C1"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T1",
+   "type": "Tag",
+   "name": "Brick label",
+   "args": {
+    "at": {
+     "ref": "C1"
+    },
+    "note": "Brick",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N4",
+   "type": "Shade",
+   "name": "Clay",
+   "args": {
+    "red": 0.48,
+    "green": 0.22,
+    "blue": 0.15
+   }
+  },
+  {
+   "id": "N5",
+   "type": "Shade",
+   "name": "Mortar",
+   "args": {
+    "red": 0.72,
+    "green": 0.7,
+    "blue": 0.66
+   }
+  },
+  {
+   "id": "N6",
+   "type": "Bricks",
+   "name": "Stretcher bond",
+   "args": {
+    "courses": 14,
+    "perCourse": 5,
+    "joint": 0.08,
+    "a": {
+     "ref": "N4"
+    },
+    "b": {
+     "ref": "N5"
+    }
+   }
+  },
+  {
+   "id": "M1",
+   "type": "Material",
+   "name": "Brick material",
+   "args": {
+    "of": [
+     {
+      "ref": "S1"
+     }
+    ],
+    "red": 0.5,
+    "green": 0.25,
+    "blue": 0.18,
+    "roughness": 0.9,
+    "tiles": 2,
+    "colourMap": {
+     "ref": "N6"
+    }
+   }
+  },
+  {
+   "id": "C2",
+   "type": "Point",
+   "name": "Worn paint centre",
+   "args": {
+    "x": 640,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "S2",
+   "type": "Sphere",
+   "name": "Worn paint",
+   "args": {
+    "center": {
+     "ref": "C2"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T2",
+   "type": "Tag",
+   "name": "Worn paint label",
+   "args": {
+    "at": {
+     "ref": "C2"
+    },
+    "note": "Worn paint",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N7",
+   "type": "Shade",
+   "name": "Kept",
+   "args": {
+    "red": 0,
+    "green": 0,
+    "blue": 0
+   }
+  },
+  {
+   "id": "N8",
+   "type": "Shade",
+   "name": "Gone",
+   "args": {
+    "red": 1,
+    "green": 1,
+    "blue": 1
+   }
+  },
+  {
+   "id": "N9",
+   "type": "NoiseShade",
+   "name": "Wear",
+   "args": {
+    "scale": 5,
+    "octaves": 4,
+    "gain": 0.55,
+    "seed": 11,
+    "a": {
+     "ref": "N7"
+    },
+    "b": {
+     "ref": "N8"
+    }
+   }
+  },
+  {
+   "id": "N10",
+   "type": "AdjustShade",
+   "name": "Harder",
+   "args": {
+    "a": {
+     "ref": "N9"
+    },
+    "how": 2,
+    "amount": 3.5
+   }
+  },
+  {
+   "id": "N11",
+   "type": "Shade",
+   "name": "Paint",
+   "args": {
+    "red": 0.12,
+    "green": 0.35,
+    "blue": 0.6
+   }
+  },
+  {
+   "id": "N12",
+   "type": "Shade",
+   "name": "Steel",
+   "args": {
+    "red": 0.45,
+    "green": 0.44,
+    "blue": 0.42
+   }
+  },
+  {
+   "id": "N13",
+   "type": "MixShade",
+   "name": "Paint over steel",
+   "args": {
+    "a": {
+     "ref": "N11"
+    },
+    "b": {
+     "ref": "N12"
+    },
+    "by": {
+     "ref": "N10"
+    }
+   }
+  },
+  {
+   "id": "N14",
+   "type": "Shade",
+   "name": "Gloss",
+   "args": {
+    "red": 0.12,
+    "green": 0.12,
+    "blue": 0.12
+   }
+  },
+  {
+   "id": "N15",
+   "type": "Shade",
+   "name": "Bare",
+   "args": {
+    "red": 0.75,
+    "green": 0.75,
+    "blue": 0.75
+   }
+  },
+  {
+   "id": "N16",
+   "type": "MixShade",
+   "name": "Rougher where it is bare",
+   "args": {
+    "a": {
+     "ref": "N14"
+    },
+    "b": {
+     "ref": "N15"
+    },
+    "by": {
+     "ref": "N10"
+    }
+   }
+  },
+  {
+   "id": "M2",
+   "type": "Material",
+   "name": "Worn paint material",
+   "args": {
+    "of": [
+     {
+      "ref": "S2"
+     }
+    ],
+    "red": 1,
+    "green": 1,
+    "blue": 1,
+    "roughness": 0.4,
+    "metalness": 0.5,
+    "tiles": 1,
+    "colourMap": {
+     "ref": "N13"
+    },
+    "roughMap": {
+     "ref": "N16"
+    }
+   }
+  },
+  {
+   "id": "C3",
+   "type": "Point",
+   "name": "Glass centre",
+   "args": {
+    "x": 960,
+    "y": 0,
+    "z": 0
+   }
+  },
+  {
+   "id": "S3",
+   "type": "Sphere",
+   "name": "Glass",
+   "args": {
+    "center": {
+     "ref": "C3"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T3",
+   "type": "Tag",
+   "name": "Glass label",
+   "args": {
+    "at": {
+     "ref": "C3"
+    },
+    "note": "Glass",
+    "lift": 170
+   }
+  },
+  {
+   "id": "M3",
+   "type": "Material",
+   "name": "Glass material",
+   "args": {
+    "of": [
+     {
+      "ref": "S3"
+     }
+    ],
+    "red": 0.85,
+    "green": 0.92,
+    "blue": 0.95,
+    "roughness": 0.02,
+    "metalness": 0,
+    "transmission": 1,
+    "ior": 1.52,
+    "tiles": 1
+   }
+  },
+  {
+   "id": "C4",
+   "type": "Point",
+   "name": "Brushed brass centre",
+   "args": {
+    "x": 0,
+    "y": -320,
+    "z": 0
+   }
+  },
+  {
+   "id": "S4",
+   "type": "Sphere",
+   "name": "Brushed brass",
+   "args": {
+    "center": {
+     "ref": "C4"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T4",
+   "type": "Tag",
+   "name": "Brushed brass label",
+   "args": {
+    "at": {
+     "ref": "C4"
+    },
+    "note": "Brushed brass",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N17",
+   "type": "Shade",
+   "name": "Fine",
+   "args": {
+    "red": 0.12,
+    "green": 0.12,
+    "blue": 0.12
+   }
+  },
+  {
+   "id": "N18",
+   "type": "Shade",
+   "name": "Finer",
+   "args": {
+    "red": 0.3,
+    "green": 0.3,
+    "blue": 0.3
+   }
+  },
+  {
+   "id": "N19",
+   "type": "Stripes",
+   "name": "Brushing",
+   "args": {
+    "scale": 220,
+    "width": 0.5,
+    "soft": 0.3,
+    "along": 1,
+    "a": {
+     "ref": "N17"
+    },
+    "b": {
+     "ref": "N18"
+    }
+   }
+  },
+  {
+   "id": "M4",
+   "type": "Material",
+   "name": "Brushed brass material",
+   "args": {
+    "of": [
+     {
+      "ref": "S4"
+     }
+    ],
+    "red": 0.83,
+    "green": 0.66,
+    "blue": 0.31,
+    "metalness": 1,
+    "roughness": 1,
+    "tiles": 1,
+    "roughMap": {
+     "ref": "N19"
+    }
+   }
+  },
+  {
+   "id": "C5",
+   "type": "Point",
+   "name": "Terrazzo centre",
+   "args": {
+    "x": 320,
+    "y": -320,
+    "z": 0
+   }
+  },
+  {
+   "id": "S5",
+   "type": "Sphere",
+   "name": "Terrazzo",
+   "args": {
+    "center": {
+     "ref": "C5"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T5",
+   "type": "Tag",
+   "name": "Terrazzo label",
+   "args": {
+    "at": {
+     "ref": "C5"
+    },
+    "note": "Terrazzo",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N20",
+   "type": "Shade",
+   "name": "Cement",
+   "args": {
+    "red": 0.78,
+    "green": 0.77,
+    "blue": 0.74
+   }
+  },
+  {
+   "id": "N21",
+   "type": "Shade",
+   "name": "Chip",
+   "args": {
+    "red": 0.25,
+    "green": 0.3,
+    "blue": 0.28
+   }
+  },
+  {
+   "id": "N22",
+   "type": "Shade",
+   "name": "Low",
+   "args": {
+    "red": 0,
+    "green": 0,
+    "blue": 0
+   }
+  },
+  {
+   "id": "N23",
+   "type": "Shade",
+   "name": "High",
+   "args": {
+    "red": 1,
+    "green": 1,
+    "blue": 1
+   }
+  },
+  {
+   "id": "N24",
+   "type": "NoiseShade",
+   "name": "Aggregate",
+   "args": {
+    "scale": 26,
+    "octaves": 2,
+    "gain": 0.5,
+    "seed": 3,
+    "a": {
+     "ref": "N22"
+    },
+    "b": {
+     "ref": "N23"
+    }
+   }
+  },
+  {
+   "id": "N25",
+   "type": "AdjustShade",
+   "name": "Only the peaks",
+   "args": {
+    "how": 2,
+    "amount": 7,
+    "a": {
+     "ref": "N24"
+    }
+   }
+  },
+  {
+   "id": "N26",
+   "type": "MixShade",
+   "name": "Chips in cement",
+   "args": {
+    "a": {
+     "ref": "N20"
+    },
+    "b": {
+     "ref": "N21"
+    },
+    "by": {
+     "ref": "N25"
+    }
+   }
+  },
+  {
+   "id": "M5",
+   "type": "Material",
+   "name": "Terrazzo material",
+   "args": {
+    "of": [
+     {
+      "ref": "S5"
+     }
+    ],
+    "red": 1,
+    "green": 1,
+    "blue": 1,
+    "roughness": 0.25,
+    "tiles": 2,
+    "colourMap": {
+     "ref": "N26"
+    }
+   }
+  },
+  {
+   "id": "C6",
+   "type": "Point",
+   "name": "Lit panel centre",
+   "args": {
+    "x": 640,
+    "y": -320,
+    "z": 0
+   }
+  },
+  {
+   "id": "S6",
+   "type": "Sphere",
+   "name": "Lit panel",
+   "args": {
+    "center": {
+     "ref": "C6"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T6",
+   "type": "Tag",
+   "name": "Lit panel label",
+   "args": {
+    "at": {
+     "ref": "C6"
+    },
+    "note": "Lit panel",
+    "lift": 170
+   }
+  },
+  {
+   "id": "M6",
+   "type": "Material",
+   "name": "Lit panel material",
+   "args": {
+    "of": [
+     {
+      "ref": "S6"
+     }
+    ],
+    "red": 0.95,
+    "green": 0.85,
+    "blue": 0.6,
+    "roughness": 0.5,
+    "emission": 14,
+    "tiles": 1
+   }
+  },
+  {
+   "id": "C7",
+   "type": "Point",
+   "name": "Gradient anodise centre",
+   "args": {
+    "x": 960,
+    "y": -320,
+    "z": 0
+   }
+  },
+  {
+   "id": "S7",
+   "type": "Sphere",
+   "name": "Gradient anodise",
+   "args": {
+    "center": {
+     "ref": "C7"
+    },
+    "radius": 110
+   }
+  },
+  {
+   "id": "T7",
+   "type": "Tag",
+   "name": "Gradient anodise label",
+   "args": {
+    "at": {
+     "ref": "C7"
+    },
+    "note": "Gradient anodise",
+    "lift": 170
+   }
+  },
+  {
+   "id": "N27",
+   "type": "Shade",
+   "name": "Blue",
+   "args": {
+    "red": 0.1,
+    "green": 0.3,
+    "blue": 0.7
+   }
+  },
+  {
+   "id": "N28",
+   "type": "Shade",
+   "name": "Violet",
+   "args": {
+    "red": 0.5,
+    "green": 0.15,
+    "blue": 0.6
+   }
+  },
+  {
+   "id": "N29",
+   "type": "Gradient",
+   "name": "Blue to violet",
+   "args": {
+    "bias": 1.4,
+    "along": 1,
+    "a": {
+     "ref": "N27"
+    },
+    "b": {
+     "ref": "N28"
+    }
+   }
+  },
+  {
+   "id": "M7",
+   "type": "Material",
+   "name": "Gradient anodise material",
+   "args": {
+    "of": [
+     {
+      "ref": "S7"
+     }
+    ],
+    "red": 1,
+    "green": 1,
+    "blue": 1,
+    "metalness": 1,
+    "roughness": 0.22,
+    "tiles": 1,
+    "colourMap": {
+     "ref": "N29"
+    }
+   }
+  }
+ ]
+}

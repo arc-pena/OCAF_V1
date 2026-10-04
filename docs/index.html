@@ -1873,6 +1873,40 @@ body.staging #arctic-look, body.presenting #arctic-look { opacity: 0; pointer-ev
 #showroom canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 /* The move between the two views is a dissolve, not a cut. */
 #showroom, .fades, #view-tools { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
+
+/* RAY TRACED, in the modelling window. The same canvas the showroom uses,
+   over the viewport and under every panel - and transparent to the pointer,
+   so orbiting, picking and dragging are still the modelling view's job and
+   behave exactly as they do in every other style. The tracer follows that
+   camera; it is not steering it. */
+#showroom.tracing { opacity: 1; pointer-events: none; z-index: 1; }
+
+#trace-bar {
+  left: var(--middle); bottom: calc(var(--edge) + var(--bar-h) + 6px);
+  transform: translateX(-50%); z-index: 7;
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px;
+}
+#trace-bar[hidden] { display: none; }
+#trace-bar .tr-count {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums; min-width: 128px;
+}
+#trace-bar .tr-seg { display: flex; gap: 2px; padding: 2px; border-radius: 7px;
+                     background: var(--panel-2); }
+#trace-bar .tr-seg button {
+  border: 0; background: none; color: var(--ink-3); cursor: pointer;
+  padding: 3px 9px; border-radius: 5px; font-size: 11.5px;
+}
+#trace-bar .tr-seg button[aria-pressed="true"] {
+  background: var(--panel-solid); color: var(--ink); font-weight: 500;
+  box-shadow: 0 1px 2px rgba(16, 28, 38, .1);
+}
+#trace-bar .btn { padding: 3px 10px; font-size: 11.5px; }
+#trace-bar .tr-scene {
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+  color: var(--ink); font: inherit; font-size: 11.5px; padding: 2px 5px;
+}
+#modal-render .cli { font-variant-numeric: tabular-nums; }
 body.staging .fades { opacity: 0; pointer-events: none; }
 /* The view tools stay through a mode, and they are the exception on purpose.
    Flow and Climate are things you look AT through this window; how the window
@@ -2784,6 +2818,8 @@ to find.">
        same kind of decision and neither is a property of the document. -->
   <button data-style="shaded">SHADED</button>
   <button data-style="rendered">RENDERED</button>
+  <button data-style="raytraced"
+          title="Path traced &#183; sharpens while you leave it alone">RAY TRACED</button>
   <button data-style="arctic"
           title="White model, drawn shadows &#183; press it again for the dial">ARCTIC</button>
   <span class="tool-sep"></span>
@@ -2814,6 +2850,44 @@ to find.">
 </section>
 
 <div id="showroom"><canvas id="stage-canvas"></canvas></div>
+
+<!-- What a path trace says about itself: how far it has got, and the two dials
+     that decide how long it takes. Shown in Ray traced and in the showroom,
+     because they are the same renderer and the same question. -->
+<div class="float" id="trace-bar" hidden>
+  <span class="tr-count" id="trace-count">—</span>
+  <span class="tool-sep"></span>
+  <span class="tr-seg" id="trace-quality"></span>
+  <span class="tool-sep"></span>
+  <select id="trace-scene" class="tr-scene" aria-label="Scene"></select>
+  <span class="tool-sep"></span>
+  <button class="btn" id="trace-save">Save image…</button>
+</div>
+
+<dialog id="modal-render">
+  <div class="dhead">
+    <h3>Save the picture</h3>
+    <p>Rendered at this size and this many samples, not scaled up from the
+       window. It runs in front of you and you can stop it: a path trace is
+       never unfinished, only less far along.</p>
+  </div>
+  <div class="field">
+    <div class="field-head"><label for="render-size">Size</label>
+      <span class="kind">pixels</span></div>
+    <select id="render-size" class="line"></select>
+  </div>
+  <div class="field">
+    <div class="field-head"><label for="render-samples">Samples</label>
+      <span class="kind" id="render-samples-note">how many paths per pixel are averaged</span></div>
+    <input id="render-samples" class="line" type="number" min="1" max="20000" step="1" value="400">
+  </div>
+  <div class="cli" id="render-progress">ready</div>
+  <div class="dfoot">
+    <button class="btn" id="btn-render-stop" hidden>Stop</button>
+    <button class="btn" id="btn-render-close">Close</button>
+    <button class="btn primary" id="btn-render-go">Render</button>
+  </div>
+</dialog>
 
 <div id="stage-ui">
   <div id="stage-hint">drag to orbit · shift-drag to pan · wheel to zoom · click a part to re-finish it</div>

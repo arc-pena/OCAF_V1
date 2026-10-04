@@ -29,6 +29,7 @@ const GRAPH_CSS = `
   --g-accent: #0a6cb0; --g-accent-soft: rgba(10,108,176,.13); --g-accent-ink: #fff;
   --g-datum: #b07408; --g-good: #1c7a52; --g-bad: #bb3a2c; --g-bad-soft: rgba(187,58,44,.13);
   --g-wire: #8ea0ad; --g-num: #7a56c4; --g-crv: #1c7a52; --g-msh: #b06a13;
+  --g-shd: #b5457c;
   --g-shadow: 0 1px 2px rgba(16,28,38,.10), 0 8px 26px rgba(16,28,38,.13);
   --g-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --g-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -41,6 +42,7 @@ const GRAPH_CSS = `
   --g-accent: #4aa8ea; --g-accent-soft: rgba(74,168,234,.20); --g-accent-ink: #06131d;
   --g-datum: #e0a33c; --g-good: #4fb98a; --g-bad: #e2705f; --g-bad-soft: rgba(226,112,95,.17);
   --g-wire: #4d616f; --g-num: #a98cf0; --g-crv: #4fb98a; --g-msh: #e0a33c;
+  --g-shd: #f08cc0;
   --g-shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.45);
 }
 .g-root, .g-root * { box-sizing: border-box; }
@@ -213,12 +215,14 @@ const GRAPH_CSS = `
 .g-port[data-kind="point"], .g-port[data-kind="vector"] { background: var(--g-datum); }
 .g-port[data-kind="curve"] { background: var(--g-crv); }
 .g-port[data-kind="mesh"] { background: var(--g-msh); }
+.g-port[data-kind="shade"] { background: var(--g-shd); }
 .g-port[data-kind="text"] { background: var(--g-ink-3); }
 .g-port.slack { background: transparent; border-color: var(--g-wire); }
 .g-wires path.number { stroke: var(--g-num); }
 .g-wires path.point, .g-wires path.vector { stroke: var(--g-datum); }
 .g-wires path.curve { stroke: var(--g-crv); }
 .g-wires path.mesh { stroke: var(--g-msh); }
+.g-wires path.shade { stroke: var(--g-shd); }
 .g-port.hot { background: var(--g-good); transform: scale(1.35); }
 /* Holding shift while a wire is over a port says it will join what is already
    there rather than replace it, so the port shows a ring rather than a dot. */

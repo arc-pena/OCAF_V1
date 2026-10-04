@@ -163,6 +163,27 @@ export const VIEW_STYLES = [
            + "sky and a floor; no tangent edges, because a rendered view has no "
            + "wireframe in it.",
     materials: true, edges: false, datums: false, ground: true, clay: null },
+  //! THE SAME PICTURE THE SHOWROOM MAKES, through the modelling camera.
+  //!
+  //! Rendered above is a rasteriser obeying materials: one light, one pass,
+  //! sixty frames a second, and every shadow and reflection an approximation
+  //! of one. This is a path tracer, and the difference is not polish. A
+  //! rasteriser cannot tell you that the underside of a shelf is lit by the
+  //! floor, or what the inside of a glass fitting looks like from here,
+  //! because it never traces the light that does it.
+  //!
+  //! What you pay is that it CONVERGES rather than appears. The first frame
+  //! is noisy and the three-hundredth is not; nothing between them is wrong,
+  //! only unfinished. So it is a style you turn on to look, not one you model
+  //! in - which is why the modelling view is still underneath it, and why
+  //! moving the camera starts the average again.
+  { key: "raytraced", label: "Ray traced",
+    summary: "The real thing: light traced from the eye to the lights and back, so "
+           + "shadows are soft because the source has a size and a white wall "
+           + "actually bounces onto what is beside it. It sharpens while you leave "
+           + "it alone and starts again when you move.",
+    materials: true, edges: false, datums: false, ground: true, clay: null,
+    traced: true },
   { key: "arctic", label: "Arctic",
     summary: "Form, and nothing else. One white clay everywhere, shaded by ambient "
            + "occlusion so the shape of a corner is the only thing that darkens it, "

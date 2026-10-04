@@ -5,7 +5,7 @@ import replicadInit from "./occt-glue.js";
 import { resource } from "./payload.js";
 import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
-import { ENVIRONMENTS, Showroom } from "./showroom.js";
+import { ENVIRONMENTS, QUALITIES, RenderEngine } from "./render.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS,
          VIEW_STYLES, appearanceOf, edgeRibbon, findFinish, findMark, findStyle,
@@ -295,6 +295,10 @@ scene.add(key, fill, ambient);
 const LIGHTING = {
   shaded:   { key: 0.78, fill: 0.32, ambient: 0.55 },
   rendered: { key: 0.55, fill: 0.22, ambient: 0.32 },
+  //! The raster view under the trace, which is what shows while the engine is
+  //! still loading and whenever the trace is switched off. The same lighting
+  //! as Rendered, because it is the same picture at a lower standard.
+  raytraced: { key: 0.55, fill: 0.22, ambient: 0.32 },
   arctic:   { key: 0.10, fill: 0.06, ambient: 0.98 },
 };
 
@@ -1989,6 +1993,11 @@ function applyStyle(styleKey = state.style) {
   //! be five times the memory of the edge buffers for something on a layer
   //! nothing is rendering.
   syncHardEdges();
+  //! THE PATH TRACER FOLLOWS THE STYLE, and only one style wants it. Started
+  //! on demand, because starting it means unpacking a megabyte of engine and
+  //! walking every triangle into a BVH - which nobody who is modelling in
+  //! Shaded should ever pay for.
+  syncTracing();
   paintBackdrop();
   // The material panel says where a material is shown and that depends on the
   // style, so it is rebuilt rather than left saying something that was true a
@@ -2810,6 +2819,10 @@ async function syncShapes() {
   if (following) fitView();
   draw();
   if (staging && showroom.ready) showroom.setScene(state.tree.features, streams);
+  //! The trace is of the model, so an edit invalidates it exactly as it
+  //! invalidates the viewport. Left alone it would keep sharpening a picture
+  //! of the shape before the change, which looks finished and is wrong.
+  else refreshTrace();
 }
 
 //! Show or hide a feature in the 3D view - one function, because there are
@@ -2947,6 +2960,11 @@ function showFeature(id, on) {
     mdl.runAll(swallowed.map(one => ({ op: "shown", id: one, on: true })))
        .catch(error => showError(error.message));
   buildTree(); applyVisibility(); draw();
+  //! AND THE TRACE, which has its own copy of the scene. Hiding a body in the
+  //! viewport and leaving it in the trace is the worst kind of wrong: the
+  //! picture keeps sharpening, so it looks more finished the longer you leave
+  //! it, and what it is a finished picture of is the model before the click.
+  refreshTrace();
   // The panel says whether the thing it is showing is showing, so it has to
   // hear about this too - the eye is in two places and they must agree.
   if (ids.includes(state.edited)) buildPanel();
@@ -7593,6 +7611,22 @@ const SKETCH_ICONS = {
 const ICONS = {
   ...LAYER_ICONS,
 
+  /* The material nodes. Each one is a picture of what it draws, because that
+     is the whole of what they are - there is no clever mark for "checker"
+     that beats a checker. */
+  Shade: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="currentColor" opacity=".55" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>',
+  Checker: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M2.4 2.4h5.6v5.6H2.4zM8 8h5.6v5.6H8z" fill="currentColor" opacity=".7"/>',
+  Stripes: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M4.2 2.4v11.2M7.2 2.4v11.2M10.2 2.4v11.2M13.2 2.4v11.2" stroke="currentColor" stroke-width="1.6" opacity=".7"/>',
+  Gradient: '<defs><linearGradient id="ic-grad" x1="0" x2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".9"/><stop offset="1" stop-color="currentColor" stop-opacity=".08"/></linearGradient></defs><path d="M2.4 2.4h11.2v11.2H2.4z" fill="url(#ic-grad)" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>',
+  NoiseShade: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M4 5.2h1.2M7 4.2h1.4M10.4 6h1.2M4.6 8.4h1.6M8.2 7.6h1.2M11 9.6h1.1M3.9 11.2h1.4M6.6 10.6h1.2M9.4 11.6h1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".75"/>',
+  Bricks: '<path d="M2.4 2.4h11.2v11.2H2.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M2.4 6.1h11.2M2.4 9.8h11.2" stroke="currentColor" stroke-width="1" opacity=".75"/><path d="M8 2.4v3.7M5.2 6.1v3.7M10.8 6.1v3.7M8 9.8v3.8" stroke="currentColor" stroke-width="1" opacity=".75"/>',
+  MixShade: '<path d="M8 2.6a5.4 5.4 0 100 10.8 5.4 5.4 0 100-10.8z" fill="none" stroke="currentColor" stroke-width="1.15"/><path d="M8 2.6a5.4 5.4 0 010 10.8z" fill="currentColor" opacity=".7"/>',
+  AdjustShade: '<path d="M3.4 4.2h9.2M3.4 8h9.2M3.4 11.8h9.2" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/><circle cx="6" cy="4.2" r="1.7" fill="var(--panel-solid,#fff)" stroke="currentColor" stroke-width="1.15"/><circle cx="10.2" cy="8" r="1.7" fill="var(--panel-solid,#fff)" stroke="currentColor" stroke-width="1.15"/><circle cx="5.2" cy="11.8" r="1.7" fill="var(--panel-solid,#fff)" stroke="currentColor" stroke-width="1.15"/>',
+  //! The sphere on a swatch every material editor has drawn since the first
+  //! one, because it is the only shape that shows a highlight, a terminator
+  //! and a bounce all at once.
+  Material: '<path d="M8 2.2a5.8 5.8 0 100 11.6 5.8 5.8 0 100-11.6z" fill="currentColor" opacity=".25" stroke="currentColor" stroke-width="1.15"/><path d="M5.6 5.4a2.6 2.1 0 103.1 1.1" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
+
   // A body above, and the lines it casts onto a sheet below: what a projection
   // view IS, said in one mark.
   ProjectionView: '<path d="M3.2 2.4h6.4l2.8 2.6v4.2H3.2z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/><path d="M4 11.4v2.6M8 11.4v2.6M12 11.4v2.6" stroke="currentColor" stroke-width="1" opacity=".55"/><path d="M1.6 14.6h12.8" stroke="currentColor" stroke-width="1.3"/>',
@@ -10108,14 +10142,78 @@ function materialField(entry) {
     field.appendChild(why);
   }
 
+  //! THE WAY OUT OF THE LIST. A finish is a name for some numbers and covers
+  //! most things; past it there is a node graph, and the hard part of a node
+  //! graph is always the first node. So this makes one, wired to this body,
+  //! and opens the editor on it - which is the difference between a feature
+  //! people use and a feature people read about.
+  //!
+  //! The finish is left alone. A body wears both: the Material wins wherever
+  //! it is read, and if it is deleted the finish is still there underneath.
+  {
+    const made = document.createElement("button");
+    made.type = "button";
+    made.className = "btn";
+    made.style.marginTop = "8px";
+    const already = materialNodeFor(entry.id);
+    made.textContent = already ? "Edit its material graph" : "Build a material\u2026";
+    made.title = already
+      ? "Open the node graph on the Material painting this body"
+      : "A Material node, wired to this body, to build a finish out of patterns";
+    made.addEventListener("click", async () => {
+      let id = already && already.id;
+      if (!id) {
+        const born = await edit({ op: "add", type: "Material", refs: { of: entry.id } });
+        id = born && born.id;
+        if (id) say("a Material for " + entry.name
+                    + " \u2014 wire a shade into one of its map slots");
+      }
+      if (!id) return;
+      select(id, true);
+      if (!graph.showing) graph.open();
+    });
+    field.appendChild(made);
+    //! SAID EXACTLY, because it is a limit and not a feature. A node material
+    //! is read by the path tracer; the raster Rendered style still draws the
+    //! finish above. Somebody who builds a brick wall and then cannot find it
+    //! in Rendered should be told where it is, not left to wonder whether the
+    //! graph is broken.
+    const where = document.createElement("div");
+    where.className = "summary";
+    where.textContent = already
+      ? "Its material shows in Ray traced and in the showroom. The Rendered "
+        + "style above draws the finish instead — it is a rasteriser and has "
+        + "nowhere to put a pattern."
+      : "Patterns — checker, brick, noise, wear — built as nodes and wired to "
+        + "this body. Shown in Ray traced and in the showroom.";
+    field.appendChild(where);
+  }
+
   const note = document.createElement("div");
   note.className = "summary";
+  //! WHERE IT SHOWS, said plainly, because three of the five styles ignore
+  //! materials on purpose and a person who has just picked brass in Shaded
+  //! and seen nothing happen deserves to be told why.
+  const traced = findStyle(state.style).traced;
   note.textContent = state.style === "rendered"
-    ? "Shown here and in the showroom."
-    : "Shown in the Rendered style and in the showroom. This view is "
-      + findStyle(state.style).label + ".";
+    ? "The finish is shown here, in Ray traced and in the showroom."
+    : traced
+      ? "Shown here \u2014 and this view traces light, so a metal reflects the "
+        + "scene rather than a picture of one."
+      : "The finish is shown in Rendered, in Ray traced and in the showroom. "
+        + "This view is " + findStyle(state.style).label + ".";
   field.appendChild(note);
   return field;
+}
+
+//! The Material node painting this body, if there is one. Walked from the tree
+//! rather than held in an index: there are a handful of materials in a document
+//! and an index would be one more thing that can disagree with the document.
+function materialNodeFor(id) {
+  for (const entry of (state.tree && state.tree.features) || [])
+    if (entry.type === "Material" && entry.data && (entry.data.of || []).includes(id))
+      return entry;
+  return null;
 }
 
 /* ------------------------------------------------------ how it is cut
@@ -12488,7 +12586,7 @@ async function attachKernel(next, model) {
    page, because that is what makes the folder movable: a site at /cad and a
    site at / are the same files. */
 const KERNEL_URL = "kernel/replicad_single.wasm";
-const STAGE_URL = "kernel/playcanvas.min.js";
+const STAGE_URL = "vendor/pathtracer.bundle.js";
 
 const boot = message => {
   const el = document.getElementById("boot-message");
@@ -13032,9 +13130,9 @@ document.getElementById("ai-prompt").addEventListener("keydown", event => {
    The modelling view and the stage are two renderers over one document: the
    kernel's triangles go to both, and neither owns the model.                */
 
-const showroom = new Showroom({
+const showroom = new RenderEngine({
   canvas: document.getElementById("stage-canvas"),
-  payloadId: "showroom-payload",
+  payloadId: "render-payload",
   payloadUrl: STAGE_URL,
 });
 const stage = document.getElementById("showroom");
@@ -13067,8 +13165,6 @@ function buildStageControls() {
     button.setAttribute("aria-pressed", preset.key === showroom.environment ? "true" : "false");
     button.addEventListener("click", () => {
       showroom.applyEnvironment(preset.key);
-      for (const other of envs.children)
-        other.setAttribute("aria-pressed", other === button ? "true" : "false");
       syncStageToggles();
     });
     envs.appendChild(button);
@@ -13079,9 +13175,19 @@ function buildStageControls() {
 //! follow whichever stage is showing rather than arguing with it.
 function syncStageToggles() {
   document.getElementById("btn-stage-ground")
-    .setAttribute("aria-pressed", showroom.ground && showroom.ground.enabled ? "true" : "false");
+    .setAttribute("aria-pressed", showroom.ground && showroom.ground.visible ? "true" : "false");
   document.getElementById("btn-stage-reflect")
     .setAttribute("aria-pressed", showroom.reflection > 0.01 ? "true" : "false");
+  //! AND WHICH SCENE, read from the renderer rather than remembered by the
+  //! row. There are now three places a scene can be changed from - these
+  //! buttons, the trace bar's menu, and the showroom setting its own on the
+  //! way in - and a row that only knows about its own clicks says Studio over
+  //! a black stage, which is what it did.
+  for (const button of document.querySelectorAll("#stage-envs [data-env]"))
+    button.setAttribute("aria-pressed",
+      button.dataset.env === showroom.environment ? "true" : "false");
+  const scenes = document.getElementById("trace-scene");
+  if (scenes && showroom.ready) scenes.value = showroom.environment;
 }
 
 function refreshStageSelection() {
@@ -13127,6 +13233,11 @@ async function enterShowroom() {
       addEventListener("resize", stageResize);
     }
     stageResize();
+    //! The renderer is paused whenever it is not the thing on screen, and the
+    //! flag is sticky: left set, the showroom shows a raster preview that
+    //! never sharpens and an export from it collects nothing at all.
+    showroom.paused = false;
+    if (firstTime) showroom.applyEnvironment("noir");
     showroom.setScene(state.tree.features, streams);
     syncStageToggles();
 
@@ -13141,6 +13252,8 @@ async function enterShowroom() {
     stage.classList.add("on");
     requestAnimationFrame(() => stageUi.classList.add("shown"));
     showroom.frame(null, 950);
+    buildTraceBar();
+    syncTraceBar();
     button.textContent = was;
   } catch (err) {
     button.textContent = err.message.slice(0, 34);
@@ -13148,9 +13261,259 @@ async function enterShowroom() {
   } finally { button.disabled = false; }
 }
 
+/* ------------------------------------------------------- saving a picture
+
+   A render is not a screenshot. The window is whatever size the window is and
+   the trace on it has had however many samples it has had; the picture you
+   keep is a decision about both. So this resizes the renderer to the size
+   asked for, collects the samples at THAT size, and hands back a PNG - a
+   4000 px export is 4000 px of rendering rather than 4000 px of a 1200 px
+   picture stretched.
+
+   It yields to the browser between samples, which is why there is a Stop
+   button and why the page does not get reported as hung. A path trace is
+   never unfinished, only less far along, so stopping gives you the picture as
+   it stands rather than nothing.                                            */
+
+//! Offered sizes. The window's own, then the three everybody asks for.
+const RENDER_SIZES = [
+  { key: "window", label: "This window", of: () => [innerWidth, innerHeight] },
+  { key: "1080", label: "1920 \u00d7 1080", of: () => [1920, 1080] },
+  { key: "1440", label: "2560 \u00d7 1440", of: () => [2560, 1440] },
+  { key: "4k", label: "3840 \u00d7 2160", of: () => [3840, 2160] },
+  { key: "square", label: "2048 \u00d7 2048", of: () => [2048, 2048] },
+];
+
+let renderStop = false;
+
+function openRenderDialog() {
+  const dialog = document.getElementById("modal-render");
+  const sizes = document.getElementById("render-size");
+  if (!sizes.childElementCount) {
+    for (const size of RENDER_SIZES) {
+      const option = document.createElement("option");
+      option.value = size.key;
+      sizes.appendChild(option);
+    }
+  }
+  //! The window option carries the window's CURRENT size in its label, so the
+  //! menu is not quietly lying after somebody resizes the browser.
+  for (const option of sizes.options) {
+    const size = RENDER_SIZES.find(s => s.key === option.value);
+    const [w, h] = size.of();
+    option.textContent = size.key === "window"
+      ? size.label + " (" + w + " \u00d7 " + h + ")" : size.label;
+  }
+  document.getElementById("render-progress").textContent = "ready";
+  document.getElementById("btn-render-go").hidden = false;
+  document.getElementById("btn-render-stop").hidden = true;
+  dialog.showModal();
+}
+
+async function runRender() {
+  const progress = document.getElementById("render-progress");
+  const go = document.getElementById("btn-render-go");
+  const stop = document.getElementById("btn-render-stop");
+  const size = RENDER_SIZES.find(
+    s => s.key === document.getElementById("render-size").value) || RENDER_SIZES[0];
+  const [width, height] = size.of();
+  const want = Math.max(1, Math.min(20000,
+    Math.round(Number(document.getElementById("render-samples").value) || 400)));
+
+  renderStop = false;
+  go.hidden = true;
+  stop.hidden = false;
+  const began = performance.now();
+  try {
+    const blob = await showroom.toImage({
+      width, height, samples: want,
+      onProgress: (got, all) => {
+        //! A rate rather than a bar, because the only honest estimate of how
+        //! long a path trace has left is how long its samples have been
+        //! taking. The first few are slower - the shaders are still being
+        //! compiled - so this is measured over the whole run.
+        const seconds = (performance.now() - began) / 1000;
+        const rate = got > 0 ? seconds / got : 0;
+        const left = rate > 0 ? Math.round(rate * (all - got)) : null;
+        progress.textContent = got + " of " + all + " samples"
+          + (left !== null && left > 1 ? "  \u00b7  about " + left + " s left" : "");
+      },
+      shouldStop: () => renderStop,
+    });
+    const name = (state.name || "render").replace(/[^\w.-]+/g, "_");
+    saveBlob(blob, name + "-" + width + "x" + height + ".png");
+    progress.textContent = "saved " + name + "-" + width + "x" + height + ".png";
+  } catch (err) {
+    progress.textContent = renderStop ? "stopped" : "could not render: " + err.message;
+  } finally {
+    go.hidden = false;
+    stop.hidden = true;
+    renderStop = false;
+  }
+}
+
+/* ----------------------------------------------------------- ray traced
+
+   The same renderer, looking through the modelling camera.
+
+   The showroom is a room you walk into: the model on a stage, the chrome gone,
+   its own orbit. This is the other door - the trace runs over the viewport you
+   are working in, under every panel, transparent to the pointer. You orbit and
+   pick exactly as you do in Shaded; the tracer watches that camera and starts
+   its average again whenever it moves.
+
+   It is ONE engine. The showroom and this share a canvas, a scene, a BVH and
+   an environment, because they are the same question asked from two places and
+   two of them would mean two copies of the triangles on the GPU.               */
+
+let tracing = false;
+//! What the camera was when the last sample was taken. A path tracer must
+//! throw its average away when the view moves, and "moved" has to be decided
+//! by comparison rather than by hooking every call that might move it - there
+//! are a dozen and a new one arrives with every tool.
+let tracedFrom = null;
+
+const traceBar = () => document.getElementById("trace-bar");
+
+function tracedStyle() { return !!findStyle(state.style).traced; }
+
+//! Where the modelling camera is, as six numbers in the kernel's own Z-up
+//! frame. Numbers rather than objects on purpose: the renderer is a different
+//! copy of three in a different version, and a Vector3 from here is not a
+//! Vector3 there.
+function cameraReading() {
+  return { eye: [camera.position.x, camera.position.y, camera.position.z],
+           target: [view.target.x, view.target.y, view.target.z],
+           fov: camera.fov };
+}
+
+const sameReading = (a, b) =>
+  a && b && Math.abs(a.fov - b.fov) < 1e-6
+  && a.eye.every((n, i) => Math.abs(n - b.eye[i]) < 1e-6)
+  && a.target.every((n, i) => Math.abs(n - b.target[i]) < 1e-6);
+
+//! Turns the trace on or off to match the style. Everything that can fail -
+//! unpacking the engine, compiling its shaders - happens here and says so in
+//! the status line rather than leaving a blank canvas over the model.
+async function syncTracing() {
+  const want = tracedStyle() && !staging;
+  if (want === tracing) { if (tracing) refreshTrace(); return; }
+  if (!want) {
+    tracing = false;
+    tracedFrom = null;
+    showroom.paused = true;
+    document.getElementById("showroom").classList.remove("tracing");
+    syncTraceBar();
+    return;
+  }
+  try {
+    say("Starting the renderer\u2026");
+    await showroom.start();
+    //! The style may have been changed again while the engine was loading -
+    //! a megabyte of script and a shader compile is long enough for somebody
+    //! to press ARCTIC. Then this is not the answer to the question any more.
+    if (!tracedStyle() || staging) return;
+    showroom.paused = false;
+    tracing = true;
+    document.getElementById("showroom").classList.add("tracing");
+    buildTraceBar();
+    refreshTrace();
+    say(findStyle(state.style).label + " — " + findStyle(state.style).summary);
+  } catch (err) {
+    tracing = false;
+    showError("the renderer would not start: " + err.message);
+    applyStyle("rendered");
+  }
+}
+
+//! The model changed shape, or what is showing did. Rebuilds the traced scene
+//! from the same triangles the viewport is drawing - this is the expensive
+//! call, so it is made from edits and never from a frame.
+function refreshTrace() {
+  if (!tracing || !showroom.ready) return;
+  showroom.resize(innerWidth, innerHeight);
+  showroom.setScene(state.tree.features, streams);
+  tracedFrom = null;
+}
+
+//! One frame of trace. Called from the page's own loop, after the camera has
+//! been placed, so what is traced is what is on screen rather than what was.
+function traceFrame(dt) {
+  if (!tracing || !showroom.ready) return;
+  showroom.resize(innerWidth, innerHeight);
+  const now = cameraReading();
+  if (!sameReading(now, tracedFrom)) {
+    showroom.setCameraFromZUp(now);
+    tracedFrom = now;
+  }
+  showroom.tick(0);
+  syncTraceCount();
+}
+
+/* ------------------------------------------------------- the trace bar */
+
+function buildTraceBar() {
+  const scenes = document.getElementById("trace-scene");
+  if (scenes && !scenes.childElementCount) {
+    for (const preset of ENVIRONMENTS) {
+      const option = document.createElement("option");
+      option.value = preset.key;
+      option.textContent = preset.label;
+      scenes.appendChild(option);
+    }
+    scenes.addEventListener("change", () => {
+      showroom.applyEnvironment(scenes.value);
+      syncStageToggles();
+      syncTraceBar();
+    });
+  }
+  const seg = document.getElementById("trace-quality");
+  if (seg.childElementCount) return;
+  for (const quality of QUALITIES) {
+    const button = document.createElement("button");
+    button.textContent = quality.label;
+    button.title = quality.summary;
+    button.dataset.quality = quality.key;
+    button.addEventListener("click", () => {
+      showroom.applyQuality(quality.key);
+      syncTraceBar();
+      say(quality.label + " — " + quality.summary);
+    });
+    seg.appendChild(button);
+  }
+  syncTraceBar();
+}
+
+function syncTraceBar() {
+  traceBar().hidden = !(tracing || (staging && showroom.ready));
+  for (const button of document.querySelectorAll("#trace-quality button"))
+    button.setAttribute("aria-pressed",
+      button.dataset.quality === showroom.quality ? "true" : "false");
+  const scenes = document.getElementById("trace-scene");
+  if (scenes && showroom.ready) scenes.value = showroom.environment;
+  syncTraceCount();
+}
+
+//! HOW FAR ALONG IT IS, which is the only honest thing a path tracer can say
+//! about itself. Not a percentage of "done" - there is no done, only a number
+//! of samples averaged and a point past which you stop being able to see the
+//! difference.
+function syncTraceCount() {
+  if (traceBar().hidden) return;
+  const got = showroom.samples, want = showroom.targetSamples;
+  document.getElementById("trace-count").textContent =
+    got >= want ? got + " samples \u00b7 settled"
+                : got + " of " + want + " samples";
+}
+
 function leaveShowroom() {
   staging = false;
   showroom.turntable = false;
+  //! Leaving the showroom for a style that traces hands the same renderer
+  //! straight back; for one that does not, the bar goes with the stage.
+  showroom.paused = true;
+  syncTraceBar();
+  syncTracing();
   document.getElementById("btn-stage-spin").setAttribute("aria-pressed", "false");
   stageUi.classList.remove("shown");
   stage.classList.remove("on");
@@ -13195,6 +13558,15 @@ globalThis.__cad = {
   turn: (yaw, pitch) => { view.yaw += yaw; if (pitch) view.pitch += pitch;
                           placeCamera(); draw(); },
   zoom: by => { view.distance *= by; placeCamera(); draw(); },
+  //! THE RENDERER, FROM OUTSIDE. A drive cannot judge a path trace by looking
+  //! at it: the fourth sample and the four hundredth are the same picture at
+  //! different amounts of grain, so a test that screenshots and decides by eye
+  //! is a test that cannot fail. These are what it asks instead.
+  style: key => setStyle(key),
+  styleNow: () => state.style,
+  showroomReady: () => showroom.ready,
+  tracing: () => tracing,
+  samples: () => (showroom.ready ? showroom.samples : -1),
   sample: n => [...shapes.entries()].slice(0, n).map(([id, held]) => ({
     id, visible: held.group.visible, want: held.group.userData.want,
     across: held.group.userData.across, tris: held.group.userData.triangles,
@@ -13681,7 +14053,12 @@ let lastSpin = performance.now();
 (function spinLoop(now) {
   const dt = Math.min(0.1, ((now || performance.now()) - lastSpin) / 1000);
   lastSpin = now || performance.now();
-  if (staging && showroom.ready) showroom.spin(dt);
+  //! THE PATH TRACER NEEDS THE FRAME. A rasteriser draws when something
+  //! changes; this one is averaging, so every frame it is given is another
+  //! sample and the picture is only as good as the frames it got. tick() does
+  //! the turntable too, so there is one call rather than two.
+  if (staging && showroom.ready) { showroom.tick(dt); syncTraceCount(); }
+  else traceFrame(dt);
   // A mode that moves gets the clock. Only the open one - a paused simulation
   // in a mode nobody is looking at should cost nothing at all.
   if (openMode && openMode.view.tick) {
@@ -13707,8 +14084,56 @@ const saveFile = async (filename, data) => {
   return downloads.save({ filename, data });
 };
 
+//! A PICTURE OUT, which is a different problem from a text file out.
+//!
+//! The viewer's save surface takes `data` and the text exports hand it a
+//! string; a PNG is bytes, and whether that surface takes a Blob is not
+//! something to assume - so it is TRIED, and what it refuses falls through
+//! rather than being reported as saved. Below it is the ordinary anchor with
+//! an object URL, which is what a browser has always done and what works on
+//! the served site. Below that, the picture is opened in a tab, where it can
+//! still be right-clicked and kept.
+async function saveBlob(blob, filename) {
+  try {
+    const saved = await saveFile(filename, blob);
+    if (saved && saved.status === "saved") return "saved";
+  } catch (err) { /* falls through to the anchor */ }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    //! Must be in the document for the click to count in some browsers, and
+    //! must be gone again before the URL is revoked.
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    //! A moment, because revoking the URL in the same tick cancels the
+    //! download in Safari - the click has been dispatched but the fetch of
+    //! the object URL has not started.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return "saved";
+  } catch (err) {
+    window.open(url, "_blank");
+    return "opened";
+  }
+}
+
 const stepDialog = document.getElementById("modal-step");
 document.getElementById("btn-step-close").addEventListener("click", () => stepDialog.close());
+
+/* The renderer's own controls. */
+document.getElementById("trace-save").addEventListener("click", openRenderDialog);
+document.getElementById("btn-render-go").addEventListener("click", runRender);
+document.getElementById("btn-render-stop").addEventListener("click", () => { renderStop = true; });
+document.getElementById("btn-render-close").addEventListener("click", () => {
+  //! Closing while it is running stops it. Leaving a trace going behind a shut
+  //! dialog would hold the canvas at the export size with nothing on screen
+  //! saying why the viewport had stopped moving.
+  renderStop = true;
+  document.getElementById("modal-render").close();
+});
 document.getElementById("btn-step-copy").addEventListener("click", async () => {
   const button = document.getElementById("btn-step-copy");
   const area = document.getElementById("step-text");

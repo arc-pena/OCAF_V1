@@ -10,7 +10,7 @@ module is a runtime fetch - so for that build the kernel travels inside the
 page, gzipped and base64'd, 22 MB of wasm becoming about 9 MB of text.
 
 A web server has no such rule, and fetching is what a browser is good at. So
-the site build leaves the kernel, the showroom engine and the package data as
+the site build leaves the kernel, the rendering engine and the package data as
 files beside the page: streamed, compiled while they arrive, and cached by the
 browser between visits instead of re-parsed out of the HTML on every load. The
 source modules go across as they are, imported natively - nothing is
@@ -57,10 +57,16 @@ TOP = ROOT.parent
 # OpenCascade for the browser: a trimmed OCCT build, 22 MB of WebAssembly.
 KERNEL_PACKAGE = "replicad-opencascadejs"
 
-# The showroom renderer. Packed the same way and unpacked only when someone
-# opens the showroom, so a session that never does never pays for it.
-STAGE_PACKAGE = "playcanvas"
-STAGE_FILE = "build/playcanvas.min.js"
+# The rendering engine: three.js, three-mesh-bvh and three-gpu-pathtracer,
+# bundled into one classic script by scripts/build_pathtracer.mjs and committed
+# under docs/vendor/. Packed the same way the kernel is and unpacked only when
+# somebody asks to render, so a session that never does never pays for it.
+#
+# Vendored rather than fetched here, unlike the kernel, because bundling it
+# needs npm AND a bundler to be reachable, and a build that needs two network
+# services to produce a byte-for-byte identical file is a build that fails on a
+# train. See docs/vendor/README.md for the versions and how to remake it.
+STAGE_FILE = "vendor/pathtracer.bundle.js"
 
 # Concatenated in this order into one module script for the single-file build.
 # The site build copies the same files and lets the browser resolve the imports,
@@ -78,13 +84,17 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # the viewport looks through one with - and in the single file
            # everything shares one scope, so the order is the order.
            "handle.js", "gizmo.js", "camera.js", "gcc.js", "formula.js", "reuse.js",
+           # material is the shade arithmetic, pure: no DOM, no kernel, no
+           # three. The kernel's drivers assemble shade programs with it and
+           # the renderer evaluates them, so it comes before both.
+           "material.js",
            # generate reads reuse, and the kernel reads both.
            "generate.js",
            "wasm-kernel.js", "http-kernel.js", "mdl.js",
            # the slider editor: one window, opened by the definition panel and
            # by the node graph, so it comes before both of them.
            "slider.js", "graph.js",
-           "agent.js", "styles.js", "showroom.js", "plugin.js", "climate.js", "climate-plugin.js",
+           "agent.js", "styles.js", "render.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
            # entourage is the figure library and nothing else - no kernel, no
            # DOM - and the rack package's Entourage driver is what reads it.
@@ -134,7 +144,7 @@ GLUE_MODULE = "occt-glue.js"
 # Modules this script writes into the site rather than ones anybody wrote.
 GENERATED = {GLUE_MODULE}
 
-# A package's data rides the way the kernel and the showroom engine do: gzipped,
+# A package's data rides the way the kernel and the rendering engine do: gzipped,
 # base64'd, in a script element the HTML tokenizer scans straight past. Unpacked
 # only when the package is loaded, so a session that never opens it never pays.
 DATA = ROOT / "data"
@@ -171,6 +181,7 @@ SAMPLES = [
     ("strut-museum", "strut_museum.json"),
     ("atrium-galleries", "atrium_galleries.json"),
     ("ergonomics-study", "ergonomics_study.json"),
+    ("material-gallery", "material_gallery.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 
@@ -291,12 +302,6 @@ def fetch_kernel():
                      "package/dist/replicad_single.wasm")
 
 
-def fetch_stage():
-    """PlayCanvas, for the showroom. Cached in docs/.stage."""
-    return fetch_npm(STAGE_PACKAGE, ".stage", "package/" + STAGE_FILE,
-                     "package/" + STAGE_FILE)
-
-
 def build_site(shell, glue_path, wasm_path, stage_path):
     """The served build: the page, the modules, and the big pieces as files.
 
@@ -317,7 +322,6 @@ def build_site(shell, glue_path, wasm_path, stage_path):
         shutil.copyfile(SRC / name, SITE / SITE_MODULES / name)
     shutil.copyfile(glue_path, SITE / SITE_MODULES / GLUE_MODULE)
     shutil.copyfile(wasm_path, SITE / SITE_BINARIES / wasm_path.name)
-    shutil.copyfile(stage_path, SITE / SITE_BINARIES / stage_path.name)
     for _, name in PAYLOADS:
         if not (DATA / name).exists():
             sys.exit("missing %s" % (DATA / name))
@@ -376,7 +380,10 @@ def build_site(shell, glue_path, wasm_path, stage_path):
 """)
 
     served = [TOP / "index.html", SITE / SITE_INDEX, *(SITE / SITE_MODULES).rglob("*"),
-              *(SITE / SITE_BINARIES).rglob("*"), *(DATA).rglob("*")]
+              *(SITE / SITE_BINARIES).rglob("*"), *(DATA).rglob("*"),
+              #! vendor/ is committed rather than generated, but it is served
+              #! and a reader counting what GitHub Pages hands out wants it in.
+              *(ROOT / "vendor").rglob("*")]
     total = sum(f.stat().st_size for f in served if f.is_file())
     print("wrote the site into %s/  %.1f MB  (%d modules, kernel served as a file)" % (
         SITE.name, total / 1048576, len(MODULES) + 1))
@@ -399,9 +406,12 @@ def main():
             sys.exit("missing %s" % path)
 
     shell = (SRC / "index.html").read_text()
-    stage_path = fetch_stage() / pathlib.PurePosixPath(STAGE_FILE).name
+    #! Committed, not fetched. If it is missing the script that makes it says
+    #! so by name, because "missing docs/vendor/pathtracer.bundle.js" on its own
+    #! does not tell you that `node scripts/build_pathtracer.mjs` is the answer.
+    stage_path = ROOT / STAGE_FILE
     if not stage_path.exists():
-        sys.exit("missing %s" % stage_path)
+        sys.exit("missing %s — run `node scripts/build_pathtracer.mjs`" % stage_path)
 
     # Both checks first, so neither target is written if one module is wrong.
     check_imports()
@@ -440,7 +450,7 @@ def main():
     # reads it at run time.
     parts = ["<script type=\"application/octet-stream\" id=\"kernel-payload\">"
              + packed + "</script>",
-             "<script type=\"application/octet-stream\" id=\"showroom-payload\">"
+             "<script type=\"application/octet-stream\" id=\"render-payload\">"
              + stage_packed + "</script>",
              "<script type=\"application/octet-stream\" id=\"worker-payload\">"
              + worker_packed + "</script>"]
@@ -468,7 +478,7 @@ def main():
     OUT.write_text(shell.rstrip() + "\n\n" + payload + "\n\n" + script + "\n")
     size = OUT.stat().st_size
     print("  worker %d modules -> %.0f kB packed" % (len(worker_bodies), len(worker_packed) / 1024))
-    print("wrote %s  %.1f MB  (kernel %.1f -> %.1f MB, showroom %.1f -> %.1f MB)" % (
+    print("wrote %s  %.1f MB  (kernel %.1f -> %.1f MB, renderer %.1f -> %.1f MB)" % (
         OUT.relative_to(ROOT.parent), size / 1048576,
         wasm_path.stat().st_size / 1048576, len(packed) / 1048576,
         stage_path.stat().st_size / 1048576, len(stage_packed) / 1048576))

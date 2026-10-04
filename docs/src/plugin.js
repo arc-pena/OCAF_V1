@@ -238,7 +238,7 @@ export class PluginHost {
 /* ------------------------------------------------------------ resources
 
    A package's data - a table of cities, a set of coefficients - arrives the
-   way the kernel and the showroom engine do: unpacked from inside the page in
+   way the kernel and the rendering engine do: unpacked from inside the page in
    the single-file build, fetched from beside it when the page is served. On
    load and not before, so it costs nothing until the package is wanted.    */
 

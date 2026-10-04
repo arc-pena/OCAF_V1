@@ -30,7 +30,7 @@ Same source, two shapes, because they are allowed different things.
 
 | | |
 |---|---|
-| `docs/parametric-cad.html` | ONE file. An Artifact may not fetch at run time, so the 22 MB kernel, the showroom engine and every package's data travel inside the page, gzipped and base64'd. |
+| `docs/parametric-cad.html` | ONE file. An Artifact may not fetch at run time, so the 22 MB kernel, the rendering engine and every package's data travel inside the page, gzipped and base64'd. |
 | `docs/index.html` + `app/` + `kernel/` | Files. A web server may be fetched from, so those three are served as files and the source modules go across as they are, imported natively. |
 
 `src/payload.js` is what lets one source tree do both: every big piece is asked
@@ -50,3 +50,21 @@ node --test docs/test/*.test.mjs        # all suites, against a real kernel
 And drive the built page in a browser rather than trusting it. Screenshots are
 authoritative; a `readPixels` after present reads a cleared buffer and proves
 nothing.
+
+## Driving the renderer
+
+The renderer path traces, and this container has no GPU: Chromium falls back to
+SwiftShader, which costs about **20 µs per pixel per sample**. A 620×420 window
+is therefore five seconds a sample, and starting the engine — compiling one very
+large shader — blocks the main thread for minutes, during which `page.evaluate`
+does not answer. A drive that looks hung is usually that.
+
+So: drive it in a small window, ask for few samples, and read the sample count
+through `__cad.samples()` rather than judging a path trace by eye — the fourth
+sample and the four-hundredth are the same picture at different amounts of
+grain. **None of these timings say anything about a real GPU**; do not quote
+them as performance.
+
+`page.click` on the toolbar fails in a window that narrow: the definition panel
+overlaps the chip, Playwright sees another element on top and waits for ever.
+Dispatch the click with `element.click()` inside `page.evaluate` instead.

@@ -21,9 +21,10 @@
 // A feature that fails keeps its last good shape and records the message, so
 // one bad radius never takes the model, or the page, down with it.
 
-import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, drafting, kernelMessage,
-         meshCreases, meshFaces, meshSharpness, parseNumbers, registeredTypes,
-         schemaJson, setDrafting, typeSpec } from "./ocaf.js";
+import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, dataProgram, drafting,
+         kernelMessage, meshCreases, meshFaces, meshSharpness, parseNumbers,
+         registeredTypes, schemaJson, setDrafting, trimNumber,
+         typeSpec } from "./ocaf.js";
 import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
 import { SECTION_KINDS, sectionOutline } from "./sections.js";
 import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
@@ -41,6 +42,7 @@ import { bsplinePoints, builtDrawing, reversedBspline, shownDrawing, sketchArcPo
 import { cornersOf, frameAt, frameOf, saysShot } from "./camera.js";
 import { readStory, saysStory } from "./story.js";
 import { fovFromLens } from "./gizmo.js";
+import { DEFAULT_MATERIAL, SHADE_OPS, constantShade } from "./material.js";
 import { QUALIFIERS, bisector, cCircle, cLine, cPoint, circle2PointsRadius,
          circle2TanOn, circle2TanRadius, circle3Tan, circleTanCentre,
          circleTanOnRadius, circleThrough3, line2Tan, lineTanAngle,
@@ -1526,6 +1528,152 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
   const segment = (a, b) =>
     length([b[0] - a[0], b[1] - a[1], b[2] - a[2]]) < CONFUSION
       ? null : new oc.BRepBuilderAPI_MakeEdge(pnt(a), pnt(b)).Shape();
+
+/* ------------------------------------------------------------ materials
+
+   These assemble a SHADE PROGRAM - a plain, serialisable description of a
+   pattern - and nothing else. No pixels are drawn here: a driver runs in a
+   worker where there is no canvas, and a texture baked in the kernel would
+   have to be shipped to the page as megabytes of float rather than as the
+   twenty bytes that describe it.
+
+   The arithmetic that interprets one is in material.js and is pure, which is
+   what lets every pattern be checked against a number worked out on paper.
+
+   Every program is SELF-CONTAINED: a node's wired inputs are resolved into
+   the description rather than referenced from it, so a Material carries the
+   whole of what it means. The page can bake one without walking the document,
+   and a material pasted into another file still says what it said.          */
+
+  //! What is wired into a shade slot, resolved to a program - or null, which
+  //! every pattern reads as "use your own default". Refused rather than
+  //! half-read if it is wired to something that is not a shade, because a
+  //! Point in a colour slot should say so rather than come out black.
+  const shadeFrom = (f, key) => {
+    const source = F.reference(f, key);
+    return source ? dataProgram(F.data(source)) : null;
+  };
+
+  //! A PROGRAM IS A TREE AND THE DOCUMENT STORES STRINGS, so it travels as
+  //! JSON. Two lines, always: a sentence a person reads in the tree, then the
+  //! program. See SAID_AS_JSON in ocaf.js, which is what keeps the JSON out of
+  //! every panel and preview that would otherwise print it.
+  const asShade = (program, said) =>
+    ({ data: { kind: "shade", values: [], lines: [said, JSON.stringify(program)] } });
+
+  //! A pattern driver is the same four lines every time - read the numbers,
+  //! read the two wired shades, hand back a program - so it is written once.
+  const shadeBuilder = (op, read, say) => ({
+    build: f => {
+      const program = { op, ...read(f), a: shadeFrom(f, "a"), b: shadeFrom(f, "b") };
+      return asShade(program, say(program));
+    },
+  });
+
+  //! A colour, said the way a person reads one. Hex rather than three decimals
+  //! because that is what anybody picking a colour already has in their hand.
+  const hexOf = c => "#" + c.map(v =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0")).join("");
+
+  builders.Shade = {
+    build: f => {
+      const colour = [F.real(f, "red", 0.8), F.real(f, "green", 0.8), F.real(f, "blue", 0.8)];
+      return asShade(constantShade(colour), hexOf(colour));
+    },
+  };
+
+  builders.Checker = shadeBuilder("checker",
+    f => ({ scale: Math.max(1, F.real(f, "scale", 8)) }),
+    p => trimNumber(p.scale) + " squares across");
+
+  builders.Stripes = shadeBuilder("stripes", f => ({
+    scale: Math.max(0.1, F.real(f, "scale", 8)),
+    width: F.real(f, "width", 0.5),
+    soft: F.real(f, "soft", 0),
+    along: Feature_choice(f, "along") === 1 ? "v" : "u",
+  }), p => trimNumber(p.scale) + " bands " + (p.along === "v" ? "down" : "across")
+       + (p.soft > 0 ? ", soft" : ""));
+
+  builders.Gradient = shadeBuilder("gradient", f => ({
+    bias: Math.max(0.05, F.real(f, "bias", 1)),
+    along: Feature_choice(f, "along") === 1 ? "v" : "u",
+  }), p => "fading " + (p.along === "v" ? "down" : "across")
+       + (Math.abs(p.bias - 1) > 1e-6 ? ", bias " + trimNumber(p.bias) : ""));
+
+  builders.NoiseShade = shadeBuilder("noise", f => ({
+    scale: Math.max(1, F.real(f, "scale", 6)),
+    octaves: Math.max(1, Math.round(F.real(f, "octaves", 4))),
+    gain: F.real(f, "gain", 0.5),
+    seed: Math.round(F.real(f, "seed", 0)),
+  }), p => "noise at " + trimNumber(p.scale) + ", " + p.octaves
+       + (p.octaves === 1 ? " octave" : " octaves"));
+
+  builders.Bricks = shadeBuilder("bricks", f => ({
+    courses: Math.max(1, F.real(f, "courses", 8)),
+    perCourse: Math.max(1, F.real(f, "perCourse", 4)),
+    joint: F.real(f, "joint", 0.06),
+  }), p => trimNumber(p.courses) + " courses of " + trimNumber(p.perCourse));
+
+  builders.MixShade = {
+    build: f => {
+      const program = { op: "mix", amount: F.real(f, "amount", 0.5),
+                        a: shadeFrom(f, "a"), b: shadeFrom(f, "b"),
+                        by: shadeFrom(f, "by") };
+      return asShade(program, program.by ? "blended by a mask"
+                                         : "blended " + trimNumber(program.amount));
+    },
+  };
+
+  builders.AdjustShade = {
+    build: f => {
+      const program = {
+        op: "adjust",
+        how: ["invert", "gain", "contrast", "gamma"][Feature_choice(f, "how")] || "invert",
+        amount: F.real(f, "amount", 1),
+        a: shadeFrom(f, "a"),
+      };
+      return asShade(program, program.how
+        + (program.how === "invert" ? "" : " " + trimNumber(program.amount)));
+    },
+  };
+
+  builders.Material = {
+    //! A material painting nothing is not an error - it is a material being
+    //! built, and refusing it would mean the node goes red every time until
+    //! the last wire is in. It says so instead, where a note belongs.
+    build: f => {
+      const painted = F.references(f, "of").map(one => F.id(one)).filter(Boolean);
+      const maps = {
+        colour: shadeFrom(f, "colourMap"),
+        roughness: shadeFrom(f, "roughMap"),
+        metalness: shadeFrom(f, "metalMap"),
+        emission: shadeFrom(f, "emitMap"),
+      };
+      const material = {
+        ...DEFAULT_MATERIAL,
+        colour: [F.real(f, "red", 0.6), F.real(f, "green", 0.62), F.real(f, "blue", 0.64)],
+        roughness: F.real(f, "roughness", 0.4),
+        metalness: F.real(f, "metalness", 0),
+        transmission: F.real(f, "transmission", 0),
+        ior: F.real(f, "ior", 1.5),
+        emissionStrength: F.real(f, "emission", 0),
+        tiles: Math.max(0.01, F.real(f, "tiles", 1)),
+        maps,
+      };
+      //! The bodies it paints ride on the data rather than being looked up
+      //! from the other end. The renderer is given a list of materials and
+      //! asked to paint; it should not have to walk the document to find out
+      //! which ones are about anything.
+      const mapped = Object.entries(maps).filter(([, v]) => v).map(([k]) => k);
+      const said = (painted.length
+                      ? painted.length + (painted.length === 1 ? " body" : " bodies")
+                      : "wired to nothing yet")
+                 + " \u00b7 " + (mapped.length ? mapped.join(", ") + " from a shade"
+                                               : "plain colour, no maps");
+      return { data: { kind: "material", values: [], lines:
+                       [said, JSON.stringify({ material, of: painted })] } };
+    },
+  };
 
   builders.Number = {
     build: f => ({ data: numbers([F.real(f, "value", 100)]) }),

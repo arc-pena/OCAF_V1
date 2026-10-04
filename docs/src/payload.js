@@ -3,7 +3,7 @@
 // This program is published two ways and they want opposite things of it.
 //
 //   As an Artifact it is ONE file. A published page may not fetch anything at
-//   run time, so the WebAssembly kernel, the showroom engine and a package's
+//   run time, so the WebAssembly kernel, the rendering engine and a package's
 //   data all travel inside the document - gzipped, base64'd, in script
 //   elements the HTML tokenizer scans straight past - and are unpacked from
 //   there on first use.

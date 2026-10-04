@@ -1215,6 +1215,20 @@ export const SAMPLES = [
            + "where buying a stick per piece would have taken 250 m to install 88. "
            + "Needs the Unistrut package. 252 nodes." },
 
+  { key: "material-gallery", name: "Materials \u00b7 a gallery of node materials",
+    file: "samples/material_gallery.json",
+    summary: "Eight spheres on a slab, one per material graph: checker plate, brick in "
+           + "stretcher bond, paint worn off steel, glass, brushed brass, terrazzo, a lit "
+           + "panel and a gradient anodise. Open it in RAY TRACED \u2014 half of these say "
+           + "nothing in a raster view, which is the point. The glass refracts what is "
+           + "behind it rather than blending with it, the lit panel is a light and the "
+           + "slab under it shows that, and the worn paint is one noise field hardened "
+           + "into a mask and used twice: on the colour, to choose between paint and the "
+           + "steel under it, and on the roughness, because bare metal is not as glossy "
+           + "as the paint was. Every one of them is a few nodes in the graph editor \u2014 "
+           + "open the graph and take one apart. Built by "
+           + "scripts/build_materialgallery.mjs. 63 nodes." },
+
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
     file: "samples/datahall_ocp.json", needs: ["rack"],
     summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "
@@ -1795,8 +1809,13 @@ const drawing = (key, label, summary) =>
   ({ key, label, kind: "sketch", def: JSON.stringify(EMPTY_SKETCH), summary });
 
 //! What a feature hands downstream. An input accepts a set of these.
+//! A SHADE is a pattern over a surface - a checker, a noise field, a brick
+//! bond - and it is its own kind so that a wire carrying one cannot be dropped
+//! into a slot that wants a curve. It is never geometry: the whole of what it
+//! produces is a colour at a point, which is why it can be stored in a model
+//! file as a few numbers and why it costs nothing until something bakes it.
 export const KINDS = ["number", "point", "vector", "axis", "curve", "plane",
-                      "solid", "mesh", "text"];
+                      "solid", "mesh", "text", "shade"];
 const ANY = KINDS.slice();
 //! Source the user edits, held as a TDataStd_AsciiString.
 const code = (key, label, def) => ({ key, label, kind: "code", def });
@@ -2479,6 +2498,128 @@ export const CATALOGUE = [
            refs("through", "Passing through", ["point"]),
            real("degree", "Degree", 3, 2, 12, 1, ""),
            real("tolerance", "Tolerance", 0.01, 1e-5, 10, 0.001)] },
+  /* ------------------------------------------------------------ materials
+
+     A finish - brass, concrete, matte white - is a name for a set of numbers
+     and is the whole of what most parts need. These are the other end: a
+     material assembled out of nodes, so a thing can be checker plate, or
+     brick, or paint with the gloss worn off the edges, without anybody having
+     to add "worn paint" to a list.
+
+     Every one of them produces a SHADE, which is a pattern over a surface and
+     not geometry: the whole of what it says is what colour a point is. A shade
+     costs nothing until a Material takes it and the renderer bakes it, which
+     is why a document can carry a dozen without being any slower to open.
+
+     The arithmetic is in material.js and is pure, so each of these patterns is
+     checked against a number worked out on paper rather than against a
+     screenshot. See docs/test/material.test.mjs.                            */
+
+  { type: "Shade", guid: "9a1b2c30-0150-4c00-9e00-caf000000150", category: "material",
+    produces: "shade",
+    summary: "One colour, everywhere. The thing every other shade node fades "
+           + "between, and the thing an unwired slot falls back to.",
+    args: [real("red", "Red", 0.8, 0, 1, 0.01, ""),
+           real("green", "Green", 0.8, 0, 1, 0.01, ""),
+           real("blue", "Blue", 0.8, 0, 1, 0.01, "")] },
+
+  { type: "Checker", guid: "9a1b2c30-0151-4c00-9e00-caf000000151", category: "material",
+    produces: "shade",
+    summary: "Squares, alternating. The count is how many across the tile, so 8 "
+           + "is an 8 × 8 board — not the size of one square.",
+    args: [real("scale", "Squares across", 8, 1, 512, 1, ""),
+           ref("a", "First", ["shade"]),
+           ref("b", "Second", ["shade"])] },
+
+  { type: "Stripes", guid: "9a1b2c30-0152-4c00-9e00-caf000000152", category: "material",
+    produces: "shade",
+    summary: "Bands. The width is the fraction of each repeat the first colour "
+           + "takes, so 0.1 is a pinstripe; softness fades both of its edges.",
+    args: [real("scale", "Repeats", 8, 0.1, 512, 0.5, ""),
+           real("width", "Width of the band", 0.5, 0.01, 0.99, 0.01, ""),
+           real("soft", "Softness", 0, 0, 0.5, 0.005, ""),
+           choice("along", "Running", ["Across (u)", "Down (v)"], 0),
+           ref("a", "Band", ["shade"]),
+           ref("b", "Between", ["shade"])] },
+
+  { type: "Gradient", guid: "9a1b2c30-0153-4c00-9e00-caf000000153", category: "material",
+    produces: "shade",
+    summary: "One colour fading into another across the surface. The bias bends "
+           + "the fade towards one end — 1 is even, 2 holds the first colour longer.",
+    args: [real("bias", "Bias", 1, 0.05, 8, 0.05, ""),
+           choice("along", "Running", ["Across (u)", "Down (v)"], 0),
+           ref("a", "From", ["shade"]),
+           ref("b", "To", ["shade"])] },
+
+  { type: "NoiseShade", guid: "9a1b2c30-0154-4c00-9e00-caf000000154", category: "material",
+    produces: "shade",
+    summary: "Fractal value noise between two colours — rust, damp, worn paint, "
+           + "cloud. It tiles exactly, so a texture made from it has no seam.",
+    args: [real("scale", "Scale", 6, 1, 256, 1, ""),
+           real("octaves", "Octaves", 4, 1, 8, 1, ""),
+           real("gain", "Gain", 0.5, 0.05, 0.95, 0.01, ""),
+           real("seed", "Seed", 0, 0, 9999, 1, ""),
+           ref("a", "Low", ["shade"]),
+           ref("b", "High", ["shade"])] },
+
+  { type: "Bricks", guid: "9a1b2c30-0155-4c00-9e00-caf000000155", category: "material",
+    produces: "shade",
+    summary: "Courses, every other one offset by half a brick, with a joint "
+           + "between them. The joint is a fraction of a brick, taken off both ends.",
+    args: [real("courses", "Courses", 8, 1, 256, 1, ""),
+           real("perCourse", "Bricks per course", 4, 1, 256, 1, ""),
+           real("joint", "Joint", 0.06, 0, 0.5, 0.005, ""),
+           ref("a", "Brick", ["shade"]),
+           ref("b", "Joint colour", ["shade"])] },
+
+  { type: "MixShade", guid: "9a1b2c30-0156-4c00-9e00-caf000000156", category: "material",
+    produces: "shade",
+    summary: "Two shades blended. Wire a third in as the mask and the blend "
+           + "follows its brightness point by point — which is how paint wears "
+           + "off an edge rather than fading evenly.",
+    args: [ref("a", "First", ["shade"]),
+           ref("b", "Second", ["shade"]),
+           ref("by", "Mask", ["shade"]),
+           real("amount", "Amount", 0.5, 0, 1, 0.01, "")] },
+
+  { type: "AdjustShade", guid: "9a1b2c30-0157-4c00-9e00-caf000000157", category: "material",
+    produces: "shade",
+    summary: "One shade, turned up, turned over or hardened. Invert for a mask "
+           + "that wants the other half; contrast to make a noise field into "
+           + "something that reads as two materials rather than a blur.",
+    args: [ref("a", "Shade", ["shade"]),
+           choice("how", "What to do", ["Invert", "Brighten", "Contrast", "Gamma"], 0),
+           real("amount", "Amount", 1, 0, 8, 0.05, "")] },
+
+  //! THE OUTPUT NODE, and the only one that touches the model. Everything
+  //! above it is a pattern with no opinion about what it is on; this says
+  //! which bodies wear it.
+  //!
+  //! It produces nothing geometric, so it has no `produces`: it is read by the
+  //! renderer, which is a VIEW of the document, exactly as the showroom reads
+  //! a finish. A body with no Material pointed at it still wears its finish,
+  //! which is what keeps every model made before this still correct.
+  { type: "Material", guid: "9a1b2c30-0158-4c00-9e00-caf000000158", category: "material",
+    summary: "What some bodies are made of. The numbers are the whole material "
+           + "on their own; wire a shade into one of the map slots and that "
+           + "number becomes a pattern instead. Shown in Rendered, in Ray "
+           + "traced and in the showroom — the three views that are about "
+           + "appearance — and ignored by the rest.",
+    args: [refs("of", "Bodies", ["solid", "mesh"]),
+           real("red", "Red", 0.6, 0, 1, 0.01, ""),
+           real("green", "Green", 0.62, 0, 1, 0.01, ""),
+           real("blue", "Blue", 0.64, 0, 1, 0.01, ""),
+           real("roughness", "Roughness", 0.4, 0, 1, 0.01, ""),
+           real("metalness", "Metal", 0, 0, 1, 0.01, ""),
+           real("transmission", "Transmission", 0, 0, 1, 0.01, ""),
+           real("ior", "Index of refraction", 1.5, 1, 3, 0.01, ""),
+           real("emission", "Emission", 0, 0, 200, 0.5, ""),
+           real("tiles", "Tiles across", 1, 0.01, 200, 0.1, ""),
+           ref("colourMap", "Colour from", ["shade"]),
+           ref("roughMap", "Roughness from", ["shade"]),
+           ref("metalMap", "Metal from", ["shade"]),
+           ref("emitMap", "Emission from", ["shade"])] },
+
   { type: "EvaluateCurve", guid: "9a1b2c30-0060-4c00-9e00-caf000000060", category: "analysis",
     produces: "point",
     summary: "The point at a parameter along a curve, with its tangent drawn. Wire a "
@@ -3366,6 +3507,9 @@ export const CATEGORIES = [
   //! a drawing is about the model rather than part of it. The heading is empty
   //! - and therefore not drawn - until the Drawings package is loaded.
   { key: "drawing",   label: "drawings" },
+  //! Materials sit after solids because that is the order the work happens
+  //! in: there has to be something to paint before painting it is a question.
+  { key: "material",  label: "materials" },
   { key: "analysis",  label: "analysis" },
   { key: "operation", label: "operations" },
   { key: "container", label: "sets" },
@@ -5083,6 +5227,23 @@ export class Doc {
             preview: previewData(data),
           };
           if (data.kind === "mesh") entry.data.faces = meshFaces(data).length;
+          //! A MATERIAL IS READ BY A VIEW, which is the one thing that makes
+          //! it different from every other kind of data here. The rest of
+          //! these are summarised on purpose - a thousand points must not
+          //! cross per redraw - but the renderer is on the other side of the
+          //! worker and cannot bake what it has not been given, so a shade
+          //! and a material travel whole. They are a few hundred bytes.
+          if (SAID_AS_JSON.has(data.kind)) {
+            const carried = dataProgram(data);
+            //! A shade IS a program; a material is a description that HAS
+            //! programs in it. Named rather than spread, so a shade whose
+            //! top node happens to be called `material` cannot shadow one.
+            if (carried && data.kind === "shade") entry.data.program = carried;
+            else if (carried) {
+              entry.data.material = carried.material;
+              entry.data.of = carried.of || [];
+            }
+          }
         }
         // A polymesh has no B-Rep behind it, and is drawn from its own polygons.
         if (data && data.kind === "mesh") entry.built = true;
@@ -5467,8 +5628,25 @@ export function meshTally(data) {
     .map(([sides, n]) => n + " " + (name[sides] || sides + "-gons")).join(" · ");
 }
 
+//! A SHADE AND A MATERIAL carry two lines: a sentence for a person, and the
+//! whole program as JSON for the renderer. The document stores strings and a
+//! program is a tree, so JSON is how it travels - but a tree row showing
+//! forty characters of `{"op":"checker","scale":8,...}` is a tree row nobody
+//! can read, so only the first line is ever shown.
+export const SAID_AS_JSON = new Set(["shade", "material"]);
+
+//! The program itself, parsed. Null for anything else, and null rather than a
+//! throw for a line that will not parse - a document can arrive from anywhere
+//! and a bad one should make a feature say so, not take the page down.
+export function dataProgram(data) {
+  if (!data || !SAID_AS_JSON.has(data.kind) || !data.lines || data.lines.length < 2)
+    return null;
+  try { return JSON.parse(data.lines[1]); } catch (e) { return null; }
+}
+
 export function previewData(data, limit = 6) {
   if (!data) return "";
+  if (SAID_AS_JSON.has(data.kind)) return data.lines[0] || "";
   if (data.kind === "mesh") {
     const tally = meshTally(data);
     return (data.values.length / 3) + " vertices · " + (tally || "no faces");
@@ -5492,6 +5670,8 @@ export const trimNumber = v =>
 //! Every line of what a feature computed, for the Panel and for the clipboard.
 export function dataLines(data) {
   if (!data) return [];
+  //! The sentence, not the JSON. See SAID_AS_JSON.
+  if (SAID_AS_JSON.has(data.kind)) return data.lines.slice(0, 1);
   if (data.lines.length) return data.lines.slice();
   if (data.stride === 3)
     return F.triples(data).map(p => "(" + p.map(trimNumber).join(", ") + ")");
