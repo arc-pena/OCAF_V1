@@ -1522,6 +1522,58 @@ body.presenting .caption-layer { background: linear-gradient(
 }
 .lens-note { margin: 6px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-3); }
 
+/* ------------------------------------------------------- the light lister
+   Every light in the scene, in one list, with the three switches that matter
+   on each row: is it on, is its source in the picture, and what does it leave
+   out. Same corner and same shape as the lens panel, because it is the same
+   kind of thing - a small instrument you put up while you are deciding
+   something and put away again. Wider, because a row is a name and three
+   controls rather than one number. */
+#light-panel {
+  right: calc(var(--edge) + var(--right-dock));
+  bottom: calc(var(--edge) + var(--corner) + var(--bar-h));
+  width: 330px; z-index: 8; padding: 10px 12px 10px;
+  max-height: calc(var(--sky) - var(--edge) * 2 - var(--corner) - 40px);
+  display: flex; flex-direction: column;
+}
+#light-panel[hidden] { display: none; }
+.lt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lt-head h2 {
+  margin: 0; font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .11em; color: var(--ink-3);
+}
+.lt-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.lt-list { overflow-y: auto; margin: 7px -4px 0; padding: 0 4px; }
+.lt-row {
+  display: flex; align-items: center; gap: 6px; padding: 4px 4px;
+  border-radius: 6px;
+}
+.lt-row:hover { background: var(--panel-2); }
+.lt-row.selected { background: var(--accent-soft); }
+.lt-row.off .lt-name { color: var(--ink-3); text-decoration: line-through; }
+.lt-glyph { flex: none; width: 15px; height: 15px; color: var(--datum); }
+.lt-name {
+  flex: 1; min-width: 0; font-size: 11.5px; color: var(--ink); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: none; border: 0; padding: 0; text-align: left;
+}
+.lt-what { flex: none; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+.lt-sw {
+  flex: none; width: 22px; height: 20px; padding: 0; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2);
+  color: var(--ink-3); display: grid; place-items: center;
+}
+.lt-sw svg { width: 12px; height: 12px; }
+.lt-sw[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lt-sw:hover { border-color: var(--accent); }
+.lt-sw.lt-ex[data-count]:not([data-count="0"]) {
+  border-color: var(--datum); color: var(--datum);
+}
+.lt-none { padding: 10px 4px; font-size: 11px; color: var(--ink-3); line-height: 1.5; }
+.lt-note { margin: 8px 0 0; font-size: 10px; line-height: 1.5; color: var(--ink-3); }
+.lt-foot { display: flex; gap: 5px; margin-top: 9px; }
+.lt-foot .btn { flex: 1; padding: 3px 6px; font-size: 11px; }
+
 /* ------------------------------------------------- picking an edge or a face
    The bar that takes the viewport over while an operation is being told which
    edges it is about. Same shape as the mesh editor's, because it is the same

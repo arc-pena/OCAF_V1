@@ -6,6 +6,7 @@ import { resource } from "./payload.js";
 import { createWasmKernel } from "./wasm-kernel.js";
 import { createHttpKernel } from "./http-kernel.js";
 import { ENVIRONMENTS, QUALITIES, RenderEngine } from "./render.js";
+import { PICKER_CSS, closePicker, colourSwatch } from "./picker.js";
 import { DXF_IGNORED, DXF_UNITS, dxfSurvey, ignoredName } from "./dxf.js";
 import { ARCTIC_LOOK, ARCTIC_OVERLAY, Arctic, FINISHES, POINT_MARKS, POINT_WEIGHTS,
          VIEW_STYLES, appearanceOf, edgeRibbon, findFinish, findMark, findStyle,
@@ -2818,6 +2819,11 @@ async function syncShapes() {
   // where the camera happens to be pointing.
   if (following) fitView();
   draw();
+  //! The lister is a view of the document like the tree is, so it is rebuilt
+  //! from the document rather than from what was clicked in it. A light
+  //! switched off in its own panel, in the node graph or by the assistant
+  //! shows here without any of them knowing the lister exists.
+  buildLightList();
   if (staging && showroom.ready) showroom.setScene(state.tree.features, streams);
   //! The trace is of the model, so an edit invalidates it exactly as it
   //! invalidates the viewport. Left alone it would keep sharpening a picture
@@ -7016,6 +7022,217 @@ sectionBar.addEventListener("input", event => {
    difference between changing the lens and changing the zoom.
    ====================================================================== */
 
+//! The picker's own styles, injected once. index.html carries the page's CSS
+//! and knows nothing about which modules are loaded; a module that draws its
+//! own DOM brings its own rules, which is what every package here already does.
+{
+  const sheet = document.createElement("style");
+  sheet.id = "picker-css";
+  sheet.textContent = PICKER_CSS;
+  document.head.appendChild(sheet);
+}
+
+/* ======================================================================
+   THE LIGHT LISTER.
+
+   Every light in the scene, in one list. It is the panel every renderer grows
+   as soon as a scene has more than three lamps in it, and it exists because
+   the questions you ask about lighting are about the SET of lights rather than
+   about one: which of these is doing that, what happens with this one off,
+   why is that wall blown out.
+
+   So each row carries the three switches that answer those, and nothing else:
+
+     on            the light is in the render at all
+     seen          the camera can see the source itself, as against only what
+                   it lights - see the renderer, where this is a plate that
+                   has to be added rather than a thing to stop
+     leaves out    its exclusion list, opened as the same tree a drawing uses
+
+   Clicking the name selects the light and opens its definition, because the
+   lister is a way IN to a light and not a replacement for one. Same corner,
+   same shape and same manners as the lens panel: up while you are deciding,
+   away when you are not.
+   ====================================================================== */
+
+const LIGHT_GLYPHS = {
+  PointLight: '<circle cx="8" cy="8" r="3.1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4L11 5M5 11l-1.6 1.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
+  TargetLight: '<path d="M3.2 4.4h2.6l5 -2.4v12l-5 -2.4H3.2z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/><path d="M11.4 5.6l2.8 -1.2M11.4 8h3M11.4 10.4l2.8 1.2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
+  Skylight: '<path d="M2 11.6a6 6 0 0112 0" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1 11.6h14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M5.2 4.2l1 1.4M8 2.6v1.8M10.8 4.2l-1 1.4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
+};
+const LT_ICON = {
+  on: '<path d="M8 1.8v6.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4.6 4a5.2 5.2 0 106.8 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  seen: '<path d="M1.4 8s2.6-4.2 6.6-4.2S14.6 8 14.6 8s-2.6 4.2-6.6 4.2S1.4 8 1.4 8z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/>',
+  exclude: '<path d="M2.6 8h10.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+};
+
+const lightPanel = document.createElement("section");
+lightPanel.className = "float fades light-panel";
+lightPanel.id = "light-panel";
+lightPanel.hidden = true;
+document.body.appendChild(lightPanel);
+
+const lightsOpen = () => !lightPanel.hidden;
+
+function toggleLights(force) {
+  const want = force === undefined ? !lightsOpen() : !!force;
+  lightPanel.hidden = !want;
+  if (want) { buildLightList(); say("Lights \u00b7 what is in the scene, and what each one reaches"); }
+  layout();
+}
+
+//! One switch on one light, written straight into the document - so the
+//! lister, the panel and the node graph are three views of one fact and
+//! cannot disagree. Rebuilt from the tree afterwards rather than from what
+//! was clicked: if the edit was refused the row goes back by itself.
+const setLight = (id, key, value) =>
+  edit({ op: "set", id, key, value }).catch(error => showError(error.message));
+
+function buildLightList() {
+  if (lightPanel.hidden) return;
+  lightPanel.textContent = "";
+  const lights = lightsInModel();
+
+  const head = document.createElement("div");
+  head.className = "lt-head";
+  const title = document.createElement("h2");
+  title.textContent = "Lights";
+  const count = document.createElement("span");
+  count.className = "lt-count";
+  const lit = lights.filter(one => { const l = lightOf(one); return l && l.on; }).length;
+  count.textContent = lights.length ? lit + " of " + lights.length + " on" : "";
+  head.appendChild(title);
+  head.appendChild(count);
+  //! The one cross every floating panel here carries, in the same corner.
+  const shut = document.createElement("button");
+  shut.className = "icon-btn panel-shut";
+  shut.title = "Close (L)";
+  shut.setAttribute("aria-label", "Close");
+  shut.innerHTML = svg('<path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>');
+  shut.addEventListener("click", () => toggleLights(false));
+  head.appendChild(shut);
+  lightPanel.appendChild(head);
+
+  const list = document.createElement("div");
+  list.className = "lt-list";
+  lightPanel.appendChild(list);
+
+  if (!lights.length) {
+    const none = document.createElement("div");
+    none.className = "lt-none";
+    none.textContent = "No lights yet. Everything is lit by the scene's dome, which is "
+      + "the Scene menu on the render bar. Add a Point, a Target or a Skylight "
+      + "from the datums on the rail.";
+    list.appendChild(none);
+  }
+
+  for (const entry of lights) {
+    const said = lightOf(entry);
+    const row = document.createElement("div");
+    row.className = "lt-row" + (said && said.on ? "" : " off")
+                  + (entry.id === state.selected ? " selected" : "");
+
+    const glyph = document.createElement("span");
+    glyph.className = "lt-glyph";
+    glyph.innerHTML = svg(LIGHT_GLYPHS[entry.type] || LIGHT_GLYPHS.PointLight);
+    row.appendChild(glyph);
+
+    const name = document.createElement("button");
+    name.className = "lt-name";
+    name.type = "button";
+    name.textContent = entry.name || entry.id;
+    name.title = entry.error ? entry.error : "Select it and open its definition";
+    name.addEventListener("click", () => { select(entry.id, true); buildLightList(); });
+    row.appendChild(name);
+
+    const what = document.createElement("span");
+    what.className = "lt-what";
+    what.textContent = said
+      ? (said.kind === "sky" ? "\u00d7" + trimNumber(said.power)
+                             : trimNumber(said.power) + "cd")
+      : (entry.error ? "error" : "\u2014");
+    row.appendChild(what);
+
+    const sw = (key, title, pressed, onClick, badge) => {
+      const button = document.createElement("button");
+      button.className = "lt-sw" + (key === "exclude" ? " lt-ex" : "");
+      button.type = "button";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.setAttribute("aria-pressed", pressed ? "true" : "false");
+      if (badge !== undefined) button.dataset.count = String(badge);
+      button.innerHTML = svg(LT_ICON[key]);
+      button.addEventListener("click", onClick);
+      row.appendChild(button);
+    };
+
+    //! Switched. The commonest thing anybody does in a lister, so it is
+    //! first and it is the biggest target.
+    sw("on", said && said.on ? "On \u2014 click to switch it off"
+                             : "Off \u2014 click to switch it on",
+       !!(said && said.on),
+       () => setLight(entry.id, "on", said && said.on ? 1 : 0));
+
+    //! Whether its source is in the picture. Not offered on a skylight,
+    //! where the same switch means the backdrop and already says so.
+    sw("seen", entry.type === "Skylight"
+        ? (said && said.seen ? "Backdrop is seen \u2014 click for lights only"
+                             : "Lights only \u2014 click to see the sky behind the model")
+        : (said && said.seen ? "The source is in the picture \u2014 click to hide it"
+                             : "Lights the scene but is not in the picture \u2014 click to show it"),
+       entry.type === "Skylight" ? !(said && said.seen) : !!(said && said.seen),
+       () => setLight(entry.id, "seen", said && said.seen ? 0 : 1));
+
+    const off = said && said.exclude ? said.exclude.length : 0;
+    sw("exclude", off ? off + " object(s) left out \u2014 click to edit the list"
+                      : "Lights everything \u2014 click to leave objects out",
+       off > 0,
+       () => { select(entry.id, true); buildLightList(); },
+       off);
+
+    list.appendChild(row);
+  }
+
+  //! WHAT THE PATH TRACER DOES WITH ALL THIS, said where somebody is standing
+  //! when they would otherwise find out by waiting four minutes for a render
+  //! that looks the same. An exclusion list is a rasteriser's trick: it draws
+  //! the scene once per light and can leave a thing out of one pass. A path
+  //! tracer follows light, and light either reaches a surface or it does not -
+  //! there is no pass to leave anything out of.
+  const note = document.createElement("p");
+  note.className = "lt-note";
+  const anyExcluded = lights.some(one => {
+    const l = lightOf(one); return l && l.exclude && l.exclude.length;
+  });
+  note.textContent = anyExcluded
+    ? "Exclusion lists are obeyed in the Rendered style. Ray traced ignores them: "
+      + "it follows light, and light either reaches a surface or it does not — there "
+      + "is no per-light pass to leave anything out of."
+    : "On and the source's visibility are obeyed everywhere. Exclusion lists are "
+      + "obeyed in Rendered and ignored by the path tracer.";
+  lightPanel.appendChild(note);
+
+  const foot = document.createElement("div");
+  foot.className = "lt-foot";
+  for (const [label, type, title] of [
+    ["Point", "PointLight", "a lamp, throwing in every direction"],
+    ["Target", "TargetLight", "a spot, panel or disc aimed at a place"],
+    ["Sky", "Skylight", "an image of a sky, lighting everything at once"]]) {
+    const button = document.createElement("button");
+    button.className = "btn";
+    button.type = "button";
+    button.textContent = "+ " + label;
+    button.title = title;
+    button.addEventListener("click", async () => {
+      const born = await edit({ op: "add", type });
+      if (born && born.id) select(born.id, true);
+      buildLightList();
+    });
+    foot.appendChild(button);
+  }
+  lightPanel.appendChild(foot);
+}
+
 const lensPanel = document.createElement("section");
 lensPanel.className = "float fades lens-panel";
 lensPanel.id = "lens-panel";
@@ -9212,6 +9429,8 @@ function openDocMenu() {
              () => { for (const one of away) one.open(); });
   menuItem("Lens…", "focal length, and what it does to the perspective",
     () => toggleLens(true));
+  menuItem("Lights… · L", "every light in the scene, and what each one reaches",
+    () => toggleLights(true));
   menuItem("Section… · X", "cut the model open, and say how the cut is drawn",
     () => toggleSection(true));
   menuItem("A camera from this view", "the shot you are looking at, as a node",
@@ -9898,6 +10117,18 @@ function buildPanel() {
   host.appendChild(slot);
   refreshPanelNotice();
 
+  //! A COLOUR IS THREE NUMBERS AND NOBODY THINKS IN THREE NUMBERS. Any node
+  //! that declares red, green and blue as reals gets a picker above them -
+  //! the Shade node, a Material, a light. The sliders stay: they are how a
+  //! value gets wired to another node, and a picker cannot take a wire.
+  //!
+  //! Driven off the declaration rather than a list of type names, so a node
+  //! added later with the same three arguments gets it without this line
+  //! changing.
+  const rgbArgs = ["red", "green", "blue"]
+    .map(key => spec.args.find(a => a.key === key && a.kind === "real"));
+  if (rgbArgs.every(Boolean)) host.appendChild(nodeColourField(entry, rgbArgs));
+
   for (const arg of spec.args) {
     if (!argApplies(entry, arg)) continue;
     if (arg.kind === "code") continue;   // the editor goes below the parameters
@@ -9911,7 +10142,7 @@ function buildPanel() {
                    : arg.kind === "choice" ? choiceField(entry, arg)
                    : arg.kind === "edits" ? editsField(entry, arg)
                    : arg.kind === "subs" ? subsField(entry, arg)
-                   : (arg.key === "exclude" && drawsAView(entry))
+                   : (arg.key === "exclude" && (drawsAView(entry) || isLight(entry)))
                        ? exclusionField(entry, arg)
                    : arg.kind === "text" ? textField(entry, arg)
                    : arg.kind === "blob" ? blobField(entry, arg)
@@ -10051,6 +10282,74 @@ function markField(entry) {
   return field;
 }
 
+//! A node's own colour, as one swatch over its three numbers.
+//!
+//! LINEAR, because that is what these arguments are: render.js hands a
+//! Material's red/green/blue to three with LinearSRGBColorSpace written in the
+//! call. The picker's hex field is sRGB, which is what a hex code has always
+//! meant - so a brass of 0.83, 0.66, 0.31 reads as #ecd796, which is what
+//! brass looks like, rather than as #d4a84f, which is what those three numbers
+//! would be if you printed them in hex and hoped.
+function nodeColourField(entry, args) {
+  const field = document.createElement("div");
+  field.className = "field";
+  const line = document.createElement("div");
+  line.className = "field-head";
+  const label = document.createElement("label");
+  label.textContent = "Colour";
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = "linear \u00b7 hex is sRGB";
+  line.appendChild(label);
+  line.appendChild(kind);
+  field.appendChild(line);
+
+  const read = () => args.map(arg => {
+    const now = feature(entry.id);
+    const held = now && now.args ? now.args[arg.key] : undefined;
+    return typeof held === "number" ? held : arg.def;
+  });
+  //! Dragging writes the three numbers live so the model follows the cursor;
+  //! only letting go is an edit. A hue drag is sixty frames a second and
+  //! every one of them as an undo step would make undo useless - the same
+  //! rule the material sliders already keep.
+  //! THREE NUMBERS AT ONCE, which is why this does not go through
+  //! pushParameter. That holds ONE pending parameter and coalesces by
+  //! overwriting it, which is right for a slider and wrong here: pushing red,
+  //! green and blue in a row would send blue and quietly drop the other two,
+  //! so dragging in the square would change only one channel.
+  //!
+  //! Live drags coalesce here instead - at most one rebuild in flight, the
+  //! newest colour sent when it lands - and letting go sends the exact one as
+  //! a single undo step. Same two-step as the sliders, counted differently.
+  let flying = false, waiting = null;
+  const sets = rgb => args.map((arg, i) =>
+    ({ op: "set", id: entry.id, key: arg.key,
+       value: Math.round(Math.min(1, Math.max(0, rgb[i])) * 1e4) / 1e4 }));
+  const write = async (rgb, live) => {
+    if (!live) { waiting = null; edit.many(sets(rgb)); return; }
+    waiting = rgb;
+    if (flying) return;
+    flying = true;
+    try {
+      while (waiting) {
+        const now = waiting;
+        waiting = null;
+        await mdl.runAll(sets(now), { keepPanel: true });
+      }
+    } catch (err) { showError(err.message); }
+    finally { flying = false; }
+  };
+  const swatch = colourSwatch({
+    space: "linear", title: "Colour",
+    value: read,
+    onPick: rgb => write(rgb, true),
+    onDone: rgb => write(rgb, false),
+  });
+  field.appendChild(swatch);
+  return field;
+}
+
 //! The material of one object, the way Rhino puts it on the object rather than
 //! in the scene: pick the nearest thing off the shelf, then move the sliders.
 //! What is written down is the name and whatever was moved, so a document says
@@ -10092,14 +10391,23 @@ function materialField(entry) {
     return control;
   };
 
-  const colour = document.createElement("input");
-  colour.type = "color";
-  colour.className = "mat-colour";
-  colour.value = hexOf(made.color);
-  colour.addEventListener("input", () =>
-    wearMaterial(entry.id, { color: rgbOf(colour.value) }, true));
-  colour.addEventListener("change", () =>
-    wearMaterial(entry.id, { color: rgbOf(colour.value) }));
+  //! THE PICKER, not the browser's. `<input type=color>` is the operating
+  //! system's dialog: it looks like a different program, on Windows it opens
+  //! in the middle of the screen so you lose sight of the thing you are
+  //! colouring, and it cannot be themed with the rest of this page.
+  //!
+  //! `space: "srgb"` because an appearance colour has been a straight
+  //! 0..255/255 mapping since before any of this and the viewport draws it
+  //! that way. Telling the picker it was linear would show a different hex
+  //! for the same material and repaint nothing - the numbers would be right
+  //! and the field would be lying.
+  const colour = colourSwatch({
+    space: "srgb",
+    title: findFinish(made.finish).label + " \u2014 click to change the colour",
+    value: () => materialOf(wornAppearance(feature(entry.id)) || entry.appearance).color,
+    onPick: rgb => wearMaterial(entry.id, { color: rgb }, true),
+    onDone: rgb => wearMaterial(entry.id, { color: rgb }),
+  });
   row(findFinish(made.finish).label, colour);
 
   for (const [key, label] of [["gloss", "Gloss"], ["metalness", "Metal"], ["opacity", "Opacity"]]) {
@@ -10151,11 +10459,63 @@ function materialField(entry) {
   //! The finish is left alone. A body wears both: the Material wins wherever
   //! it is read, and if it is deleted the finish is still there underneath.
   {
+    const already = materialNodeFor(entry.id);
+
+    //! WHICH MATERIAL THIS BODY WEARS, as a list of the ones in the document.
+    //!
+    //! A Material names the bodies it paints, which is the right way round for
+    //! the document - one material, many bodies, one place to change it. But
+    //! it is the wrong way round for the question a person actually asks,
+    //! which is "what is THIS made of, and make it that instead". So the
+    //! question is asked here, from the body, and answered by rewiring: off
+    //! the one it was on, onto the one that was picked. Two edits, one
+    //! gesture, and the document ends up saying exactly what it would have
+    //! said if you had dragged the wires yourself.
+    const options = (state.tree && state.tree.features || [])
+      .filter(one => one.type === "Material");
+    if (options.length) {
+      const row = document.createElement("div");
+      row.className = "field-head";
+      row.style.marginTop = "8px";
+      const label = document.createElement("label");
+      label.textContent = "Wears";
+      const pick = document.createElement("select");
+      pick.className = "line";
+      pick.style.maxWidth = "60%";
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "\u2014 its finish \u2014";
+      pick.appendChild(none);
+      for (const one of options) {
+        const option = document.createElement("option");
+        option.value = one.id;
+        option.textContent = one.name || one.id;
+        pick.appendChild(option);
+      }
+      pick.value = already ? already.id : "";
+      pick.addEventListener("change", async () => {
+        const want = pick.value;
+        try {
+          //! Off the old one first. Leaving it on both would paint the body
+          //! twice and the later Material in the tree would win - which looks
+          //! like the dropdown having no effect on the one you just left.
+          if (already) await edit({ op: "disconnect", id: already.id, key: "of",
+                                    from: entry.id });
+          if (want) await edit({ op: "connect", id: want, key: "of", from: entry.id });
+          say(want
+            ? entry.name + " wears " + (options.find(o => o.id === want) || {}).name
+            : entry.name + " is back to its finish");
+        } catch (err) { showError(err.message); }
+      });
+      row.appendChild(label);
+      row.appendChild(pick);
+      field.appendChild(row);
+    }
+
     const made = document.createElement("button");
     made.type = "button";
     made.className = "btn";
     made.style.marginTop = "8px";
-    const already = materialNodeFor(entry.id);
     made.textContent = already ? "Edit its material graph" : "Build a material\u2026";
     made.title = already
       ? "Open the node graph on the Material painting this body"
@@ -11159,6 +11519,20 @@ const DRAWING_VIEWS = new Set(["ProjectionView", "CutView"]);
 
 const drawsAView = entry => !!entry && DRAWING_VIEWS.has(entry.type);
 
+//! THE LIGHTS, which are a different thing with the same question in them.
+//! A drawing leaves objects out of a sheet; a light leaves them out of what it
+//! reaches, which is 3ds Max's exclusion list and is the thing you reach for
+//! when one lamp is blowing out one wall. The tree, the stored form and the
+//! reader are the same for both, so there is one control to learn.
+const LIGHT_TYPES = new Set(["PointLight", "TargetLight", "Skylight"]);
+const isLight = entry => !!entry && LIGHT_TYPES.has(entry.type);
+//! What a light actually says about itself, once the kernel has built it.
+const lightOf = entry => (entry && entry.data && entry.data.light) || null;
+//! Everything in the document that is one, in tree order - which is the order
+//! the lister shows them in and the order the renderer builds them in.
+const lightsInModel = () =>
+  ((state.tree && state.tree.features) || []).filter(isLight);
+
 //! WHAT A VIEW LEAVES OUT, as the model's own tree with a tick against
 //! everything. An exclusion list, so a wing added tomorrow is in the drawing
 //! tomorrow - see includedIn, where the same thing is said about why.
@@ -11176,12 +11550,24 @@ function exclusionField(entry, arg) {
   const drawable = f => f.category !== "datum" && f.category !== "data"
                      && f.category !== "container" && !DRAWING_VIEWS.has(f.type);
 
+  //! THE SAME TREE, ASKED ON BEHALF OF TWO DIFFERENT THINGS. A drawing leaves
+  //! an object off a sheet; a light leaves one out of what it reaches. The
+  //! control, the stored form and the reader are the same, so only the
+  //! sentence changes - and it has to, because "in the drawing" is nonsense on
+  //! a lamp.
+  const lamp = isLight(entry);
   field.innerHTML = '<div class="field-head"><label>' + escapeHtml(arg.label) + "</label>"
-    + '<span class="badge">' + (off.size ? off.size + " left out" : "all of it")
+    + '<span class="badge">' + (off.size ? off.size + " left out"
+                                         : (lamp ? "lights everything" : "all of it"))
     + "</span></div>"
-    + '<p class="hint">Everything is in the drawing until you clear its tick. Clearing a '
-    + "set clears everything in it - and anything added to the model later is in the "
-    + "drawing from the moment it exists.</p>";
+    + '<p class="hint">' + (lamp
+      ? "This light reaches everything until you clear its tick. Clearing a set clears "
+        + "everything in it - and anything added to the model later is lit from the "
+        + "moment it exists. The path tracer ignores this; see the light lister."
+      : "Everything is in the drawing until you clear its tick. Clearing a "
+        + "set clears everything in it - and anything added to the model later is in the "
+        + "drawing from the moment it exists.")
+    + "</p>";
 
   const box = document.createElement("div");
   box.className = "dr-tree";
@@ -15424,6 +15810,7 @@ addEventListener("keydown", event => {
       return;
     }
     if (event.key === "p" || event.key === "P") { event.preventDefault(); toggleLens(); return; }
+    if (event.key === "l" || event.key === "L") { event.preventDefault(); toggleLights(); return; }
     if (event.key === "x" || event.key === "X") { event.preventDefault(); toggleSection(); return; }
     //! The key it is written on. A question mark is shift-slash on most
     //! layouts and its own key on some, so the character is what is asked
@@ -15435,6 +15822,10 @@ addEventListener("keydown", event => {
     }
   }
   if (event.key === "Escape" && gizmo.mode) { armGizmo(gizmo.mode); return; }
+  //! Before the lens, because a picker opened from the lens panel's own
+  //! colour should shut without taking the panel with it.
+  if (event.key === "Escape") closePicker();
+  if (event.key === "Escape" && lightsOpen()) { toggleLights(false); return; }
   if (event.key === "Escape" && lensOpen()) { toggleLens(false); return; }
   if (event.key === "Escape" && cutter.on) { toggleSection(false); return; }
   if (storyOn()) {

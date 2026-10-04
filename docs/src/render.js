@@ -202,6 +202,23 @@ export const QUALITIES = [
 ];
 export const findQuality = key => QUALITIES.find(q => q.key === key) || QUALITIES[1];
 
+//! CANDELA, FOR EVERY KIND OF LIGHT. The document asks for one number in one
+//! unit, because a lighting schedule is written in candela and a person
+//! comparing a downlight with a soft box should be comparing like with like.
+//!
+//! three does not take one number. A point light's intensity IS candela; an
+//! area light's is NITS, candela per square metre, because what matters about
+//! a panel is how bright its surface is rather than how much it adds up to. So
+//! a 4000 cd point source and a 4000 cd panel are the same amount of light,
+//! and without this conversion the panel would be as many times too bright as
+//! it has square metres.
+//!
+//! The model is in millimetres, so the area is scaled by a million on the way.
+const nitsFor = (candela, widthMm, heightMm) => {
+  const area = Math.max(1e-9, (widthMm / 1000) * (heightMm / 1000));
+  return candela / area;
+};
+
 export class RenderEngine {
   constructor({ canvas, payloadId, payloadUrl }) {
     this.canvas = canvas;
@@ -217,8 +234,13 @@ export class RenderEngine {
     this.reflection = 0.42;
     this.onPick = () => {};
     this.onSample = () => {};
+    //! Said to the page rather than thrown. A skylight with no image yet is
+    //! not a reason to stop rendering everything else.
+    this.onTrouble = () => {};
     this.orbit = { yaw: -35, pitch: 22, distance: 900, target: [0, 0, 0] };
     this.bounds = null;
+    this.lights = [];
+    this.sky = null;
     this.size = [1, 1];
     //! Set while an export is running. The frame loop keeps its hands off the
     //! renderer meanwhile - two things resizing one canvas is how you get an
@@ -279,6 +301,7 @@ export class RenderEngine {
     for (const [, part] of this.parts) this.disposePart(part);
     this.parts.clear();
     this.dropTextures();
+    this.disposeLights();
     if (this.envMap) this.envMap.dispose();
     if (this.ground) { this.ground.geometry.dispose(); this.ground.material.dispose(); }
     this.renderer.dispose();
@@ -513,6 +536,10 @@ export class RenderEngine {
     //! with no Material pointed at it keeps the one it had, which is what
     //! makes every model built before materials existed still correct.
     this.applyMaterials(features);
+    //! AFTER the materials, because a light that is seen is a material too -
+    //! and before refreshScene, because the tracer reads the lights when the
+    //! scene is handed over.
+    this.applyLights(features);
     this.refreshScene();
   }
 
@@ -603,6 +630,208 @@ export class RenderEngine {
     }
     m.needsUpdate = true;
     if (!quiet) this.refreshMaterials();
+  }
+
+  /* ---------------------------------------------------------------- lights
+
+     A light in the document is a few numbers; a light in the tracer is one of
+     five things its shader knows how to sample. This is the one place the two
+     meet.
+
+     THE SOURCE IS INVISIBLE BY DEFAULT, and that is not an omission - it is
+     how an analytic light works. The shader aims rays AT the light and knows
+     its radiance; camera rays never hit it, because there is nothing there to
+     hit. So "and is seen" is a thing that has to be ADDED - a thin emissive
+     plate at the light's own place - and the cost of adding it is said on
+     screen rather than hidden: an emissive surface is found by rays that
+     happen to wander into it, so it is noisier than the light it stands for.  */
+
+  disposeLights() {
+    for (const one of this.lights || []) {
+      if (one.parent) one.parent.remove(one);
+      if (one.geometry) one.geometry.dispose();
+      if (one.material) one.material.dispose();
+      if (one.target && one.target.parent) one.target.parent.remove(one.target);
+    }
+    this.lights = [];
+  }
+
+  //! Every light in the document, into the scene. Z-up to Y-up like
+  //! everything else, through the one mapping in setCameraFromZUp's comment.
+  //!
+  //! A light that is switched off is simply not built: the tracer collects
+  //! `visible` lights, and building one and hiding it would leave it in the
+  //! material and light tables costing a slot for nothing.
+  applyLights(features) {
+    const THREE = this.PT.THREE;
+    this.disposeLights();
+    //! A SKYLIGHT REPLACED THE ENVIRONMENT, so deleting one has to put the
+    //! preset's dome back. Noticed by comparing what was there last time:
+    //! without this, removing the only skylight leaves the scene lit by a sky
+    //! that is no longer in the document, which looks like the delete failing.
+    const hadSky = !!this.sky;
+    this.sky = null;
+    const toY = ([x, y, z]) => new THREE.Vector3(x, z, -y);
+
+    for (const entry of features) {
+      const said = entry.data && entry.data.light;
+      if (!said || !said.on) continue;
+      if (entry.visible === false) continue;
+      const colour = new THREE.Color().setRGB(said.colour[0], said.colour[1], said.colour[2],
+                                              THREE.LinearSRGBColorSpace);
+
+      if (said.kind === "sky") { this.applySky(said); continue; }
+
+      if (said.kind === "point") {
+        const light = new THREE.PointLight(colour, said.power);
+        light.position.copy(toY(said.at));
+        //! The source has a SIZE, which is the whole of why a shadow has a
+        //! soft edge. three calls it `distance` on a PointLight and means
+        //! something else by it; the tracer reads `radius`, which the library
+        //! adds for exactly this.
+        light.radius = said.radius;
+        light.userData.feature = entry.id;
+        this.scene.add(light);
+        this.lights.push(light);
+        if (said.seen) this.lights.push(this.seenPlate(toY(said.at), null, colour,
+                                                       said.radius, true));
+        continue;
+      }
+
+      if (said.kind === "target") {
+        const at = toY(said.at), target = toY(said.target);
+        if (said.shape === 0) {
+          //! A SPOT, with the two angles a lighting plan carries. three has
+          //! one angle and a penumbra fraction, so the pair is converted:
+          //! `angle` is the field's half-angle and `penumbra` is how much of
+          //! it is the falloff rather than the hot centre.
+          const field = Math.max(said.field, said.hotspot + 0.5);
+          const light = new this.PT.PhysicalSpotLight(colour, said.power);
+          light.angle = field * Math.PI / 360;
+          light.penumbra = Math.max(0, Math.min(1, 1 - said.hotspot / field));
+          light.decay = 2;
+          light.radius = Math.max(1, said.width / 2);
+          light.position.copy(at);
+          light.target.position.copy(target);
+          this.scene.add(light);
+          this.scene.add(light.target);
+          light.userData.feature = entry.id;
+          this.lights.push(light);
+          if (said.seen)
+            this.lights.push(this.seenPlate(at, target, colour, light.radius, true));
+          continue;
+        }
+        //! A SOFT BOX, rectangular or circular. ShapedAreaLight is the
+        //! library's own RectAreaLight with a flag, and the flag is the whole
+        //! difference between a panel and a disc.
+        const circular = said.shape === 2;
+        const w = said.width, h = circular ? said.width : said.height;
+        //! A disc of diameter w has area pi r^2, not w x h - so the circular
+        //! case is given its real area rather than the square it fits in,
+        //! which would make every disc 27 % dimmer than the panel beside it.
+        const area = circular ? [w, w * Math.PI / 4] : [w, h];
+        const light = new this.PT.ShapedAreaLight(colour, nitsFor(said.power, area[0], area[1]),
+                                                  w, h);
+        light.isCircular = circular;
+        light.position.copy(at);
+        light.lookAt(target);
+        light.userData.feature = entry.id;
+        this.scene.add(light);
+        this.lights.push(light);
+        if (said.seen)
+          this.lights.push(this.seenPlate(at, target, colour, circular ? w / 2 : 0,
+                                          circular, circular ? 0 : [w, h]));
+      }
+    }
+    if (hadSky && !this.sky) this.applyEnvironment(this.environment);
+  }
+
+  //! THE SOURCE, WHEN SOMEBODY WANTS TO SEE IT. A thin emissive plate facing
+  //! the camera-ward side, at the light's own size. Emissive geometry in a
+  //! path tracer is a real light, so this one is deliberately weak compared
+  //! with the analytic light beside it - it is there to be LOOKED at, not to
+  //! light the room, and making it carry the room's light would double every
+  //! lamp and triple the noise.
+  seenPlate(at, target, colour, radius, round, rect) {
+    const THREE = this.PT.THREE;
+    const geometry = rect
+      ? new THREE.PlaneGeometry(rect[0], rect[1])
+      : new THREE.SphereGeometry(Math.max(radius, 1), 20, 14);
+    const material = new THREE.MeshPhysicalMaterial({
+      color: 0x000000, roughness: 1,
+      emissive: colour, emissiveIntensity: 1, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(at);
+    if (rect && target) mesh.lookAt(target);
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  //! THE DOME. A skylight replaces the environment the preset put there - it
+  //! IS the environment - so the two cannot both be in force and the light
+  //! wins, because somebody who added a skylight meant it.
+  applySky(said) {
+    const THREE = this.PT.THREE;
+    //! A BUILT-IN SKY IS ONE OF THE PAINTED DOMES. The renderer already draws
+    //! four environments as arithmetic - sky, horizon, ground and light cards,
+    //! in high dynamic range - and a skylight choosing one of them is the same
+    //! dome asked for from the document instead of from the render bar. So
+    //! there is nothing to fetch, nothing to wait for, and it works in the
+    //! single file where fetching is not allowed at all.
+    //!
+    //! Cached, because painting one is 512 x 1024 evaluations of the dome and
+    //! doing it on every rebuild would make dragging a light's rotation feel
+    //! like dragging the whole model.
+    const texture = said.sky === 4 ? this.loadedSky : this.builtInSky(said.sky);
+    if (!texture) {
+      //! Asked for a file and none has arrived. Say so rather than leaving the
+      //! scene lit by whatever was there before, which looks like the skylight
+      //! working.
+      this.onTrouble("that skylight has no image yet \u2014 open one on its Image field");
+      return;
+    }
+    this.scene.environment = texture;
+    this.scene.background = said.seen ? texture : null;
+    this.scene.environmentIntensity = said.power;
+    this.scene.backgroundIntensity = said.power;
+    this.scene.environmentRotation = new THREE.Euler(0, said.turn * Math.PI / 180, 0);
+    this.scene.backgroundRotation = new THREE.Euler(0, said.turn * Math.PI / 180, 0);
+    this.sky = said;
+  }
+
+  //! The four built-in domes, by the Skylight node's own order. Named here
+  //! rather than by index at the call site so that adding one is adding a row.
+  builtInSky(which) {
+    const keys = ["studio", "overcast", "warm", "dusk"];
+    const key = keys[Math.max(0, Math.min(keys.length - 1, Math.round(which || 0)))];
+    if (!this.skies) this.skies = new Map();
+    if (!this.skies.has(key))
+      this.skies.set(key, paintEnvironment(this.PT, findEnvironment(key), 512));
+    return this.skies.get(key);
+  }
+
+  //! AN IMAGE SOMEBODY OPENED, as an equirectangular environment. The page
+  //! reads the file - it is the page that has a FileReader - and hands over
+  //! the decoded pixels; nothing here knows what a .hdr is.
+  //!
+  //! Radiance .hdr is the format a sky is actually distributed in, and it is
+  //! not something a browser decodes: the loader is in the bundle, and the
+  //! page passes the bytes. An ordinary JPEG or PNG works too and is tagged
+  //! sRGB, which is right for it and wrong for an HDR - which is why the two
+  //! are told apart by the caller rather than guessed at here.
+  setSkyImage(data, { width, height, float = false }) {
+    const THREE = this.PT.THREE;
+    if (this.loadedSky) this.loadedSky.dispose();
+    const texture = new THREE.DataTexture(data, width, height,
+      THREE.RGBAFormat, float ? THREE.FloatType : THREE.UnsignedByteType);
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    texture.colorSpace = float ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.minFilter = texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    this.loadedSky = texture;
+    return texture;
   }
 
   /* ------------------------------------------------------------ the tracer */

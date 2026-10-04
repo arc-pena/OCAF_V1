@@ -26,6 +26,10 @@ import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, dataProgram, drafting,
          registeredTypes, schemaJson, setDrafting, trimNumber,
          typeSpec } from "./ocaf.js";
 import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
+//! The same exclusion list the drawing views use: one stored form, one reader,
+//! one control in the panel. A light leaving an object out and a drawing
+//! leaving one out are the same question asked by two things.
+import { readExclusions } from "./drawings.js";
 import { SECTION_KINDS, sectionOutline } from "./sections.js";
 import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
          saysPlan, writeMade } from "./generate.js";
@@ -520,6 +524,53 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     try { return HSF.pointBetween(a, b); } catch (e) { return null; }
   }
 
+  /* ------------------------------------------------- what a light says
+
+     Every light carries the same four things beyond its own shape - a colour,
+     a strength, whether it is on, and what it leaves out - and the renderer
+     reads exactly one description whichever kind it is. Written once here so
+     that adding a fourth kind of light is adding a driver and not a fourth
+     copy of this.
+
+     It travels as JSON on the second line, like a material: the document
+     stores strings, and a light is a small object. See SAID_AS_JSON.         */
+
+  const lightData = (f, own) => {
+    const exclude = readExclusions(F.text(f, "exclude", ""));
+    const light = {
+      ...own,
+      colour: [F.real(f, "red", 1), F.real(f, "green", 1), F.real(f, "blue", 1)],
+      power: F.real(f, "power", own.kind === "sky" ? 1 : 1000),
+      //! OFF IS NOT DELETED. A light switched off stays in the document, in
+      //! the lister and in the viewport - it simply does not reach the
+      //! renderer. Half of lighting a scene is turning things off one at a
+      //! time to see what each one was doing.
+      on: Feature_choice(f, "on") === 0,
+      //! Whether the camera sees the source itself. The renderer samples a
+      //! light analytically, which means camera rays do not hit it and it is
+      //! invisible by default - so "and is seen" is a thing that has to be
+      //! ADDED rather than a thing to stop. See the renderer.
+      seen: Feature_choice(f, "seen") === 1,
+      exclude,
+    };
+    if (own.kind === "target") {
+      light.hotspot = F.real(f, "hotspot", 30);
+      light.field = F.real(f, "field", 45);
+      light.width = F.real(f, "width", 600);
+      light.height = F.real(f, "height", 400);
+    }
+    const said = [
+      light.on ? "on" : "off",
+      own.kind === "sky" ? "sky \u00d7 " + trimNumber(light.power)
+                         : trimNumber(light.power) + " cd",
+      exclude.length ? exclude.length + " left out" : null,
+    ].filter(Boolean).join(" \u00b7 ");
+    return { kind: "light", values: [], lines: [said, JSON.stringify(light)] };
+  };
+
+  const lightNote = f => (Feature_choice(f, "on") === 0
+    ? null : "switched off - it stays in the model and lights nothing");
+
   const builders = {
     //! Wire a list of numbers into a coordinate and one point becomes a row of
     //! them: the shortest list repeats its last value, which is the rule
@@ -799,6 +850,179 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           shape: HSF.join([arm(frame.x), arm(frame.y), arm(frame.z)]),
           data: { kind: "axis",
                   values: [...frame.at, ...frame.x, ...frame.y, ...frame.z] },
+        };
+      },
+    },
+
+    /* ------------------------------------------------------------- lights
+
+       Drawn the way a lighting plan draws them, because that is a convention
+       a hundred years old and everybody already reads it: a point source is a
+       little sphere with rays off it, a spot is two cones - the hot one
+       inside the one it falls off to - and a soft box is the rectangle at the
+       size it really is, with a line to what it is aimed at.
+
+       None of this is geometry. A light is setting-out: no volume, no bill, no
+       export, and the renderer skips it with the rest of the datums. What goes
+       to the renderer is the DATA on the feature, not these lines.          */
+
+    PointLight: {
+      build: f => {
+        const at = readPoint(F.reference(f, "at"))
+          || [F.real(f, "x", 0), F.real(f, "y", 0), F.real(f, "z", 2400)];
+        const radius = Math.max(F.real(f, "radius", 40), 1e-6);
+        const size = F.real(f, "size", 300);
+        const lines = [];
+        //! Three circles on the three planes - the oldest way of drawing a
+        //! sphere in wireframe, and the only one that reads from any angle.
+        for (const [u, v] of [[[1, 0, 0], [0, 1, 0]], [[1, 0, 0], [0, 0, 1]],
+                              [[0, 1, 0], [0, 0, 1]]]) {
+          const ring = [];
+          for (let i = 0; i <= 24; i++) {
+            const a = i / 24 * Math.PI * 2;
+            ring.push(V.add(at, V.add(V.scale(u, Math.cos(a) * radius),
+                                      V.scale(v, Math.sin(a) * radius))));
+          }
+          lines.push(HSF.polyline(ring, false));
+        }
+        //! And the rays, which are what say "this throws light" rather than
+        //! "this is a small ball". Six of them, on the axes and the diagonals.
+        const reach = Math.max(size, radius * 2.2);
+        for (const way of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+                           [0.577, 0.577, 0.577], [-0.577, -0.577, 0.577],
+                           [0.577, -0.577, -0.577], [-0.577, 0.577, -0.577]])
+          lines.push(HSF.polyline([V.add(at, V.scale(way, radius * 1.15)),
+                                   V.add(at, V.scale(way, reach))], false));
+        return {
+          shape: HSF.join(lines),
+          data: lightData(f, { kind: "point", at, radius }),
+          note: lightNote(f),
+        };
+      },
+    },
+
+    TargetLight: {
+      precondition: f => {
+        const at = readPoint(F.reference(f, "at"))
+          || [F.real(f, "x", 0), F.real(f, "y", 0), F.real(f, "z", 0)];
+        const target = readPoint(F.reference(f, "look"))
+          || [F.real(f, "tx", 0), F.real(f, "ty", 0), F.real(f, "tz", 0)];
+        if (length(V.sub(target, at)) < CONFUSION)
+          return "the light is standing on what it is aimed at - move one of them";
+        if (Feature_choice(f, "shape") === 0
+            && F.real(f, "field", 45) <= F.real(f, "hotspot", 30))
+          return "the field has to be wider than the hotspot - that is what makes it fall off";
+        return null;
+      },
+      build: f => {
+        const at = readPoint(F.reference(f, "at"))
+          || [F.real(f, "x", 0), F.real(f, "y", 0), F.real(f, "z", 0)];
+        const target = readPoint(F.reference(f, "look"))
+          || [F.real(f, "tx", 0), F.real(f, "ty", 0), F.real(f, "tz", 0)];
+        const view = frameOf(at, target, 0);
+        if (!view) throw new Error("that light has nothing to aim at");
+        const shape = Feature_choice(f, "shape");
+        const size = F.real(f, "size", 1200);
+        const reach = Math.min(size, view.distance * 0.95);
+        const lines = [];
+
+        //! A ring of points at `half` degrees off the axis, `along` away.
+        const cone = (half, along) => {
+          const r = Math.tan(Math.max(0.001, half) * Math.PI / 360) * along;
+          const middle = V.add(at, V.scale(view.forward, along));
+          const ring = [];
+          for (let i = 0; i <= 32; i++) {
+            const a = i / 32 * Math.PI * 2;
+            ring.push(V.add(middle, V.add(V.scale(view.right, Math.cos(a) * r),
+                                          V.scale(view.up, Math.sin(a) * r))));
+          }
+          return { ring, r, middle };
+        };
+
+        if (shape === 0) {
+          //! THE TWO CONES. Hotspot drawn as its own ring with four rays, the
+          //! field as the outer one - which is exactly the pair of numbers a
+          //! lighting plan carries, and reading one without the other tells
+          //! you nothing about the edge of the pool of light.
+          for (const [half, rays] of [[F.real(f, "hotspot", 30), 4],
+                                      [F.real(f, "field", 45), 8]]) {
+            const one = cone(half, reach);
+            lines.push(HSF.polyline(one.ring, false));
+            for (let i = 0; i < rays; i++)
+              lines.push(HSF.polyline([at, one.ring[Math.round(i * 32 / rays)]], false));
+          }
+        } else if (shape === 1) {
+          //! A rectangular soft box, at the size it really is, with its own
+          //! normal drawn - because which way a panel faces is the thing that
+          //! is wrong when a room comes out dark.
+          const w = F.real(f, "width", 600) / 2, h = F.real(f, "height", 400) / 2;
+          const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) =>
+            V.add(at, V.add(V.scale(view.right, u * w), V.scale(view.up, v * h))));
+          lines.push(HSF.polyline([...corners, corners[0]], false));
+          for (const corner of corners)
+            lines.push(HSF.polyline([corner, V.add(corner, V.scale(view.forward, reach * 0.25))],
+                                    false));
+        } else {
+          const r = F.real(f, "width", 600) / 2;
+          const ring = [];
+          for (let i = 0; i <= 32; i++) {
+            const a = i / 32 * Math.PI * 2;
+            ring.push(V.add(at, V.add(V.scale(view.right, Math.cos(a) * r),
+                                      V.scale(view.up, Math.sin(a) * r))));
+          }
+          lines.push(HSF.polyline(ring, false));
+          for (let i = 0; i < 4; i++)
+            lines.push(HSF.polyline([ring[i * 8],
+              V.add(ring[i * 8], V.scale(view.forward, reach * 0.25))], false));
+        }
+
+        //! AND THE LINE TO WHAT IT IS AIMED AT, all the way, because the whole
+        //! point of a target light is that the target is a thing you can see
+        //! and grab. A tick across it says where the target actually is.
+        lines.push(HSF.polyline([at, target], false));
+        const tick = Math.max(reach * 0.04, view.distance * 0.012);
+        for (const way of [view.right, view.up])
+          lines.push(HSF.polyline([V.sub(target, V.scale(way, tick)),
+                                   V.add(target, V.scale(way, tick))], false));
+
+        return {
+          shape: HSF.join(lines),
+          data: lightData(f, { kind: "target", at, target, shape,
+                               right: view.right, up: view.up, forward: view.forward,
+                               distance: view.distance }),
+          note: lightNote(f),
+        };
+      },
+    },
+
+    Skylight: {
+      build: f => {
+        //! A dome has no position, so what is drawn is a GLYPH at the origin
+        //! rather than a picture of the sky: a half circle with rays coming in
+        //! at it. Small, because it is a label for something global and a
+        //! hemisphere the size of the model would be a cage round it.
+        const r = 900;
+        const lines = [];
+        for (const [u, v] of [[[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]]]) {
+          const arc = [];
+          for (let i = 0; i <= 20; i++) {
+            const a = i / 20 * Math.PI;
+            arc.push(V.add(V.scale(u, Math.cos(a) * r), V.scale(v, Math.sin(a) * r)));
+          }
+          lines.push(HSF.polyline(arc, false));
+        }
+        lines.push(HSF.polyline([[-r, 0, 0], [r, 0, 0]], false));
+        lines.push(HSF.polyline([[0, -r, 0], [0, r, 0]], false));
+        for (let i = 0; i < 8; i++) {
+          const a = i / 8 * Math.PI * 2;
+          const on = [Math.cos(a) * r * 0.72, Math.sin(a) * r * 0.72, r * 0.5];
+          lines.push(HSF.polyline([V.scale(on, 1.45), on], false));
+        }
+        return {
+          shape: HSF.join(lines),
+          data: lightData(f, { kind: "sky", sky: Feature_choice(f, "sky"),
+                               turn: F.real(f, "turn", 0) }),
+          note: lightNote(f),
         };
       },
     },

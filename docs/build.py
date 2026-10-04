@@ -94,6 +94,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # the slider editor: one window, opened by the definition panel and
            # by the node graph, so it comes before both of them.
            "slider.js", "graph.js",
+           # the colour picker: DOM only, no kernel, so the worker never
+           # reaches it and its own walk leaves it out.
+           "picker.js",
            "agent.js", "styles.js", "render.js", "plugin.js", "climate.js", "climate-plugin.js",
            "crowd.js", "crowd-plugin.js", "packing.js", "packing-plugin.js",
            # entourage is the figure library and nothing else - no kernel, no

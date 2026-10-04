@@ -2515,6 +2515,101 @@ export const CATALOGUE = [
      checked against a number worked out on paper rather than against a
      screenshot. See docs/test/material.test.mjs.                            */
 
+  /* --------------------------------------------------------------- lights
+
+     A light is setting-out, not geometry. It has no volume, a boolean cannot
+     see it, it is not exported and it is never in the bill - so it is a datum,
+     like a camera, and what it draws in the viewport is a WIREFRAME saying
+     where it is and what it reaches. A light you cannot see in the model is a
+     light nobody remembers is there.
+
+     Three of them, because there are three things a light can be:
+
+       a POINT, which is a position and nothing else;
+       a TARGET light, which is two places - where it is and what it is aimed
+         at - and is a cone, a rectangle or a disc depending on what it is
+         standing in for;
+       a SKYLIGHT, which is not in the room at all: it is the dome, and what
+         lights the scene is an image of a sky.
+
+     Every one of them carries the same four things beyond its own shape: a
+     colour, a strength, whether it is on, and what it leaves out. The last is
+     3ds Max's exclusion list, and it uses the same tree the drawing views
+     already use to leave objects out of a drawing - one control, one stored
+     form, one thing to learn.                                               */
+
+  { type: "PointLight", guid: "9a1b2c30-0160-4c00-9e00-caf000000160", category: "datum",
+    produces: "point",
+    summary: "A light at a point, throwing in every direction — a lamp, a bulb, a "
+           + "fitting. The radius is the size of the source and is what decides "
+           + "how soft its shadows are: a point source gives a hard edge, and "
+           + "nothing in the world is a point source.",
+    args: [spare("at", "Stands at", ["point"]),
+           real("x", "X", 0, -1000000, 1000000, 10),
+           real("y", "Y", 0, -1000000, 1000000, 10),
+           real("z", "Z", 2400, -1000000, 1000000, 10),
+           real("red", "Red", 1, 0, 1, 0.01, ""),
+           real("green", "Green", 0.96, 0, 1, 0.01, ""),
+           real("blue", "Blue", 0.9, 0, 1, 0.01, ""),
+           //! In candela, because that is what a lamp is sold by and what a
+           //! lighting schedule is written in. The renderer turns it into
+           //! whatever its own units are, in one place.
+           real("power", "Intensity", 1200, 0, 1000000, 10, " cd"),
+           real("radius", "Source radius", 40, 0, 10000, 1),
+           choice("on", "Switched", ["On", "Off"], 0),
+           choice("seen", "In the render",
+                  ["Lights the scene", "Lights the scene and is seen"], 0),
+           text("exclude", "Leaves out", "", "objects this light does not reach"),
+           real("size", "Drawn size", 300, 10, 100000, 10)] },
+
+  { type: "TargetLight", guid: "9a1b2c30-0161-4c00-9e00-caf000000161", category: "datum",
+    produces: "axis",
+    summary: "A light and the thing it is aimed at, as two places that work "
+           + "together — move either and the other holds. It draws the cone it "
+           + "throws, hot centre and falloff edge, the way a lighting plan "
+           + "does. Switch its shape and the same two points become a "
+           + "rectangular or circular soft box instead, drawn at its real size.",
+    args: [spare("at", "Stands at", ["point"]),
+           real("x", "X", 3000, -1000000, 1000000, 10),
+           real("y", "Y", -3000, -1000000, 1000000, 10),
+           real("z", "Z", 3000, -1000000, 1000000, 10),
+           spare("look", "Aimed at", ["point"]),
+           real("tx", "Target X", 0, -1000000, 1000000, 10),
+           real("ty", "Target Y", 0, -1000000, 1000000, 10),
+           real("tz", "Target Z", 0, -1000000, 1000000, 10),
+           choice("shape", "Shape", ["Cone", "Rectangle", "Disc"], 0),
+           //! A spot's two angles, the pair every lighting program has had
+           //! since the first one: the hotspot is where it is at full
+           //! strength, the field is where it has fallen to nothing.
+           when(real("hotspot", "Hotspot", 30, 0.5, 170, 0.5, "\u00b0"), "shape", 0),
+           when(real("field", "Field", 45, 1, 175, 0.5, "\u00b0"), "shape", 0),
+           whenAny(real("width", "Width", 600, 1, 100000, 10), "shape", [1, 2]),
+           when(real("height", "Height", 400, 1, 100000, 10), "shape", 1),
+           real("red", "Red", 1, 0, 1, 0.01, ""),
+           real("green", "Green", 0.97, 0, 1, 0.01, ""),
+           real("blue", "Blue", 0.92, 0, 1, 0.01, ""),
+           real("power", "Intensity", 4000, 0, 1000000, 10, " cd"),
+           choice("on", "Switched", ["On", "Off"], 0),
+           choice("seen", "In the render",
+                  ["Lights the scene", "Lights the scene and is seen"], 0),
+           text("exclude", "Leaves out", "", "objects this light does not reach"),
+           real("size", "Drawn size", 1200, 10, 100000, 10)] },
+
+  { type: "Skylight", guid: "9a1b2c30-0162-4c00-9e00-caf000000162", category: "datum",
+    summary: "The sky, as the light. An equirectangular image lights everything "
+           + "from every direction at once, which is what makes a render look "
+           + "photographed rather than lit — the shadows are the sky's and the "
+           + "reflections are of somewhere real. Turn the backdrop off and it "
+           + "still lights the scene; it just stops being the thing behind it.",
+    args: [choice("sky", "Sky", ["Studio dome", "Overcast", "Clear afternoon",
+                                 "Evening", "From a file"], 0),
+           when(blob("image", "Image", "an equirectangular HDR or image file"), "sky", 4),
+           real("turn", "Rotation", 0, -180, 180, 1, "\u00b0"),
+           real("power", "Strength", 1, 0, 20, 0.05, ""),
+           choice("on", "Switched", ["On", "Off"], 0),
+           choice("seen", "Backdrop", ["Seen behind the model", "Lights only"], 0),
+           text("exclude", "Leaves out", "", "objects this light does not reach")] },
+
   { type: "Shade", guid: "9a1b2c30-0150-4c00-9e00-caf000000150", category: "material",
     produces: "shade",
     summary: "One colour, everywhere. The thing every other shade node fades "
@@ -5239,6 +5334,7 @@ export class Doc {
             //! programs in it. Named rather than spread, so a shade whose
             //! top node happens to be called `material` cannot shadow one.
             if (carried && data.kind === "shade") entry.data.program = carried;
+            else if (carried && data.kind === "light") entry.data.light = carried;
             else if (carried) {
               entry.data.material = carried.material;
               entry.data.of = carried.of || [];
@@ -5633,7 +5729,7 @@ export function meshTally(data) {
 //! program is a tree, so JSON is how it travels - but a tree row showing
 //! forty characters of `{"op":"checker","scale":8,...}` is a tree row nobody
 //! can read, so only the first line is ever shown.
-export const SAID_AS_JSON = new Set(["shade", "material"]);
+export const SAID_AS_JSON = new Set(["shade", "material", "light"]);
 
 //! The program itself, parsed. Null for anything else, and null rather than a
 //! throw for a line that will not parse - a document can arrive from anywhere
