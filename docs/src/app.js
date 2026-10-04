@@ -59,6 +59,7 @@ import { DRAWINGS } from "./drawings-plugin.js";
 import { RACK } from "./rack-plugin.js";
 import { HARNESS } from "./harness-plugin.js";
 import { ERGO } from "./ergonomics-plugin.js";
+import { NANO } from "./nano-plugin.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
@@ -2014,18 +2015,37 @@ function applyStyle(styleKey = state.style) {
 }
 
 function setStyle(styleKey) {
-  //! PRESSED AGAIN, ON THE STYLE IT IS ALREADY IN. There is one button this
-  //! dial belongs to and pressing it a second time is the only gesture that
-  //! unambiguously asks for it - switching away and back does not, because
-  //! that is somebody comparing two styles rather than asking for four
-  //! sliders. This is read BEFORE applyStyle, which is what makes "again"
-  //! mean anything.
-  const again = styleKey === "arctic" && state.style === "arctic";
+  //! PRESSED AGAIN, ON THE STYLE IT IS ALREADY IN. A style with a panel of its
+  //! own has one button, and pressing that button a second time is the only
+  //! gesture that unambiguously asks for the panel - switching away and back
+  //! does not, because that is somebody comparing two styles rather than
+  //! asking for four sliders. Read BEFORE applyStyle, which is what makes
+  //! "again" mean anything.
+  //!
+  //! TWO STYLES HAVE ONE, and they used to behave differently. Arctic toggled
+  //! its dial; Ray traced did nothing at all, so a render bar that had been
+  //! crossed could only be got back through the menu - and pressing the
+  //! button the bar belongs to, which is the obvious thing to try, appeared to
+  //! hide it. The same gesture now means the same thing on both.
+  const again = state.style === styleKey
+    && (styleKey === "arctic" || findStyle(styleKey).traced);
   applyStyle(styleKey);
-  if (again) showLook(lookShut);
+  let said = "";
+  if (again && styleKey === "arctic") {
+    showLook(lookShut);
+    said = lookShut ? " \u00b7 dial put away" : " \u00b7 dial back";
+  } else if (again) {
+    //! THE BAR, NOT THE RENDERER. Putting the render bar away does not stop
+    //! the trace and bringing it back does not restart it: it is a panel about
+    //! a thing that is running, and a panel that switched off what it is about
+    //! would make closing it a destructive act.
+    traceBarShut = !traceBarShut;
+    syncTraceBar();
+    layout();
+    said = traceBarShut ? " \u00b7 render bar put away" : " \u00b7 render bar back";
+  }
   try { localStorage.setItem("ocafcad/view-style", state.style); } catch (e) {}
-  say(findStyle(state.style).label + " — " + findStyle(state.style).summary
-      + (again ? (lookShut ? " · dial put away" : " · dial back") : ""));
+  say(findStyle(state.style).label + " — " + findStyle(state.style).summary + said);
 }
 
 /* ==========================================================================
@@ -10458,7 +10478,13 @@ async function applyLibraryMaterial(id, m) {
     //! document, because they are somebody's work and deleting them would be
     //! a library entry quietly throwing away a graph; they simply stop being
     //! wired to this material. Re-wire them and they are back.
-    const maps = ["colourMap", "roughMap", "metalMap", "emitMap"];
+    //! EVERY slot, and this list has to stay the whole of them. Leaving the
+    //! two that were added last off it would be the exact defect the paragraph
+    //! above describes, one map further down: picking Concrete over a dropped
+    //! brick set would give concrete numbers, no brick colour - and the
+    //! brick's normal map still bumping the surface.
+    const maps = ["colourMap", "roughMap", "metalMap", "emitMap",
+                  "normalMap", "aoMap"];
     await edit.many([
       ...maps.map(key => ({ op: "disconnect", id: target, key })),
       ...Object.entries(numbers).map(([key, value]) => ({ op: "set", id: target, key, value })),
@@ -14017,7 +14043,10 @@ async function syncTracing() {
     //! a megabyte of script and a shader compile is long enough for somebody
     //! to press ARCTIC. Then this is not the answer to the question any more.
     if (!tracedStyle() || staging) return;
-    showroom.paused = false;
+    //! THE PERSON'S WISH, NOT A RESET. Arriving in Ray traced used to switch
+    //! collecting on whatever had been asked for, so a pause could not survive
+    //! a trip through Shaded.
+    showroom.paused = !traceWanted;
     tracing = true;
     traceBarShut = false;
     document.getElementById("showroom").classList.add("tracing");
@@ -14036,6 +14065,13 @@ async function syncTracing() {
 //! call, so it is made from edits and never from a frame.
 function refreshTrace() {
   if (!tracing || !showroom.ready) return;
+  //! PAUSED MEANS HOLD THIS PICTURE, and that has to include not rebuilding
+  //! the scene. setScene throws the average away, so doing it while paused
+  //! would destroy the very frame somebody pressed pause to keep AND leave
+  //! nothing collecting to replace it - a frozen field of noise. The change is
+  //! remembered here and applied the moment play is pressed.
+  if (!traceWanted) { traceStale = true; return; }
+  traceStale = false;
   showroom.resize(innerWidth, innerHeight);
   showroom.setScene(state.tree.features, streams);
   tracedFrom = null;
@@ -14072,6 +14108,11 @@ function buildTraceBar() {
       syncTraceBar();
     });
   }
+  const run = document.getElementById("trace-run");
+  if (run && !run.dataset.wired) {
+    run.dataset.wired = "yes";
+    run.addEventListener("click", () => traceRuns(!traceWanted));
+  }
   const seg = document.getElementById("trace-quality");
   if (seg.childElementCount) return;
   for (const quality of QUALITIES) {
@@ -14097,6 +14138,40 @@ function buildTraceBar() {
 //! in the menu - so putting it away can never trap anybody.
 let traceBarShut = false;
 
+//! WHETHER A PERSON WANTS IT COLLECTING. Separate from showroom.paused, which
+//! is the engine's own flag and is set by every arrival and departure: the
+//! style changing, the showroom opening, an export starting. That flag answers
+//! "is it collecting"; this one answers "was it asked to", and only the second
+//! one survives switching to Shaded and back.
+//!
+//! Default on, because the thing somebody asked for by pressing Ray traced is
+//! a ray trace. A session's choice is kept while the tab is open and not
+//! written down: a renderer that came up paused, with no memory of why, would
+//! be a page that looks broken on open.
+let traceWanted = true;
+
+//! THE MODEL HAS MOVED ON SINCE THE PICTURE. Set when an edit arrives while
+//! paused, cleared when the scene is rebuilt. It is on the readout, because a
+//! held picture of a model that has since changed looks exactly like a held
+//! picture of the model in front of you.
+let traceStale = false;
+
+function traceRuns(on) {
+  traceWanted = !!on;
+  showroom.paused = !traceWanted;
+  //! EVERYTHING THAT WAS MISSED, NOW. Pressing play after three edits should
+  //! show the model as it is, not resume a picture of how it was.
+  const missed = traceStale;
+  if (traceWanted && traceStale) refreshTrace();
+  syncTraceBar();
+  say(traceWanted
+    ? (missed ? "collecting again, from the model as it is now"
+              : "collecting samples \u2014 it sharpens while you leave it alone")
+    : "paused at " + showroom.samples
+      + (showroom.samples === 1 ? " sample" : " samples")
+      + " \u2014 the picture holds, and edits wait for play");
+}
+
 function syncTraceBar() {
   traceBar().hidden = traceBarShut || !(tracing || (staging && showroom.ready));
   if (!traceBar().hidden)
@@ -14107,6 +14182,16 @@ function syncTraceBar() {
       open: () => { traceBarShut = false; syncTraceBar(); layout(); },
       inline: true,
     });
+  const run = document.getElementById("trace-run");
+  if (run) {
+    run.setAttribute("aria-pressed", traceWanted ? "true" : "false");
+    //! The glyph is what pressing it WILL DO, not what the state is - the one
+    //! convention every transport control in the world agrees on.
+    run.firstElementChild.textContent = traceWanted ? "\u23f8" : "\u25b6";
+    run.title = traceWanted ? "Pause collecting samples"
+                            : "Collect samples again";
+    run.setAttribute("aria-label", run.title);
+  }
   for (const button of document.querySelectorAll("#trace-quality button"))
     button.setAttribute("aria-pressed",
       button.dataset.quality === showroom.quality ? "true" : "false");
@@ -14122,9 +14207,14 @@ function syncTraceBar() {
 function syncTraceCount() {
   if (traceBar().hidden) return;
   const got = showroom.samples, want = showroom.targetSamples;
+  //! PAUSED SAYS SO. Without it the readout sits at "15 of 48 samples" and a
+  //! paused trace is indistinguishable from a slow one - which is the whole
+  //! difficulty with a path tracer and the reason the button exists.
   document.getElementById("trace-count").textContent =
-    got >= want ? got + " samples \u00b7 settled"
-                : got + " of " + want + " samples";
+    !traceWanted ? got + (got === 1 ? " sample \u00b7 paused" : " samples \u00b7 paused")
+                   + (traceStale ? " \u00b7 model has changed" : "")
+    : got >= want ? got + " samples \u00b7 settled"
+                  : got + " of " + want + " samples";
 }
 
 function leaveShowroom() {
@@ -14217,6 +14307,11 @@ globalThis.__cad = {
              map: say(m.map), roughnessMap: say(m.roughnessMap),
              normalMap: say(m.normalMap) };
   },
+  //! THE ENGINE ITSELF, for a drive that has to watch something the hooks
+  //! above do not describe - which is how "it pauses on its own" was chased:
+  //! the flags were trapped in place and every write to them recorded with the
+  //! stack that did it. Nothing in the program reads this.
+  showroomEngine: () => showroom,
   pickCount: () => pickable.length,
   hovered: () => state.hover || null,
   selected: () => state.selected || null,
@@ -14300,6 +14395,74 @@ const packageKit = {
     return () => { readers.delete(reader.key); refreshAccept(); };
   },
 
+  //! WHAT IS ON THE SCREEN, as a PNG data URL. Not "the model, rendered
+  //! again": the picture a person is actually looking at, whichever of the
+  //! four styles made it, because a package that sends a view somewhere has to
+  //! send the view and not its own idea of one.
+  //!
+  //! Three things have to be got right, and each of them has bitten somebody:
+  //!
+  //!   WHICH CANVAS. The path tracer has its own, and it is the thing in front
+  //!   whenever it is running, so it is asked first. It keeps its drawing
+  //!   buffer on purpose and can be read at any moment.
+  //!
+  //!   WHEN. The raster viewport does NOT keep its buffer - it is made without
+  //!   preserveDrawingBuffer - so reading it after the browser has composited
+  //!   hands back a cleared one. That is the "a readPixels after present
+  //!   proves nothing" trap, and the only way out is to draw and read in the
+  //!   same turn with nothing awaited between them. Hence the synchronous
+  //!   render here rather than draw(), which queues a frame.
+  //!
+  //!   WHAT IS BEHIND IT. The raster canvas has an alpha channel and the sky
+  //!   is a CSS background on the element UNDER it, so the canvas alone is a
+  //!   model floating on nothing. The backdrop is the same two colours the
+  //!   stylesheet uses, painted underneath, which is why this is composited
+  //!   onto a second canvas rather than handed straight out.
+  snapshot(mime = "image/png") {
+    if ((staging || tracing) && showroom.ready) {
+      const traced = document.getElementById("stage-canvas");
+      if (traced && traced.width > 0) return traced.toDataURL(mime);
+    }
+    lookAtDetail();
+    placeSketchDimensions();
+    if (state.style !== "arctic") renderer.render(scene, camera);
+    else {
+      const pass = arcticPass();
+      pass.setScale({ radius: Math.max(view.span * 0.05, 1e-4),
+                      reach: view.distance + view.span * 3 });
+      pass.render(scene, camera);
+    }
+    const gl = renderer.domElement;
+    const flat = document.createElement("canvas");
+    flat.width = gl.width;
+    flat.height = gl.height;
+    const pen = flat.getContext("2d");
+    const style = getComputedStyle(document.documentElement);
+    const tone = key => (style.getPropertyValue(key) || "").trim();
+    if (state.style === "arctic") {
+      pen.fillStyle = tone("--view-clay") || "#e7eaee";
+    } else {
+      const sky = pen.createLinearGradient(0, 0, 0, flat.height);
+      sky.addColorStop(0, tone("--view-top") || "#dfe6ee");
+      sky.addColorStop(1, tone("--view-bottom") || "#b9c4d0");
+      pen.fillStyle = sky;
+    }
+    pen.fillRect(0, 0, flat.width, flat.height);
+    pen.drawImage(gl, 0, 0, flat.width, flat.height);
+    return flat.toDataURL(mime);
+  },
+
+  //! THE ONE CLOSE MECHANISM, handed over rather than copied. A package that
+  //! rolled its own cross would be a panel the "bring the panels back" menu
+  //! never hears about - which has happened once already, to the light lister.
+  closesWith: (panel, options) => closesWith(panel, options),
+  say: message => say(message),
+  showError: message => showError(message),
+  //! Whether the panels are off the screen. A package with a control of its
+  //! own has to know, because full screen is a promise that nothing is in
+  //! front of the model unless somebody asked for it.
+  isBare: () => bare,
+
   toolkit: () => kernel.toolkit(),
   installDrivers: (specs, builders) => kernel.installDrivers(specs, builders),
   removeDrivers: specs => kernel.removeDrivers(specs),
@@ -14322,6 +14485,33 @@ const packageKit = {
 };
 
 const packages = new PluginHost(packageKit, { onChange: () => afterPackages() });
+
+//! THE ONES THAT ARE ON WITHOUT BEING ASKED FOR.
+//!
+//! A package is off until it is wanted, and that rule is worth keeping, so
+//! this list has a high bar: a package belongs on it only if it adds NO nodes.
+//! A package that adds nodes changes the catalogue, the rail and what the
+//! assistant is told it can use - which is the cost the whole arrangement
+//! exists to avoid paying for everybody - and, worse, a document built with
+//! its nodes is a document that will not open without it.
+//!
+//! Nano Banana adds none. It is a bar, an overlay and a gallery over a bitmap:
+//! a model saved while it is loaded is byte for byte the model saved without
+//! it. So it can be on from the start without making any file depend on it,
+//! which is the only reason it is here and not in the shelf like the rest.
+const ALWAYS_ON = ["nano"];
+
+async function switchOnTheAlwaysOn() {
+  for (const id of ALWAYS_ON) {
+    if (packages.isLoaded(id)) continue;
+    //! Each one on its own, and a failure is NAMED rather than thrown. A
+    //! package that will not start must not be the reason the modeller does
+    //! not come up - the page's last act before this is "hide the boot
+    //! screen", and a throw here would leave a blank window.
+    try { await packages.load(id); }
+    catch (error) { say("the " + id + " package would not start: " + error.message); }
+  }
+}
 
 //! A package that adds nodes has changed the catalogue, so everything built
 //! from the catalogue is stale: the rail, the graph's menu, and what the
@@ -15278,13 +15468,23 @@ const LOUD_TEXTURE = 8 * 1024 * 1024;
 
 const ROLE_INDEX = ["colour", "roughness", "metalness", "normal",
                     "occlusion", "height", "opacity", "emission"];
+//! WHICH OF A MATERIAL'S SLOTS EACH ROLE GOES INTO. Height and opacity are
+//! absent on purpose: the renderer has nowhere to put them, so a wire would be
+//! a wire that does nothing, and a node wired to nothing at least says so.
 const ROLE_SLOT = { colour: "colourMap", roughness: "roughMap",
-                    metalness: "metalMap", emission: "emitMap" };
+                    metalness: "metalMap", emission: "emitMap",
+                    normal: "normalMap", occlusion: "aoMap" };
 
 async function installMaterial(made) {
   const roles = Object.keys(made.maps);
   if (!roles.length) return false;
-  const bytes = roles.reduce((n, role) => n + (made.maps[role].bytes || []).length, 0);
+  //! COUNTED FROM WHAT LANDED, not from what was offered. This used to add up
+  //! the bytes on the way in and say "9 MB in the document" whatever happened
+  //! after - and when the write was being refused, every word of that sentence
+  //! was wrong and the only way to find out was to render something and look
+  //! at it. An install that half worked now says which half.
+  const written = [];
+  const refused = [];
 
   try {
     //! THE MATERIAL FIRST, so the textures have something to be wired to and
@@ -15305,21 +15505,37 @@ async function installMaterial(made) {
         ...(role === "normal" && made.flipGreen
             ? [{ op: "set", id: born.id, key: "flip", value: 1 }] : []),
       ]);
-      await edit({ op: "code", id: born.id, key: "image",
-                   text: toBase64(made.maps[role].bytes) });
+      //! THE BYTES ARE THE MATERIAL. The name, the role and the wire can all
+      //! be right while the image is missing, and then the node sits in the
+      //! tree looking finished, the file saves and reopens, and the surface
+      //! renders untextured with nothing anywhere to look at. So a refused
+      //! write is named rather than counted.
+      const landed = await edit({ op: "code", id: born.id, key: "image",
+                                  text: toBase64(made.maps[role].bytes) });
+      if (landed) written.push(role);
+      else { refused.push(role); continue; }
       await edit({ op: "set", id: born.id, key: "from",
                    value: String(made.maps[role].name).split("/").pop() });
-      //! Only four of the eight have a slot on a Material today - occlusion,
-      //! height and opacity are read by the renderer through the set rather
-      //! than through a wire, and wiring them to nothing would be a wire that
-      //! does nothing. They are still nodes, still named, still in the graph.
+      //! Six of the eight have a slot on a Material. Height and opacity do
+      //! not, because the renderer has nothing to do with them - wiring those
+      //! would be a wire that does nothing. They are still nodes, still
+      //! named, still in the graph, and a node wired to nothing says so.
       const slot = ROLE_SLOT[role];
       if (slot) await edit({ op: "connect", id: material.id, key: slot, from: born.id });
     }
 
     select(material.id, true);
+    const bytes = written.reduce((n, role) => n + (made.maps[role].bytes || []).length, 0);
+    if (!written.length) {
+      showError(made.name + " made its nodes but not one image would go in \u2014 "
+        + "the material is in the tree and will render untextured. "
+        + "Delete it and say so.");
+      return false;
+    }
     say(made.name + " installed \u00b7 " + made.said
       + " \u00b7 " + readable(bytes) + " in the document"
+      + (refused.length ? " \u00b7 " + refused.join(", ")
+                          + (refused.length === 1 ? " would not go in" : " would not go in") : "")
       + (made.ignored.length ? " \u00b7 ignored " + made.ignored.slice(0, 3).join(", ") : "")
       + " \u2014 pick it on any object's Wears list"
       + (bytes > LOUD_TEXTURE
@@ -17041,6 +17257,7 @@ addEventListener("keyup", event => {
       await useNativeKernel(candidate);
       document.getElementById("boot").hidden = true;
       offerSpare();
+      await switchOnTheAlwaysOn();
       return;
     } catch (err) { /* fall through to the kernel in this page */ }
   }
@@ -17054,6 +17271,7 @@ addEventListener("keyup", event => {
   }
   document.getElementById("boot").hidden = true;
   offerSpare();
+  await switchOnTheAlwaysOn();
   //! ONCE, TO SOMEBODY WHO HAS NEVER BEEN HERE. This is the whole point of it:
   //! the person who opens this without anybody sitting beside them should not
   //! have to find the help button to be told there is one. Afterwards it never

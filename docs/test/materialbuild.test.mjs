@@ -276,5 +276,70 @@ console.log("\n8. a texture is referenced, and the reference survives the file")
         rough.role + " / " + rough.space);
 }
 
+console.log("\n9. an image gets in by being EDITED in, not only by arriving in a file");
+{
+  //! THE FAILURE THIS IS FOR, and it is the one section 8 above could not see.
+  //!
+  //! Section 8 loads its image as part of a model file. That is the loader's
+  //! write, and the loader writes a blob straight onto the attribute. Nobody
+  //! installing a material takes that road: dropping a zip on the window makes
+  //! the nodes and then EDITS the bytes in, one `code` edit per map, and the
+  //! document's own setCode would only accept an argument of kind "code" or
+  //! "text". A blob is neither.
+  //!
+  //! So every one of those writes was refused, and nothing downstream noticed.
+  //! The Material was made, a Texture was made per map, each was named, each
+  //! got its role, each was wired to its slot, the tree looked finished, the
+  //! save file was valid, the references resolved - and all four images were
+  //! empty strings. The renderer dutifully asked for bytes, got none, and
+  //! returned no texture; the surface rendered untextured. The only way to
+  //! find out was to ask the renderer what it was holding.
+  //!
+  //! The distance between section 8 and this one is the whole lesson: a test
+  //! that sets up through a different door from the program's can pass for
+  //! weeks while the door everyone walks through is locked.
+  const IMAGE = "/9j/4AAQSkZJRgABAQAAAQ==";
+  await kernel.loadModel(model([...BOX,
+    { id: "T", type: "Texture", name: "Edited in", args: { role: "Colour" } },
+    { id: "M", type: "Material", name: "Concrete", args: { of: [{ ref: "B" }],
+                                                           colourMap: { ref: "T" } } }]));
+  check("the texture starts with no image",
+        !(await at("T")).data.program.image,
+        JSON.stringify(((await at("T")).data.program.image || "").length));
+
+  //! Through mdl, the road every edit in the program takes. A refusal here is
+  //! a thrown error, so it is caught and reported rather than failing the run:
+  //! "the edit was refused" is the finding, not a crash.
+  let refused = null;
+  try { await mdl.run({ op: "code", id: "T", key: "image", text: IMAGE }); }
+  catch (err) { refused = err.message; }
+  check("a code edit onto a blob argument is accepted", !refused,
+        refused || "accepted");
+  check("and the bytes are on the node afterwards",
+        (await at("T")).data.program.image === IMAGE,
+        ((await at("T")).data.program.image || "").length + " characters");
+  check("so the material that points at it can be given them",
+        (await at("M")).data.material.maps.colour.at === "T"
+        && (await at("T")).data.program.image === IMAGE,
+        JSON.stringify({ at: (await at("M")).data.material.maps.colour.at,
+                         bytes: ((await at("T")).data.program.image || "").length }));
+
+  //! AND IT SURVIVES THE FILE BY THE SAME ROUTE IT ARRIVED BY. An edit that
+  //! lands but is not saved is the same defect one step later.
+  const saved = JSON.parse(await mdl.modelText());
+  const stored = saved.features.find(f => f.id === "T");
+  check("and an edited-in image is in the saved file",
+        !!stored && String(stored.args.image) === IMAGE,
+        stored ? String(stored.args.image || "").length + " characters" : "missing");
+
+  //! A key that really is not there must still be refused. Opening setCode to
+  //! blobs would be a bad fix if it opened it to everything.
+  let wrong = null;
+  try { await mdl.run({ op: "code", id: "T", key: "role", text: "Colour" }); }
+  catch (err) { wrong = err.message; }
+  check("but a code edit onto a choice is still refused", !!wrong,
+        wrong || "it was allowed, which it must not be");
+}
+
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

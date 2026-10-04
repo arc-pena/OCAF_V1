@@ -1921,6 +1921,13 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         roughness: shadeFrom(f, "roughMap"),
         metalness: shadeFrom(f, "metalMap"),
         emission: shadeFrom(f, "emitMap"),
+        //! The two the renderer has always had slots for and could never be
+        //! given anything to put in them. A normal map is what makes a
+        //! concrete look like concrete rather than like a grey plane that is
+        //! correctly lit - it was the one map in a dropped PBR set that
+        //! arrived as a node and was wired to nothing.
+        normal: shadeFrom(f, "normalMap"),
+        occlusion: shadeFrom(f, "aoMap"),
       };
       const material = {
         ...DEFAULT_MATERIAL,
