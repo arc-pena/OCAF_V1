@@ -209,5 +209,72 @@ console.log("\n7. the document survives a round trip");
         JSON.stringify(again.data.of));
 }
 
+console.log("\n8. a texture is referenced, and the reference survives the file");
+{
+  //! THE FAILURE THIS IS FOR. A Material's image map carries WHERE its bytes
+  //! are rather than the bytes - one image in the document once, however many
+  //! materials wear it. That reference is a feature id, and a feature id is
+  //! only meaningful if it is still the same id after the file has been saved
+  //! and reopened.
+  //!
+  //! If it were not, what a person would see is: the model saves, reopens
+  //! perfectly, and every textured material renders untextured. No error, no
+  //! red node, nothing in the tree to look at. Which is why it is checked here
+  //! rather than trusted.
+  const IMAGE = "/9j/4AAQSkZJRg==";          // not a real JPEG; the bytes are not read here
+  await kernel.loadModel(model([...BOX,
+    { id: "T", type: "Texture", name: "Concrete colour",
+      args: { image: IMAGE, role: "Colour", from: "Concrete034_Color.jpg" } },
+    { id: "M", type: "Material", name: "Concrete",
+      args: { of: [{ ref: "B" }], colourMap: { ref: "T" } } }]));
+
+  const texture = await at("T");
+  check("the texture builds", !!texture && !texture.error,
+        texture && texture.error ? texture.error : "ok");
+  check("and holds the image itself",
+        texture.data.program.op === "image" && texture.data.program.image === IMAGE,
+        JSON.stringify({ op: texture.data.program.op,
+                         bytes: (texture.data.program.image || "").length }));
+  check("and says what it is for, and in which space",
+        texture.data.program.role === "colour" && texture.data.program.space === "srgb",
+        texture.data.program.role + " / " + texture.data.program.space);
+
+  const made = await at("M");
+  const map = made.data.material.maps.colour;
+  check("the material points at it rather than copying it",
+        !!map && map.op === "image" && map.at === "T" && map.image === undefined,
+        JSON.stringify({ at: map && map.at, carries: map && map.image !== undefined }));
+  //! THE SIZE OF THE SAVING. A material with four maps was carrying six
+  //! megabytes of base64 it did not need; this is the check that it is not
+  //! carrying any.
+  check("so the material's own description is small",
+        JSON.stringify(made.data.material).length < 2000,
+        JSON.stringify(made.data.material).length + " characters");
+
+  //! AND ROUND THE FILE. Saved, reopened, and the reference still finds it.
+  const saved = JSON.parse(await mdl.modelText());
+  const stored = saved.features.find(f => f.id === "T");
+  check("the saved file carries the image on the texture node",
+        !!stored && String(stored.args.image) === IMAGE,
+        stored ? (String(stored.args.image || "").length + " characters") : "missing");
+
+  await mdl.run({ op: "model", model: saved });
+  const again = (await at("M")).data.material.maps.colour;
+  check("and after reopening the material still points at it",
+        !!again && again.at === "T", JSON.stringify(again && again.at));
+  check("and the texture it points at still has the bytes",
+        (await at("T")).data.program.image === IMAGE,
+        ((await at("T")).data.program.image || "").length + " characters");
+
+  //! A roughness map must NOT be sRGB. Encoding one renders a perfectly
+  //! plausible picture of a surface that is polished where it should be
+  //! rough - no error, no visual tell, wrong by about 2.2 in the wrong place.
+  await mdl.run({ op: "set", id: "T", key: "role", value: 1 });
+  const rough = (await at("T")).data.program;
+  check("a roughness map is linear, not sRGB",
+        rough.role === "roughness" && rough.space === "linear",
+        rough.role + " / " + rough.space);
+}
+
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");
 process.exit(failures ? 1 : 0);
