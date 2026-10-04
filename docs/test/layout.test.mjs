@@ -775,5 +775,87 @@ console.log("\n12. a colour on a set, and edges you can switch off");
         /wearMaterial\(entry\.id, \{ edges: box\.checked \}\)/.test(app));
 }
 
+console.log("\n13. the Nano Banana image is a render style, not a layer over the interface");
+{
+  //! WHAT WAS REPORTED. "All panels should draw over the nanobanana image - at
+  //! the moment when I try to compare an image the edit object panel toolbar
+  //! is behind." The image was at z-index 7, above the panels at 3 to 5, so
+  //! comparing a render meant the tools you were comparing it against were
+  //! underneath it.
+  //!
+  //! The rule is one sentence: it replaces the VIEW, not the interface. So its
+  //! z-index has to be below every floating panel and above every canvas, and
+  //! that is an arithmetic fact about the stylesheet rather than a judgement.
+  const zOf = selector => {
+    const at = html.indexOf(selector + " {");
+    if (at < 0) return null;
+    const block = html.slice(at, html.indexOf("}", at));
+    const found = /z-index:\s*(-?\d+)/.exec(block);
+    return found ? Number(found[1]) : null;
+  };
+  const image = zOf(".nb-over");
+  check("the image has a z-index of its own", image !== null, String(image));
+
+  //! EVERY FLOATING PANEL'S, read out of the stylesheet rather than listed
+  //! here, so a panel added tomorrow is in this check tomorrow.
+  //! EVERY SELECTOR IN EVERY RULE, not the first of each. The first version of
+  //! this matched only rules whose selector was alone on its line, which is a
+  //! minority of them - so it reported the lowest panel as being at 7 when
+  //! there are eight at 3. It passed, and it was measuring almost nothing.
+  const panels = [];
+  for (const m of html.matchAll(/([^{}@]+)\{([^}]*)\}/g)) {
+    const body = m[2];
+    const z = /z-index:\s*(-?\d+)/.exec(body);
+    if (!z) continue;
+    if (!/position:\s*(fixed|absolute)/.test(body)) continue;
+    for (const raw of m[1].split(",")) {
+      //! The bare class or id this rule is about, with any state, descendant
+      //! or pseudo-part dropped - `body.staging #trace-bar` is the trace bar.
+      const name = raw.trim().split(/\s+/).pop().replace(/[:[].*$/, "");
+      if (!/^[.#][a-z]/.test(name)) continue;
+      if (name === ".nb-over" || name === ".safe-layer") continue;
+      panels.push({ name, z: Number(z[1]) });
+    }
+  }
+  check("there are panels to compare against", panels.length >= 8,
+        panels.length + " positioned rules with a z-index");
+
+  //! The things that are NOT interface: the canvases, and the image itself.
+  //! #showroom is the path tracer's own canvas and is allowed above the
+  //! image - there is a rule for that case and it is checked below.
+  const notInterface = new Set(["#showroom", "#viewport", "#sketch-dims", "#pie-host"]);
+  const behind = panels.filter(one =>
+    !notInterface.has(one.name) && one.z <= image);
+  check("no panel is at or below the image",
+        behind.length === 0,
+        behind.length ? behind.map(one => one.name + "@" + one.z).join(", ")
+                      : "the lowest panel is at "
+                        + Math.min(...panels.filter(one => !notInterface.has(one.name))
+                            .map(one => one.z)) + ", the image at " + image);
+  //! AND IT IS STILL ABOVE THE CANVAS IT IS A PICTURE OF. Dropping it below
+  //! the trace stage would fix the panels and lose the image.
+  const stage = /#showroom\.tracing\s*\{[^}]*z-index:\s*(\d+)/.exec(html);
+  check("but still above the canvas it replaces",
+        stage && image > Number(stage[1]),
+        stage ? "the trace stage is at " + stage[1] + ", the image at " + image
+              : "could not read the trace stage");
+  //! THE SHOWROOM IS THE ONE EXCEPTION, and it needs a rule of its own
+  //! because the showroom's canvas is at 6.
+  check("and the showroom has its own rule, since its canvas is higher",
+        /body\.staging\s+\.nb-over\s*\{[^}]*z-index/.test(html),
+        /body\.staging\s+\.nb-over/.test(html) ? "there is one" : "missing");
+
+  //! AND TAB TAKES THE PANELS, NOT THE PICTURE. Pressing Tab is how somebody
+  //! asks to see the view on its own, so the image has to survive it and the
+  //! bar has to go.
+  const bareList = html.slice(html.indexOf("body.bare .fades"),
+                              html.indexOf("body.bare .fades") + 1400);
+  for (const one of [".nb-bar", ".nb-refs", ".nb-shelf", ".nb-keys"])
+    check("full screen takes " + one, bareList.includes("body.bare " + one), one);
+  check("and leaves the image and the tab alone",
+        !/body\.bare\s+\.nb-over\b/.test(html) && !/body\.bare\s+\.nb-tab\b/.test(html),
+        "neither is faded");
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall checks passed");
 process.exit(failures ? 1 : 0);

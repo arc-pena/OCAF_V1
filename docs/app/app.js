@@ -441,6 +441,26 @@ const showsInModel = (id, group) => {
   return group.userData.hiddenByDoc === undefined ? group.visible : !group.userData.hiddenByDoc;
 };
 
+//! THE FEATURES AS THE VIEWPORT ACTUALLY SHOWS THEM.
+//!
+//! The renderer filters on a feature's own `visible` flag, which is the
+//! DOCUMENT's answer to a narrow question: did an operation swallow this body.
+//! The eye in the tree is a different mechanism entirely - a hide set kept by
+//! the page, which also hides everything inside a set that is switched off -
+//! and the trace was only ever handed the first of the two.
+//!
+//! So hiding a body with the eye took it out of the viewport and left it in
+//! the ray trace, where it kept sharpening: the longer you left it alone, the
+//! more finished a picture of the wrong model you had. Nothing on screen said
+//! so, because a path trace looks unfinished either way.
+//!
+//! Masked here rather than inside the renderer, because the hide set is the
+//! PAGE's and the renderer should not have to know the page exists. Every
+//! setScene goes through this.
+const featuresAsShown = () => (state.tree.features || []).map(entry =>
+  entry.visible !== false && hiddenHere(entry.id)
+    ? { ...entry, visible: false } : entry);
+
 function sceneBounds() {
   const box = new THREE.Box3();
   let any = false;
@@ -2845,7 +2865,7 @@ async function syncShapes() {
   //! switched off in its own panel, in the node graph or by the assistant
   //! shows here without any of them knowing the lister exists.
   buildLightList();
-  if (staging && showroom.ready) showroom.setScene(state.tree.features, streams);
+  if (staging && showroom.ready) showroom.setScene(featuresAsShown(), streams);
   //! The trace is of the model, so an edit invalidates it exactly as it
   //! invalidates the viewport. Left alone it would keep sharpening a picture
   //! of the shape before the change, which looks finished and is wrong.
@@ -13913,7 +13933,7 @@ async function enterShowroom() {
     //! never sharpens and an export from it collects nothing at all.
     showroom.paused = false;
     if (firstTime) showroom.applyEnvironment("noir");
-    showroom.setScene(state.tree.features, streams);
+    showroom.setScene(featuresAsShown(), streams);
     syncStageToggles();
 
     // Arrive from where the modelling camera was looking, then ease to the
@@ -14119,7 +14139,7 @@ function refreshTrace() {
   if (!traceWanted) { traceStale = true; return; }
   traceStale = false;
   showroom.resize(innerWidth, innerHeight);
-  showroom.setScene(state.tree.features, streams);
+  showroom.setScene(featuresAsShown(), streams);
   tracedFrom = null;
 }
 
@@ -14159,9 +14179,15 @@ function buildTraceBar() {
     run.dataset.wired = "yes";
     run.addEventListener("click", () => traceRuns(!traceWanted));
   }
+  //! BUILT ONCE, SHOWN EVERY TIME. This used to `return` here when the
+  //! quality buttons already existed, which also skipped the syncTraceBar()
+  //! at the end of the function - so the bar was put on screen on the FIRST
+  //! entry into Ray traced and never again. Cross it, go to Shaded, come
+  //! back, and the bar was gone with traceBarShut already reset to false,
+  //! which made the next press of the button toggle it to "away" and look
+  //! like the button was doing nothing.
   const seg = document.getElementById("trace-quality");
-  if (seg.childElementCount) return;
-  for (const quality of QUALITIES) {
+  if (!seg.childElementCount) for (const quality of QUALITIES) {
     const button = document.createElement("button");
     button.textContent = quality.label;
     button.title = quality.summary;
@@ -14522,6 +14548,10 @@ const packageKit = {
   //! own has to know, because full screen is a promise that nothing is in
   //! front of the model unless somebody asked for it.
   isBare: () => bare,
+  //! AND THE WAY OUT OF IT. A package with a control that survives full
+  //! screen needs to be able to put the panels back, or the control opens
+  //! something faded and deaf.
+  bare: on => setBare(on),
 
   toolkit: () => kernel.toolkit(),
   installDrivers: (specs, builders) => kernel.installDrivers(specs, builders),

@@ -2446,10 +2446,21 @@ body.bare #view-tools,
 body.bare #dock,
 body.bare #ai-bar,
 body.bare #stage-ui,
+/* THE NANO PANELS GO, THE TAB AND THE IMAGE STAY. Tab means "show me the
+   view and nothing else", and the image IS the view once one has come back -
+   so hiding it would be hiding the thing being asked for. The edge tab stays
+   because it is the only way back in, and pressing it leaves full screen so
+   the bar it opens is usable. */
+body.bare .nb-bar,
+body.bare .nb-refs,
+body.bare .nb-shelf,
+body.bare .nb-keys,
 body.bare .an-bar, body.bare .an-panel,
 body.bare .fl-bar, body.bare .fl-panel { opacity: 0; pointer-events: none; }
 body.bare .an-bar, body.bare .an-panel, body.bare .fl-bar, body.bare .fl-panel,
-body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
+body.bare #ai-bar, body.bare #stage-ui,
+body.bare .nb-bar, body.bare .nb-refs, body.bare .nb-shelf, body.bare .nb-keys
+  { transition: opacity .5s cubic-bezier(.4,0,.2,1); }
 /* The hint on the way in, and only on the way in: it says how to get back out
    and then stops saying it. */
 #bare-hint {
@@ -2643,9 +2654,18 @@ body.bare #ai-bar, body.bare #stage-ui { transition: opacity .5s cubic-bezier(.4
 .nb-read { flex: none; width: 76px; font-family: var(--mono); font-size: 10px;
            text-align: right; color: var(--ink-1); }
 
-/* The answer, over the model. Above the showroom and the trace stage, under
-   every bar and panel - what it replaces is the view, not the interface. */
-.nb-over { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+/* The answer, over the model and UNDER every panel.
+   It is a render style, not a mode: what it replaces is the VIEW. At z-index
+   7 it was over the definition panel and the gizmo bar, so comparing an image
+   meant the tools you were comparing it against were behind it. The lowest
+   panel on the page is at 3, the trace stage is at 1, so 2 is the one slot
+   that is above every canvas and below every piece of interface.
+   To see the render on its own, Tab takes the panels away - which is the same
+   answer as for any other view. */
+.nb-over { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+/* The showroom draws its own canvas at 6, so in there the image has to clear
+   it. The showroom has no panels of its own below 7 to get behind. */
+body.staging .nb-over { z-index: 7; }
 .nb-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: contain; background: #000;

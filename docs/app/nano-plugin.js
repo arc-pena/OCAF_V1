@@ -91,7 +91,22 @@ class NanoView {
     this.tab = built("button", "nb-tab", "<span>Prompt</span>");
     this.tab.type = "button";
     this.tab.title = "Hand this view to an image model";
-    this.tab.addEventListener("click", () => this.openBar(!this.bar.hidden ? false : true));
+    this.tab.addEventListener("click", () => {
+      //! IN FULL SCREEN, PRESSING IT MEANS "MAKE THIS USABLE".
+      //!
+      //! The bar is one of the panels Tab fades out, and a faded panel is
+      //! still `hidden === false` - so toggling on that flag closed a bar
+      //! nobody could see and read as the tab doing nothing. Measured: the
+      //! press left bare true, the bar at opacity 0, and hidden flipped to
+      //! true. There is only one thing pressing the tab can sensibly mean in
+      //! there, and it is this.
+      if (this.kit.isBare && this.kit.isBare()) {
+        if (this.kit.bare) this.kit.bare(false);
+        this.openBar(true);
+        return;
+      }
+      this.openBar(this.bar.hidden);
+    });
     document.body.appendChild(this.tab);
 
     this.bar = built("section", "float nb-bar");
