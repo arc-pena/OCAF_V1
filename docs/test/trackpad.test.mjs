@@ -14,7 +14,7 @@
 // names the device it is pretending to be.
 
 import {
-  SURE_AT, TRACKPAD_ORBIT, TRACKPAD_ZOOM, WHEEL_NOTCH, WHEEL_ZOOM,
+  PAD_X, PAD_Y, SURE_AT, TRACKPAD_ORBIT, TRACKPAD_ZOOM, WHEEL_NOTCH, WHEEL_ZOOM,
   classifyWheel, gestureFor, looksLikeMac, newPointerMemory,
 } from "../src/trackpad.js";
 
@@ -139,17 +139,55 @@ console.log("\n4. the gestures are Blender's");
   const orbit = gestureFor(swipe, "trackpad");
   check("a bare swipe orbits", orbit.how === "orbit", orbit.how);
   check("and turns by the published rate",
-        near(orbit.dx, 30 * TRACKPAD_ORBIT) && near(orbit.dy, -20 * TRACKPAD_ORBIT),
+        near(orbit.dx, 30 * PAD_X * TRACKPAD_ORBIT)
+        && near(orbit.dy, -20 * PAD_Y * TRACKPAD_ORBIT),
         orbit.dx.toFixed(5) + " / " + orbit.dy.toFixed(5) + " radians");
   //! SHIFT PANS.
   const pan = gestureFor({ ...swipe, shiftKey: true }, "trackpad");
   check("shift and a swipe pans", pan.how === "pan", pan.how);
-  //! The sign: dragging two fingers right moves the view right, which means
-  //! the camera target goes LEFT - the same sign the pointer drag uses, and
-  //! the one that makes it feel like moving the sheet rather than the window.
-  check("and the pan carries the sideways delta negated, as a drag does",
-        near(pan.dx, -30) && near(pan.dy, -20),
-        pan.dx + " / " + pan.dy);
+
+  //! THE INVARIANT THAT ACTUALLY MATTERS, and the one this file did not have
+  //! until a real trackpad was used: every gesture has to agree with a
+  //! POINTER DRAG about which way is which, and they have to agree with each
+  //! other. The first version pinned the signs it happened to have written -
+  //! the orbit took deltaX as it came and the pan negated it - so it passed
+  //! on a mapping where sideways meant two different things, and the fault
+  //! only showed up as "when you drag down it moves up".
+  //!
+  //! Expressed as: a swipe and a drag of the same hand movement must produce
+  //! the same sign on both axes, for both gestures.
+  const asDrag = one => ({ x: Math.sign(one.dx), y: Math.sign(one.dy) });
+  //! Fingers down the pad. macOS reports that as a NEGATIVE deltaY, which is
+  //! the measurement the module's PAD_Y encodes.
+  const down = { deltaX: 0, deltaY: -10, deltaMode: 0 };
+  //! A pointer dragged down is a POSITIVE dy, and the viewport adds it to the
+  //! pitch - so a swipe down must also come out positive or the view tilts
+  //! the wrong way.
+  check("a swipe down tilts the same way a drag down does",
+        asDrag(gestureFor(down, "trackpad")).y === 1,
+        "dy " + gestureFor(down, "trackpad").dy.toFixed(5));
+  check("and so does a shift-swipe down",
+        asDrag(gestureFor({ ...down, shiftKey: true }, "trackpad")).y === 1,
+        "dy " + gestureFor({ ...down, shiftKey: true }, "trackpad").dy);
+  //! Fingers right the pad, reported as a positive deltaX - confirmed correct
+  //! on a real trackpad before any of this was changed.
+  const right = { deltaX: 10, deltaY: 0, deltaMode: 0 };
+  check("a swipe right turns the same way a drag right does",
+        asDrag(gestureFor(right, "trackpad")).x === 1,
+        "dx " + gestureFor(right, "trackpad").dx.toFixed(5));
+  check("and so does a shift-swipe right",
+        asDrag(gestureFor({ ...right, shiftKey: true }, "trackpad")).x === 1,
+        "dx " + gestureFor({ ...right, shiftKey: true }, "trackpad").dx);
+  //! AND THE TWO GESTURES AGREE WITH EACH OTHER, which is the check that
+  //! would have caught the real fault: the orbit and the pan deriving their
+  //! axes separately.
+  for (const [name, one] of [["down", down], ["right", right]]) {
+    const o = asDrag(gestureFor(one, "trackpad"));
+    const q = asDrag(gestureFor({ ...one, shiftKey: true }, "trackpad"));
+    check("the orbit and the pan agree about " + name,
+          o.x === q.x && o.y === q.y,
+          "orbit " + JSON.stringify(o) + " pan " + JSON.stringify(q));
+  }
   //! A PINCH ZOOMS.
   const pinch = gestureFor({ deltaX: 0, deltaY: 100, deltaMode: 0, ctrlKey: true },
                            "trackpad");
@@ -211,7 +249,7 @@ console.log("\n6. natural direction inverts the orbit and nothing else");
   const pan = gestureFor({ ...swipe, shiftKey: true }, "trackpad", true);
   const panPlain = gestureFor({ ...swipe, shiftKey: true }, "trackpad", false);
   check("the pan is unaffected", near(pan.dx, panPlain.dx) && near(pan.dy, panPlain.dy),
-        pan.dx + " either way);".replace(");", ""));
+        pan.dx + " either way");
   const zoom = gestureFor({ deltaY: 40, deltaMode: 0, ctrlKey: true }, "trackpad", true);
   const zoomPlain = gestureFor({ deltaY: 40, deltaMode: 0, ctrlKey: true }, "trackpad", false);
   check("and so is the zoom", near(zoom.scale, zoomPlain.scale),

@@ -106,6 +106,27 @@ log("\n2. a trackpad swipe orbits");
         Math.abs((was.yaw - now.yaw) - 8 * 6.25 * 0.0026) < 1e-6,
         "turned " + (was.yaw - now.yaw).toFixed(6) + ", expected "
           + (8 * 6.25 * 0.0026).toFixed(6));
+  //! AND THE RIGHT WAY ROUND, which this drive did not check and should have.
+  //! It measured the MAGNITUDE of the turn and was satisfied, so it passed on
+  //! a vertical axis that was inverted - reported from a real trackpad as
+  //! "when you drag down it moves up". A rate with no direction in it is half
+  //! a measurement.
+  //!
+  //! Fingers down the pad arrive as a NEGATIVE deltaY on macOS, and a pointer
+  //! dragged down raises the pitch - so a swipe down must raise it too.
+  const before = await camera();
+  await wheel({ deltaX: 0, deltaY: -10 }, 4, 8);
+  const tilted = await camera();
+  check("swiping down tilts the way dragging down does",
+        tilted.pitch > before.pitch,
+        "pitch " + before.pitch + " -> " + tilted.pitch);
+  //! Fingers right arrive as a positive deltaX, and a pointer dragged right
+  //! lowers the yaw - confirmed correct on a real trackpad before the fix.
+  const side = await camera();
+  await wheel({ deltaX: 10, deltaY: 0 }, 4, 8);
+  const turned = await camera();
+  check("and swiping right turns the way dragging right does",
+        turned.yaw < side.yaw, "yaw " + side.yaw + " -> " + turned.yaw);
   //! AND IT DID NOT ALSO ZOOM, which is the thing that would make a swipe
   //! unusable without being obviously wrong.
   check("the distance did not change", now.distance === was.distance,
@@ -121,6 +142,19 @@ log("\n3. shift and a swipe pans");
   const now = await camera();
   check("the target moved", now.target.join() !== was.target.join(),
         was.target.join() + " -> " + now.target.join());
+  //! AND THE PAN AGREES WITH THE ORBIT about which way is which. The two used
+  //! to derive their axes separately - the orbit took deltaX as it came, the
+  //! pan negated it - so sideways meant two different things and fixing one
+  //! would have left the other wrong in the opposite direction.
+  const pre = await camera();
+  await wheel({ deltaX: 10, deltaY: -10, shiftKey: true }, 4, 8);
+  const panned = await camera();
+  const moved = [0, 1, 2].map(i => panned.target[i] - pre.target[i]);
+  check("a shift-swipe down and right moves the target, not the camera",
+        moved.some(v => Math.abs(v) > 1e-6)
+        && panned.yaw === pre.yaw && panned.pitch === pre.pitch,
+        "target by " + moved.map(v => v.toFixed(2)).join(",")
+          + ", yaw " + (panned.yaw - pre.yaw));
   check("and the camera did not turn",
         now.yaw === was.yaw && now.pitch === was.pitch,
         "yaw " + (now.yaw - was.yaw) + ", pitch " + (now.pitch - was.pitch));
@@ -180,10 +214,17 @@ log("\n5. and the preference overrules the guess");
         after.pitch !== forced.pitch && after.distance === forced.distance,
         "pitch " + forced.pitch + " -> " + after.pitch
           + ", distance held at " + after.distance);
+  //! THE EXPECTATION CARRIES PAD_Y, because a notch's deltaY goes through the
+  //! same axis convention a swipe does: 100 reported becomes -100 of
+  //! finger-equivalent movement. Written out as -1 rather than left implicit,
+  //! so that the number here and the constant in the module are visibly the
+  //! same decision - this check failed with "tilted -0.520000, expected
+  //! 0.520000" when the module was corrected and the drive was not.
+  const PAD_Y = -1;
   check("by the trackpad rate, not the wheel's",
-        Math.abs((after.pitch - forced.pitch) - 2 * 100 * 0.0026) < 1e-6,
+        Math.abs((after.pitch - forced.pitch) - 2 * 100 * 0.0026 * PAD_Y) < 1e-6,
         "tilted " + (after.pitch - forced.pitch).toFixed(6) + ", expected "
-          + (2 * 100 * 0.0026).toFixed(6));
+          + (2 * 100 * 0.0026 * PAD_Y).toFixed(6));
   await page.evaluate(() => window.__cad.pointerWant("auto"));
 }
 

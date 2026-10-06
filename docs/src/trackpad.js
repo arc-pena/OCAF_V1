@@ -144,6 +144,13 @@ export const TRACKPAD_ZOOM = 0.01;
 //! a notch. Kept here so both devices' zoom is one table rather than two.
 export const WHEEL_ZOOM = 0.12;
 
+//! WHICH WAY EACH REPORTED AXIS RUNS, against a pointer dragged the same way.
+//! Separate constants rather than one "invert" flag because they are not the
+//! same answer - which is the whole finding above - and named here so that the
+//! next person with a different trackpad has one obvious place to look.
+export const PAD_X = 1;    // deltaX already matches a drag
+export const PAD_Y = -1;   // deltaY arrives reversed
+
 //! \p event the wheel event, as data
 //! \p kind "trackpad" | "mouse" | "unknown"
 //! \p natural true to invert the orbit direction, as Blender's "Natural
@@ -179,18 +186,39 @@ export function gestureFor(event, kind, natural = false) {
   if (event.metaKey)
     return { how: "zoom", dx: 0, dy: py, scale: Math.exp(py * TRACKPAD_ZOOM) };
 
+  //! AS IF A POINTER HAD BEEN DRAGGED THIS FAR, worked out ONCE and used by
+  //! every gesture below.
+  //!
+  //! Reported from a real Mac trackpad, which is the first measurement this
+  //! module has had from one: left and right already matched a drag, up and
+  //! down did not - "when you drag down it moves up". So deltaX arrives with
+  //! the same sign as a pointer moving the same way and deltaY arrives
+  //! reversed, which is macOS applying its natural-scrolling convention to
+  //! the vertical axis only.
+  //!
+  //! THE WORSE FAULT THAT FINDING EXPOSED. The orbit and the pan used to
+  //! derive their axes separately - the orbit took deltaX as it came, the pan
+  //! negated it - so the two gestures disagreed about which way sideways was,
+  //! and correcting one would have left the other wrong in the opposite
+  //! direction. One pair of numbers now, so they cannot drift apart: whatever
+  //! is true of the orbit's axes is true of the pan's by construction.
+  const fx = px * PAD_X;
+  const fy = py * PAD_Y;
+
   //! SHIFT PANS. Blender's mapping, and the one every macOS application that
-  //! has a canvas in it uses.
+  //! has a canvas in it uses. Handed the finger-equivalent deltas exactly as
+  //! the pointer drag hands pan() its own, so the viewport needs no second
+  //! opinion about signs.
   if (event.shiftKey)
-    return { how: "pan", dx: -px * TRACKPAD_PAN, dy: py * TRACKPAD_PAN, scale: 1 };
+    return { how: "pan", dx: fx * TRACKPAD_PAN, dy: fy * TRACKPAD_PAN, scale: 1 };
 
   //! AND A BARE SWIPE ORBITS, which is the whole point: on a trackpad the
   //! commonest thing to want is to turn the model over, and on every other
   //! web page a bare swipe scrolls - so this is the one mapping that has to be
   //! got right or the viewport feels like a document.
   const turn = natural ? -1 : 1;
-  return { how: "orbit", dx: px * TRACKPAD_ORBIT * turn,
-           dy: py * TRACKPAD_ORBIT * turn, scale: 1 };
+  return { how: "orbit", dx: fx * TRACKPAD_ORBIT * turn,
+           dy: fy * TRACKPAD_ORBIT * turn, scale: 1 };
 }
 
 /* ------------------------------------------------------------ the platform
