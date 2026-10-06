@@ -27,7 +27,8 @@ import "../src/unistrut-plugin.js";
 import { SAMPLES } from "../src/ocaf.js";
 import { readFileSync, readdirSync } from "fs";
 
-const WASM_DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+const WASM_DIR = process.env.OCJS_DIR
+  || new URL("../.kernel/package/dist", import.meta.url).pathname;
 const initModule = (await import(WASM_DIR + "/replicad_single.js")).default;
 
 let failures = 0;

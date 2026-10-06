@@ -63,6 +63,7 @@ import { NANO } from "./nano-plugin.js";
 //! The mask's palette, from the pure module, so the colour a region is given
 //! and the colour the prompt names come from one function.
 import { maskColour } from "./nano.js";
+import { classifyWheel, gestureFor, looksLikeMac, newPointerMemory } from "./trackpad.js";
 import { DRAW_LAYERS, assembleDrawing, includedIn, layerPen, penRecord, readExclusions,
          toggleExclusion, writeExclusions } from "./drawings.js";
 import { FORMATS, IMPORT_CHUNK, SNIFF_BYTES, countObjParts, formatFor, isBinaryStl,
@@ -1080,12 +1081,32 @@ function measureScene() {
       settleThrough();
       return;
     }
+    //! WHAT KIND OF DEVICE SENT THIS. Classified on every event, because the
+    //! answer is cumulative and because somebody can plug a mouse in halfway
+    //! through an afternoon. The preference overrules it; see pointerKind.
+    classifyWheel(event, pointerMemory);
+    const move = gestureFor(event, pointerKind(), naturalTrackpad);
+
+    if (move.how === "orbit") {
+      //! THE SAME TWO LINES THE POINTER DRAG USES, with the radians worked
+      //! out in trackpad.js rather than here - so a swipe and a drag cannot
+      //! come to disagree about which way is up.
+      view.yaw -= move.dx;
+      view.pitch = Math.max(-1.53, Math.min(1.53, view.pitch + move.dy));
+      placeCamera(); draw();
+      return;
+    }
+    if (move.how === "pan") {
+      pan(move.dx, move.dy);
+      placeCamera(); draw();
+      return;
+    }
     // Measured against how big the scene is. Fixed stops at 20 and 8000 mm meant
     // a thirty-metre building could not be pulled back far enough to be seen,
     // and one turn of the wheel undid a fit.
     const span = Math.max(view.span, 1);
     view.distance = Math.max(span * 0.02, Math.min(span * 40,
-      view.distance * (1 + Math.sign(event.deltaY) * 0.12)));
+      view.distance * move.scale));
     if (meshEdit.gizmo) refreshMeshEdit();
     // The widget is drawn at a size measured against the camera distance, so
     // it has to be rebuilt when that changes or it grows as you pull back.
@@ -5326,6 +5347,42 @@ const gizmo = {
 //! before it exists.
 let altToOrbit = true;
 
+/* ------------------------------------------------- a trackpad, as Blender has it
+
+   On a trackpad the commonest thing to want in a 3D view is to turn the model
+   over, and on every other web page a two-finger swipe scrolls. So a viewport
+   that treats a swipe as a zoom feels like a document with a picture in it.
+   Blender's answer on macOS, which is the one asked for here:
+
+     two-finger swipe          orbit
+     Shift + two-finger swipe  pan
+     pinch                     zoom
+
+   WHICH DEVICE IT IS cannot be asked. It is inferred from the shape of the
+   wheel events - see trackpad.js, where the inference lives and is tested -
+   and the inference can be overruled, because a heuristic about somebody
+   else's hardware will be wrong for somebody and a Mac with a mouse plugged
+   into it must not get a trackpad's sensitivity. Three states: work it out,
+   always, never.                                                            */
+
+const POINTERS = ["auto", "trackpad", "mouse"];
+const POINTER_SAID = {
+  auto: "work it out from how the events arrive",
+  trackpad: "always: swipe orbits, shift pans, pinch zooms",
+  mouse: "never: the wheel is a zoom, as it has always been",
+};
+let pointerWant = "auto";
+let naturalTrackpad = false;
+const pointerMemory = newPointerMemory();
+
+//! What the wheel is being treated as, right now. The preference wins; the
+//! inference only answers when it has been asked to.
+function pointerKind() {
+  if (pointerWant !== "auto") return pointerWant;
+  return pointerMemory.kind;
+}
+
+
 const gizmoOn = () => !!(gizmo.mode && gizmo.group);
 
 //! How big the widget is, in the model's units: a share of how far away the
@@ -9553,6 +9610,36 @@ function openDocMenu() {
         ? "Alt and the left button tumbles, the middle tracks, the right dollies"
         : "drag to orbit · the widgets take the button where they are");
     }).classList.add("on");
+
+  //! HOW A TRACKPAD IS TREATED. Three states rather than a switch, because
+  //! "work it out" is right almost always and the two overrides are for the
+  //! cases where it is not: a Mac with a mouse in it, and a trackpad whose
+  //! events this page guesses wrongly about. Cycled from one item so the menu
+  //! stays one line long.
+  menuItem("Trackpad: " + pointerWant,
+    POINTER_SAID[pointerWant] + (pointerWant === "auto"
+      ? " \u00b7 now reading as " + (pointerMemory.kind === "unknown"
+          ? "nothing yet" : pointerMemory.kind) : ""),
+    () => {
+      pointerWant = POINTERS[(POINTERS.indexOf(pointerWant) + 1) % POINTERS.length];
+      remember("ocafcad/pointer", pointerWant);
+      say("trackpad: " + pointerWant + " \u2014 " + POINTER_SAID[pointerWant]);
+    }).classList.add("on");
+  //! AND WHICH WAY A SWIPE TURNS IT, which is Blender's own preference under
+  //! Blender's own name. There is no right answer: half of everybody expects
+  //! the model to follow the fingers and half expects the camera to.
+  if (pointerKind() === "trackpad")
+    menuItem(naturalTrackpad ? "Natural trackpad direction"
+                             : "Standard trackpad direction",
+      naturalTrackpad ? "the model follows the fingers"
+                      : "the camera follows the fingers",
+      () => {
+        naturalTrackpad = !naturalTrackpad;
+        remember("ocafcad/natural-trackpad", naturalTrackpad ? "on" : "off");
+        say(naturalTrackpad ? "a swipe turns the model with your fingers"
+                            : "a swipe turns the camera, not the model");
+      }).classList.add("on");
+
   //! THE ONE ANSWER TO "WHERE DID THE PANEL GO". Every cross says its own way
   //! back on hover, and a person who shut three of them a week ago should not
   //! have to remember three letters. Offered only when something is away, so
@@ -14487,6 +14574,16 @@ globalThis.__cad = {
   //! control at opacity 0 is still found by querySelector and still looks
   //! right to anything that does not measure it.
   bareNow: on => setBare(on),
+  //! WHAT THE WHEEL IS BEING TREATED AS, and the way to overrule it. There is
+  //! no API for "is this a trackpad", so the answer is inferred from the shape
+  //! of the events - which means it can be wrong, and a drive has to be able
+  //! to ask what it decided rather than infer it from the camera moving.
+  pointerKind: () => pointerKind(),
+  pointerWant: want => {
+    if (POINTERS.includes(want)) pointerWant = want;
+    return pointerWant;
+  },
+  natural: on => { naturalTrackpad = !!on; return naturalTrackpad; },
   //! HIDING, THE WAY THE EYE IN THE TREE DOES IT. There are two different
   //! things a drive can mean by "hide" and they are not interchangeable: the
   //! `shown` edit is about a body an operation SWALLOWED and will not hide
@@ -17544,6 +17641,21 @@ addEventListener("keyup", event => {
     if (one) shut.add(one);
   setTreeText(Number(recall("ocafcad/tree-text")) || 1);
   altToOrbit = recall("ocafcad/altnav") !== "off";
+  //! THE DEFAULT IS "WORK IT OUT", on every platform. The Mac check only
+  //! decides whether to say anything about it on the status line - the
+  //! classifier does not need to be told what machine it is on, and a Windows
+  //! laptop's trackpad deserves the same treatment.
+  {
+    const kept = recall("ocafcad/pointer");
+    if (POINTERS.includes(kept)) pointerWant = kept;
+    naturalTrackpad = recall("ocafcad/natural-trackpad") === "on";
+    if (pointerWant === "auto" && looksLikeMac(navigator))
+      //! SAID ONCE, because a person on a Mac who has never used this page
+      //! will try a two-finger swipe within the first minute and should know
+      //! what it did before they conclude it is broken.
+      setTimeout(() => say("trackpad: swipe to orbit, shift to pan, pinch to zoom "
+        + "\u00b7 Space \u2192 Viewport to change it"), 2200);
+  }
   lensKeepsFraming = recall("ocafcad/lens-frame") !== "off";
   if (recall("ocafcad/tree") === "off") treePanel.hidden = true;
   // A stowed rail survives a reload too: where somebody wants the room is a

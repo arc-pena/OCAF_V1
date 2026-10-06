@@ -406,7 +406,8 @@ console.log("\n12. and the model it writes actually BUILDS");
   //! in a browser showed a red node. So the fixtures are built here, against a
   //! real kernel, and a node in error fails this suite.
   const { createWasmKernel } = await import("../src/wasm-kernel.js");
-  const WASM = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+  const WASM = process.env.OCJS_DIR
+    || new URL("../.kernel/package/dist", import.meta.url).pathname;
   const initModule = (await import(WASM + "/replicad_single.js")).default;
   const kernel = await createWasmKernel({
     initModule, wasmBinary: readFileSync(WASM + "/replicad_single.wasm") });

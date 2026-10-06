@@ -15,7 +15,8 @@ import { SKETCH_TYPES, bsplinePoints, readSketch, shownDrawing, sketchEnds, sket
 import { formatFor, whyNot } from "../src/exchange.js";
 import { readFileSync } from "fs";
 
-const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+const DIR = process.env.OCJS_DIR
+  || new URL("../.kernel/package/dist", import.meta.url).pathname;
 const init = (await import(DIR + "/replicad_single.js")).default;
 let failures = 0;
 const check = (name, ok, detail = "") => {

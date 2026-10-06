@@ -107,7 +107,8 @@ const plan = instantiateEdits(FILE, "GS", { spec, taken: new Set(["PT"]) });
 
 console.log("\n4. and it really runs, against a real kernel");
 {
-  const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+  const DIR = process.env.OCJS_DIR
+    || new URL("../.kernel/package/dist", import.meta.url).pathname;
   const init = (await import(DIR + "/replicad_single.js")).default;
   const kernel = await createWasmKernel({ initModule: init,
                                           wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });
@@ -223,7 +224,8 @@ console.log("\n5. a real file, with a sketch in the set");
         "" + (sketches[0].drawing.constraints || []).length);
 
   // And it really lands: run it, and ask the kernel how much sketch there is.
-  const DIR2 = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+  const DIR2 = process.env.OCJS_DIR
+    || new URL("../.kernel/package/dist", import.meta.url).pathname;
   const init2 = (await import(DIR2 + "/replicad_single.js")).default;
   const k2 = await createWasmKernel({ initModule: init2,
                                       wasmBinary: readFileSync(DIR2 + "/replicad_single.wasm") });

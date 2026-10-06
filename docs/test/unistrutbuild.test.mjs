@@ -18,7 +18,8 @@ import { BEND_RADIUS, channelByKey, holeStations, patternByKey, pickHoles, strip
   from "../src/unistrut.js";
 import { readFileSync } from "fs";
 
-const WASM = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+const WASM = process.env.OCJS_DIR
+  || new URL("../.kernel/package/dist", import.meta.url).pathname;
 const initModule = (await import(WASM + "/replicad_single.js")).default;
 
 let failures = 0;

@@ -147,7 +147,8 @@ console.log("\n3. the letterbox, and what falls inside it");
 
 console.log("\n4. and it is a node, in the tree, like anything else");
 {
-  const DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+  const DIR = process.env.OCJS_DIR
+    || new URL("../.kernel/package/dist", import.meta.url).pathname;
   const init = (await import(DIR + "/replicad_single.js")).default;
   const kernel = await createWasmKernel({ initModule: init,
                                           wasmBinary: readFileSync(DIR + "/replicad_single.wasm") });

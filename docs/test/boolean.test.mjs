@@ -39,7 +39,8 @@
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { readFileSync } from "fs";
 
-const WASM_DIR = process.env.OCJS_DIR || "/tmp/oc/rep/package/dist";
+const WASM_DIR = process.env.OCJS_DIR
+  || new URL("../.kernel/package/dist", import.meta.url).pathname;
 const initModule = (await import(WASM_DIR + "/replicad_single.js")).default;
 
 let failures = 0;

@@ -123,6 +123,11 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # switched on from the start: a model saved with it loaded is the
            # same file as one saved without it.
            "nano.js", "nano-plugin.js",
+           # trackpad tells a trackpad from a wheel and says what a swipe on
+           # one means - no DOM, no kernel, no three.js, just wheel events as
+           # data - so the viewport does the moving and the deciding is
+           # testable without a trackpad to test it on.
+           "trackpad.js",
            # ifc reads sections and the model language and nothing else; its
            # package is the one hook that teaches the page an extension.
            "ifc.js", "ifc-plugin.js",
