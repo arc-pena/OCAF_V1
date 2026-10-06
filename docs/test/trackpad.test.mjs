@@ -164,19 +164,24 @@ console.log("\n4. the gestures are Blender's");
   //! pitch - so a swipe down must also come out positive or the view tilts
   //! the wrong way.
   check("a swipe down tilts the same way a drag down does",
-        asDrag(gestureFor(down, "trackpad")).y === 1,
+        asDrag(gestureFor(down, "trackpad")).y === 1,   // -10 reported, PAD_Y flips it
         "dy " + gestureFor(down, "trackpad").dy.toFixed(5));
   check("and so does a shift-swipe down",
         asDrag(gestureFor({ ...down, shiftKey: true }, "trackpad")).y === 1,
         "dy " + gestureFor({ ...down, shiftKey: true }, "trackpad").dy);
   //! Fingers right the pad, reported as a positive deltaX - confirmed correct
   //! on a real trackpad before any of this was changed.
+  //! Fingers right the pad arrive as a POSITIVE deltaX and must come out
+  //! negative, the same as the vertical: macOS reverses both axes. The first
+  //! version of this check asserted positive, because the first report from a
+  //! real trackpad said the horizontal was correct - which it was not; it had
+  //! been judged on diagonal swipes while the vertical was still inverted.
   const right = { deltaX: 10, deltaY: 0, deltaMode: 0 };
   check("a swipe right turns the same way a drag right does",
-        asDrag(gestureFor(right, "trackpad")).x === 1,
+        Math.sign(gestureFor(right, "trackpad").dx) === PAD_X,
         "dx " + gestureFor(right, "trackpad").dx.toFixed(5));
   check("and so does a shift-swipe right",
-        asDrag(gestureFor({ ...right, shiftKey: true }, "trackpad")).x === 1,
+        Math.sign(gestureFor({ ...right, shiftKey: true }, "trackpad").dx) === PAD_X,
         "dx " + gestureFor({ ...right, shiftKey: true }, "trackpad").dx);
   //! AND THE TWO GESTURES AGREE WITH EACH OTHER, which is the check that
   //! would have caught the real fault: the orbit and the pan deriving their

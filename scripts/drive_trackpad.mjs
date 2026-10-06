@@ -102,10 +102,20 @@ log("\n2. a trackpad swipe orbits");
         was.pitch + " -> " + now.pitch);
   //! THE ARITHMETIC. Eight events of 6.25 at 0.0026 radians per unit is
   //! 8 x 6.25 x 0.0026 = 0.13 radians, subtracted from the yaw.
+  //! THE EXPECTATION CARRIES THE AXIS CONSTANTS. Twice now this check has
+  //! failed on a correct fix because it held a bare number: once when PAD_Y
+  //! was corrected and once when PAD_X was. The magnitude was exact both
+  //! times. A rate written without the convention it depends on is a check
+  //! that has to be edited every time the convention is right.
+  const PAD_X = -1, PAD_Y = -1;
+  const wanted = 8 * 6.25 * 0.0026 * PAD_X;
   check("by the published rate, to the radian",
-        Math.abs((was.yaw - now.yaw) - 8 * 6.25 * 0.0026) < 1e-6,
-        "turned " + (was.yaw - now.yaw).toFixed(6) + ", expected "
-          + (8 * 6.25 * 0.0026).toFixed(6));
+        Math.abs((was.yaw - now.yaw) - wanted) < 1e-6,
+        "turned " + (was.yaw - now.yaw).toFixed(6) + ", expected " + wanted.toFixed(6));
+  check("and the pitch by the same rate on its own axis",
+        Math.abs((now.pitch - was.pitch) - 8 * -4.5 * 0.0026 * PAD_Y) < 1e-6,
+        "tilted " + (now.pitch - was.pitch).toFixed(6) + ", expected "
+          + (8 * -4.5 * 0.0026 * PAD_Y).toFixed(6));
   //! AND THE RIGHT WAY ROUND, which this drive did not check and should have.
   //! It measured the MAGNITUDE of the turn and was satisfied, so it passed on
   //! a vertical axis that was inverted - reported from a real trackpad as
@@ -125,8 +135,14 @@ log("\n2. a trackpad swipe orbits");
   const side = await camera();
   await wheel({ deltaX: 10, deltaY: 0 }, 4, 8);
   const turned = await camera();
+  //! BOTH AXES REVERSED, so a positive deltaX becomes negative finger motion
+  //! and the viewport's `yaw -= dx` therefore RAISES the yaw. The expectation
+  //! carries the constant rather than a bare sign, so the drive and the module
+  //! are visibly the same decision.
   check("and swiping right turns the way dragging right does",
-        turned.yaw < side.yaw, "yaw " + side.yaw + " -> " + turned.yaw);
+        turned.yaw > side.yaw, "yaw " + side.yaw + " -> " + turned.yaw);
+  check("while the vertical is left exactly where it was",
+        turned.pitch === side.pitch, "pitch held at " + turned.pitch);
   //! AND IT DID NOT ALSO ZOOM, which is the thing that would make a swipe
   //! unusable without being obviously wrong.
   check("the distance did not change", now.distance === was.distance,

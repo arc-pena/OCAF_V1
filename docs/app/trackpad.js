@@ -148,8 +148,23 @@ export const WHEEL_ZOOM = 0.12;
 //! Separate constants rather than one "invert" flag because they are not the
 //! same answer - which is the whole finding above - and named here so that the
 //! next person with a different trackpad has one obvious place to look.
-export const PAD_X = 1;    // deltaX already matches a drag
-export const PAD_Y = -1;   // deltaY arrives reversed
+//! BOTH AXES ARE REVERSED against a pointer dragged the same way, which is
+//! macOS's natural-scrolling convention applied to the whole trackpad rather
+//! than to the vertical only.
+//!
+//! It took two reports to establish, and the first one was wrong in a way
+//! worth recording: with the vertical inverted, "left and right is correct"
+//! was judged on diagonal swipes whose vertical component was fighting the
+//! hand - so the horizontal read as right when it was not. Only once the
+//! vertical was fixed could the horizontal be judged on its own, and then it
+//! was plainly inverted too.
+//!
+//! The lesson is in the shape of the fix rather than the value: two
+//! constants, one per axis, so that correcting one cannot move the other.
+//! Had this been a single "invert" flag, the second report would have
+//! un-fixed the first.
+export const PAD_X = -1;   // deltaX arrives reversed
+export const PAD_Y = -1;   // and so does deltaY
 
 //! \p event the wheel event, as data
 //! \p kind "trackpad" | "mouse" | "unknown"
