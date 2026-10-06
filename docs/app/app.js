@@ -1820,6 +1820,109 @@ let hardEdgeTally = { drawn: 0, left: 0 };
    thing applied to all of them. A ribbon now cannot exist in the scene, for
    even one frame, without knowing what it is being drawn into.             */
 
+/* ------------------------------------------------ the glow along a line
+
+   A LINE CANNOT GLOW, and that is not a metaphor: WebGL draws every line one
+   pixel wide whatever the material asks for, and `linewidth` has been ignored
+   by every browser for years. So the highlight on a curve was a colour change
+   on a single antialiased pixel.
+
+   Measured, because the report was "selection or highlighting in curves and
+   sketches are not working" and that is a different fault from what was
+   actually there: selecting a circle moved its line material from #12775B to
+   #0A6CB0, exactly as written, and the rendered picture did not change by ONE
+   flat pixel - the count of colours present when selected and absent when not
+   was nought. Selection was working perfectly and was invisible, which from
+   the outside is indistinguishable from broken.
+
+   So a lit line gets a RIBBON over it: a mesh, which can be any width, built
+   by the same edgeRibbon the arctic overlay uses and drawn by the same
+   screen-space shader. The width is in pixels, so it reads the same at any
+   zoom, and one helper serves both callers - a curve feature in the viewport
+   and a picked element in the sketcher - because they had the same fault for
+   the same reason.                                                          */
+
+//! IN PIXELS, and chosen to be unmistakable rather than tasteful: the whole
+//! complaint was that the old answer could not be seen. Selected is wider than
+//! hovered so that the two are told apart at a glance and not only by hue.
+const GLOW_WIDTH = { selected: 7.5, hover: 5.5 };
+const GLOW_FADE = { selected: 0.9, hover: 0.65 };
+
+//! Segment pairs from a run of points, which is the flat six-numbers-a-segment
+//! array edgeRibbon wants - a polyline is that array with every interior point
+//! written twice.
+function pathSegments(points) {
+  const runs = Math.max(0, points.length - 1);
+  const out = new Float32Array(runs * 6);
+  for (let i = 0; i < runs; i++) {
+    const a = points[i], b = points[i + 1];
+    out[i * 6] = a.x; out[i * 6 + 1] = a.y; out[i * 6 + 2] = a.z;
+    out[i * 6 + 3] = b.x; out[i * 6 + 4] = b.y; out[i * 6 + 5] = b.z;
+  }
+  return out;
+}
+
+//! \p positions segment pairs, flat
+//! \p how "selected" | "hover"
+function glowRibbon(positions, colour, how, { depthTest = true } = {}) {
+  const geometry = edgeRibbon(THREE, positions);
+  if (!geometry) return null;
+  const material = hardEdgeMaterial(THREE, {
+    width: GLOW_WIDTH[how] || GLOW_WIDTH.hover,
+    ink: colour.getHex(),
+    opacity: GLOW_FADE[how] || GLOW_FADE.hover,
+  });
+  material.depthTest = depthTest;
+  const mesh = new THREE.Mesh(geometry, material);
+  //! THE ARCTIC OVERLAY'S OWN FLAG, reused rather than invented. Six separate
+  //! walks over a group's children already skip anything marked hardEdge - the
+  //! style walk would paint clay on this, the section walk would make stencil
+  //! copies of it, the appearance walk would give it a finish, the mask walk
+  //! would colour it as an object. A new flag would have to be added to all
+  //! six and the one that was missed would be a bug nobody could place.
+  mesh.userData.hardEdge = true;
+  mesh.userData.glow = true;
+  mesh.renderOrder = 8;
+  //! A ribbon is built around the line in screen space, so its bounding
+  //! volume is not where its triangles end up.
+  mesh.frustumCulled = false;
+  dressGlow(mesh);
+  return mesh;
+}
+
+//! The size of the picture it is drawn into, which the shader needs in pixels
+//! to make a width in pixels mean anything. Set where the ribbon is MADE for
+//! the same reason dressRibbon does it: one that reaches the scene without
+//! knowing the viewport renders as a smear.
+function dressGlow(mesh, size) {
+  const into = size || renderer.getDrawingBufferSize(new THREE.Vector2());
+  mesh.material.uniforms.screen.value.set(into.x, into.y);
+}
+
+//! THE GLOW ON ONE FEATURE'S LINES, kept on its group so that it is thrown
+//! away when the shape is rebuilt and found again when only the highlight
+//! changed. \p how null to put it away.
+function syncGlow(group, lines, how, colour) {
+  let glow = group.children.find(one => one.userData && one.userData.glow);
+  if (!how) {
+    if (glow) glow.visible = false;
+    return;
+  }
+  if (!glow) {
+    const held = lines && lines.geometry && lines.geometry.attributes.position;
+    if (!held) return;
+    glow = glowRibbon(held.array, colour, how);
+    if (!glow) return;
+    group.add(glow);
+  }
+  glow.visible = true;
+  glow.material.uniforms.width.value = GLOW_WIDTH[how];
+  glow.material.uniforms.opacity.value = GLOW_FADE[how];
+  glow.material.transparent = true;
+  glow.material.uniforms.ink.value.copy(colour);
+  dressGlow(glow);
+}
+
 function dressRibbon(ribbon, size) {
   const into = size || renderer.getDrawingBufferSize(new THREE.Vector2());
   ribbon.material.uniforms.width.value = Math.max(0.25, arcticLook.line);
@@ -2621,6 +2724,33 @@ function groupFromStream(mesh, entry) {
     lines.userData.outline = true;
     lines.visible = showsEdges(entry);
     group.add(lines);
+    //! A CURVE IS A THING YOU CLICK ON, and it was not offered to the ray at
+    //! all.
+    //!
+    //! Only the solid mesh above was ever pushed into the pick list, and a
+    //! curve feature has no mesh - it IS these lines. So a circle, a spline, a
+    //! polyline could be seen, named in the tree, wired into other features,
+    //! and never hovered or clicked in the viewport. Measured: aiming at the
+    //! projected position of a circle's own vertex returned null.
+    //!
+    //! That is the half of "selection or highlighting in curves is not
+    //! working" that really was not working. The other half - the highlight
+    //! itself - was working and invisible, which is why the report could not
+    //! tell them apart.
+    //!
+    //! A SOLID'S EDGES ARE NOT ADDED, and that is the whole of the condition:
+    //! they would compete with the body for every click, so a face would
+    //! become unpickable anywhere near its own outline, and sub-shape picking
+    //! already has its own list for choosing an edge deliberately.
+    if (entry && entry.produces === "curve") {
+      //! THE FEATURE'S ID IF THE STREAM HAS NONE. A curve's stream carries
+      //! edges and no `id` - the field is on the streams that carry triangles -
+      //! so `mesh.id` was undefined, the lines went into the list with no id,
+      //! and rebuildPickList (which keys on the id) dropped them again. The
+      //! dump that found it showed four LineSegments all with "id": null.
+      lines.userData.id = mesh.id || (entry && entry.id);
+      pickable.push(lines);
+    }
   }
 
   // A vertex carries no triangles, so every one is drawn as a marker. A
@@ -2744,12 +2874,27 @@ function weighModel() {
 //! first drawn and stopped being so the moment anything else in the document
 //! changed and the list was rebuilt without it. The test for it was
 //! `isMesh`, which a mark is not.
+//!
+//! AND IT HAPPENED AGAIN, to a curve, in exactly the way the paragraph above
+//! describes. Curves were added to the list where they are built; a
+//! LineSegments is neither a Mesh nor a Points, so the first rebuild of the
+//! list dropped every one of them - and a rebuild happens on any edit, so in
+//! practice a curve was never pickable at all. It took five probes to find,
+//! because the raycast hit the line when asked directly and missed when asked
+//! through the list, and only a hook that could ask both told them apart.
+//!
+//! THE DISCRIMINATOR IS THE ID, not the class. A solid's tangent edges are
+//! LineSegments too and must NOT be pickable - they would take every click
+//! near a body's outline - and they carry no id, while a curve's lines are
+//! given one where they are built precisely because they ARE the feature.
+//! So the two lists now agree by asking the same question.
 function rebuildPickList() {
   pickable.length = 0;
   for (const { group } of shapes.values())
     group.traverse(object => {
       if (object.userData.hardEdge) return;
-      if ((object.isMesh || object.isPoints) && object.userData.id) pickable.push(object);
+      if ((object.isMesh || object.isPoints || object.isLine) && object.userData.id)
+        pickable.push(object);
     });
 }
 
@@ -3155,6 +3300,13 @@ function paintSelection() {
         //! the pointer left it - so an edge was black while you hovered it and
         //! orange again a frame later.
         object.material.opacity = 1;
+        //! AND A RIBBON OVER IT, because the colour change above is one pixel
+        //! wide and was measured to change the picture by nought flat pixels.
+        //! Only for a CURVE: a solid's tangent edges lighting up would outline
+        //! the whole body in accent and bury the emissive glow that already
+        //! says it is chosen.
+        if (object.parent.userData.curve)
+          syncGlow(object.parent, object, selected ? "selected" : lit ? "hover" : null, mark);
       }
       //! AND THE MARKERS. A point cannot be tinted or outlined - it has no
       //! surface and no edges - so the whole mark is replaced: bigger and
@@ -4671,6 +4823,14 @@ function refreshSketch() {
       new THREE.LineBasicMaterial({ color: THEME.accent, depthTest: false }));
     shown.renderOrder = 7;
     group.add(shown);
+    //! AND THE SAME RIBBON THE VIEWPORT USES. A sketch element that had been
+    //! picked got an accent line drawn over it, which is one pixel wide and
+    //! therefore no more visible than the curve highlight was. depthTest off,
+    //! like everything else the sketcher draws: a sketch is worked on through
+    //! whatever is in front of it.
+    const band = glowRibbon(pathSegments(line), THEME.accent, "selected",
+                            { depthTest: false });
+    if (band) { band.renderOrder = 6; group.add(band); }
   }
 
   // The window being dragged out. Solid when it takes only what is wholly
@@ -7562,6 +7722,13 @@ const raycaster = new THREE.Raycaster();
 //! number or the two rules disagree about what a mark's reach is.
 const MARK_PIXELS = 12;
 
+//! HOW WIDE A LINE IS TO POINT AT. Narrower than a mark, because a line is a
+//! long target and a generous one would steal clicks from the faces behind it;
+//! wide enough that a one-pixel curve can be hit by a hand rather than by
+//! arithmetic. Seven is a little over the glow's own width, so anything that
+//! LOOKS lit can be clicked.
+const LINE_PIXELS = 7;
+
 //! Where a ray comes closest to an axis through a point - the whole of what
 //! dragging one arrow means.
 //! The three.js spelling of the ruler in handle.js. One sum, in one place:
@@ -7586,6 +7753,22 @@ function rayFrom(event) {
   //! building.
   const tall = Math.max(1, rect.height);
   raycaster.params.Points.threshold = view.distance * (MARK_PIXELS / tall);
+  //! AND HOW NEAR COUNTS AS ON A LINE, which was never set at all.
+  //!
+  //! three.js defaults Line.threshold to 1 WORLD unit. On a model measured in
+  //! millimetres at a camera distance of several hundred, one unit is a
+  //! fraction of a pixel - so a curve was very nearly impossible to point at,
+  //! and the sub-shape picker had its own threshold while the main ray did
+  //! not. Measured: hovering the projected position of a circle's own vertex
+  //! returned null.
+  //!
+  //! That is the half of "selection or highlighting in curves is not working"
+  //! that really was not working. The other half was working and invisible.
+  //!
+  //! The same arithmetic as the marks, and the same as pickUnder uses for
+  //! sub-shapes, so a curve, a point and an edge are all about as easy to hit
+  //! as each other and all of them scale with the view rather than the model.
+  raycaster.params.Line.threshold = view.distance * (LINE_PIXELS / tall);
   return raycaster;
 }
 
@@ -14592,6 +14775,13 @@ globalThis.__cad = {
   //! for the edit put away three points, was told it had, and measured a
   //! pointer that correctly still found them.
   hide: (id, on) => showFeature(id, on !== false ? false : true),
+  //! WHAT THE PICK WOULD FIND AT A POINT, without going through the event.
+  //! Added because a drive could not tell two very different failures apart: a
+  //! pick that does not resolve, and a synthesised PointerEvent that never
+  //! reaches the handler. The raycast and the plumbing are separate things and
+  //! a drive has to be able to ask about them separately.
+  underAt: (x, y) => idUnder(rayFrom({ clientX: x, clientY: y })),
+  hoverAt: (x, y) => { hoverFeature({ clientX: x, clientY: y }); return state.hover || null; },
   pickCount: () => pickable.length,
   hovered: () => state.hover || null,
   selected: () => state.selected || null,
