@@ -420,5 +420,52 @@ console.log("10. and it is a body like any other - it takes a boolean");
         entry.error || entry.note);
 }
 
+console.log("11. a Subdivide in front of it is read back past, not converted");
+{
+  //! THE COMPLAINT THIS ANSWERS: a cube cage with a Subdivide on it came back
+  //! as ninety-six NURBS faces. Subdividing does not change the limit surface -
+  //! section 8 measures that, to every digit - so those ninety-six describe
+  //! exactly what six describe, and six is the topology the person drew.
+  const cage2 = await mdl.run({ op: "add", type: "MeshBox", name: "Cage2" });
+  const sub = await mdl.run({ op: "add", type: "Subdivide", name: "Smoothed" });
+  await mdl.run({ op: "connect", id: sub.id, key: "mesh", from: cage2.id });
+  await mdl.run({ op: "set", id: sub.id, key: "levels", value: 2 });
+  const after = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Converted" });
+  await mdl.run({ op: "connect", id: after.id, key: "mesh", from: sub.id });
+
+  const note = (await at(after.id)).note || "";
+  check("it converts the cage, not the subdivided mesh", /\b6 NURBS patches/.test(note), note);
+  check("and says that it stepped back", /read back past 1 Subdivide to Cage2/.test(note), note);
+
+  //! And it is the SAME BODY, not merely the same count - which is the half of
+  //! this that could silently be wrong.
+  const direct = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Direct" });
+  await mdl.run({ op: "connect", id: direct.id, key: "mesh", from: cage2.id });
+  const [a, b] = [await gauge(after.id), await gauge(direct.id)];
+  check("and it is the identical body", Math.abs(a - b) < Math.abs(b) * 1e-9,
+        (a / 1e9).toFixed(7) + " vs " + (b / 1e9).toFixed(7) + " m3");
+
+  //! Asking for it the other way still works, because somebody may genuinely
+  //! want a patch per subdivided face - more patches round an extraordinary
+  //! vertex is more accuracy there.
+  await mdl.run({ op: "set", id: after.id, key: "source", value: 1 });
+  check("and taking the mesh as it arrives still gives one patch per face",
+        /^96 NURBS patches/.test((await at(after.id)).note || ""), (await at(after.id)).note);
+  await mdl.run({ op: "set", id: after.id, key: "source", value: 0 });
+
+  //! THE FAILURE THAT WOULD LOOK LIKE SUCCESS. An Edit Mesh after the Subdivide
+  //! is work done at that level - vertices pushed about on the fine cage - and
+  //! stepping past it would throw that work away and still produce a smooth,
+  //! plausible, wrong body. The walk has to stop at anything that is not a
+  //! Subdivide.
+  const edit = await mdl.run({ op: "add", type: "EditMesh", name: "Pushed" });
+  await mdl.run({ op: "connect", id: edit.id, key: "mesh", from: sub.id });
+  await mdl.run({ op: "connect", id: after.id, key: "mesh", from: edit.id });
+  const guarded = (await at(after.id)).note || "";
+  check("an Edit Mesh in the way stops the walk", !/read back past/.test(guarded), guarded);
+  check("so the edited topology is what gets converted",
+        /^96 NURBS patches/.test(guarded), guarded);
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);

@@ -4739,9 +4739,45 @@ function sprawl(face, edges) {
     },
   };
 
+  //! WHAT TO CONVERT: the cage, or whatever turned up.
+  //!
+  //! A Subdivide node in front of the converter is the ordinary way of working -
+  //! it is how you see what a cage means while you are pushing it about. But
+  //! converting what IT hands over makes four times as many patches per level
+  //! for nothing, because SUBDIVIDING DOES NOT CHANGE THE LIMIT SURFACE: it
+  //! only draws it more finely. A cube cage with two levels on it came back as
+  //! ninety-six NURBS faces where six describe the identical body, and
+  //! "identical" is measured - a regular cage gives the same volume to every
+  //! digit at every level (docs/test/limitsurface.test.mjs section 8).
+  //!
+  //! So the reference is followed back through any run of Subdivide nodes to
+  //! the cage underneath, which is also what Maya and Rhino mean by one patch
+  //! per face: the ORIGINAL face.
+  //!
+  //! ONLY THROUGH SUBDIVIDE, and only directly. An Edit Mesh between the two is
+  //! work done ON the subdivided cage - vertices pushed about at that level -
+  //! and stepping past it would silently throw that work away, which is the
+  //! worst thing this could do. The walk stops at anything else.
+  const cageBehind = f => {
+    let source = F.reference(f, "mesh"), stepped = 0, through = null;
+    if (Feature_choice(f, "source") !== 0) return { source, stepped, through };
+    while (source) {
+      const spec = F.spec(source);
+      if (!spec || spec.type !== "Subdivide") break;
+      const under = F.reference(source, "mesh");
+      if (!under) break;
+      //! The nearest Subdivide is the one whose preview is on screen, so its
+      //! answer about open edges is the one the person has been looking at.
+      if (!through) through = source;
+      source = under;
+      stepped++;
+    }
+    return { source, stepped, through };
+  };
+
   builders.MeshToNurbs = {
     precondition: f => {
-      const source = F.reference(f, "mesh");
+      const { source } = cageBehind(f);
       if (!source) return "no mesh to convert";
       const data = F.data(source);
       if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
@@ -4756,8 +4792,14 @@ function sprawl(face, edges) {
       return null;
     },
     build: f => {
-      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
-      const sharp = Feature_choice(f, "boundary") === 0;
+      const { source, stepped, through } = cageBehind(f);
+      const mesh = meshFrom(source, "mesh");
+      //! Whichever Subdivide was stepped past decides about open edges, because
+      //! the surface this produces has to be the one that node was showing. A
+      //! converter that answered that question differently from the preview in
+      //! front of it would be right and useless.
+      const sharp = through ? Feature_choice(through, "boundary") === 0
+                            : Feature_choice(f, "boundary") === 0;
       const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
       const got = limitPatches(mesh, { levels, sharpBoundary: sharp });
       if (!got.patches.length) throw new Error("that cage has no quad faces to convert");
@@ -4779,7 +4821,10 @@ function sprawl(face, edges) {
       const kink = worstKink(got.cage, got.patches, got.poles);
       return {
         shape,
-        note: faces + (faces === 1 ? " NURBS patch" : " NURBS patches")
+        note: (stepped ? "read back past " + stepped
+                 + (stepped === 1 ? " Subdivide" : " Subdivides") + " to "
+                 + F.name(source) + " \u00b7 " : "")
+          + faces + (faces === 1 ? " NURBS patch" : " NURBS patches")
           + (closed ? ", sewn into a solid"
               : ", sewn into a shell" + (rim.length ? " - the cage is open along "
                   + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))

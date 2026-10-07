@@ -2968,7 +2968,12 @@ export const CATALOGUE = [
            real("levels", "Refine first", 0, 0, 3, 1, ""),
            choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),
            real("tolerance", "Sewing tolerance", 0.01, 0.000001, 100, 0.001),
-           choice("solid", "Make", ["A solid if it closes", "A shell"], 0)] },
+           choice("solid", "Make", ["A solid if it closes", "A shell"], 0),
+           //! APPENDED, as everything here is: an argument's place in this list
+           //! IS its tag on the label, so inserting one makes every saved file
+           //! read its own settings off by one.
+           choice("source", "Convert",
+                  ["The cage behind any Subdivide", "The mesh exactly as it arrives"], 0)] },
   /* ------------------------------------------------- holding, and letting go
 
      A form-finder, as two nodes. Every other operation here answers a question

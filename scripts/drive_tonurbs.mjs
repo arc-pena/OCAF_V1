@@ -33,12 +33,17 @@ await page.waitForFunction(() => document.querySelectorAll("#tree .node").length
 
 //! Adding it IS the catalogue check: an unknown type throws by name, so a node
 //! that never reached the page cannot get past this line.
+//! The chain somebody actually builds: a cage, a Subdivide to see what it
+//! means, and the converter on the end of that. The converter has to come back
+//! with the CAGE's six faces, not the ninety-six the Subdivide handed it.
 const made = await page.evaluate(async () => {
   const cage = await window.__cad.run({ op: "add", type: "MeshBox", name: "Cage" });
+  const sub = await window.__cad.run({ op: "add", type: "Subdivide", name: "Smoothed" });
+  await window.__cad.run({ op: "connect", id: sub.id, key: "mesh", from: cage.id });
+  await window.__cad.run({ op: "set", id: sub.id, key: "levels", value: 2 });
   const smooth = await window.__cad.run({ op: "add", type: "MeshToNurbs", name: "Smooth" });
-  await window.__cad.run({ op: "connect", id: smooth.id, key: "mesh", from: cage.id });
-  await window.__cad.run({ op: "set", id: smooth.id, key: "levels", value: 1 });
-  return { cage: cage.id, smooth: smooth.id };
+  await window.__cad.run({ op: "connect", id: smooth.id, key: "mesh", from: sub.id });
+  return { cage: cage.id, smooth: smooth.id, sub: sub.id };
 });
 await page.waitForTimeout(3000);
 
@@ -50,6 +55,8 @@ log("note: " + (entry && entry.note));
 check("it built in the page", entry && entry.built && !entry.error, entry && entry.error);
 check("and the note carries the honest number",
       /out of tangent|IS the limit surface/.test((entry && entry.note) || ""));
+check("six patches - the cage's topology, not the subdivided mesh's",
+      /\b6 NURBS patches/.test((entry && entry.note) || ""), entry && entry.note);
 
 // The triangles the viewport was handed: a body that built but never reached
 // the screen is the failure that looks most like success.
@@ -76,7 +83,7 @@ const panel = await page.evaluate(id => {
   return box ? box.textContent.replace(/\s+/g, " ") : "";
 }, made.smooth);
 log("panel reads: " + panel.slice(0, 200));
-for (const label of ["Mesh", "Refine first", "Open edges", "Sewing tolerance", "Make"])
+for (const label of ["Mesh", "Refine first", "Open edges", "Sewing tolerance", "Make", "Convert"])
   check("the panel offers " + JSON.stringify(label), panel.includes(label));
 
 await page.evaluate(() => window.__cad.fit());
@@ -86,12 +93,15 @@ await page.screenshot({ path: D + "tonurbs.png" });
 // And the comparison that makes the point: the faceted conversion of the same
 // cage at the same level, side by side.
 await page.evaluate(async (ids) => {
-  await window.__cad.run({ op: "set", id: ids.smooth, key: "levels", value: 0 });
+  await window.__cad.run({ op: "set", id: ids.smooth, key: "source", value: 1 });
 }, made);
 await page.waitForTimeout(2500);
 await page.evaluate(() => window.__cad.fit());
 await page.waitForTimeout(1000);
-await page.screenshot({ path: D + "tonurbs-level0.png" });
+await page.screenshot({ path: D + "tonurbs-asarrives.png" });
+check("taking it as it arrives gives a patch per subdivided face",
+      /^96 NURBS patches/.test((await page.evaluate(id => (window.__cad.entry(id) || {}).note,
+                                                   made.smooth)) || ""));
 
 check("no page errors", errs.length === 0, errs.join(" | "));
 log(bad ? "\n" + bad + " FAILED" : "\nall good");
