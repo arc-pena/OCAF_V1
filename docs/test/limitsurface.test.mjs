@@ -14,7 +14,7 @@
 // disagrees.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
-import { catmullClark, topologyOf, pmSub, pmLen } from "../src/polymesh.js";
+import { catmullClark, topologyOf, pmAdd, pmMul, pmSub, pmLen } from "../src/polymesh.js";
 import { limitPatches, limitPoles, patchPoint, patchNormal, limitSeat, worstKink }
   from "../src/limitsurface.js";
 import { readFileSync } from "fs";
@@ -465,6 +465,138 @@ console.log("11. a Subdivide in front of it is read back past, not converted");
   check("an Edit Mesh in the way stops the walk", !/read back past/.test(guarded), guarded);
   check("so the edited topology is what gets converted",
         /^96 NURBS patches/.test(guarded), guarded);
+}
+
+console.log("12. creases: a hard one is held exactly, and that pins the corner rule");
+{
+  //! THE BILINEAR PATCH, worked out here from its own definition rather than
+  //! taken from the module under test - a flat quad written as a bicubic. The
+  //! poles of a bilinear raised to degree three sit ON the surface at the
+  //! thirds, so this is the flat quad through four cage points and nothing else.
+  const bilinear = (points, face) => {
+    const [a, b, c, d] = face.map(i => points[i]);
+    const at = (u, v) => {
+      const w = [(1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v];
+      return [0, 1, 2].map(k => a[k] * w[0] + b[k] * w[1] + c[k] * w[2] + d[k] * w[3]);
+    };
+    const poles = [];
+    for (let i = 0; i < 4; i++) {
+      poles.push([]);
+      for (let j = 0; j < 4; j++) poles[i].push(at(i / 3, j / 3));
+    }
+    return poles;
+  };
+
+  //! Crease every edge of a cube cage hard and the Catmull-Clark limit surface
+  //! IS the cube: every fold is held, every corner is held, nothing moves. So
+  //! the patches have to come out pole for pole identical to the flat quads.
+  //!
+  //! THIS IS THE CHECK THAT PINNED THE CORNER MASK DOWN. A vertex can be held
+  //! along a LINE - a crease running through it, where the surface still curves
+  //! across - or held at a POINT, where three creases meet and nothing passes
+  //! through smoothly. They take different masks, and using the line mask at a
+  //! corner left the interior poles pulled in: the body still measured the
+  //! right volume, because a planar patch is planar whatever its middle poles
+  //! are, and the faces were visibly soft.
+  const hard = { ...CUBE, points: CUBE.points.map(p => p.slice()), creases: {} };
+  for (const [key] of topologyOf(CUBE).edges) hard.creases[key] = 1;
+  const creased = limitPatches(hard, { levels: 0 });
+  let worst = 0;
+  for (const patch of creased.patches) {
+    const flat = bilinear(hard.points, CUBE.faces[patch.face]);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++)
+      worst = Math.max(worst, pmLen(pmSub(patch.poles[i][j], flat[i][j])));
+  }
+  check("every edge creased hard gives exactly the flat quads, pole for pole",
+        worst < 1e-12, "worst " + worst.toExponential(2) + " mm over "
+        + creased.patches.length + " patches");
+
+  //! AND IT IS NOT REPORTED AS AN ERROR. The note is the one thing in this node
+  //! whose whole job is to say where it is not exact, so a fold somebody asked
+  //! for must not appear in it. Creasing every edge of a cube cage makes the
+  //! surface exact everywhere, and the measurement has to agree - before this
+  //! it called that cage 87.9 degrees out of tangent.
+  const kink = worstKink(creased.cage, creased.patches, creased.poles);
+  check("and a deliberate fold is not counted as being out of tangent",
+        kink.worst === 0 && kink.edges === 0,
+        kink.edges + " edges measured, worst " + kink.worst.toFixed(4) + " deg");
+  const loose = limitPatches(CUBE, { levels: 0 });
+  check("while the same cage uncreased still is", 
+        worstKink(loose.cage, loose.patches, loose.poles).worst > 5,
+        worstKink(loose.cage, loose.patches, loose.poles).worst.toFixed(3) + " deg");
+
+  //! A VERTEX WEIGHT ON ITS OWN, nowhere near a creased edge: the patch corner
+  //! has to sit exactly on the cage vertex, because that is what a corner means
+  //! to the subdivision.
+  const tagged = { ...grid(4, 4, 1), corners: { 12: 1 } };
+  check("a vertex weight of 1 pins the patch corner onto the cage vertex",
+        pmLen(pmSub(limitPoles(tagged).corners[12], tagged.points[12])) < 1e-12);
+  const way = pmLen(pmSub(limitPoles(grid(4, 4, 1)).corners[12], tagged.points[12]));
+  const half = pmLen(pmSub(limitPoles({ ...grid(4, 4, 1), corners: { 12: 0.5 } }).corners[12],
+                           tagged.points[12]));
+  check("and half a weight lands half way there", Math.abs(half - way / 2) < 1e-9,
+        "loose " + way.toFixed(4) + " mm, half " + half.toFixed(4) + " mm");
+}
+
+console.log("13. creases set in the mesh editor reach it, with no Subdivide in between");
+{
+  //! THE CHAIN THE PERSON WANTS: a cage, the creases put on where they are
+  //! editing it, and the converter straight after. No Subdivide node anywhere.
+  const box = await mdl.run({ op: "add", type: "MeshBox", name: "Box" });
+  const edit = await mdl.run({ op: "add", type: "EditMesh", name: "Creased" });
+  await mdl.run({ op: "connect", id: edit.id, key: "mesh", from: box.id });
+  const nurbs = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Smooth" });
+  await mdl.run({ op: "connect", id: nurbs.id, key: "mesh", from: edit.id });
+  //! One level, because a bare cube cage has no regular quad in it at all and
+  //! is the worst case for the approximation - section 9 measures that it has
+  //! settled by here, so what is left to compare is the CREASES.
+  await mdl.run({ op: "set", id: nurbs.id, key: "levels", value: 1 });
+  const facets = await mdl.run({ op: "add", type: "MeshToShape", name: "Facets" });
+  await mdl.run({ op: "connect", id: facets.id, key: "mesh", from: edit.id });
+  await mdl.run({ op: "set", id: facets.id, key: "levels", value: 4 });
+
+  const loose = { nurbs: await gauge(nurbs.id), facets: await gauge(facets.id) };
+  //! Under a per cent, and what is left is the FACETED side's own error: a
+  //! level-4 polyhedron of a body this curved is about half a per cent under,
+  //! exactly as the torus in section 8 was 0.297% under at the same level. The
+  //! number to watch is not this one but the gap between it and the deaf case
+  //! at the bottom of this section.
+  const plain = Math.abs(loose.nurbs - loose.facets) / loose.nurbs;
+  check("with no creases the two nodes already agree", plain < 0.01,
+        (plain * 100).toFixed(3) + "%");
+
+  //! The four edges round the top of the cage held hard, and one corner
+  //! weighted - a mix, so neither rule can be right by accident. These are the
+  //! real edge keys of a MeshBox, whose top face is [4, 5, 6, 7].
+  await mdl.run({ op: "meshop", id: edit.id, ops: [
+    { op: "crease", level: "edge", at: ["4,5", "5,6", "6,7", "4,7"], args: { amount: 1 } },
+    { op: "corner", level: "vertex", at: [0], args: { amount: 1 } },
+  ] });
+  const entry = await at(edit.id);
+  check("the mesh editor took them", entry.built && !entry.error, entry.error || entry.note);
+
+  const held = { nurbs: await gauge(nurbs.id), facets: await gauge(facets.id) };
+  check("the converter notices them - the body changes",
+        Math.abs(held.nurbs - loose.nurbs) / loose.nurbs > 0.02,
+        (loose.nurbs / 1e9).toFixed(5) + " -> " + (held.nurbs / 1e9).toFixed(5) + " m3");
+
+  //! AND THE TWO NODES MEAN THE SAME THING BY THEM. A crease is DEFINED by what
+  //! the subdivision does with it, so the deeply subdivided body is the answer
+  //! and the NURBS body has to be that same body. This is the whole of what was
+  //! asked for: set a crease once, and the smooth mesh and the smooth B-Rep are
+  //! the same shape.
+  const agree = Math.abs(held.nurbs - held.facets) / held.nurbs;
+  check("and they agree about the creased body as closely as about the plain one",
+        agree < 0.005, (agree * 100).toFixed(3) + "%");
+
+  //! THE FAILURE THAT WOULD LOOK LIKE SUCCESS. A converter that read the mesh
+  //! and quietly ignored its creases would still build, still be watertight,
+  //! still measure something plausible. What tells them apart is that it would
+  //! disagree with the subdivision by far more than this.
+  const deaf = Math.abs(loose.nurbs - held.facets) / held.facets;
+  check("ignoring the creases would be an order of magnitude worse",
+        deaf > agree * 10, "ignoring them is " + (deaf * 100).toFixed(2)
+        + "% out, honouring them " + (agree * 100).toFixed(3) + "%");
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");

@@ -2957,13 +2957,17 @@ export const CATALOGUE = [
   { type: "MeshToNurbs", guid: "9a1b2c30-008e-4c00-9e00-caf00000008e", category: "body",
     produces: "solid",
     summary: "A cage into the SMOOTH surface it means, as real NURBS - what Maya "
-           + "calls Subdiv to NURBS and Rhino calls ToNURBS. Not the subdivided mesh "
-           + "turned into facets: every quad becomes one bicubic B-spline patch, and "
-           + "where the cage is regular that patch IS the Catmull-Clark limit surface "
-           + "exactly, to the last bit. Round a vertex with three or five faces on it "
-           + "no finite NURBS exists, so those few patches approximate - the note says "
-           + "by how many degrees, and \p levels halves it each time. Sewn into a "
-           + "solid you can fillet, boolean, section and write to STEP.",
+           + "calls Subdiv to NURBS and Rhino calls ToNURBS. Wire a mesh straight in: "
+           + "the Catmull-Clark is INSIDE this node, so it needs no Subdivide in front "
+           + "of it, and it honours creases and vertex weights set in the mesh editor "
+           + "exactly as the Subdivide node does - the same cage gives the same shape "
+           + "either way. Not the subdivided mesh turned into facets: every quad "
+           + "becomes one bicubic B-spline patch, and where the cage is regular that "
+           + "patch IS the limit surface exactly, to the last bit. Round a vertex with "
+           + "three or five faces on it no finite NURBS exists, so those few patches "
+           + "approximate - the note says by how many degrees, and \p levels halves it "
+           + "each time. Sewn into a solid you can fillet, boolean, section and write "
+           + "to STEP.",
     args: [ref("mesh", "Mesh", ["mesh"], true),
            real("levels", "Refine first", 0, 0, 3, 1, ""),
            choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),

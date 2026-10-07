@@ -100,12 +100,15 @@ export function vertexKinds(mesh, topo, crease) {
     const pinned = tag >= 1 || sharp.length > 2
                 || (faces.length === 1 && sharp.length >= 2)
                 || !faces.length || !around.length;
-    // How strongly this vertex is held along a line rather than settling into
-    // the surface. A rim is held completely; a crease by whichever of its two
-    // creased edges gives way first.
-    const held = rim || pinned ? 1
-               : (sharp.length === 2 ? Math.min(...sharp.map(crease)) : 0);
-    return { at: i, around, faces, sharp, tag, rim, pinned, held, k: faces.length };
+    // TWO WAYS OF BEING HELD, and they are not the same thing. A vertex can be
+    // held along a LINE - a rim, or a crease running through it - which still
+    // lets the surface curve across that line. Or it can be held at a POINT: a
+    // corner, where three creases meet or somebody set a vertex weight, and
+    // nothing passes through it smoothly at all. They pull the patch towards
+    // different masks, so they are counted separately.
+    const line = rim ? 1 : (sharp.length === 2 ? Math.min(...sharp.map(crease)) : 0);
+    const point = pinned ? 1 : tag;
+    return { at: i, around, faces, sharp, tag, rim, pinned, line, point, k: faces.length };
   });
 }
 
@@ -122,20 +125,34 @@ function ringInFace(face, at) {
 const interiorMask = (P, v, a, b, c, n) =>
   pmMul(pmAdd(pmAdd(pmMul(P[v], n), pmMul(pmAdd(P[a], P[b]), 2)), P[c]), 1 / (n + 5));
 
-//! The pole just inside the corner v of face F. The valence in the mask is the
-//! vertex's own valence where the surface is smooth; where it is held - a rim,
-//! a crease, a corner - the paper's appendix treats the boundary as half of a
-//! closed mesh and uses twice the number of faces instead, and a vertex with
-//! one face uses four. A half crease lands between the two.
+//! The pole just inside the corner v of face F, as one mask with the valence
+//! swapped for whichever number says how this vertex is held. Three cases, and
+//! a part-way crease or a part-way vertex weight lands between them:
+//!
+//!   SMOOTH    the vertex's own valence. Reduces to B-spline knot insertion
+//!             when that is four, which is why the regular case is exact.
+//!   A LINE    twice the number of faces, which is the paper's appendix
+//!             treating a boundary as half of a closed mesh.
+//!   A POINT   four, whatever the valence - the mask for a vertex in one quad,
+//!             which IS the bilinear one. That is not a coincidence and it is
+//!             the whole of why a hard corner comes out flat: at a corner the
+//!             patch has nothing to be smooth into, so ACC uses the mask that
+//!             makes it the plain ruled patch through the four cage points.
+//!             Getting this wrong - using twice the faces here as well - makes
+//!             a cube cage with every edge creased come back as a cube with
+//!             softened faces, which measures right and looks wrong.
 export function interiorPole(mesh, kinds, face, at) {
   const v = face[at];
   const kind = kinds[v];
   const { a, b, c } = ringInFace(face, at);
   const P = mesh.points;
-  const free = interiorMask(P, v, a, b, c, kind.rim ? 2 * kind.k : Math.max(1, kind.k));
-  if (kind.held <= 0) return free;
-  const fast = interiorMask(P, v, a, b, c, kind.k === 1 ? 4 : 2 * kind.k);
-  return kind.held >= 1 ? fast : lerp(free, fast, kind.held);
+  const mask = n => interiorMask(P, v, a, b, c, n);
+  let pole = mask(Math.max(1, kind.k));
+  if (kind.line > 0)
+    pole = kind.line >= 1 ? mask(2 * kind.k) : lerp(pole, mask(2 * kind.k), kind.line);
+  if (kind.point > 0)
+    pole = kind.point >= 1 ? mask(4) : lerp(pole, mask(4), kind.point);
+  return pole;
 }
 
 //! Every pole of every patch, computed once from the mesh and shared. This is
@@ -337,6 +354,12 @@ export function worstKink(cage, patches, poles, samples = 5) {
   let worst = 0, where = null, counted = 0;
   for (const [key, edge] of topo.edges) {
     if (edge.faces.length !== 2) continue;
+    //! A CREASED EDGE IS A FOLD SOMEBODY ASKED FOR, not an error, and counting
+    //! it here reported a hard arris on a cube cage as "87.9 degrees out of
+    //! tangent" - which is the note, the one thing in this node whose whole job
+    //! is to say where it is not exact, telling somebody their deliberate
+    //! corner was a fault.
+    if (poles.crease(key) > 0) continue;
     if (!odd[edge.a] && !odd[edge.b]) continue;
     const one = byFace.get(edge.faces[0]), two = byFace.get(edge.faces[1]);
     if (!one || !two) continue;

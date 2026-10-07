@@ -33,18 +33,21 @@ await page.waitForFunction(() => document.querySelectorAll("#tree .node").length
 
 //! Adding it IS the catalogue check: an unknown type throws by name, so a node
 //! that never reached the page cannot get past this line.
-//! The chain somebody actually builds: a cage, a Subdivide to see what it
-//! means, and the converter on the end of that. The converter has to come back
-//! with the CAGE's six faces, not the ninety-six the Subdivide handed it.
+//! THE CHAIN SOMEBODY ACTUALLY BUILDS, and the point of this drive: a cage,
+//! creases put on it where they are editing it, and the converter straight
+//! after. No Subdivide node anywhere - the Catmull-Clark is inside the
+//! converter. A Subdivide is still allowed in front of it and is read back
+//! past, which section 11 of the suite covers; what is checked HERE is that
+//! nobody has to put one there.
 const made = await page.evaluate(async () => {
   const cage = await window.__cad.run({ op: "add", type: "MeshBox", name: "Cage" });
-  const sub = await window.__cad.run({ op: "add", type: "Subdivide", name: "Smoothed" });
-  await window.__cad.run({ op: "connect", id: sub.id, key: "mesh", from: cage.id });
-  await window.__cad.run({ op: "set", id: sub.id, key: "levels", value: 2 });
+  const edit = await window.__cad.run({ op: "add", type: "EditMesh", name: "Creased" });
+  await window.__cad.run({ op: "connect", id: edit.id, key: "mesh", from: cage.id });
   const smooth = await window.__cad.run({ op: "add", type: "MeshToNurbs", name: "Smooth" });
-  await window.__cad.run({ op: "connect", id: smooth.id, key: "mesh", from: sub.id });
-  return { cage: cage.id, smooth: smooth.id, sub: sub.id };
+  await window.__cad.run({ op: "connect", id: smooth.id, key: "mesh", from: edit.id });
+  return { cage: cage.id, edit: edit.id, smooth: smooth.id };
 });
+
 await page.waitForTimeout(3000);
 
 const entry = await page.evaluate(id => {
@@ -92,16 +95,21 @@ await page.screenshot({ path: D + "tonurbs.png" });
 
 // And the comparison that makes the point: the faceted conversion of the same
 // cage at the same level, side by side.
+//! And the creases, put on from the mesh editor the way a person would, with
+//! the converter already downstream of it - so what the screenshot shows is a
+//! cage, a crease and a B-Rep, with no subdivision node in the chain.
 await page.evaluate(async (ids) => {
-  await window.__cad.run({ op: "set", id: ids.smooth, key: "source", value: 1 });
+  await window.__cad.run({ op: "meshop", id: ids.edit, ops: [
+    { op: "crease", level: "edge", at: ["4,5", "5,6", "6,7", "4,7"], args: { amount: 1 } },
+  ] });
 }, made);
-await page.waitForTimeout(2500);
+await page.waitForTimeout(3000);
 await page.evaluate(() => window.__cad.fit());
-await page.waitForTimeout(1000);
-await page.screenshot({ path: D + "tonurbs-asarrives.png" });
-check("taking it as it arrives gives a patch per subdivided face",
-      /^96 NURBS patches/.test((await page.evaluate(id => (window.__cad.entry(id) || {}).note,
-                                                   made.smooth)) || ""));
+await page.waitForTimeout(1200);
+await page.screenshot({ path: D + "tonurbs-creased.png" });
+const creased = await page.evaluate(id => (window.__cad.entry(id) || {}).note, made.smooth);
+log("creased note: " + creased);
+check("it still builds with creases on the cage", /NURBS patch/.test(creased || ""), creased);
 
 check("no page errors", errs.length === 0, errs.join(" | "));
 log(bad ? "\n" + bad + " FAILED" : "\nall good");
