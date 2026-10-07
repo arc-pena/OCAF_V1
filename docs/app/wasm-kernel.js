@@ -4731,9 +4731,7 @@ function sprawl(face, edges) {
       return {
         shape,
         note: faces + (faces === 1 ? " face" : " faces")
-          + (closed ? ", sewn into a solid"
-              : ", sewn into a shell" + (rim.length ? " - the cage is open along "
-                  + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))
+          + sewnInto(closed, sewn.solids, sewn.shells, ringsOf(rim), rim)
           + (split ? " · " + split + " faces were not flat and were split into triangles" : ""),
       };
     },
@@ -4800,7 +4798,16 @@ function sprawl(face, edges) {
     },
     build: f => {
       const { source, stepped, through } = cageBehind(f);
-      const mesh = meshFrom(source, "mesh");
+      let mesh = meshFrom(source, "mesh");
+      //! WELDED FIRST, if asked. This cannot close a hole - a hole is a gap
+      //! between vertices that are genuinely apart - it joins vertices that are
+      //! in the same PLACE but are not the same vertex, which is what an STL
+      //! always has and an OBJ often does. The note says how many went, so a
+      //! weld that did nothing is visible rather than assumed.
+      const weld = Math.max(0, F.real(f, "weld", 0));
+      const before = mesh.points.length;
+      if (weld > 1e-9) mesh = weldMesh(mesh, weld, true);
+      const joined = before - mesh.points.length;
       //! Whichever Subdivide was stepped past decides about open edges, because
       //! the surface this produces has to be the one that node was showing. A
       //! converter that answered that question differently from the preview in
@@ -4817,8 +4824,13 @@ function sprawl(face, edges) {
       //! open along 96 edges when they had drawn 24.
       const sewn = sewPatches(got.base, got.patches, tolerance,
                               Feature_choice(f, "solid") === 0);
-      const { shape, closed, refused, rim } = sewn;
+      const { shape, closed, refused, rim, solids, shells } = sewn;
       const faces = countSubShapes(shape, FACE);
+      //! HOW MANY HOLES, not how many edges. "Open along 42 edges" is a number
+      //! somebody has to translate before they can act on it; "3 holes" is the
+      //! thing to go and fill. The count is of boundary LOOPS - the rim edges
+      //! walked into rings.
+      const holes = ringsOf(rim);
 
       //! HOW FAR FROM SMOOTH IT CAME OUT, measured on the patches that were
       //! just built rather than asserted from the method. Everywhere the cage
@@ -4841,9 +4853,7 @@ function sprawl(face, edges) {
                  + F.name(source) + " \u00b7 " : "")
           + faces + (faces === 1 ? " NURBS patch" : " NURBS patches")
           + (got.span > 1 ? " of " + got.span + "\u00d7" + got.span + " spans" : "")
-          + (closed ? ", sewn into a solid"
-              : ", sewn into a shell" + (rim.length ? " - the cage is open along "
-                  + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))
+          + sewnInto(closed, solids, shells, holes, rim)
           + (got.quadded ? " \u00b7 the cage was not all quads, so one level of "
               + "Catmull-Clark was run first" : "")
           + (kink.extraordinary
@@ -4851,6 +4861,9 @@ function sprawl(face, edges) {
                 + (kink.extraordinary === 1 ? "vertex" : "vertices") + ", where patches "
                 + "meet " + trim(kink.worst) + "\u00b0 out of tangent"
               : " \u00b7 the cage is regular throughout, so this IS the limit surface")
+          + (joined ? " \u00b7 welded " + joined
+              + (joined === 1 ? " vertex" : " vertices") + " away" : "")
+          + (weld > 1e-9 && !joined ? " \u00b7 nothing was close enough to weld" : "")
           + (refused ? " \u00b7 " + refused + " patches would not build" : ""),
       };
     },
@@ -7400,6 +7413,87 @@ function sprawl(face, edges) {
   //! operation and half the world's IFC arrives tessellated. Two copies of
   //! this would be two answers to "is that quad flat enough", and the one that
   //! disagreed would be the one that made a drawing with holes in it.
+  //! EVERY CLOSED SHELL BECOMES A SOLID, not only a result that happens to be
+  //! one shell on its own.
+  //!
+  //! This used to ask `shape.ShapeType() === TopAbs_SHELL`, which is false the
+  //! moment a mesh is in more than one piece: sewing Blender's Suzanne - a head
+  //! and two eyes, three separate pieces - gives a COMPOUND of three shells, so
+  //! nothing was solidified and a boolean against it quietly came back a shell.
+  //! That mesh has holes in it as well, and filling them changed nothing, which
+  //! is what made it look as though the conversion were at fault.
+  //!
+  //! Closed is asked of each shell with BRep_Tool::IsClosed - "has this shell a
+  //! free edge", answered on the B-Rep itself. The cage's own rim is still
+  //! counted, but for the NOTE: it is what can say WHERE a mesh is open, and
+  //! OpenCascade cannot.
+  const solidify = (shape, wantSolid) => {
+    const no = { shape, closed: false, solids: 0, shells: 0 };
+    if (!wantSolid) return no;
+    const shells = [];
+    const walk = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SHELL,
+                                        oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    while (walk.More()) { shells.push(oc.TopoDS.Shell(walk.Current())); walk.Next(); }
+    walk.delete();
+    if (!shells.length) return no;
+    const made = [];
+    let open = 0;
+    for (const shell of shells) {
+      let solid = null;
+      if (oc.BRep_Tool.IsClosed(shell)) {
+        try {
+          const maker = new oc.BRepBuilderAPI_MakeSolid(shell);
+          if (maker.IsDone()) solid = maker.Solid();
+        } catch (error) { solid = null; }
+      }
+      if (solid) made.push(solid); else { made.push(shell); open++; }
+    }
+    const solids = shells.length - open;
+    if (!solids) return { ...no, shells: shells.length };
+    return { shape: made.length === 1 ? made[0] : compoundOf(made),
+             closed: open === 0, solids, shells: shells.length };
+  };
+
+  //! Rim edges walked into boundary loops, so a hole can be reported as a hole.
+  //! Anything the walk cannot follow counts as its own loop rather than being
+  //! dropped: a mesh too tangled to walk is still open, and saying nothing
+  //! would be the one wrong answer.
+  const ringsOf = rim => {
+    if (!rim.length) return 0;
+    const next = new Map();
+    for (const e of rim)
+      for (const [a, b] of [[e.a, e.b], [e.b, e.a]]) {
+        if (!next.has(a)) next.set(a, []);
+        next.get(a).push(b);
+      }
+    const seen = new Set();
+    let loops = 0;
+    for (const start of next.keys()) {
+      if (seen.has(start)) continue;
+      loops++;
+      const stack = [start];
+      seen.add(start);
+      while (stack.length) {
+        const at = stack.pop();
+        for (const to of next.get(at) || []) if (!seen.has(to)) { seen.add(to); stack.push(to); }
+      }
+    }
+    return loops;
+  };
+
+  //! What the sewing made of it, in one sentence both sewers say the same way.
+  //! A mesh in three pieces makes three shells, and saying "a shell" of that
+  //! was how a boolean against Suzanne came back open with nothing complaining.
+  const sewnInto = (closed, solids, shells, holes, rim) =>
+    closed ? ", sewn into " + (solids === 1 ? "a solid" : solids + " solids")
+      : ", sewn into " + (shells === 1 ? "a shell" : (shells || 1) + " shells")
+        + (holes
+            ? " - the mesh has " + holes + (holes === 1 ? " hole" : " holes") + " in it, "
+              + rim.length + " open " + (rim.length === 1 ? "edge" : "edges")
+              + "; a Fill Holes node in front of this one closes "
+              + (holes === 1 ? "it" : "them")
+            : solids ? " - " + solids + " of " + shells + " closed" : "");
+
   const sewMesh = (mesh, tolerance = 0.01, wantSolid = true) => {
     const faceOfRing = ring => {
       const points = ring.map(i => mesh.points[i]);
@@ -7449,20 +7543,13 @@ function sprawl(face, edges) {
     let shape = sewing.SewedShape();
     if (!shape || shape.IsNull()) throw new Error("those faces would not sew together");
 
-    // A SOLID ONLY IF THE CAGE CLOSED. OpenCascade will happily make a solid
-    // out of an open shell and report success - it has no opinion about
-    // whether the shell bounds anything - so the question is asked of the
-    // mesh, where it has an exact answer: an edge with one face on it is a
-    // hole, and a mesh with a hole in it is a shell.
+    //! The cage's own rim, for the note: an edge with one face on it is a hole,
+    //! and this is the only place that can say where. Whether it ends up a
+    //! solid is \ref solidify's question, asked of every shell that came out.
     const rim = [...topologyOf(mesh).edges.values()].filter(e => e.faces.length === 1);
-    let closed = false;
-    if (!rim.length && wantSolid && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
-      try {
-        const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
-        if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
-      } catch (error) { closed = false; }
-    }
-    return { shape, closed, split, rim };
+    const got = solidify(shape, wantSolid);
+    return { shape: got.shape, closed: got.closed, split, rim,
+             solids: got.solids, shells: got.shells };
   };
 
   /* ------------------------------------------ the cage back as real surfaces
@@ -7556,18 +7643,10 @@ function sprawl(face, edges) {
     let shape = sewing.SewedShape();
     if (!shape || shape.IsNull()) throw new Error("those patches would not sew together");
 
-    //! Closed is asked of the CAGE, where it has an exact answer, exactly as in
-    //! \ref sewMesh: an edge with one face on it is a hole, and OpenCascade
-    //! will happily call an open shell a solid if nobody asks.
     const rim = [...topologyOf(cage).edges.values()].filter(e => e.faces.length === 1);
-    let closed = false;
-    if (!rim.length && wantSolid && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
-      try {
-        const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
-        if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
-      } catch (error) { closed = false; }
-    }
-    return { shape, closed, refused, rim };
+    const got = solidify(shape, wantSolid);
+    return { shape: got.shape, closed: got.closed, refused, rim,
+             solids: got.solids, shells: got.shells };
   };
 
   //! EVERY BODY IN THE DOCUMENT, with what it is called and what it sits

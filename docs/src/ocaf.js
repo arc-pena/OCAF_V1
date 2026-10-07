@@ -2977,7 +2977,14 @@ export const CATALOGUE = [
            //! IS its tag on the label, so inserting one makes every saved file
            //! read its own settings off by one.
            choice("source", "Convert",
-                  ["The cage behind any Subdivide", "The mesh exactly as it arrives"], 0)] },
+                  ["The cage behind any Subdivide", "The mesh exactly as it arrives"], 0),
+           //! A mesh that arrived from somewhere else usually has to be welded
+           //! before it is anything but triangles - an STL gives every triangle
+           //! its own three vertices, so nothing is joined to anything - and
+           //! having to put a Weld in front of every import is a step nobody
+           //! should have to remember. 0 is off, which is what a cage made here
+           //! wants.
+           real("weld", "Weld vertices first", 0, 0, 1000, 0.01)] },
   /* ------------------------------------------------- holding, and letting go
 
      A form-finder, as two nodes. Every other operation here answers a question

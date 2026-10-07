@@ -659,5 +659,86 @@ console.log("13. creases set in the mesh editor reach it, with no Subdivide in b
         + "% out, honouring them " + (agree * 100).toFixed(3) + "%");
 }
 
+console.log("14. a mesh in pieces, and a mesh whose vertices are not joined up");
+{
+  //! AN OBJ WRITTEN THE WAY AN EXPORTER WRITES ONE. A cube with twenty-four
+  //! vertices - four to a face, none shared - which is what every STL is and
+  //! what a good many OBJs are. Nothing is joined to anything, so there are six
+  //! loose faces and no solid anywhere until the vertices are welded.
+  const cubeAt = (x, at) => {
+    const c = [[0,0,0],[0,1,0],[1,1,0],[1,0,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]]
+      .map(p => [x + p[0] * 100, p[1] * 100, p[2] * 100]);
+    const rings = [[0,1,2,3], [4,5,6,7], [0,3,5,4], [1,7,6,2], [0,4,7,1], [3,2,6,5]];
+    let v = "", f = "";
+    rings.forEach((ring, i) => {
+      for (const k of ring) v += "v " + c[k].join(" ") + "\n";
+      f += "f " + ring.map((_, j) => at + i * 4 + j + 1).join(" ") + "\n";
+    });
+    return { v, f, used: 24 };
+  };
+  const objOf = (...xs) => {
+    let v = "", f = "", at = 0;
+    for (const x of xs) { const one = cubeAt(x, at); v += one.v; f += one.f; at += one.used; }
+    return "g test\n" + v + f;
+  };
+
+  const loose = await mdl.run({ op: "add", type: "MeshImported", name: "Loose" });
+  await mdl.run({ op: "code", id: loose.id, key: "obj", text: objOf(0) });
+  const made = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Joined" });
+  await mdl.run({ op: "connect", id: made.id, key: "mesh", from: loose.id });
+
+  //! WHAT THE WELD ACTUALLY CHANGES, and it is not what it looks like. The
+  //! sewing joins the six faces into a solid whether or not the MESH was
+  //! joined - coincident patch boundaries sew. What stays broken is the
+  //! SURFACE: an unwelded cage is six faces that share no vertex, so every one
+  //! of them is a lone patch with a boundary all the way round, and the limit
+  //! surface of that is the flat quad. You get a cube back, with a watertight
+  //! shell and a plausible note, and no sign that anything went wrong.
+  const unwelded = (await at(made.id)).note || "";
+  const flat = await gauge(made.id);
+  check("unwelded, every face is its own patch and nothing is smoothed",
+        /the cage is regular throughout/.test(unwelded)
+        && Math.abs(flat - 100 * 100 * 100) < 1, unwelded);
+  check("so it measures the cage itself, not the body the cage means",
+        Math.abs(flat - 1e6) < 1, flat.toFixed(3) + " mm3 against 1000000");
+
+  //! THE WELD THE NODE NOW DOES ITSELF, so an import does not need a Weld node
+  //! in front of it to be anything but confetti.
+  await mdl.run({ op: "set", id: made.id, key: "weld", value: 0.01 });
+  const welded = (await at(made.id)).note || "";
+  check("welded, it is one solid", /sewn into a solid/.test(welded), welded);
+  check("and it says how many vertices went", /welded 16 vertices away/.test(welded), welded);
+  const shut = await gauge(made.id);
+  check("and NOW it is the smooth body the cage means, a third of the volume",
+        shut > 0 && shut < flat * 0.4,
+        (shut / 1e9).toFixed(6) + " m3 against " + (flat / 1e9).toFixed(6));
+
+  //! A weld that found nothing says so rather than leaving somebody to wonder
+  //! whether it ran. Asked of a cage that was built here, so there is genuinely
+  //! nothing sitting on top of anything.
+  const clean = await mdl.run({ op: "add", type: "MeshBox", name: "Clean" });
+  const onto = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Onto" });
+  await mdl.run({ op: "connect", id: onto.id, key: "mesh", from: clean.id });
+  await mdl.run({ op: "set", id: onto.id, key: "weld", value: 0.5 });
+  check("a weld that joins nothing says so",
+        /nothing was close enough to weld/.test((await at(onto.id)).note || ""),
+        (await at(onto.id)).note);
+  await mdl.run({ op: "delete", id: onto.id });
+  await mdl.run({ op: "delete", id: clean.id });
+
+  //! TWO SEPARATE CLOSED PIECES. This is the one that was broken: the sewn
+  //! result is a COMPOUND of two shells, not a shell, so nothing was made solid
+  //! and a boolean against it quietly came back open. Blender's Suzanne is a
+  //! head and two eyes and hit exactly this.
+  await mdl.run({ op: "code", id: loose.id, key: "obj", text: objOf(0, 300) });
+  await mdl.run({ op: "set", id: made.id, key: "weld", value: 0.01 });
+  const two = (await at(made.id)).note || "";
+  check("two separate pieces become two solids, not one shell",
+        /sewn into 2 solids/.test(two), two);
+  const pair = await gauge(made.id);
+  check("and both are measured", Math.abs(pair - shut * 2) < shut * 1e-6,
+        (pair / 1e9).toFixed(6) + " against twice " + (shut / 1e9).toFixed(6));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);
