@@ -1,0 +1,424 @@
+// The cage as surfaces rather than facets: Catmull-Clark's limit surface
+// written as NURBS, which is what Maya's Subdiv to NURBS and Rhino's ToNURBS
+// mean and what \ref limitsurface.js does.
+//
+// THE SUBDIVISION IS THE GROUND TRUTH, so it is also the instrument. Nothing
+// here is checked against a number transcribed from a paper: the regular case
+// is checked against the uniform bicubic B-spline worked out independently in
+// this file, the corner poles are checked against a limit-position mask that
+// is itself proved by being a fixed point of the repository's own
+// \ref catmullClark, and the whole surface is checked against the solid that
+// the faceted conversion builds out of a deeply subdivided cage. If the
+// construction were wrong in any of the ways it could plausibly be wrong -
+// a mask coefficient, an index, a parameter direction - one of those three
+// disagrees.
+import { createWasmKernel } from "../src/wasm-kernel.js";
+import { Mdl } from "../src/mdl.js";
+import { catmullClark, topologyOf, pmSub, pmLen } from "../src/polymesh.js";
+import { limitPatches, limitPoles, patchPoint, patchNormal, limitSeat, worstKink }
+  from "../src/limitsurface.js";
+import { readFileSync } from "fs";
+
+const WASM_DIR = process.env.OCJS_DIR
+  || new URL("../.kernel/package/dist", import.meta.url).pathname;
+const initModule = (await import(WASM_DIR + "/replicad_single.js")).default;
+
+let failures = 0;
+const check = (name, ok, detail = "") => {
+  if (!ok) failures++;
+  console.log((ok ? "  ok   " : "  FAIL ") + name + (detail ? "  — " + detail : ""));
+};
+
+/* --------------------------------------------------------- the test cages */
+
+//! A flat grid with a wobble on it, so the arithmetic is exercised in all
+//! three coordinates rather than only in z.
+function grid(cols, rows, bump = 1) {
+  const points = [], faces = [];
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++)
+    points.push([i * 100, j * 100, bump * Math.sin(i * 1.1) * Math.cos(j * 0.7) * 100]);
+  const id = (i, j) => j * (cols + 1) + i;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++)
+    faces.push([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)]);
+  return { points, faces, creases: {}, corners: {} };
+}
+
+//! A CLOSED cage where every single vertex has four faces on it - so the whole
+//! surface is regular and the patches have to be the limit surface exactly,
+//! with no extraordinary vertex anywhere to hide an error behind.
+function torus(big = 8, small = 6) {
+  const points = [], faces = [];
+  for (let i = 0; i < big; i++) for (let j = 0; j < small; j++) {
+    const a = 2 * Math.PI * i / big, b = 2 * Math.PI * j / small;
+    const r = 500 + 180 * Math.cos(b);
+    points.push([r * Math.cos(a), r * Math.sin(a), 180 * Math.sin(b)]);
+  }
+  const id = (i, j) => (((i % big) + big) % big) * small + (((j % small) + small) % small);
+  for (let i = 0; i < big; i++) for (let j = 0; j < small; j++)
+    faces.push([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)]);
+  return { points, faces, creases: {}, corners: {} };
+}
+
+const CUBE = { points: [[0,0,0],[300,0,0],[300,300,0],[0,300,0],
+                        [0,0,300],[300,0,300],[300,300,300],[0,300,300]],
+               faces: [[0,3,2,1],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]],
+               creases: {}, corners: {} };
+
+//! Where old vertex v lands after one Catmull-Clark step. The new points go
+//! down face points first, then edge points, then the moved old vertices - so
+//! index 0 of a subdivided cage is a FACE CENTRE, not the first vertex. Worth
+//! stating: tracking a vertex by its old index reads as the construction being
+//! wrong and is the test being wrong.
+const movedTo = (mesh, v) => mesh.faces.length + topologyOf(mesh).edges.size + v;
+
+console.log("1. a regular quad comes out as exactly the uniform bicubic B-spline");
+{
+  // The B-spline to Bezier conversion, worked out here from the definition of
+  // the uniform cubic B-spline rather than taken from the module under test.
+  const M = [[1/6, 4/6, 1/6, 0], [0, 4/6, 2/6, 0], [0, 2/6, 4/6, 0], [0, 1/6, 4/6, 1/6]];
+  const { patches, cage } = limitPatches(grid(6, 6), { levels: 0 });
+  const id = (i, j) => j * 7 + i;
+  const fi = cage.faces.findIndex(f => f[0] === id(2, 2) && f[1] === id(3, 2));
+  const patch = patches.find(p => p.face === fi);
+  check("the middle of the grid is a quad with four valence-four corners", !!patch);
+  let worst = 0;
+  for (let k = 0; k < 4; k++) for (let l = 0; l < 4; l++) {
+    let b = [0, 0, 0];
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+      const w = M[k][i] * M[l][j], p = cage.points[id(1 + i, 1 + j)];
+      b = [b[0] + w * p[0], b[1] + w * p[1], b[2] + w * p[2]];
+    }
+    worst = Math.max(worst, pmLen(pmSub(b, patch.poles[k][l])));
+  }
+  check("all sixteen poles agree with it", worst < 1e-9,
+        "worst " + worst.toExponential(2) + " mm");
+}
+
+console.log("2. the patch corners sit on the limit surface, at every valence");
+{
+  for (const n of [3, 4, 5, 6, 8]) {
+    // A wheel of n quads round one vertex, inside two more rings so the ring
+    // the masks read is complete.
+    const points = [[0, 0, 40]], faces = [];
+    const ring = (r, k) => {
+      const out = [];
+      for (let i = 0; i < n * 2; i++) {
+        const a = Math.PI * 2 * i / (n * 2);
+        points.push([Math.cos(a) * r * (1 + 0.1 * (i % 3)), Math.sin(a) * r,
+                     k * 30 * Math.cos(a * 3)]);
+        out.push(points.length - 1);
+      }
+      return out;
+    };
+    const r1 = ring(100, 1), r2 = ring(200, -1), r3 = ring(300, 1);
+    for (let i = 0; i < n; i++)
+      faces.push([0, r1[2 * i], r1[2 * i + 1], r1[(2 * i + 2) % (2 * n)]]);
+    for (const [a, b] of [[r1, r2], [r2, r3]])
+      for (let i = 0; i < 2 * n; i++)
+        faces.push([a[i], b[i], b[(i + 1) % (2 * n)], a[(i + 1) % (2 * n)]]);
+    const mesh = { points, faces, creases: {}, corners: {} };
+    const topo = topologyOf(mesh);
+    check("n=" + n + ": the wheel really has valence " + n,
+          topo.vertFaces[0].length === n && topo.vertEdges[0].length === n);
+
+    const seat = limitSeat(mesh, 0);
+    check("n=" + n + ": the patch corner is that limit position",
+          pmLen(pmSub(seat, limitPoles(mesh).corners[0])) < 1e-10);
+
+    //! WHY THE LIMIT MASK IS THE RIGHT ONE, with no tolerance in the question.
+    //! The limit position is the left eigenvector of the subdivision matrix for
+    //! eigenvalue one, so applying the mask, subdividing, and applying it again
+    //! has to give the SAME point. A wrong mask drifts.
+    let fine = mesh, here = 0, drift = 0; const walk = [];
+    for (let s = 0; s < 4; s++) {
+      walk.push(pmLen(pmSub(fine.points[here], seat)));
+      const was = fine;
+      fine = catmullClark(fine);
+      here = movedTo(was, here);
+      drift = Math.max(drift, pmLen(pmSub(limitSeat(fine, here), seat)));
+    }
+    check("n=" + n + ": four levels of subdivision do not move it", drift < 1e-9,
+          "drift " + drift.toExponential(2) + " mm");
+    //! And that it is the LIMIT rather than some other fixed point: the vertex
+    //! itself has to walk onto it.
+    check("n=" + n + ": and the vertex walks onto it", walk[3] < walk[0] * 0.3,
+          walk.map(w => w.toFixed(3)).join(" -> "));
+  }
+}
+
+console.log("3. refining the cage first describes the identical surface");
+{
+  //! \p levels is sold as an accuracy dial, and it is only honest if refining
+  //! does not MOVE the surface where the surface is already exact. On a cage
+  //! that is regular everywhere the two must agree to rounding.
+  const coarse = limitPatches(torus(8, 6), { levels: 0 });
+  const fine = limitPatches(torus(8, 6), { levels: 1 });
+  const byFace = new Map(fine.patches.map(p => [p.face, p]));
+  let worst = 0, compared = 0;
+  for (const patch of coarse.patches)
+    for (let c = 0; c < 4; c++) {
+      const sub = byFace.get(patch.face * 4 + c);
+      if (!sub) continue;
+      for (let a = 0; a <= 4; a++) for (let b = 0; b <= 4; b++) {
+        const u = a / 4, v = b / 4;
+        // Corner c of a face becomes the sub-quad whose own origin is there,
+        // turned a quarter turn each time round.
+        const map = [[u/2, v/2], [1 - v/2, u/2], [1 - u/2, 1 - v/2], [v/2, 1 - u/2]][c];
+        worst = Math.max(worst, pmLen(pmSub(patchPoint(sub.poles, u, v),
+                                            patchPoint(patch.poles, map[0], map[1]))));
+        compared++;
+      }
+    }
+  check("the same surface, point for point", worst < 1e-9 && compared > 1000,
+        compared + " points, worst " + worst.toExponential(2) + " mm");
+}
+
+console.log("4. watertight because the poles are shared, not because they are close");
+{
+  const { patches, cage } = limitPatches(grid(4, 4), { levels: 1 });
+  const topo = topologyOf(cage);
+  const byFace = new Map(patches.map(p => [p.face, p]));
+  const side = (patch, a, b) => {
+    const c = patch.corners, ia = c.indexOf(a), ib = c.indexOf(b);
+    const fwd = (ia + 1) % 4 === ib, from = fwd ? ia : ib;
+    const line = [[[0,0],[1,0],[2,0],[3,0]], [[3,0],[3,1],[3,2],[3,3]],
+                  [[3,3],[2,3],[1,3],[0,3]], [[0,3],[0,2],[0,1],[0,0]]][from];
+    const out = line.map(([i, j]) => patch.poles[i][j]);
+    return fwd ? out : out.slice().reverse();
+  };
+  let worst = 0, shared = 0;
+  for (const [, edge] of topo.edges) {
+    if (edge.faces.length !== 2) continue;
+    const one = side(byFace.get(edge.faces[0]), edge.a, edge.b);
+    const two = side(byFace.get(edge.faces[1]), edge.a, edge.b);
+    shared++;
+    for (let i = 0; i < 4; i++) worst = Math.max(worst, pmLen(pmSub(one[i], two[i])));
+  }
+  //! EXACTLY zero, not within a tolerance: both patches read the same pole out
+  //! of the same map, so there is nothing for a tolerance to absorb.
+  check("every shared boundary is the same four poles from both sides", worst === 0,
+        shared + " shared edges, worst disagreement " + worst);
+}
+
+console.log("5. the kink, where it is and how fast it goes");
+{
+  const flat = limitPatches(grid(5, 5), { levels: 0 });
+  const none = worstKink(flat.cage, flat.patches, flat.poles);
+  check("a regular cage has no extraordinary vertex and no kink at all",
+        none.extraordinary === 0 && none.worst === 0);
+
+  const seen = [];
+  for (const levels of [0, 1, 2, 3]) {
+    const got = limitPatches(CUBE, { levels });
+    const k = worstKink(got.cage, got.patches, got.poles);
+    seen.push(k.worst);
+    check("cube at level " + levels + ": " + got.patches.length + " patches, "
+          + k.extraordinary + " extraordinary vertices", k.extraordinary === 8,
+          "worst kink " + k.worst.toFixed(4) + " deg");
+  }
+  //! The claim the node's note makes to the user, checked: each level roughly
+  //! halves it. If this ever stops being true the note is lying.
+  check("each level makes the kink smaller", seen.every((w, i) => !i || w < seen[i - 1]),
+        seen.map(w => w.toFixed(3)).join(" > "));
+  check("and roughly halves it", seen[3] < seen[0] / 8, seen[0].toFixed(3) + " -> " + seen[3].toFixed(3));
+}
+
+console.log("6. a crease is held exactly, because the rim rule is a real cubic");
+{
+  //! The normal of one patch at a fraction along one of its four sides.
+  const normalAlong = (patch, a, b, t) => {
+    const c = patch.corners, ia = c.indexOf(a), ib = c.indexOf(b);
+    const fwd = (ia + 1) % 4 === ib, from = fwd ? ia : ib, u = fwd ? t : 1 - t;
+    const at = [[u, 0], [1, u], [1 - u, 1], [0, 1 - u]][from];
+    return patchNormal(patch.poles, at[0], at[1]);
+  };
+  const angle = (a, b) => Math.acos(Math.max(-1, Math.min(1,
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180 / Math.PI;
+  const across = (got, a, b) => {
+    const two = got.patches.filter(p => p.corners.includes(a) && p.corners.includes(b));
+    if (two.length !== 2) return null;
+    let worst = 0;
+    for (let i = 1; i < 4; i++)
+      worst = Math.max(worst, angle(normalAlong(two[0], a, b, i / 4),
+                                    normalAlong(two[1], a, b, i / 4)));
+    return worst;
+  };
+
+  //! A CREASED CHAIN, not a single edge: a crease that runs right across the
+  //! cage, so every vertex on it has exactly two creased edges and is the
+  //! crease vertex the rules are written for. One lone creased edge is a DART,
+  //! whose end is a vertex that is creased on one side and smooth on the other,
+  //! and no bicubic patch holds that exactly - it leaks about half a degree
+  //! onto the neighbouring edge. Worth knowing; not what this measures.
+  const g = { ...grid(6, 6, 1), creases: {} };
+  for (let i = 0; i < 6; i++) g.creases[(14 + i) + "," + (15 + i)] = 1;   // the row j=2
+  const got = limitPatches(g, { levels: 0 });
+  const a = got.cage.points[16], b = got.cage.points[17];
+  const third = [(2*a[0]+b[0])/3, (2*a[1]+b[1])/3, (2*a[2]+b[2])/3];
+  check("a creased edge takes its poles at the thirds of the cage edge",
+        pmLen(pmSub(got.poles.along.get("16,17")[0], third)) < 1e-12,
+        pmLen(pmSub(got.poles.along.get("16,17")[0], third)).toExponential(2));
+
+  //! AND THAT IT IS ACTUALLY A FOLD. This is the check that tells a crease
+  //! which works from one which is merely stored: the same cage, the same
+  //! edge, the same measurement - only the crease differs.
+  const plain = limitPatches(grid(6, 6, 1), { levels: 0 });
+  check("without the crease the two patches are smooth across it",
+        across(plain, 16, 17) < 1e-9, "break " + across(plain, 16, 17) + " deg");
+  check("with it they fold", across(got, 16, 17) > 0.5,
+        "break " + across(got, 16, 17).toFixed(3) + " deg against 0 without it");
+  //! And nothing else moved: two rows away the surface is as smooth as it was,
+  //! so what the crease changed is the crease.
+  check("and an edge two rows away is untouched", across(got, 30, 31) < 1e-4,
+        "break " + across(got, 30, 31).toExponential(2) + " deg, "
+        + Math.round(across(got, 16, 17) / across(got, 30, 31)) + "x smaller than the fold");
+}
+
+/* ===================================================== and now the kernel */
+
+const kernel = await createWasmKernel({
+  initModule, wasmBinary: readFileSync(WASM_DIR + "/replicad_single.wasm"),
+});
+const mdl = new Mdl({
+  kernel, setNode: () => {}, readLayout: () => ({}), select: () => {}, selected: () => null,
+});
+const tree = async () => (await kernel.tree()).tree;
+const at = async id => (await tree()).features.find(f => f.id === id);
+await mdl.run({ op: "model", model: { format: "ocaf-parametric-model", version: 1,
+  name: "Limit", units: "mm", features: [] } });
+
+//! Volume through the document's own measurement node, because that is the
+//! only honest way in from outside: it is the same number a user would read.
+const gauge = async from => {
+  const m = await mdl.run({ op: "add", type: "Measure", name: "V" });
+  await mdl.run({ op: "connect", id: m.id, key: "shape", from });
+  await mdl.run({ op: "set", id: m.id, key: "quantity", value: 2 });
+  const got = await at(m.id);
+  await mdl.run({ op: "delete", id: m.id });
+  return Number(got.data && got.data.preview);
+};
+
+console.log("7. the node builds the smooth surface, not the cage");
+const cage = await mdl.run({ op: "add", type: "MeshBox", name: "Cage" });
+const smooth = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Smooth" });
+await mdl.run({ op: "connect", id: smooth.id, key: "mesh", from: cage.id });
+let box = 0, nurbs = 0;
+{
+  const entry = await at(smooth.id);
+  check("it built", entry.built && !entry.error, entry.error || entry.note);
+  check("six patches, one per quad of the cage", /^6 NURBS patch/.test(entry.note || ""),
+        entry.note);
+  check("sewn into a solid", /sewn into a solid/.test(entry.note || ""), entry.note);
+  check("and the note says where it is not exact",
+        /8 extraordinary vertices/.test(entry.note || ""), entry.note);
+
+  const cageEntry = await at(cage.id);
+  const faceted = await mdl.run({ op: "add", type: "MeshToShape", name: "Facets" });
+  await mdl.run({ op: "connect", id: faceted.id, key: "mesh", from: cage.id });
+  box = await gauge(faceted.id);                       // level 0: the cage itself
+  nurbs = await gauge(smooth.id);
+  //! THE CHECK THAT TELLS THE TWO CONVERSIONS APART. Both make six faces out
+  //! of a cube cage. The faceted one makes the CUBE; this one makes the smooth
+  //! body the cube cage means, which is a good deal smaller. A conversion that
+  //! had quietly fallen back to planes would pass every other check here.
+  check("and it is nothing like the cage - the cage is the box, this is the limit surface",
+        nurbs > 0 && nurbs < box * 0.75,
+        "cage " + (box / 1e9).toFixed(4) + " m3 vs smooth " + (nurbs / 1e9).toFixed(4) + " m3");
+  await mdl.run({ op: "delete", id: faceted.id });
+}
+
+console.log("8. on a regular cage it IS the limit surface, and refining proves it");
+{
+  //! THE PROOF, and the reason this section uses a torus. Every vertex of it
+  //! has four faces, so there is no extraordinary vertex anywhere and the
+  //! patches must be the limit surface EXACTLY. Two things follow and both are
+  //! checked, because either one alone could be true of a wrong answer:
+  //!
+  //!   the volume must not move at all when the cage is refined first - a
+  //!   wrong construction would converge onto something as levels went up,
+  //!   and converging is exactly what being right looks like from a distance;
+  //!
+  //!   and the faceted conversion, coming at the same surface by brute force
+  //!   from the other side, must walk onto this number and not another, at the
+  //!   O(h^2) rate a facet approximation has - the gap quartering per level.
+  const ring = await mdl.run({ op: "add", type: "MeshTemplate", name: "Torus" });
+  await mdl.run({ op: "set", id: ring.id, key: "kind", value: 11 });
+  const asNurbs = await mdl.run({ op: "add", type: "MeshToNurbs", name: "Smooth" });
+  await mdl.run({ op: "connect", id: asNurbs.id, key: "mesh", from: ring.id });
+  check("the torus cage is regular throughout",
+        /regular throughout/.test((await at(asNurbs.id)).note || ""),
+        (await at(asNurbs.id)).note);
+
+  const held = [];
+  for (const levels of [0, 1, 2, 3]) {
+    await mdl.run({ op: "set", id: asNurbs.id, key: "levels", value: levels });
+    held.push(await gauge(asNurbs.id));
+  }
+  const drift = Math.max(...held.map(v => Math.abs(v - held[0]) / held[0]));
+  check("refining the cage first does not move the volume at all", drift < 1e-6,
+        held.map(v => (v / 1e9).toFixed(7)).join("  ") + " m3, drift "
+        + drift.toExponential(2));
+
+  const asFacets = await mdl.run({ op: "add", type: "MeshToShape", name: "Facets" });
+  await mdl.run({ op: "connect", id: asFacets.id, key: "mesh", from: ring.id });
+  const gap = [];
+  for (const levels of [2, 3, 4]) {
+    await mdl.run({ op: "set", id: asFacets.id, key: "levels", value: levels });
+    gap.push((await gauge(asFacets.id) - held[0]) / held[0]);
+  }
+  check("the faceted conversion walks onto that same number",
+        gap.every(g => g > 0) && gap[1] < gap[0] / 3 && gap[2] < gap[1] / 3,
+        gap.map(g => (g * 100).toFixed(4) + "%").join(" > "));
+  check("and is within a third of a percent by level 4", gap[2] < 0.0035,
+        (gap[2] * 100).toFixed(4) + "%");
+  await mdl.run({ op: "delete", id: asFacets.id });
+  await mdl.run({ op: "delete", id: asNurbs.id });
+  await mdl.run({ op: "delete", id: ring.id });
+}
+
+console.log("9. and on the worst cage there is, it says how far off it is");
+{
+  //! A CUBE CAGE IS THE WORST CASE AVAILABLE: all eight vertices are
+  //! extraordinary and every patch has four of them, so there is not one
+  //! regular quad in it to be exact about. What the conversion must do here is
+  //! not be perfect - it cannot be - but converge fast and SAY SO, which is
+  //! what \p levels and the note are for.
+  const walk = [];
+  for (const levels of [0, 1, 2, 3]) {
+    await mdl.run({ op: "set", id: smooth.id, key: "levels", value: levels });
+    walk.push(await gauge(smooth.id));
+  }
+  const off = walk.map(v => Math.abs(v - walk[3]) / walk[3]);
+  check("level 0 of a cage with no regular quad in it is several percent out",
+        off[0] > 0.02 && off[0] < 0.1, (off[0] * 100).toFixed(2) + "% below converged");
+  check("one level of refinement all but fixes it", off[1] < 0.002,
+        (off[1] * 100).toFixed(3) + "%");
+  check("and by level 2 it has stopped moving", off[2] < 2e-4,
+        walk.map(v => (v / 1e9).toFixed(7)).join("  ") + " m3");
+  await mdl.run({ op: "set", id: smooth.id, key: "levels", value: 1 });
+}
+
+console.log("10. and it is a body like any other - it takes a boolean");
+{
+  const origin = await mdl.run({ op: "add", type: "Point", name: "At" });
+  const bar = await mdl.run({ op: "add", type: "Cube", name: "Bar" });
+  //! The converted body sits 10 mm inside its own cage - the limit surface of
+  //! a cube cage pulls in that far - so this is placed to pass THROUGH the top
+  //! of it. A tool that misses the body and a tool that swallows it whole both
+  //! come back as "they do not meet", and neither says anything about surfaces.
+  for (const [key, value] of [["x", -40], ["y", -40], ["z", 60]])
+    await mdl.run({ op: "set", id: origin.id, key, value });
+  await mdl.run({ op: "connect", id: bar.id, key: "origin", from: origin.id });
+  for (const [key, value] of [["dx", 400], ["dy", 400], ["dz", 400]])
+    await mdl.run({ op: "set", id: bar.id, key, value });
+  const cut = await mdl.run({ op: "add", type: "Boolean", name: "Cut" });
+  await mdl.run({ op: "connect", id: cut.id, key: "a", from: smooth.id });
+  await mdl.run({ op: "connect", id: cut.id, key: "b", from: bar.id });
+  await mdl.run({ op: "set", id: cut.id, key: "op", value: 1 });        // difference
+  const entry = await at(cut.id);
+  check("a boolean against a NURBS body works", entry.built && !entry.error,
+        entry.error || entry.note);
+}
+
+console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
+process.exit(failures ? 1 : 0);

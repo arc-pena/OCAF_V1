@@ -78,7 +78,13 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # sections is arithmetic over numbers - no kernel, no IFC - and both
            # the catalogue's Section node and the IFC reader stand on it.
            "sections.js",
-           "ocaf.js", "polymesh.js", "relax.js", "subshape.js",
+           "ocaf.js", "polymesh.js",
+           # limitsurface turns a Catmull-Clark cage into the poles of the
+           # bicubic patches it means. Pure arithmetic over polymesh, read by
+           # the kernel's Mesh to NURBS driver, so it comes after one and
+           # before the other.
+           "limitsurface.js",
+           "relax.js", "subshape.js",
            # handle, gizmo and camera come before the kernel: the kernel's own
            # drivers read from them - a camera's frustum is the same arithmetic
            # the viewport looks through one with - and in the single file

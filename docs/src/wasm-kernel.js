@@ -36,6 +36,7 @@ import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
 import { freshId, freshName, instantiateEdits } from "./reuse.js";
 import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
+import { limitPatches, worstKink } from "./limitsurface.js";
 import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
 import { heldAt, heldOnCurve, heldOnPlane, heldOnSurface, heldWhereItIs,
@@ -4738,6 +4739,62 @@ function sprawl(face, edges) {
     },
   };
 
+  builders.MeshToNurbs = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to convert";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
+      //! A patch per quad, not per facet, so the budget is far smaller than the
+      //! faceted conversion's - and it has to be, because every one of these is
+      //! a surface with sixteen poles rather than a plane with four corners.
+      const after = meshFaces(data).length * Math.pow(4, levels);
+      if (after > 6000)
+        return "that would be about " + Math.round(after / 1000) + "k NURBS patches to "
+          + "sew; use fewer levels or a coarser cage";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const sharp = Feature_choice(f, "boundary") === 0;
+      const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
+      const got = limitPatches(mesh, { levels, sharpBoundary: sharp });
+      if (!got.patches.length) throw new Error("that cage has no quad faces to convert");
+      const tolerance = Math.max(1e-6, F.real(f, "tolerance", 0.01));
+      const sewn = sewPatches(got.cage, got.patches, tolerance,
+                              Feature_choice(f, "solid") === 0);
+      const { shape, closed, refused, rim } = sewn;
+      const faces = countSubShapes(shape, FACE);
+
+      //! HOW FAR FROM SMOOTH IT CAME OUT, measured on the patches that were
+      //! just built rather than asserted from the method. Everywhere the cage
+      //! is regular the answer is exactly zero and the surface is the limit
+      //! surface; round a vertex with three or five faces on it no NURBS can
+      //! be, and this is the angle by which neighbouring patches disagree
+      //! about which way the surface faces. Saying it is the whole difference
+      //! between a conversion somebody can trust and one they have to squint
+      //! at - and it is why \p levels exists, because each level roughly
+      //! halves this number.
+      const kink = worstKink(got.cage, got.patches, got.poles);
+      return {
+        shape,
+        note: faces + (faces === 1 ? " NURBS patch" : " NURBS patches")
+          + (closed ? ", sewn into a solid"
+              : ", sewn into a shell" + (rim.length ? " - the cage is open along "
+                  + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))
+          + (got.quadded ? " \u00b7 the cage was not all quads, so one level of "
+              + "Catmull-Clark was run first" : "")
+          + (kink.extraordinary
+              ? " \u00b7 exact except at " + kink.extraordinary + " extraordinary "
+                + (kink.extraordinary === 1 ? "vertex" : "vertices") + ", where patches "
+                + "meet " + trim(kink.worst) + "\u00b0 out of tangent"
+              : " \u00b7 the cage is regular throughout, so this IS the limit surface")
+          + (refused ? " \u00b7 " + refused + " patches would not build" : ""),
+      };
+    },
+  };
+
   builders.MeshTemplate = {
     //! The starting topologies. One node, a dozen shapes, because what they
     //! have in common - all quads, one piece, ready to push - matters more
@@ -7345,6 +7402,74 @@ function sprawl(face, edges) {
       } catch (error) { closed = false; }
     }
     return { shape, closed, split, rim };
+  };
+
+  /* ------------------------------------------ the cage back as real surfaces
+
+     THE OTHER WAY OUT OF THE MESH SIDE, and the one Maya and Rhino mean by
+     "to NURBS". \ref sewMesh above sews FACETS: it subdivides until the facets
+     are small enough to pass for smooth, and what comes out is a polyhedron
+     with a great many flat faces. This sews SURFACES. Every quad of the cage
+     becomes one bicubic Bezier patch - a real Geom_BSplineSurface, degree
+     three both ways - and where the cage is regular that patch is not an
+     approximation of the Catmull-Clark limit surface, it IS the limit surface,
+     because the limit surface of a regular quad is a uniform bicubic B-spline
+     and this is that B-spline written in the basis OpenCascade reads.
+
+     So a cage of two hundred quads comes out as two hundred smooth faces
+     rather than fifty thousand flat ones, and it stays smooth however closely
+     anybody looks at it. The poles come from \ref limitPatches, which also
+     explains where it is exact and where it is not.                         */
+
+  //! One patch as a surface. A single Bezier span written as a B-spline: two
+  //! knots, multiplicity four, degree three - which is the form that carries
+  //! into STEP and IGES unchanged.
+  const bsplineOf = poles => {
+    const grid = new oc.NCollection_Array2_gp_Pnt(1, 4, 1, 4);
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j < 4; j++) grid.SetValue(i + 1, j + 1, pnt(poles[i][j]));
+    const ends = () => {
+      const knots = new oc.NCollection_Array1_double(1, 2);
+      knots.SetValue(1, 0); knots.SetValue(2, 1);
+      return knots;
+    };
+    const held = () => {
+      const mults = new oc.NCollection_Array1_int(1, 2);
+      mults.SetValue(1, 4); mults.SetValue(2, 4);
+      return mults;
+    };
+    return new oc.Geom_BSplineSurface(grid, ends(), ends(), held(), held(), 3, 3, false, false);
+  };
+
+  const sewPatches = (cage, patches, tolerance = 0.01, wantSolid = true) => {
+    const sewing = new oc.BRepBuilderAPI_Sewing(tolerance, true, true, true, false);
+    let made = 0, refused = 0;
+    for (const patch of patches) {
+      //! ONE PATCH AT A TIME, because a cage with one degenerate quad in it
+      //! should come back as a shell with one face missing and a note saying
+      //! so, not as nothing at all.
+      try {
+        const maker = new oc.BRepBuilderAPI_MakeFace(bsplineOf(patch.poles), 1e-6);
+        if (maker.IsDone()) { sewing.Add(maker.Face()); made++; } else refused++;
+      } catch (error) { refused++; }
+    }
+    if (!made) throw new Error("none of the patches of that cage would build");
+    sewing.Perform(new oc.Message_ProgressRange());
+    let shape = sewing.SewedShape();
+    if (!shape || shape.IsNull()) throw new Error("those patches would not sew together");
+
+    //! Closed is asked of the CAGE, where it has an exact answer, exactly as in
+    //! \ref sewMesh: an edge with one face on it is a hole, and OpenCascade
+    //! will happily call an open shell a solid if nobody asks.
+    const rim = [...topologyOf(cage).edges.values()].filter(e => e.faces.length === 1);
+    let closed = false;
+    if (!rim.length && wantSolid && shape.ShapeType() === oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
+      try {
+        const solid = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(shape));
+        if (solid.IsDone()) { shape = solid.Solid(); closed = true; }
+      } catch (error) { closed = false; }
+    }
+    return { shape, closed, refused, rim };
   };
 
   //! EVERY BODY IN THE DOCUMENT, with what it is called and what it sits
