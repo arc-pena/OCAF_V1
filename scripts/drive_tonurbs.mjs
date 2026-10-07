@@ -111,6 +111,21 @@ const creased = await page.evaluate(id => (window.__cad.entry(id) || {}).note, m
 log("creased note: " + creased);
 check("it still builds with creases on the cage", /NURBS patch/.test(creased || ""), creased);
 
+//! AND THE POINT OF THE REFINEMENT DIAL: it buys smoothness and costs no
+//! faces. Six patches at level 0 and six at level 3, each divided 8x8 inside.
+for (const levels of [1, 3]) {
+  await page.evaluate(async (at) => {
+    await window.__cad.run({ op: "set", id: at.id, key: "levels", value: at.levels });
+  }, { id: made.smooth, levels });
+  await page.waitForTimeout(4000);
+  const note = await page.evaluate(id => (window.__cad.entry(id) || {}).note, made.smooth);
+  log("levels " + levels + ": " + note);
+  const span = 1 << levels;
+  check("level " + levels + " is still six patches, " + span + "x" + span + " spans each",
+        new RegExp("^6 NURBS patches of " + span + "\\u00d7" + span + " spans").test(note || ""),
+        note);
+}
+
 check("no page errors", errs.length === 0, errs.join(" | "));
 log(bad ? "\n" + bad + " FAILED" : "\nall good");
 await browser.close();

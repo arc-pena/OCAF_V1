@@ -146,71 +146,131 @@ console.log("2. the patch corners sit on the limit surface, at every valence");
   }
 }
 
-console.log("3. refining the cage first describes the identical surface");
+//! A point on a merged patch: find which span of the grid the parameter lands
+//! in and evaluate the Bezier on those four poles each way. That IS the
+//! definition of a cubic B-spline whose interior knots are threefold, and it
+//! is written here rather than imported so the test does not take the module's
+//! word for the convention.
+const spanPoint = (grid, span, u, v) => {
+  const cell = t => Math.min(span - 1, Math.max(0, Math.floor(t * span)));
+  const i = cell(u), j = cell(v);
+  const four = [[], [], [], []];
+  for (let x = 0; x < 4; x++)
+    for (let y = 0; y < 4; y++) four[x][y] = grid[i * 3 + x][j * 3 + y];
+  return patchPoint(four, u * span - i, v * span - j);
+};
+
+console.log("3. refining does not move the surface, and the merge keeps its parameters");
 {
-  //! \p levels is sold as an accuracy dial, and it is only honest if refining
-  //! does not MOVE the surface where the surface is already exact. On a cage
-  //! that is regular everywhere the two must agree to rounding.
-  const coarse = limitPatches(torus(8, 6), { levels: 0 });
-  const fine = limitPatches(torus(8, 6), { levels: 1 });
-  const byFace = new Map(fine.patches.map(p => [p.face, p]));
-  let worst = 0, compared = 0;
-  for (const patch of coarse.patches)
-    for (let c = 0; c < 4; c++) {
-      const sub = byFace.get(patch.face * 4 + c);
-      if (!sub) continue;
-      for (let a = 0; a <= 4; a++) for (let b = 0; b <= 4; b++) {
-        const u = a / 4, v = b / 4;
-        // Corner c of a face becomes the sub-quad whose own origin is there,
-        // turned a quarter turn each time round.
-        const map = [[u/2, v/2], [1 - v/2, u/2], [1 - u/2, 1 - v/2], [v/2, 1 - u/2]][c];
-        worst = Math.max(worst, pmLen(pmSub(patchPoint(sub.poles, u, v),
-                                            patchPoint(patch.poles, map[0], map[1]))));
+  //! \p levels is sold as buying smoothness for nothing, so two things have to
+  //! hold and both are checked here. The surface must not MOVE when it is
+  //! refined - on a cage that is regular everywhere it is already exact, so
+  //! any movement is an error - and the merged patch must carry the same (u, v)
+  //! as the unrefined one, which is what says the sub-patches were folded back
+  //! in the right places. A wrong quarter turn anywhere scrambles the
+  //! quadrants and this goes wrong by the size of the model.
+  const flat = limitPatches(torus(8, 6), { levels: 0 });
+  const byFace = new Map(flat.patches.map(p => [p.face, p]));
+  for (const levels of [1, 2]) {
+    const deep = limitPatches(torus(8, 6), { levels });
+    check("level " + levels + " is still one patch per cage face",
+          deep.patches.length === flat.patches.length,
+          deep.patches.length + " against " + flat.patches.length);
+    check("level " + levels + " divides each patch into " + (1 << levels) + " spans",
+          deep.span === (1 << levels) && deep.patches[0].poles.length === 3 * (1 << levels) + 1,
+          deep.patches[0].poles.length + " poles across");
+    let worst = 0, compared = 0;
+    for (const patch of deep.patches) {
+      const was = byFace.get(patch.face);
+      for (let a = 0; a <= 6; a++) for (let b = 0; b <= 6; b++) {
+        const u = a / 6, v = b / 6;
+        worst = Math.max(worst, pmLen(pmSub(spanPoint(patch.poles, deep.span, u, v),
+                                            patchPoint(was.poles, u, v))));
         compared++;
       }
     }
-  check("the same surface, point for point", worst < 1e-9 && compared > 1000,
-        compared + " points, worst " + worst.toExponential(2) + " mm");
+    check("and it is the same surface at the same parameters", worst < 1e-9 && compared > 1000,
+          compared + " points, worst " + worst.toExponential(2) + " mm");
+  }
+}
+
+console.log("3b. and the fold is exact on a cage where refining really does change it");
+{
+  //! Section 3 compares a refined cage against an unrefined one, which only
+  //! says anything where the two ARE the same surface - a regular cage. On a
+  //! cube cage every corner is extraordinary, so level 1 genuinely differs from
+  //! level 0 and that comparison cannot be made. What can: every sub-patch the
+  //! refinement built must still be exactly inside the merged surface, read out
+  //! of the merged pole grid independently of how it was written in.
+  for (const levels of [1, 2]) {
+    const got = limitPatches(CUBE, { levels });
+    const byBase = new Map(got.patches.map(p => [p.face, p]));
+    let worst = 0, corners = 0;
+    for (const fine of got.fine) {
+      const merged = byBase.get(fine.place.base), s = got.span, t = fine.place.turn;
+      for (const [x, y] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        const rot = t === 1 ? [1 - y, x] : t === 2 ? [1 - x, 1 - y]
+                  : t === 3 ? [y, 1 - x] : [x, y];
+        worst = Math.max(worst, pmLen(pmSub(
+          patchPoint(fine.poles, x, y),
+          spanPoint(merged.poles, s, (fine.place.i + rot[0]) / s, (fine.place.j + rot[1]) / s))));
+        corners++;
+      }
+    }
+    //! EXACTLY zero: the fold moves poles, it does not compute them, so there
+    //! is nothing for a tolerance to absorb.
+    check("level " + levels + ": every sub-patch corner is on the merged surface",
+          worst === 0, corners + " corners, worst " + worst + " mm");
+  }
 }
 
 console.log("4. watertight because the poles are shared, not because they are close");
 {
-  const { patches, cage } = limitPatches(grid(4, 4), { levels: 1 });
-  const topo = topologyOf(cage);
-  const byFace = new Map(patches.map(p => [p.face, p]));
+  //! Checked on MERGED patches, at a refinement level, because that is the
+  //! case that could go wrong now: a merged patch's boundary is a whole run of
+  //! poles rather than four, and if the folding wrote any of them from the
+  //! wrong sub-patch the two sides of a cage edge would disagree. They cannot
+  //! differ by a little - either the run is the same numbers or the fold is
+  //! broken - so this asks for EXACTLY zero.
+  const got = limitPatches(grid(4, 4, 1), { levels: 2 });
+  const topo = topologyOf(got.base);
+  const byFace = new Map(got.patches.map(p => [p.face, p]));
+  const last = 3 * got.span;
   const side = (patch, a, b) => {
     const c = patch.corners, ia = c.indexOf(a), ib = c.indexOf(b);
     const fwd = (ia + 1) % 4 === ib, from = fwd ? ia : ib;
-    const line = [[[0,0],[1,0],[2,0],[3,0]], [[3,0],[3,1],[3,2],[3,3]],
-                  [[3,3],[2,3],[1,3],[0,3]], [[0,3],[0,2],[0,1],[0,0]]][from];
-    const out = line.map(([i, j]) => patch.poles[i][j]);
-    return fwd ? out : out.slice().reverse();
+    const run = [];
+    for (let t = 0; t <= last; t++)
+      run.push(from === 0 ? patch.poles[t][0] : from === 1 ? patch.poles[last][t]
+             : from === 2 ? patch.poles[last - t][last] : patch.poles[0][last - t]);
+    return fwd ? run : run.reverse();
   };
-  let worst = 0, shared = 0;
+  let worst = 0, shared = 0, poles = 0;
   for (const [, edge] of topo.edges) {
     if (edge.faces.length !== 2) continue;
     const one = side(byFace.get(edge.faces[0]), edge.a, edge.b);
     const two = side(byFace.get(edge.faces[1]), edge.a, edge.b);
     shared++;
-    for (let i = 0; i < 4; i++) worst = Math.max(worst, pmLen(pmSub(one[i], two[i])));
+    for (let i = 0; i <= last; i++) {
+      worst = Math.max(worst, pmLen(pmSub(one[i], two[i])));
+      poles++;
+    }
   }
-  //! EXACTLY zero, not within a tolerance: both patches read the same pole out
-  //! of the same map, so there is nothing for a tolerance to absorb.
-  check("every shared boundary is the same four poles from both sides", worst === 0,
-        shared + " shared edges, worst disagreement " + worst);
+  check("every shared boundary is the same run of poles from both sides", worst === 0,
+        shared + " shared edges, " + poles + " poles, worst disagreement " + worst);
 }
 
 console.log("5. the kink, where it is and how fast it goes");
 {
   const flat = limitPatches(grid(5, 5), { levels: 0 });
-  const none = worstKink(flat.cage, flat.patches, flat.poles);
+  const none = worstKink(flat.cage, flat.fine, flat.poles);
   check("a regular cage has no extraordinary vertex and no kink at all",
         none.extraordinary === 0 && none.worst === 0);
 
   const seen = [];
   for (const levels of [0, 1, 2, 3]) {
     const got = limitPatches(CUBE, { levels });
-    const k = worstKink(got.cage, got.patches, got.poles);
+    const k = worstKink(got.cage, got.fine, got.poles);
     seen.push(k.worst);
     check("cube at level " + levels + ": " + got.patches.length + " patches, "
           + k.extraordinary + " extraordinary vertices", k.extraordinary === 8,
@@ -516,14 +576,14 @@ console.log("12. creases: a hard one is held exactly, and that pins the corner r
   //! for must not appear in it. Creasing every edge of a cube cage makes the
   //! surface exact everywhere, and the measurement has to agree - before this
   //! it called that cage 87.9 degrees out of tangent.
-  const kink = worstKink(creased.cage, creased.patches, creased.poles);
+  const kink = worstKink(creased.cage, creased.fine, creased.poles);
   check("and a deliberate fold is not counted as being out of tangent",
         kink.worst === 0 && kink.edges === 0,
         kink.edges + " edges measured, worst " + kink.worst.toFixed(4) + " deg");
   const loose = limitPatches(CUBE, { levels: 0 });
   check("while the same cage uncreased still is", 
-        worstKink(loose.cage, loose.patches, loose.poles).worst > 5,
-        worstKink(loose.cage, loose.patches, loose.poles).worst.toFixed(3) + " deg");
+        worstKink(loose.cage, loose.fine, loose.poles).worst > 5,
+        worstKink(loose.cage, loose.fine, loose.poles).worst.toFixed(3) + " deg");
 
   //! A VERTEX WEIGHT ON ITS OWN, nowhere near a creased edge: the patch corner
   //! has to sit exactly on the cage vertex, because that is what a corner means

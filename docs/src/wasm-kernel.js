@@ -4782,13 +4782,20 @@ function sprawl(face, edges) {
       const data = F.data(source);
       if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
       const levels = Math.max(0, Math.round(F.real(f, "levels", 0)));
-      //! A patch per quad, not per facet, so the budget is far smaller than the
-      //! faceted conversion's - and it has to be, because every one of these is
-      //! a surface with sixteen poles rather than a plane with four corners.
-      const after = meshFaces(data).length * Math.pow(4, levels);
-      if (after > 6000)
-        return "that would be about " + Math.round(after / 1000) + "k NURBS patches to "
-          + "sew; use fewer levels or a coarser cage";
+      //! TWO BUDGETS, because refining no longer multiplies the answer. What
+      //! comes out is one surface per cage face whatever the level, so the
+      //! SEWING cost is the cage; what the level multiplies is the patches
+      //! folded into each surface, which is work and memory and nothing else.
+      //! Charging the sewing budget for the folding refused level 3 of a
+      //! 650-face cage saying "10k patches to sew" when the answer was 650.
+      const faces = meshFaces(data).length;
+      if (faces > 6000)
+        return "that is " + Math.round(faces / 1000) + "k faces to sew; "
+          + "use a coarser cage";
+      const folded = faces * Math.pow(4, levels);
+      if (folded > 150000)
+        return "level " + levels + " of this cage means about " + Math.round(folded / 1000)
+          + "k patches to fold into " + faces + " surfaces; use fewer levels";
       return null;
     },
     build: f => {
@@ -4804,7 +4811,11 @@ function sprawl(face, edges) {
       const got = limitPatches(mesh, { levels, sharpBoundary: sharp });
       if (!got.patches.length) throw new Error("that cage has no quad faces to convert");
       const tolerance = Math.max(1e-6, F.real(f, "tolerance", 0.01));
-      const sewn = sewPatches(got.cage, got.patches, tolerance,
+      //! The RIM is asked of the cage the patches are made for, not the refined
+      //! one underneath: one surface per cage face means one boundary per cage
+      //! edge, and counting the refined cage's rim told somebody their mesh was
+      //! open along 96 edges when they had drawn 24.
+      const sewn = sewPatches(got.base, got.patches, tolerance,
                               Feature_choice(f, "solid") === 0);
       const { shape, closed, refused, rim } = sewn;
       const faces = countSubShapes(shape, FACE);
@@ -4818,13 +4829,18 @@ function sprawl(face, edges) {
       //! between a conversion somebody can trust and one they have to squint
       //! at - and it is why \p levels exists, because each level roughly
       //! halves this number.
-      const kink = worstKink(got.cage, got.patches, got.poles);
+      //! Measured on the patches BEFORE they were folded together, because that
+      //! is where the joins are: inside a merged patch the spans meet exactly,
+      //! and what is left to measure is the boundary between one cage face and
+      //! the next, which is what \p fine still has edges for.
+      const kink = worstKink(got.cage, got.fine, got.poles);
       return {
         shape,
         note: (stepped ? "read back past " + stepped
                  + (stepped === 1 ? " Subdivide" : " Subdivides") + " to "
                  + F.name(source) + " \u00b7 " : "")
           + faces + (faces === 1 ? " NURBS patch" : " NURBS patches")
+          + (got.span > 1 ? " of " + got.span + "\u00d7" + got.span + " spans" : "")
           + (closed ? ", sewn into a solid"
               : ", sewn into a shell" + (rim.length ? " - the cage is open along "
                   + rim.length + (rim.length === 1 ? " edge" : " edges") : ""))
@@ -7466,24 +7482,61 @@ function sprawl(face, edges) {
      anybody looks at it. The poles come from \ref limitPatches, which also
      explains where it is exact and where it is not.                         */
 
-  //! One patch as a surface. A single Bezier span written as a B-spline: two
-  //! knots, multiplicity four, degree three - which is the form that carries
-  //! into STEP and IGES unchanged.
+  //! One patch as a surface. Degree three both ways, with as many spans as the
+  //! pole grid carries: a 4 x 4 grid is a single Bezier span, a 7 x 7 is two
+  //! spans each way, a 13 x 13 is four. The interior knots go in THREEFOLD,
+  //! which is what makes each span exactly the Bezier on four consecutive
+  //! poles - so a grid of patches folded together by \ref mergedGrid comes out
+  //! as the identical point set and not as a fit of it.
   const bsplineOf = poles => {
-    const grid = new oc.NCollection_Array2_gp_Pnt(1, 4, 1, 4);
-    for (let i = 0; i < 4; i++)
-      for (let j = 0; j < 4; j++) grid.SetValue(i + 1, j + 1, pnt(poles[i][j]));
-    const ends = () => {
-      const knots = new oc.NCollection_Array1_double(1, 2);
-      knots.SetValue(1, 0); knots.SetValue(2, 1);
-      return knots;
+    const wide = poles.length, deep = poles[0].length;
+    const grid = new oc.NCollection_Array2_gp_Pnt(1, wide, 1, deep);
+    for (let i = 0; i < wide; i++)
+      for (let j = 0; j < deep; j++) grid.SetValue(i + 1, j + 1, pnt(poles[i][j]));
+    //! poles = 3 * spans + 1, which is the sum of the multiplicities less the
+    //! degree less one. Checked rather than assumed: a grid that is not that
+    //! shape would otherwise be refused by OpenCascade with a message about
+    //! array lengths that says nothing about where it came from.
+    const run = count => {
+      const spans = (count - 1) / 3;
+      if (!Number.isInteger(spans) || spans < 1)
+        throw new Error(count + " poles do not make a cubic B-spline - "
+          + "a grid has to be 3n+1 across");
+      const knots = new oc.NCollection_Array1_double(1, spans + 1);
+      const mults = new oc.NCollection_Array1_int(1, spans + 1);
+      for (let k = 0; k <= spans; k++) {
+        knots.SetValue(k + 1, k);
+        mults.SetValue(k + 1, k === 0 || k === spans ? 4 : 3);
+      }
+      return { knots, mults };
     };
-    const held = () => {
-      const mults = new oc.NCollection_Array1_int(1, 2);
-      mults.SetValue(1, 4); mults.SetValue(2, 4);
-      return mults;
-    };
-    return new oc.Geom_BSplineSurface(grid, ends(), ends(), held(), held(), 3, 3, false, false);
+    const u = run(wide), v = run(deep);
+    const surface = new oc.Geom_BSplineSurface(grid, u.knots, v.knots, u.mults, v.mults,
+                                               3, 3, false, false);
+
+    //! AND THEN THE KNOTS THAT ARE NOT DOING ANYTHING COME BACK OUT. The
+    //! interior knots went in threefold because that is what makes each span a
+    //! Bezier, but the spans of a refined patch meet each other C2 - the only
+    //! places this surface is not smooth are its OUTER edges, at a cage corner
+    //! with an extraordinary vertex on it, and those are the fourfold ends.
+    //! So the multiplicity inside is paid for and not used: a four-span patch
+    //! carries 169 poles for a surface 49 describe.
+    //!
+    //! Asked for rather than assumed. RemoveUKnot answers false when it cannot
+    //! hold the shape to the tolerance, and that answer is believed - a patch
+    //! that really is only C0 across a span keeps its knots and nothing is
+    //! lost. The tolerance is a hair, so a knot only goes if the surface
+    //! genuinely does not need it.
+    const KEEN = 1e-9;
+    for (const [count, remove] of [[wide, "RemoveUKnot"], [deep, "RemoveVKnot"]]) {
+      const spans = (count - 1) / 3;
+      //! Backwards, because removing a knot renumbers the ones after it.
+      for (let k = spans; k >= 2; k--)
+        for (let m = 2; m >= 0; m--) {
+          try { if (surface[remove](k, m, KEEN)) break; } catch (error) { break; }
+        }
+    }
+    return surface;
   };
 
   const sewPatches = (cage, patches, tolerance = 0.01, wantSolid = true) => {

@@ -269,30 +269,141 @@ export function patchFor(mesh, poles, fi) {
   return { face: fi, corners: [v0, v1, v2, v3], poles: b };
 }
 
-//! A cage in, bicubic patches out. \p levels is subdivided off first: it does
-//! not change the surface being described - the Catmull-Clark limit of a
-//! subdivided cage is the same surface - it only shrinks the neighbourhood of
-//! each extraordinary vertex, which is the only place the patches are not the
-//! surface. So levels is an accuracy dial with a known direction.
+//! A cage in, bicubic patches out, ONE PER FACE OF THE CAGE HANDED IN.
+//!
+//! \p levels does not change what comes out of here in number or in shape - the
+//! Catmull-Clark limit of a subdivided cage is the same surface - it changes
+//! how finely each patch is DIVIDED INSIDE ITSELF. See \ref mergedGrid: the
+//! refinement happens, and then the patches it made are folded back into one
+//! B-spline per original face, exactly, by re-indexing their poles.
 export function limitPatches(mesh, { levels = 0, sharpBoundary = true } = {}) {
   let cage = cageOf(mesh);
   let quadded = 0;
-  for (let i = 0; i < Math.max(0, Math.round(levels)); i++)
-    cage = catmullClark(cage, { sharpBoundary });
   // Every face has to be a quad, and one level of Catmull-Clark makes any mesh
-  // into one - a triangle becomes three quads, a hexagon six. So a cage that
-  // is not all quads is subdivided once rather than refused, and says so.
+  // into one - a triangle becomes three quads, a hexagon six. This happens
+  // FIRST, so that what comes back is one patch per face of a quad cage and
+  // the quadding is visible in the count rather than hidden inside a patch.
   if (cage.faces.some(face => face.length !== 4)) {
     cage = catmullClark(cage, { sharpBoundary });
     quadded = 1;
   }
+  const base = cage;
+  const deep = Math.max(0, Math.round(levels));
+  let place = base.faces.map((face, fi) => ({ base: fi, i: 0, j: 0, turn: 0 }));
+  for (let step = 0; step < deep; step++) {
+    const next = [];
+    cage.faces.forEach((face, fi) => {
+      const was = place[fi];
+      for (let k = 0; k < 4; k++) next.push(stepInto(was, k));
+    });
+    cage = catmullClark(cage, { sharpBoundary });
+    place = next;
+  }
+
   const poles = limitPoles(cage, { sharpBoundary });
-  const patches = [];
+  const fine = [];
   for (let fi = 0; fi < cage.faces.length; fi++) {
     const patch = patchFor(cage, poles, fi);
-    if (patch) patches.push(patch);
+    if (patch) fine.push({ ...patch, place: place[fi] });
   }
-  return { patches, cage, poles, quadded, levels: Math.max(0, Math.round(levels)) };
+  const patches = deep ? mergedGrid(base, fine, 1 << deep) : fine;
+  return { patches, cage, base, poles, quadded, span: 1 << deep,
+           levels: deep, fine };
+}
+
+/* ------------------------------------------- folding the refinement back in
+
+   WHAT THIS IS FOR. The patches round an extraordinary vertex are the only
+   place this conversion is not the limit surface, and refining the cage first
+   shrinks that place - each level quarters the tangent break. But refining the
+   cage also quadruples the number of faces, and a cube cage coming back as
+   ninety-six NURBS faces instead of six is not an answer anybody wants.
+
+   It does not have to. A 2^n x 2^n grid of bicubic Bezier patches IS a single
+   bicubic B-spline surface: put the interior knots in with multiplicity three
+   and each span of that spline is exactly the Bezier on four consecutive
+   poles. So the merge is RE-INDEXING, not fitting - the same poles, written
+   into one grid, describing the identical point set to the last bit.
+
+   That is the thing somebody would otherwise do by hand in Rhino: explode the
+   result, select the patches that came from one cage face, join them, and
+   rebuild. Done here it needs no rebuild, because nothing is being
+   approximated - there is a closed form and this is it.
+
+   SO \p levels BUYS SMOOTHNESS AND COSTS NO FACES. One patch per cage face,
+   with the inside of each patch as finely divided as asked for, and the only
+   tangent break left is at the cage corners where an extraordinary vertex is.
+
+   The bookkeeping is all orientation. Catmull-Clark splits a quad into four,
+   one at each corner, and each of the four has its own (u, v) turned a quarter
+   turn further round than the last - so the poles have to be turned back
+   before they are written into the parent's grid. \ref stepInto carries that
+   turn down the levels and \ref placePoles takes it out again.             */
+
+//! Where the four sub-quads of a face sit in its own (u, v), in the order
+//! \ref catmullClark pushes them: corner 0 first, then round.
+const CELL = [[0, 0], [1, 0], [1, 1], [0, 1]];
+
+//! A cell of a 2x2, seen from the grid the parent is turned into. A face's own
+//! axes at turn t are (u, v) -> (+U, +V), (+V, -U), (-U, -V), (-V, +U).
+function turnCell(a, b, turn) {
+  if (turn === 1) return [1 - b, a];
+  if (turn === 2) return [1 - a, 1 - b];
+  if (turn === 3) return [b, 1 - a];
+  return [a, b];
+}
+
+//! One level down: which cell of the base grid this sub-face lands in, and how
+//! much further round its own (u, v) has been turned. The corner index IS the
+//! extra quarter turn, which is what makes the composition a sum.
+export function stepInto(place, k) {
+  const [a, b] = turnCell(CELL[k][0], CELL[k][1], place.turn);
+  return { base: place.base, i: place.i * 2 + a, j: place.j * 2 + b,
+           turn: (place.turn + k) % 4 };
+}
+
+//! A pole of a sub-patch, in the base face's own grid. The inverse of the turn
+//! above: at turn 1 the sub's u runs along the base's v, so the pole's u index
+//! becomes its v index and its v index counts backwards along u.
+function placePoles(poles, turn) {
+  const out = [[], [], [], []];
+  for (let x = 0; x < 4; x++)
+    for (let y = 0; y < 4; y++) {
+      const p = turn === 1 ? 3 - y : turn === 2 ? 3 - x : turn === 3 ? y : x;
+      const q = turn === 1 ? x : turn === 2 ? 3 - y : turn === 3 ? 3 - x : y;
+      out[p][q] = poles[x][y];
+    }
+  return out;
+}
+
+//! Every sub-patch of a base face folded into one pole grid. \p span is how
+//! many patches to a side, so the grid is 3*span+1 across - which is exactly
+//! the pole count of a bicubic B-spline with span+1 knots, the ends fourfold
+//! and the insides threefold.
+export function mergedGrid(base, fine, span) {
+  const wide = 3 * span + 1;
+  const held = new Map();
+  for (const patch of fine) {
+    const at = patch.place;
+    let grid = held.get(at.base);
+    if (!grid) {
+      grid = { face: at.base, corners: base.faces[at.base].slice(), span,
+               poles: Array.from({ length: wide }, () => new Array(wide).fill(null)) };
+      held.set(at.base, grid);
+    }
+    const turned = placePoles(patch.poles, at.turn);
+    for (let x = 0; x < 4; x++)
+      for (let y = 0; y < 4; y++)
+        grid.poles[at.i * 3 + x][at.j * 3 + y] = turned[x][y];
+  }
+  //! A hole here means the bookkeeping lost a sub-patch, which would otherwise
+  //! show up as a surface with a crater in it rather than as an error.
+  const out = [];
+  for (const grid of held.values()) {
+    if (grid.poles.some(row => row.some(p => !p))) continue;
+    out.push(grid);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------- evaluating a patch
