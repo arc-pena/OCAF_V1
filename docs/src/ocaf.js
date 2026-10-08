@@ -3044,6 +3044,45 @@ export const CATALOGUE = [
            real("levels", "Levels", 2, 1, 4, 1, ""),
            choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),
            choice("shading", "Shading", ["Smooth", "Faceted"], 0)] },
+  /* ------------------------------------------------- cages built from curves
+
+     THE PARAMETRIC HALF OF SUBDIVISION MODELLING. A cage is normally pushed
+     into shape by hand, which is right for a character and wrong for a
+     handrail - a handrail is a section and a path and ought to be typed in.
+     These build the CAGE rather than the surface, so the two resolutions stay
+     arguments and the result is still a mesh: it can be creased, bridged into
+     its neighbour, twisted, and then turned into exact NURBS by Mesh to NURBS.
+     That is the whole trade - a swept B-Rep is finished the moment it exists,
+     and a swept cage is not.                                                */
+  { type: "MeshSweep", guid: "9a1b2c30-0091-4c00-9e00-caf000000091", category: "mesh",
+    produces: "mesh",
+    summary: "A section carried along a path, as a CAGE. Both resolutions stay "
+           + "yours - how many faces round the section, how many along the run - and "
+           + "so do \p twist and \p taper, which are the two things a swept B-Rep "
+           + "cannot be asked for after it is made. The frame is carried forward by "
+           + "double reflection rather than built from the curve's second derivative, "
+           + "so a section swept along an S does not flip over at the inflection the "
+           + "way a Frenet sweep does.",
+    args: [ref("section", "Section", ["curve"], true),
+           ref("path", "Path", ["curve"], true),
+           real("around", "Faces round", 12, 3, 200, 1, ""),
+           real("along", "Faces along", 8, 1, 400, 1, ""),
+           real("twist", "Twist", 0, -8, 8, 0.05, " turns"),
+           real("taper", "Taper to", 1, 0.01, 10, 0.05, "\u00d7"),
+           choice("caps", "Ends", ["Open", "Capped"], 0)] },
+  { type: "MeshLoft", guid: "9a1b2c30-0092-4c00-9e00-caf000000092", category: "mesh",
+    produces: "mesh",
+    summary: "A cage lofted through two or more section curves. Every section is "
+           + "re-sampled EVENLY ALONG ITS LENGTH and then turned until it lines up "
+           + "with the one before it - sampled by parameter instead, a spline bunches "
+           + "its points at the ends, and two circles that start at different places "
+           + "loft into a surface with a wrap in it. \p along is how many rows of "
+           + "quads between one section and the next.",
+    args: [refs("sections", "Through", ["curve"], true),
+           real("around", "Faces round", 12, 3, 200, 1, ""),
+           real("along", "Rows between", 1, 1, 60, 1, ""),
+           choice("loop", "Run", ["Open", "Closed loop"], 0),
+           choice("caps", "Ends", ["Open", "Capped"], 0)] },
   { type: "Retopologise", guid: "9a1b2c30-008f-4c00-9e00-caf00000008f", category: "mesh",
     produces: "mesh",
     summary: "Any mesh down to a CAGE: as near as it can to the number of faces you "

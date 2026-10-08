@@ -38,6 +38,7 @@ import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
 import { limitPatches, worstKink } from "./limitsurface.js";
 import { deviationFrom, retopologise } from "./retopo.js";
+import { loftThrough, sweepCage } from "./loftmesh.js";
 import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
 import { heldAt, heldOnCurve, heldOnPlane, heldOnSurface, heldWhereItIs,
@@ -5086,6 +5087,95 @@ function sprawl(face, edges) {
       const data = packMesh(checkMesh(mesh, "mesh"));
       data.smooth = Feature_choice(f, "shading") === 0;
       return { data };
+    },
+  };
+
+  //! A curve as a dense polyline, with whether it closes. \ref sweepCage and
+  //! \ref loftThrough re-sample it evenly themselves, so what they want from
+  //! here is ENOUGH points and no opinion about where they go - 400 is far more
+  //! than any cage needs and costs nothing next to the kernel call that made
+  //! the curve.
+  const polylineOf = (source, what) => {
+    const wire = wireOf(source, what);
+    const run = sampleCurve(wire, 400).run.map(p => [p[0], p[1], p[2]]);
+    const closed = wireIsClosed(wire);
+    //! A closed wire's samples come back with the start repeated at the end.
+    //! Left in, it is a zero-length segment that the even sampling steps over
+    //! harmlessly - but it also makes the point count lie, so it goes.
+    if (closed && run.length > 1
+        && V.length(V.sub(run[run.length - 1], run[0])) < CONFUSION) run.pop();
+    return { run, closed };
+  };
+
+  builders.MeshSweep = {
+    precondition: f => {
+      if (!F.reference(f, "section")) return "no section to sweep";
+      if (!F.reference(f, "path")) return "no path to sweep it along";
+      const around = Math.round(F.real(f, "around", 12));
+      const along = Math.round(F.real(f, "along", 8));
+      if (around * along > 40000)
+        return around + " round by " + along + " along is "
+          + Math.round(around * along / 1000) + "k faces; a cage wants hundreds, "
+          + "and Subdivide is what makes it smooth";
+      return null;
+    },
+    build: f => {
+      const section = polylineOf(F.reference(f, "section"), "section");
+      const path = polylineOf(F.reference(f, "path"), "path");
+      const around = Math.max(3, Math.round(F.real(f, "around", 12)));
+      const along = Math.max(1, Math.round(F.real(f, "along", 8)));
+      const twist = F.real(f, "twist", 0);
+      const taper = Math.max(0.001, F.real(f, "taper", 1));
+      const mesh = sweepCage(section.run, path.run, {
+        around, along, closedSection: section.closed, closedPath: path.closed,
+        twist, taper, caps: Feature_choice(f, "caps") === 1 && !path.closed,
+      });
+      return {
+        data: packMesh(checkMesh(mesh, "swept cage")),
+        note: mesh.faces.length + " faces \u00b7 " + around + " round by " + along
+          + " along \u00b7 " + (section.closed ? "closed" : "open") + " section on "
+          + (path.closed ? "a closed path" : "an open path")
+          + (twist ? " \u00b7 " + trim(twist) + " turns of twist" : "")
+          + (Math.abs(taper - 1) > 1e-9 ? " \u00b7 tapering to " + trim(taper) + "\u00d7" : ""),
+      };
+    },
+  };
+
+  builders.MeshLoft = {
+    precondition: f => {
+      const list = F.references(f, "sections").filter(Boolean);
+      if (list.length < 2) return "a loft needs at least two section curves";
+      const around = Math.round(F.real(f, "around", 12));
+      const along = Math.round(F.real(f, "along", 1));
+      if (around * along * list.length > 40000)
+        return "that is about " + Math.round(around * along * list.length / 1000)
+          + "k faces; a cage wants hundreds";
+      return null;
+    },
+    build: f => {
+      const list = F.references(f, "sections").filter(Boolean)
+        .map((one, i) => polylineOf(one, "section " + (i + 1)));
+      //! WHETHER THE SECTIONS ARE LOOPS IS DECIDED ONCE, by the first one. A
+      //! loft of a closed circle onto an open arc has no meaning - there is no
+      //! correspondence between their ends - and guessing per section would
+      //! build it anyway, wrongly, with no complaint.
+      const closed = list[0].closed;
+      if (list.some(one => one.closed !== closed))
+        throw new Error("some of those sections are closed loops and some are not; "
+          + "a loft needs them all the same");
+      const loop = Feature_choice(f, "loop") === 1;
+      const mesh = loftThrough(list.map(one => one.run), {
+        around: Math.max(3, Math.round(F.real(f, "around", 12))),
+        along: Math.max(1, Math.round(F.real(f, "along", 1))),
+        closedSection: closed, closedAlong: loop,
+        caps: Feature_choice(f, "caps") === 1 && !loop,
+      });
+      return {
+        data: packMesh(checkMesh(mesh, "lofted cage")),
+        note: mesh.faces.length + " faces through " + list.length + " sections \u00b7 "
+          + (closed ? "closed" : "open") + " sections, "
+          + (loop ? "run closed into a loop" : "open run"),
+      };
     },
   };
 

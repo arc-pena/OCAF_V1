@@ -87,6 +87,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # retopo reads polymesh and nothing else - the decimation, and the
            # measurement of how far the result moved from what it came from.
            "retopo.js",
+           # loftmesh builds cages from curves - the even sampling, the ring
+           # alignment and the frame that does not flip. Pure, over polymesh.
+           "loftmesh.js",
            "relax.js", "subshape.js",
            # handle, gizmo and camera come before the kernel: the kernel's own
            # drivers read from them - a camera's frustum is the same arithmetic
