@@ -37,6 +37,7 @@ import { freshId, freshName, instantiateEdits } from "./reuse.js";
 import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
 import { limitPatches, worstKink } from "./limitsurface.js";
+import { deviationFrom, retopologise } from "./retopo.js";
 import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
 import { heldAt, heldOnCurve, heldOnPlane, heldOnSurface, heldWhereItIs,
@@ -5085,6 +5086,55 @@ function sprawl(face, edges) {
       const data = packMesh(checkMesh(mesh, "mesh"));
       data.smooth = Feature_choice(f, "shading") === 0;
       return { data };
+    },
+  };
+
+  builders.Retopologise = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to retopologise";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const faces = meshFaces(data).length;
+      if (!faces) return F.name(source) + " has no faces";
+      //! A budget on the INPUT, because the decimation is what costs: every
+      //! collapse re-costs its neighbours and a million-triangle scan will sit
+      //! there for minutes with the tab unresponsive.
+      if (faces > 200000)
+        return "that is " + Math.round(faces / 1000) + "k faces to decimate; "
+          + "simplify it before it gets here";
+      const want = Math.round(F.real(f, "faces", 200));
+      if (want >= faces)
+        return F.name(source) + " already has " + faces + " faces, which is "
+          + (want === faces ? "exactly" : "fewer than") + " what was asked for";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const quads = Feature_choice(f, "shape") === 0;
+      const got = retopologise(mesh, {
+        faces: Math.round(F.real(f, "faces", 200)),
+        angle: F.real(f, "angle", 70),
+        keepRim: Feature_choice(f, "boundary") === 0,
+        quads,
+      });
+      //! HOW FAR IT MOVED, which is the number that says whether it worked. A
+      //! retopology that hit the face count and lost the shape is a mesh, it
+      //! draws, and it has exactly the right number of faces - so the count on
+      //! its own is the one thing that cannot tell the two apart.
+      const off = deviationFrom(mesh, got.mesh);
+      const asFraction = off.size > 0 ? off.worst / off.size : 0;
+      return {
+        data: packMesh(checkMesh(got.mesh, "retopologised mesh")),
+        note: got.from.toLocaleString() + " triangles \u2192 " + got.faces + " faces"
+          + (quads ? " \u00b7 " + got.quads + " quads"
+              + (got.tris ? " and " + got.tris
+                  + (got.tris === 1 ? " triangle" : " triangles") : ", all of them")
+              + " (" + Math.round(100 * got.quads / Math.max(1, got.faces)) + "%)"
+            : "")
+          + " \u00b7 moved at most " + trim(off.worst) + " mm from the surface it came "
+          + "from, " + (asFraction * 100).toFixed(2) + "% of its size",
+      };
     },
   };
 

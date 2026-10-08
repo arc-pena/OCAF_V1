@@ -3044,6 +3044,23 @@ export const CATALOGUE = [
            real("levels", "Levels", 2, 1, 4, 1, ""),
            choice("boundary", "Open edges", ["Keep sharp", "Smooth"], 0),
            choice("shading", "Shading", ["Smooth", "Faceted"], 0)] },
+  { type: "Retopologise", guid: "9a1b2c30-008f-4c00-9e00-caf00000008f", category: "mesh",
+    produces: "mesh",
+    summary: "Any mesh down to a CAGE: as near as it can to the number of faces you "
+           + "ask for, in quads, following the shape it came from. What arrives from "
+           + "a scan, an STL or a Blender export is thousands of triangles describing "
+           + "a surface; a subdivision cage is a few hundred quads describing a "
+           + "SHAPE, and you cannot push the first about or sensibly convert it. The "
+           + "decimation is scored by the quadric error metric, so it spends its "
+           + "faces where the shape is and collapses a flat run for nothing - a "
+           + "divided box comes back with its arrises exactly where they were. Not a "
+           + "field-aligned remesher: the quads are evenly sized and follow the "
+           + "surface, but their edge flow is whatever the pairing found.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           real("faces", "Faces wanted", 200, 4, 100000, 1, ""),
+           choice("shape", "Make", ["Quads where it can", "Triangles"], 0),
+           when(real("angle", "Pair up to", 70, 5, 180, 1, "\u00b0"), "shape", 0),
+           choice("boundary", "Open edges", ["Keep the rim", "Let it move"], 0)] },
   { type: "Weld", guid: "9a1b2c30-0085-4c00-9e00-caf000000085", category: "mesh",
     produces: "mesh",
     summary: "Merges vertices closer together than a distance, and drops the faces that "

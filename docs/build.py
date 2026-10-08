@@ -84,6 +84,9 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # the kernel's Mesh to NURBS driver, so it comes after one and
            # before the other.
            "limitsurface.js",
+           # retopo reads polymesh and nothing else - the decimation, and the
+           # measurement of how far the result moved from what it came from.
+           "retopo.js",
            "relax.js", "subshape.js",
            # handle, gizmo and camera come before the kernel: the kernel's own
            # drivers read from them - a camera's frustum is the same arithmetic

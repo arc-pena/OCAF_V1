@@ -14751,6 +14751,11 @@ globalThis.__cad = {
   //! the flags were trapped in place and every write to them recorded with the
   //! stack that did it. Nothing in the program reads this.
   showroomEngine: () => showroom,
+  //! THE EXPORTS, from outside, because whether a file actually SAVES cannot be
+  //! read from the source: it depends on what the page is running inside. This
+  //! calls exactly what the menu calls - see PIE_ACTS.exportAs - so what is
+  //! driven is the path somebody takes, not a second one made for the test.
+  exportAs: key => exportAs(key),
   //! FULL SCREEN, FROM OUTSIDE. Not a convenience: whether a control survives
   //! Tab is not readable from the source, because the page does not hide
   //! panels in full screen - it fades them to nothing and makes them deaf. A
@@ -15544,12 +15549,18 @@ const saveFile = async (filename, data) => {
 //! an object URL, which is what a browser has always done and what works on
 //! the served site. Below that, the picture is opened in a tab, where it can
 //! still be right-clicked and kept.
-async function saveBlob(blob, filename) {
-  try {
-    const saved = await saveFile(filename, blob);
-    if (saved && saved.status === "saved") return "saved";
-  } catch (err) { /* falls through to the anchor */ }
-
+//! THE ORDINARY BROWSER DOWNLOAD: an object URL on an anchor, clicked. It is
+//! what every web page has done for twenty years, it needs no permission and
+//! no host, and it works wherever the page is served from.
+//!
+//! IT LIVES HERE, ON ITS OWN, because it used to live inside \ref saveBlob and
+//! \ref saveBlob is only used by the PNG export. Every other export - STEP,
+//! BREP, OBJ, STL, DXF and the model file itself - went through \ref offerFile,
+//! which tried the viewer's save surface and, when there was none, showed the
+//! text in a box and refused anything over two megabytes. So the page saved
+//! files inside the viewer and would not save them from a web server, which is
+//! exactly backwards: the server is where the anchor works.
+function anchorDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   try {
     const link = document.createElement("a");
@@ -15566,8 +15577,20 @@ async function saveBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     return "saved";
   } catch (err) {
-    window.open(url, "_blank");
-    return "opened";
+    //! A sandboxed frame without allow-downloads refuses the click. Opening it
+    //! is the last rung: the file is on screen and can be kept by hand.
+    try { window.open(url, "_blank"); return "opened"; } catch (also) { return null; }
+  }
+}
+
+async function saveBlob(blob, filename) {
+  try {
+    const saved = await saveFile(filename, blob);
+    if (saved && saved.status === "saved") return "saved";
+  } catch (err) { /* falls through to the anchor */ }
+  const how = anchorDownload(blob, filename);
+  if (how) return how;
+  {
   }
 }
 
@@ -15638,9 +15661,15 @@ async function offerFile(filename, text, title, note) {
   if (saved && saved.status === "saved") return "saved";
   if (saved && saved.status === "declined") return "declined";
 
-  // No save surface here, so the text is handed over instead - and a text box
-  // is no way to hand over a few megabytes. Say so rather than locking the
-  // page up filling one.
+  //! No save surface, so the browser's own download - which is not a lesser
+  //! option, it is the one that works everywhere except inside a frame that
+  //! has been refused downloads. Only when THAT fails is there nothing left to
+  //! do but hand the text over.
+  const how = anchorDownload(new Blob([text], { type: "text/plain" }), filename);
+  if (how === "saved") return "saved";
+
+  // A text box is no way to hand over a few megabytes. Say so rather than
+  // locking the page up filling one.
   if (text.length > 2 * 1024 * 1024) {
     say(filename + " is " + readable(text.length) + ", and this view cannot save files - "
       + "it can only show text, which is no way to move a file that size. Connect a server, "
