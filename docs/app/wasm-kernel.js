@@ -5095,9 +5095,16 @@ function sprawl(face, edges) {
   //! here is ENOUGH points and no opinion about where they go - 400 is far more
   //! than any cage needs and costs nothing next to the kernel call that made
   //! the curve.
+  const DENSE = 400;
   const polylineOf = (source, what) => {
     const wire = wireOf(source, what);
-    const run = sampleCurve(wire, 400).run.map(p => [p[0], p[1], p[2]]);
+    //! sampleCurve hands back FUNCTIONS - at, byLength, total, tangent - and
+    //! not the points it built them from. Walking `at` is the way to a
+    //! polyline; reaching for a `run` field it does not have is how this first
+    //! came back as "cannot read properties of undefined".
+    const sample = sampleCurve(wire, DENSE);
+    const run = [];
+    for (let i = 0; i <= DENSE; i++) run.push(sample.at(i / DENSE));
     const closed = wireIsClosed(wire);
     //! A closed wire's samples come back with the start repeated at the end.
     //! Left in, it is a zero-length segment that the even sampling steps over

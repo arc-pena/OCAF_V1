@@ -777,7 +777,12 @@ function measureScene() {
     // the left button tumbles, with the middle tracks, with the right dollies.
     // The right button on its own still pans, because that is what it has
     // always done here and taking it away would be taking something away.
-    else if (event.altKey && event.button === 2) mode = "dolly";
+    //! ALT OR CONTROL WITH THE RIGHT BUTTON IS A ZOOM. Alt is the binding this
+    //! has always had; Control is the one people arrive expecting, because it
+    //! is what most Windows CAD uses. Both, because there is no cost to both
+    //! and a navigation gesture somebody cannot find is a gesture they decide
+    //! the program does not have.
+    else if ((event.altKey || event.ctrlKey) && event.button === 2) mode = "dolly";
     else mode = (event.shiftKey || event.button === 1 || event.button === 2) ? "pan" : "orbit";
     // WHETHER THIS DRAG IS ALLOWED TO MOVE THE CAMERA. Decided when the button
     // goes down and not changed after, so letting go of Alt halfway through an
@@ -1060,6 +1065,11 @@ function measureScene() {
     //! can get to. Dragging with the right button still pans; this fires when
     //! it did not move.
     if (rightDragged) { rightDragged = false; return; }
+    //! AND A MODIFIER MEANS NAVIGATION, NOT A MENU. Control-right and alt-right
+    //! are the zoom; on macOS control-click IS a right click, so the menu was
+    //! opening on top of the gesture every time. preventDefault above has
+    //! already stopped the browser's own menu - this stops ours.
+    if (event.ctrlKey || event.altKey || event.metaKey) { rightDragged = false; return; }
     openViewportMenu(event);
   });
   el.addEventListener("wheel", event => {
@@ -9715,8 +9725,23 @@ function placeMenu(x, y, up = false) {
   menu.hidden = false;
   menu.style.maxHeight = "";
   menu.scrollTop = 0;
-  const natural = menu.getBoundingClientRect().height;
-  const width = menu.getBoundingClientRect().width;
+  //! MEASURED IN WINDOW PIXELS, WRITTEN IN THE MENU'S OWN. The menu sits
+  //! inside `zoom: var(--ui)`, and zoom scales a box AFTER the browser has
+  //! worked out its offsets - so a top of 974px renders at 1266 when --ui is
+  //! 1.3, and a max-height of 1080px makes a menu 1404 tall. Measured on a
+  //! 2400x1100 window: the menu's bottom landed at 1380, two hundred and
+  //! eighty pixels off the screen, and because its max-height was bigger than
+  //! its content it never scrolled either - the items at the bottom were
+  //! simply gone. At --ui 1 the same menu fits, which is why this survived.
+  //!
+  //! The factor is MEASURED rather than read from the custom property: the
+  //! rect is in window pixels and offsetHeight is in the element's own, so
+  //! their ratio is the zoom whatever set it.
+  const box = menu.getBoundingClientRect();
+  const scale = menu.offsetHeight > 0 ? box.height / menu.offsetHeight : 1;
+  const own = v => (scale > 0.01 ? v / scale : v) + "px";
+  const natural = box.height;
+  const width = box.width;
 
   // Which side of the cursor it hangs from. Its own side if it fits there,
   // otherwise whichever side has more room - and a menu that fits nowhere
@@ -9727,10 +9752,11 @@ function placeMenu(x, y, up = false) {
                      : natural > below && above > below;
   const room = Math.max(120, wantsUp ? above : below);
   const height = Math.min(natural, room);
-  menu.style.maxHeight = room + "px";
+  menu.style.maxHeight = own(room);
   menu.dataset.scrolls = natural > room ? "1" : "";
-  menu.style.left = Math.max(MENU_EDGE, Math.min(x, innerWidth - width - MENU_EDGE)) + "px";
-  menu.style.top = Math.max(MENU_EDGE, wantsUp ? y - height : Math.min(y, innerHeight - height - MENU_EDGE)) + "px";
+  menu.style.left = own(Math.max(MENU_EDGE, Math.min(x, innerWidth - width - MENU_EDGE)));
+  menu.style.top = own(Math.max(MENU_EDGE,
+    wantsUp ? y - height : Math.min(y, innerHeight - height - MENU_EDGE)));
 }
 
 //! Middle-drag anywhere in a menu scrolls it, the way it does in a drawing

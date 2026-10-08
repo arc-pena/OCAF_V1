@@ -15,7 +15,7 @@
 
 import {
   PAD_X, PAD_Y, SURE_AT, TRACKPAD_ORBIT, TRACKPAD_ZOOM, WHEEL_NOTCH, WHEEL_ZOOM,
-  classifyWheel, gestureFor, looksLikeMac, newPointerMemory,
+  classifyWheel, gestureFor, isNotch, looksLikeMac, newPointerMemory,
 } from "../src/trackpad.js";
 
 let failures = 0;
@@ -272,6 +272,50 @@ console.log("\n7. the platform guess is only a guess, and says so");
   check("a Linux one does not",
         !looksLikeMac({ platform: "Linux x86_64", userAgent: "Mozilla/5.0 (X11; Linux)" }));
   check("and nothing at all does not throw", !looksLikeMac(null) && !looksLikeMac({}));
+}
+
+console.log("8. a notch is a wheel, whatever the device was decided to be");
+{
+  //! THE REPORT THIS IS FOR: "on a Mac desktop with a mouse the wheel should
+  //! zoom". macOS smooths a real mouse wheel into a run of small FRACTIONAL
+  //! deltaY values, so every test built on deltaY alone reads it as a finger -
+  //! and the viewport orbited instead of zooming. wheelDeltaY still comes
+  //! through as a multiple of 120 and settles it.
+  const smoothed = { deltaX: 0, deltaY: 1.25, wheelDeltaY: -120, deltaMode: 0, timeStamp: 0 };
+  check("a Mac-smoothed mouse notch is a notch", isNotch(smoothed),
+        "deltaY " + smoothed.deltaY + ", wheelDeltaY " + smoothed.wheelDeltaY);
+  check("and it zooms even while the device is thought to be a trackpad",
+        gestureFor(smoothed, "trackpad").how === "zoom",
+        gestureFor(smoothed, "trackpad").how);
+
+  //! A REAL FINGER MUST NOT. Chrome reports a trackpad's wheelDelta as three
+  //! times a fractional delta, which is not a multiple of 120 - if this ever
+  //! becomes true the swipe-to-orbit that the whole module exists for is gone.
+  const finger = { deltaX: 0, deltaY: 2.4, wheelDeltaY: -7.2, deltaMode: 0, timeStamp: 0 };
+  check("a trackpad swipe is not a notch", !isNotch(finger),
+        "wheelDeltaY " + finger.wheelDeltaY);
+  check("and still orbits", gestureFor(finger, "trackpad").how === "orbit");
+  const sideways = { deltaX: 3, deltaY: 120, wheelDeltaY: -360, deltaMode: 0, timeStamp: 0 };
+  check("and a swipe with any sideways in it is never a notch", !isNotch(sideways));
+
+  //! Lines or pages is a notched device however big the number is: a browser
+  //! that reports lines is describing a wheel.
+  check("a browser reporting lines is a notch",
+        isNotch({ deltaX: 0, deltaY: 3, deltaMode: 1, timeStamp: 0 }));
+
+  //! Firefox sends no wheelDeltaY, and does not smooth - so the plain deltaY
+  //! test has to carry that case on its own.
+  check("a Firefox-style wheel with no wheelDeltaY is still a notch",
+        isNotch({ deltaX: 0, deltaY: 102, deltaMode: 0, timeStamp: 0 }));
+  check("and a mouse classified from scratch becomes a mouse",
+        (() => {
+          const memory = newPointerMemory(true);
+          let kind = null;
+          for (let i = 0; i < 4; i++)
+            kind = classifyWheel({ deltaX: 0, deltaY: 1.25, wheelDeltaY: -120,
+                                   deltaMode: 0, timeStamp: i * 50 }, memory);
+          return kind === "mouse";
+        })(), "after four smoothed notches");
 }
 
 console.log(failures ? "\n" + failures + " check(s) failed" : "\nall checks passed");

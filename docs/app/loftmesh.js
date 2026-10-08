@@ -60,7 +60,13 @@ export function evenRing(points, count, closed = true, phase = 0) {
   const from = closed ? total * (((phase % 1) + 1) % 1) / steps : 0;
   let at = 1;
   for (let k = 0; k < want; k++) {
-    const target = (from + total * (k / steps)) % total;
+    //! THE WRAP IS FOR CLOSED LOOPS ONLY. Taking the modulo on an open run puts
+    //! its LAST point back at its first - total % total is 0 - so a sweep's far
+    //! station landed at the near end of the path and the section appeared to
+    //! turn over by 127 degrees in one step. An open run has ends; that is what
+    //! makes it open.
+    const raw = from + total * (k / steps);
+    const target = closed ? raw % total : Math.min(raw, total);
     if (target < run[at - 1]) at = 1;
     while (at < run.length - 1 && run[at] < target) at++;
     const back = run[at] - run[at - 1];

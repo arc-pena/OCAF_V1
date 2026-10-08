@@ -72,6 +72,30 @@ export const newPointerMemory = () => ({
 //! \p event { deltaX, deltaY, deltaMode, ctrlKey, timeStamp }
 //! \p memory from newPointerMemory, carried between calls and MUTATED
 //! \return "trackpad" | "mouse" | "unknown"
+//! IS THIS ONE EVENT A NOTCH? Asked of the EVENT rather than of the device,
+//! which is the point: a device that sends notches should get notch behaviour
+//! for those notches whatever it was decided to be, and the classification
+//! above is a guess that can be wrong for a while.
+//!
+//! wheelDeltaY is deprecated and Chrome and Safari still send it, and it is
+//! the one number that tells a wheel from a finger outright: a notch is a
+//! multiple of 120, and a trackpad reports three times a fractional pixel
+//! delta, which is not. That matters most on macOS, where the system smooths a
+//! real mouse wheel into a run of small fractional deltaY values - so every
+//! test built on deltaY alone reads a Mac desktop mouse as a trackpad, which
+//! is exactly what was reported. Firefox sends no wheelDeltaY at all and falls
+//! through to the deltaY tests, which are right there because Firefox does not
+//! smooth.
+export function isNotch(event) {
+  if ((Number(event.deltaMode) || 0) !== 0) return true;
+  const dx = Number(event.deltaX) || 0;
+  if (dx !== 0) return false;
+  const legacy = Number(event.wheelDeltaY);
+  if (Number.isFinite(legacy) && legacy !== 0 && legacy % 120 === 0) return true;
+  const dy = Number(event.deltaY) || 0;
+  return Math.abs(dy) >= WHEEL_NOTCH && Number.isInteger(dy);
+}
+
 export function classifyWheel(event, memory) {
   const m = memory;
   m.seen++;
@@ -109,7 +133,7 @@ export function classifyWheel(event, memory) {
     //! AND A BIG WHOLE STEP WITH NO SIDEWAYS IS A WHEEL, which is the one
     //! case that has to win outright or a wheel on a Mac gets trackpad
     //! navigation and becomes unusably fast.
-    if (Math.abs(dy) >= WHEEL_NOTCH && dx === 0 && Number.isInteger(dy)) lean = -3;
+    if (isNotch(event)) lean = -3;
     m.score += lean || -1;
   }
   m.score = Math.max(-12, Math.min(12, m.score));
@@ -189,7 +213,11 @@ export function gestureFor(event, kind, natural = false) {
   if (event.ctrlKey)
     return { how: "zoom", dx: 0, dy: py, scale: Math.exp(py * TRACKPAD_ZOOM) };
 
-  if (kind !== "trackpad")
+  //! A NOTCH IS A ZOOM WHATEVER THE DEVICE WAS DECIDED TO BE. The gesture
+  //! follows the EVENT, not the guess: a wheel plugged into a Mac that has
+  //! already been classified as a trackpad still zooms, and does so from its
+  //! first notch rather than after the score has swung four points.
+  if (kind !== "trackpad" || isNotch(event))
     //! A WHEEL IS A ZOOM, in notches, exactly as it was before any of this.
     return { how: "zoom", dx: 0, dy: py,
              scale: 1 + Math.sign(py) * WHEEL_ZOOM };
