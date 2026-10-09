@@ -2682,6 +2682,12 @@ function groupFromStream(mesh, entry) {
     //! Normals are directions and a direction does not move with the anchor.
     if (mesh.normals)
       geometry.setAttribute("normal", new THREE.Float32BufferAttribute(mesh.normals, 3));
+    //! THE SOFT SELECTION, PAINTED ON. A weight per vertex arrives as a colour
+    //! per corner - see streamMesh - and the material has to be told to use
+    //! it, because a colour attribute nothing reads is a colour attribute that
+    //! changes nothing and looks exactly like a selection that caught nothing.
+    if (mesh.colors && mesh.colors.length === mesh.positions.length)
+      geometry.setAttribute("color", new THREE.Float32BufferAttribute(mesh.colors, 3));
     geometry.setIndex(mesh.index);
     // Arctic reads its creases off the normals, so a stream that arrived
     // without any gets them worked out rather than drawn with none.
@@ -2700,6 +2706,13 @@ function groupFromStream(mesh, entry) {
     //! the pointer crossed the viewport.
     if (datum) material.userData.base = material.color.clone();
 
+    if (geometry.getAttribute("color")) {
+      material.vertexColors = true;
+      //! White underneath, or the ramp is multiplied by whatever finish the
+      //! body wears and a red-hot vertex on a brass cage comes out brown.
+      if (material.color) material.color.setRGB(1, 1, 1);
+      material.needsUpdate = true;
+    }
     const solid = new THREE.Mesh(geometry, material);
     solid.userData.id = mesh.id;
     solid.userData.datum = datum;

@@ -87,6 +87,11 @@ MODULES = ["payload.js", "sketch.js", "factory.js", "exchange.js", "dxf.js",
            # retopo reads polymesh and nothing else - the decimation, and the
            # measurement of how far the result moved from what it came from.
            "retopo.js",
+           # soft selection is the weight field an attractor makes and the
+           # deformers that read it; cagemorph is the lattice and the mean
+           # value coordinates. Both pure, over polymesh (and retopo, for the
+           # triangles of an attractor mesh), both read by the kernel.
+           "softselect.js", "cagemorph.js",
            # loftmesh builds cages from curves - the even sampling, the ring
            # alignment and the frame that does not flip. Pure, over polymesh.
            "loftmesh.js",

@@ -22,7 +22,9 @@
 // one bad radius never takes the model, or the page, down with it.
 
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, dataProgram, drafting,
-         kernelMessage, meshCreases, meshFaces, meshSharpness, parseNumbers,
+         BLENDS, DEFORMS, FALLOFFS,
+         kernelMessage, meshCreases, meshFaces, meshSharpness, meshWeightTail,
+         meshWeights, parseNumbers,
          registeredTypes, schemaJson, setDrafting, trimNumber,
          typeSpec } from "./ocaf.js";
 import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
@@ -34,11 +36,15 @@ import { SECTION_KINDS, sectionOutline } from "./sections.js";
 import { RECONCILE_PASSES, compilePlan, planDoc, readMade, readPlan, reconcile,
          saysPlan, writeMade } from "./generate.js";
 import { freshId, freshName, instantiateEdits } from "./reuse.js";
-import { MESH_OPS, anchorsOf, applyOps, cageOf, catmullClark, tallyOf,
+import { MESH_OPS, anchorsOf, applyOps, boundsOf, cageOf, catmullClark, tallyOf,
          templateMesh, topologyOf } from "./polymesh.js";
 import { limitPatches, worstKink } from "./limitsurface.js";
 import { deviationFrom, retopologise } from "./retopo.js";
 import { loftThrough, sweepCage } from "./loftmesh.js";
+import { deformPoints, movedBy, softWeights, ssMesh, ssPlane, ssPoint, ssRun,
+         weightTally, weightedCentre } from "./softselect.js";
+import { cageMoved, cageTriangles, latticeCage, morphThrough,
+         sameCage } from "./cagemorph.js";
 import { edgeAnchor, faceAnchor, growPicks, readPicks, resolvePicks,
          tangentChain } from "./subshape.js";
 import { heldAt, heldOnCurve, heldOnPlane, heldOnSurface, heldWhereItIs,
@@ -4287,8 +4293,14 @@ function sprawl(face, edges) {
     values: mesh.points.flat(),
     // The creases ride on the end of the face list - see meshSharpness. A mesh
     // that has never been creased packs byte for byte as it always did.
+    //! And a soft selection rides behind them - see meshWeights. ONLY WHEN IT
+    //! STILL FITS: an operation that changes the vertex count has invalidated
+    //! the selection it was handed, and a weight list of the wrong length
+    //! applied to the wrong vertices is far worse than no selection at all.
     faces: mesh.faces.flatMap(face => [face.length, ...face])
-      .concat(meshSharpness(mesh.creases, mesh.corners)),
+      .concat(meshSharpness(mesh.creases, mesh.corners))
+      .concat(mesh.weights && mesh.weights.length === mesh.points.length
+        ? meshWeightTail(mesh.weights) : []),
   });
 
   //! The mesh arriving on an input, unpacked. Anything that is not a mesh -
@@ -4300,7 +4312,11 @@ function sprawl(face, edges) {
       throw new Error(F.name(source) + " is not a mesh");
     const points = F.triples(data);
     const sharp = meshCreases(data);
-    return { points, faces: meshFaces(data), creases: sharp.creases, corners: sharp.corners };
+    const weights = meshWeights(data);
+    return { points, faces: meshFaces(data), creases: sharp.creases, corners: sharp.corners,
+             //! Carried, not dropped: an operation that keeps the vertices
+             //! keeps the selection on them simply by passing the mesh on.
+             ...(weights && weights.length === points.length ? { weights } : {}) };
   }
 
   const meshCounts = mesh => mesh.points.length + " vertices, " + mesh.faces.length + " faces";
@@ -5231,6 +5247,275 @@ function sprawl(face, edges) {
             : "")
           + " \u00b7 moved at most " + trim(off.worst) + " mm from the surface it came "
           + "from, " + (asFraction * 100).toFixed(2) + "% of its size",
+      };
+    },
+  };
+
+  /* ========================================================= soft selection
+
+     A SELECTION THAT IS GEOMETRY RATHER THAN A LIST OF INDICES. See
+     softselect.js for what the field is and why; this is the part that knows
+     what a point, a curve, a plane and a mesh are in this document.         */
+
+  //! One wired-in feature, as something that can be measured against. Decided
+  //! by what the feature PRODUCES rather than by its type, so a point is a
+  //! point whether it was typed in, found on a curve or handed over by a
+  //! package nobody has written yet.
+  function attractorFrom(source) {
+    const spec = F.spec(source);
+    const produces = spec && spec.produces;
+    if (produces === "point") {
+      const at = readPoint(source);
+      if (!at) throw new Error(F.name(source) + " has no position yet");
+      return { one: ssPoint(at), said: "a point" };
+    }
+    if (produces === "plane") {
+      const found = resolvePlane(source);
+      if (!found.ax) throw new Error(found.why || F.name(source) + " is not a plane yet");
+      const at = found.ax.Location(), n = found.ax.Direction();
+      return { one: ssPlane([at.X(), at.Y(), at.Z()], [n.X(), n.Y(), n.Z()]),
+               said: "a plane" };
+    }
+    if (produces === "mesh") return { one: ssMesh(meshFrom(source, "attractor")),
+                                      said: "a mesh" };
+    if (produces === "curve") {
+      const { run, closed } = polylineOf(source, "attractor");
+      return { one: ssRun(run, closed), said: closed ? "a closed curve" : "a curve" };
+    }
+    throw new Error(F.name(source) + " cannot be attracted to - a soft selection "
+      + "measures distance to a point, a curve, a plane or another mesh");
+  }
+
+  const SIDES = ["Both sides", "Front", "Back"];
+
+  builders.SoftSelect = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to select on";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const pulls = F.references(f, "attractors");
+      if (!pulls.length) return "nothing to attract to - wire in a point, a curve, "
+        + "a plane or another mesh";
+      //! A MESH ATTRACTOR IS THE EXPENSIVE ONE: every vertex against every
+      //! triangle of it. A cage of a few hundred against a scan of a hundred
+      //! thousand is tens of millions of triangle tests, which is a tab that
+      //! stops answering rather than a slow node.
+      const vertices = data.values.length / 3;
+      let tris = 0;
+      for (const one of pulls) {
+        const got = F.data(one);
+        if (got && got.kind === "mesh")
+          for (const face of meshFaces(got)) tris += Math.max(1, face.length - 2);
+      }
+      if (vertices * tris > 40e6)
+        return "measuring " + vertices + " vertices against " + Math.round(tris / 1000)
+          + "k triangles is too much work; retopologise the attractor first";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const side = SIDES[Feature_choice(f, "side")] || SIDES[0];
+      const attractors = [], said = new Map();
+      for (const source of F.references(f, "attractors")) {
+        const got = attractorFrom(source);
+        //! The side is the PLANE's business and is asked of the node, because
+        //! wiring three planes in to get three different sides is a thing
+        //! nobody wants and asking it per plane would need an argument per
+        //! plane.
+        if (got.one.kind === "plane") got.one.side = side;
+        attractors.push(got.one);
+        said.set(got.said, (said.get(got.said) || 0) + 1);
+      }
+      const radius = Math.max(0, F.real(f, "radius", 100));
+      const falloff = FALLOFFS[Feature_choice(f, "falloff")] || FALLOFFS[0];
+      const blend = BLENDS[Feature_choice(f, "blend")] || BLENDS[0];
+      let weights = softWeights(mesh.points, attractors, { radius, falloff, blend });
+      if (Feature_choice(f, "invert") === 1) weights = weights.map(w => 1 - w);
+      const tally = weightTally(weights);
+      const data = packMesh(checkMesh({ ...mesh, weights }, "mesh"));
+      data.heat = Feature_choice(f, "show") === 0;
+      const kinds = [...said].map(([what, n]) => (n > 1 ? n + " × " : "") + what)
+        .join(", ");
+      return {
+        data,
+        //! WHAT IT CAUGHT, in vertices. A soft selection that caught nothing
+        //! is the failure that looks exactly like success: the mesh is there,
+        //! it is the right shape, and every deformer downstream of it quietly
+        //! does nothing. So the count comes first and the warning is part of
+        //! the sentence rather than a thing to go and check.
+        note: (tally.touched
+          ? tally.touched + " of " + tally.of + " vertices, "
+            + tally.full + " of them fully"
+          : "NOTHING SELECTED - nothing is within " + trim(radius) + " mm")
+          + " · " + kinds + ", " + falloff.toLowerCase() + " falloff over "
+          + trim(radius) + " mm"
+          + (attractors.length > 1 ? " · blended by " + blend.toLowerCase() : "")
+          + (attractors.some(a => a.kind === "plane") && side !== SIDES[0]
+              ? " · " + side.toLowerCase() + " of the plane only" : ""),
+      };
+    },
+  };
+
+  /* ===================================================== deforming a selection
+
+     One node, six transforms, because they differ only in T and share the
+     weight rule, the centre and the span. See deformPoints.                 */
+
+  const DEFORM_NEEDS_AXIS = new Set(["Rotate", "Scale", "Twist", "Bend"]);
+
+  builders.CageDeform = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to deform";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const kind = DEFORMS[Feature_choice(f, "kind")] || DEFORMS[0];
+      if (kind === "Move" && !F.reference(f, "by"))
+        return "no direction to move in - wire a vector into ‘Move along’";
+      if (DEFORM_NEEDS_AXIS.has(kind) && F.reference(f, "axis")
+          && !axisOf(F.reference(f, "axis")))
+        return F.name(F.reference(f, "axis")) + " does not give a direction";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const kind = DEFORMS[Feature_choice(f, "kind")] || DEFORMS[0];
+      const weights = mesh.weights || null;
+      //! NO SELECTION MEANS ALL OF IT. A deformer with nothing wired through a
+      //! soft selection is a whole-object twist, which is a useful node in its
+      //! own right and is what every other package's modifier does.
+      const centre = readPoint(F.reference(f, "at"))
+        || weightedCentre(mesh.points, weights);
+      const found = F.reference(f, "axis") ? axisOf(F.reference(f, "axis")) : null;
+      const axis = found ? found.along : [0, 0, 1];
+      const spec = { kind, centre, axis };
+      if (kind === "Move") {
+        const along = axisOf(F.reference(f, "by"));
+        if (!along) throw new Error("that is not a direction to move in");
+        const distance = F.real(f, "distance", 10);
+        spec.by = [along.along[0] * distance, along.along[1] * distance,
+                   along.along[2] * distance];
+      } else if (kind === "Scale") {
+        spec.scale = F.real(f, "factor", 1.5);
+        spec.uniform = Feature_choice(f, "spread") === 0;
+      } else if (kind === "Pinch") {
+        spec.amount = F.real(f, "amount", 10);
+        if (Feature_choice(f, "push") === 1) spec.normals = vertexNormals(mesh);
+      } else {
+        spec.angle = F.real(f, "angle", 45);
+        if (kind === "Bend") {
+          const into = F.reference(f, "into") ? axisOf(F.reference(f, "into")) : null;
+          if (into) spec.into = into.along;
+        }
+      }
+      const points = deformPoints(mesh.points, weights, spec);
+      const went = movedBy(mesh.points, points);
+      const data = packMesh(checkMesh({ ...mesh, points }, "deformed mesh"));
+      return {
+        data,
+        //! HOW MUCH ACTUALLY MOVED. Every one of these can be wired up
+        //! correctly and do nothing - a selection that caught nothing, an
+        //! angle of zero, a vector of zero length - and the mesh that comes
+        //! out of all three cases is the mesh that went in.
+        note: kind.toLowerCase() + ": " + (went.moved
+          ? went.moved + " of " + mesh.points.length + " vertices moved, the furthest by "
+            + trim(went.most) + " mm"
+          : "NOTHING MOVED" + (weights ? " - the selection on this mesh is empty"
+              : " - check the angle or the distance"))
+          + (weights ? "" : " · no soft selection on this mesh, so all of it")
+          + (found ? "" : DEFORM_NEEDS_AXIS.has(kind) ? " · about Z" : ""),
+      };
+    },
+  };
+
+  /* ============================================================ cage and morph
+
+     See cagemorph.js. The lattice is an ordinary mesh so that everything that
+     deforms a mesh can drive it, which is the whole idea.                    */
+
+  builders.CageLattice = {
+    precondition: f => {
+      const source = F.reference(f, "mesh");
+      if (!source) return "no mesh to put a lattice round";
+      const data = F.data(source);
+      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      const n = ["x", "y", "z"].map(a => Math.round(F.real(f, "n" + a, 2)));
+      if (n.some(v => v < 1)) return "a lattice needs at least one division each way";
+      if (n[0] * n[1] * n[2] > 2000)
+        return n.join(" × ") + " is " + (n[0] * n[1] * n[2]) + " cells; a cage you "
+          + "can push about is a handful each way";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      //! polymesh's, which takes the mesh. A second one here taking the
+      //! points was the same answer spelled twice and the build said so.
+      const box = boundsOf(mesh);
+      const cage = latticeCage(box, {
+        nx: Math.round(F.real(f, "nx", 2)),
+        ny: Math.round(F.real(f, "ny", 2)),
+        nz: Math.round(F.real(f, "nz", 2)),
+        padding: F.real(f, "padding", 0),
+      });
+      const size = [0, 1, 2].map(a => box.hi[a] - box.lo[a]);
+      return {
+        data: packMesh(checkMesh(cage, "lattice")),
+        //! The count says hollow out loud, because asking for 4 x 4 x 4 and
+        //! counting 56 points where 64 were expected is the first thing
+        //! anybody will do.
+        note: cage.points.length + " control points round a "
+          + size.map(trim).join(" × ") + " mm box · hollow: the coordinates "
+          + "act through the cage's surface, so a point inside it would do nothing",
+      };
+    },
+  };
+
+  builders.CageMorph = {
+    precondition: f => {
+      for (const [key, what] of [["mesh", "mesh to deform"], ["rest", "cage"],
+                                 ["moved", "moved cage"]]) {
+        const source = F.reference(f, key);
+        if (!source) return "no " + what + " wired in";
+        const data = F.data(source);
+        if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      }
+      const rest = meshFrom(F.reference(f, "rest"), "cage");
+      const moved = meshFrom(F.reference(f, "moved"), "moved cage");
+      const why = sameCage(rest, moved);
+      if (why) return "the two cages are not the same cage: " + why;
+      const data = F.data(F.reference(f, "mesh"));
+      const vertices = data.values.length / 3;
+      //! Every point of the mesh against every triangle of the cage, with
+      //! three arcsines a triangle. A 4 x 4 x 4 lattice is 196 triangles, so
+      //! this is really a budget on the mesh.
+      const work = vertices * cageTriangles(rest).length;
+      if (work > 30e6)
+        return Math.round(work / 1e6) + " million coordinate terms is too much work; "
+          + "retopologise the mesh or use a coarser cage";
+      return null;
+    },
+    build: f => {
+      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const rest = meshFrom(F.reference(f, "rest"), "cage");
+      const moved = meshFrom(F.reference(f, "moved"), "moved cage");
+      const went = cageMoved(rest, moved);
+      const got = morphThrough(mesh.points, rest, moved);
+      const off = movedBy(mesh.points, got.points);
+      return {
+        data: packMesh(checkMesh({ ...mesh, points: got.points }, "morphed mesh")),
+        note: mesh.points.length.toLocaleString() + " vertices through a "
+          + rest.points.length + "-point cage · "
+          + (went.moved
+            ? went.moved + " control points moved, the furthest by " + trim(went.most)
+              + " mm, and the mesh followed by at most " + trim(off.most) + " mm"
+            : "THE CAGE HAS NOT MOVED - both inputs are the same shape, so nothing "
+              + "happened; deform one of them")
+          + (got.outside
+            ? " · " + got.outside + " vertices were left where they were: the "
+              + "coordinates could not be worked out there, which means the cage is "
+              + "not closed"
+            : ""),
       };
     },
   };
@@ -7458,6 +7743,20 @@ function sprawl(face, edges) {
   //! The unsplit vertices go too, under `vertices`: those are the ones a handle
   //! can be put on, and their positions in that list are the indices a hand edit
   //! is written against.
+  //! THE WEIGHT RAMP. Blue nothing, red everything, through cyan, green and
+  //! yellow - the ramp every package uses for a soft selection, kept because
+  //! it is the one people can already read and because five stops make the
+  //! half-weighted band unmistakable where a two-colour blend leaves it a
+  //! muddy middle. Stops are at 0, ¼, ½, ¾, 1 and lerped between.
+  const HEAT = [[0.16, 0.36, 0.86], [0.13, 0.72, 0.84], [0.22, 0.76, 0.33],
+                [0.96, 0.80, 0.18], [0.92, 0.22, 0.16]];
+  function heatOf(w) {
+    const t = Math.max(0, Math.min(1, w)) * (HEAT.length - 1);
+    const i = Math.min(HEAT.length - 2, Math.floor(t));
+    const k = t - i, a = HEAT[i], b = HEAT[i + 1];
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  }
+
   function streamMesh(data) {
     const points = F.triples(data);
     const faces = meshFaces(data);
@@ -7465,7 +7764,13 @@ function sprawl(face, edges) {
 
     const smooth = data.smooth === true;
     const normals = smooth ? vertexNormals({ points, faces }) : null;
-    const positions = [], normalOut = [], index = [];
+    //! Painted only when the node that made this mesh asked for it. The
+    //! weights travel on every mesh downstream of a soft selection, and a
+    //! deformed cage drawn as a heat map for ever after would be a cage you
+    //! can never see the material of.
+    const weights = data.heat === true ? meshWeights(data) : null;
+    const heat = weights && weights.length === points.length ? weights : null;
+    const positions = [], normalOut = [], index = [], colours = [];
     for (const face of faces) {
       const n = smooth ? null : faceNormal(points, face);
       // Flat shading needs its own copy of each corner; smooth shading could
@@ -7475,12 +7780,17 @@ function sprawl(face, edges) {
         positions.push(points[at][0], points[at][1], points[at][2]);
         const vn = smooth ? normals[at] : n;
         normalOut.push(vn[0], vn[1], vn[2]);
+        if (heat) {
+          const c = heatOf(heat[at]);
+          colours.push(c[0], c[1], c[2]);
+        }
       }
       for (let i = 1; i + 1 < face.length; i++) index.push(base, base + i, base + i + 1);
     }
     out.positions = positions;
     out.normals = normalOut;
     out.index = index;
+    if (heat) out.colors = colours;
     out.triangles = index.length / 3;
 
     const seen = new Set();

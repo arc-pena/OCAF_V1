@@ -1871,6 +1871,17 @@ const choice = (key, label, options, def = 0) =>
 const subs = (key, label, of, summary, whole = "all of them") =>
   ({ key, label, kind: "subs", of, def: "[]", whole, summary });
 
+//! THE SOFT SELECTION'S VOCABULARY. Here rather than in softselect.js because
+//! this IS the list a person picks from - a choice argument's options are the
+//! catalogue's business - and because the arithmetic over there is keyed by
+//! the name rather than by the number, so there is one list and not two.
+//! docs/test/softselect.test.mjs checks that every name in these is one the
+//! arithmetic actually answers to, which is the join that could silently rot.
+export const FALLOFFS = ["Smooth", "Linear", "Sharp", "Dome", "Hard"];
+export const BLENDS = ["Largest", "Sum", "Average"];
+export const DEFORMS = ["Move", "Rotate", "Scale", "Twist", "Bend", "Pinch"];
+export const PINCHES = ["From the centre", "Along the normal"];
+
 const when = (arg, key, equals) => ({ ...arg, showWhen: { key, equals } });
 
 //! The same, for an argument that belongs to SEVERAL of a choice's answers - a
@@ -3107,6 +3118,115 @@ export const CATALOGUE = [
            real("along", "Rows between", 1, 1, 60, 1, ""),
            choice("loop", "Run", ["Open", "Closed loop"], 0),
            choice("caps", "Ends", ["Open", "Capped"], 0)] },
+  /* --------------------------------------------- selecting softly, by geometry
+
+     THE PART OF MESH MODELLING NOBODY HAS MADE PARAMETRIC. A soft selection
+     in 3ds Max or Maya is a handful of vertices and a falloff slider, made
+     with the mouse and remembered as a list of indices; change the cage under
+     it and it means something else or nothing at all. Here the selection IS
+     the attractor geometry, so it is re-measured on every rebuild, and the
+     deformers below read the weights off the mesh rather than off a drag.  */
+
+  { type: "SoftSelect", guid: "9a1b2c30-0163-4c00-9e00-caf000000163", category: "mesh",
+    produces: "mesh",
+    summary: "A soft selection made of GEOMETRY. Wire in points, curves, planes or "
+           + "another mesh as attractors and every vertex is weighted by how far it "
+           + "is from the nearest of them: a point selects a ball around itself, a "
+           + "curve selects a tube along its whole length, a plane selects a slab "
+           + "measured along its normal - so the selection runs the full width of the "
+           + "model - and a mesh selects the shell around its surface. Feed three "
+           + "points in and you get three soft selections at once. Nothing is picked "
+           + "by hand and nothing is a list of vertex numbers, so the selection "
+           + "survives everything upstream changing: move the attractor and the "
+           + "selection follows it, refine the cage and it is re-measured on the new "
+           + "vertices. The weights ride ON the mesh from here on, which is what lets "
+           + "a Deform cage after this one just work - and what makes a Subdivide "
+           + "between the two drop them, because those vertices no longer exist. Red "
+           + "is fully selected and blue is not selected at all.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           //! NEVER GUESSED AT, which every other list of sources is. An
+           //! attractor input accepts a mesh, so the ordinary rule - take the
+           //! first thing of the right kind - wires the node to the very mesh
+           //! it is selecting on. Every vertex is then nought away from its own
+           //! surface, every weight is 1, and the node reports a full selection
+           //! that is indistinguishable from a working one. Several things
+           //! PICKED are still wired, because that is somebody saying which.
+           { ...refs("attractors", "Attractors", ["point", "curve", "plane", "mesh"]),
+             guess: false },
+           real("radius", "Zone of influence", 100, 0, 100000, 1),
+           choice("falloff", "Falloff", FALLOFFS, 0),
+           choice("blend", "Where they overlap", BLENDS, 0),
+           choice("side", "Plane attracts", ["Both sides", "In front", "Behind"], 0),
+           choice("invert", "Selection", ["As measured", "Inverted"], 0),
+           choice("show", "Draw it", ["As a heat map", "Plain"], 0)] },
+
+  { type: "CageDeform", guid: "9a1b2c30-0164-4c00-9e00-caf000000164", category: "mesh",
+    produces: "mesh",
+    summary: "Move, rotate, scale, twist, bend or pinch - applied through whatever "
+           + "soft selection the mesh is carrying, so it is a LOCAL operation on a "
+           + "cage rather than a transform of the whole thing. Every one of them "
+           + "works the same way: the transform is worked out in full and each vertex "
+           + "goes a fraction of the way to it, that fraction being its weight. With "
+           + "no soft selection on the mesh it deforms all of it, which is the "
+           + "ordinary modifier. \p at defaults to the middle of the SELECTION rather "
+           + "than of the mesh, and twist and bend measure their angle over how far "
+           + "the mesh reaches along the axis, so the number you type is the angle "
+           + "end to end. The note says how many vertices actually moved, because a "
+           + "deformer wired to an empty selection is silent otherwise.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           choice("kind", "Deformation", DEFORMS, 0),
+           when(ref("by", "Move along", ["vector", "axis", "curve"]), "kind", 0),
+           when(real("distance", "Distance", 10, -100000, 100000, 0.5), "kind", 0),
+           whenAny(ref("axis", "Axis", ["vector", "axis", "curve"]), "kind", [1, 2, 3, 4]),
+           whenAny(real("angle", "Angle", 45, -3600, 3600, 1, "\u00b0"), "kind", [1, 3, 4]),
+           when(real("factor", "Scale", 1.5, -100, 100, 0.01, ""), "kind", 2),
+           when(choice("spread", "Scale", ["In every direction", "Along the axis only"], 0),
+                "kind", 2),
+           when(ref("into", "Bend towards", ["vector", "axis"]), "kind", 4),
+           when(real("amount", "Amount", 10, -100000, 100000, 0.5), "kind", 5),
+           when(choice("push", "Push", PINCHES, 0), "kind", 5),
+           whenAny(ref("at", "About", ["point"]), "kind", [1, 2, 3, 4, 5])] },
+
+  /* ------------------------------------------------------ a cage, and a morph
+
+     Two nodes rather than one, and that is the whole point: the lattice is an
+     ordinary mesh, so everything that moves a mesh - a soft selection and a
+     twist, an Edit Mesh vertex dragged by hand, a Move driven by a formula -
+     can drive the deformation. In every other package the cage edit is a
+     modifier with its own private lattice you push about by eye.           */
+
+  { type: "CageLattice", guid: "9a1b2c30-0165-4c00-9e00-caf000000165", category: "mesh",
+    produces: "mesh",
+    summary: "A box of control points round a mesh, as an ordinary mesh - which is "
+           + "what makes this different from an FFD modifier. Deform THIS with "
+           + "anything that deforms a mesh and wire both it and this original into a "
+           + "Cage morph, and the model follows. The lattice is hollow: the "
+           + "coordinates the morph uses act through the cage's surface, so a control "
+           + "point inside the box would have no effect and none is made. \p padding "
+           + "stands it off the model, which is what you want when the deformation "
+           + "has to fall away to nothing at the ends.",
+    args: [ref("mesh", "Mesh to fit round", ["mesh"]),
+           real("nx", "Divisions in X", 2, 1, 32, 1, ""),
+           real("ny", "Divisions in Y", 2, 1, 32, 1, ""),
+           real("nz", "Divisions in Z", 2, 1, 32, 1, ""),
+           real("padding", "Stand-off", 0, 0, 100000, 1)] },
+
+  { type: "CageMorph", guid: "9a1b2c30-0166-4c00-9e00-caf000000166", category: "mesh",
+    produces: "mesh",
+    summary: "A mesh carried through the change between two cages: wire the lattice "
+           + "as it was into \p rest, the same lattice after whatever moved it into "
+           + "\p moved, and the model follows smoothly. Any closed cage will do, not "
+           + "just a box - the coordinates are the mean value ones (Ju, Schaefer and "
+           + "Warren, 2005), which are defined for any closed triangle mesh, "
+           + "reproduce a straight stretch exactly, and work outside the cage as well "
+           + "as in, so geometry sitting on the cage's own face is not a special "
+           + "case. The two cages have to be the same cage with its points moved; a "
+           + "cage subdivided or welded in between is refused by name rather than "
+           + "deforming by the difference between two unrelated meshes.",
+    args: [ref("mesh", "Mesh", ["mesh"], true),
+           ref("rest", "Cage as it was", ["mesh"]),
+           ref("moved", "Cage as it is now", ["mesh"])] },
+
   { type: "Retopologise", guid: "9a1b2c30-008f-4c00-9e00-caf00000008f", category: "mesh",
     produces: "mesh",
     summary: "Any mesh down to a CAGE: as near as it can to the number of faces you "
@@ -4393,7 +4513,14 @@ export const F = {
       faces: label.attr.TDataStd_IntegerArray || [],
       // Whether the normals should be averaged across a face's edges. A
       // property of the mesh, not of the viewer, so it travels with it.
-      smooth: label.attr.TDataStd_Integer === 1,
+      //! TWO FLAGS IN THE ONE INTEGER, as bits. The second says to paint the
+      //! soft selection on - which is a decision the NODE makes, not the
+      //! viewer: the weights travel on every mesh downstream of a selection
+      //! and a deformed cage drawn as a heat map for ever after would be a
+      //! cage whose material you can never see. A file written before this
+      //! holds 0 or 1 and reads exactly as it did.
+      smooth: (label.attr.TDataStd_Integer & 1) === 1,
+      heat: (label.attr.TDataStd_Integer & 2) === 2,
     };
   },
   setData(f, data) {
@@ -4409,7 +4536,7 @@ export const F = {
     label.attr.TDataStd_RealArray = (data.values || []).map(round);
     label.attr.TDataStd_ExtStringArray = data.lines || [];
     label.attr.TDataStd_IntegerArray = data.faces || [];
-    label.attr.TDataStd_Integer = data.smooth ? 1 : 0;
+    label.attr.TDataStd_Integer = (data.smooth ? 1 : 0) | (data.heat ? 2 : 0);
     return label;
   },
   //! Points and vectors read back as triples, which is how every driver wants
@@ -5858,14 +5985,23 @@ export function meshFaces(data) {
 //!
 //! Adding an attribute to the schema would have been tidier and would have
 //! made every model file written before today unreadable. This does not.
-export function meshCreases(data) {
-  const packed = (data && data.faces) || [];
+//! WHERE THE FACES STOP. Every reader of the tail needs this same walk and
+//! there are three of them now, so it is written once: the index of the token
+//! that ended the face list, which is the first byte of whatever tail follows.
+//! Past the end when there is no tail at all.
+export function meshTailAt(packed) {
   let i = 0;
   for (; i < packed.length; ) {
-    const sides = packed[i++];
-    if (!(sides > 0) || i + sides > packed.length) break;
-    i += sides;
+    const sides = packed[i];
+    if (!(sides > 0) || i + 1 + sides > packed.length) return i;
+    i += 1 + sides;
   }
+  return i;
+}
+
+export function meshCreases(data) {
+  const packed = (data && data.faces) || [];
+  let i = meshTailAt(packed) + 1;
   const creases = {}, corners = {};
   if (packed[i - 1] !== 0) return { creases, corners };
   const edges = packed[i++] || 0;
@@ -5893,6 +6029,57 @@ export function meshSharpness(creases = {}, corners = {}) {
     .filter(([v, w]) => Number.isInteger(v) && w > 0);
   if (!edges.length && !points.length) return [];
   return [0, edges.length, ...edges.flat(), points.length, ...points.flat()];
+}
+
+//! HOW STRONGLY EACH VERTEX IS SELECTED, off the same tail, behind a sentinel
+//! of its own.
+//!
+//! A soft selection has to travel with the mesh for the same reason a crease
+//! does: it is made by one node and read by the next, and anything in between
+//! - a transform, a weld, a merge - has to carry it through without knowing
+//! what it is. So it goes where the creases go, behind -1, which cannot be a
+//! face's side count and cannot be the creases' 0:
+//!
+//!     … faces … [, 0, creases … ] , -1, count, w, w, w, …
+//!
+//! as thousandths, because the array is integers and a weight is a blend
+//! factor: a thousand steps across a falloff is finer than the screen, finer
+//! than the geometry it moves, and three bytes a vertex in the file.
+//!
+//! The creases section is optional and comes first when it is there, which is
+//! what the skip below is for. A mesh written before this existed has neither
+//! and reads as no selection at all, which is what it is.
+export function meshWeights(data) {
+  const packed = (data && data.faces) || [];
+  let i = meshTailAt(packed);
+  if (packed[i] === 0) {
+    i++;
+    const edges = packed[i++] || 0;
+    i += edges * 3;
+    const corners = packed[i++] || 0;
+    i += corners * 2;
+  }
+  if (packed[i] !== -1) return null;
+  i++;
+  const count = packed[i++] || 0;
+  if (!(count > 0) || i + count > packed.length) return null;
+  const out = new Array(count);
+  for (let n = 0; n < count; n++)
+    out[n] = Math.max(0, Math.min(1, (packed[i + n] || 0) / 1000));
+  return out;
+}
+
+//! And the way back. Nothing at all when nothing is selected, so a mesh that
+//! has never been through a soft selection packs byte for byte as it did.
+export function meshWeightTail(weights) {
+  if (!weights || !weights.length) return [];
+  let any = false;
+  const out = weights.map(w => {
+    const v = Math.round(Math.max(0, Math.min(1, Number(w) || 0)) * 1000);
+    if (v > 0) any = true;
+    return v;
+  });
+  return any ? [-1, out.length, ...out] : [];
 }
 
 //! How many faces of each number of sides - the one line that says whether a
