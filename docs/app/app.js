@@ -13848,6 +13848,53 @@ async function sampleModel(sample) {
   return model;
 }
 
+//! OPENING ONE, AS ITS OWN THING. This was the body of the menu button's
+//! click handler and nothing else could reach it, which is why the link in the
+//! data-hall sample's own summary - "open it straight from a link ending
+//! #datahall-ocp" - had never worked: no code in this page read the hash. A
+//! drive of that link is what found it.
+async function openSample(sample) {
+  state.hidden.clear();
+  state.selected = null;
+  state.edited = null;
+  // Straight down the same channel as everything else, so it lands in the
+  // graph console like any other edit. A sample kept as a file has to be
+  // read first, and a read that fails says so where the click was rather
+  // than leaving an empty document and no reason for it.
+  let model;
+  try {
+    //! ITS PACKAGES FIRST. A sample built out of a package's nodes cannot
+    //! open until they are in the catalogue, and the refusal names the
+    //! first node rather than the package - which reads as a broken sample.
+    for (const id of sample.needs || []) {
+      if (packages.isLoaded(id)) continue;
+      say("switching on the " + id + " package\u2026");
+      await packages.load(id);
+    }
+    //! AND WHATEVER THE FILE ITSELF ASKS FOR, which is the list that
+    //! travels with a model rather than the one beside it in the menu.
+    model = await loadNeeds(await sampleModel(sample));
+  }
+  catch (error) { say("could not open " + sample.name + ": " + error.message); return false; }
+  if (!await edit({ op: "model", model })) return false;
+  fitView();
+  return true;
+}
+
+//! THE ADDRESS BAR, READ ONCE AT BOOT. #hybrid-cage opens that sample; a hash
+//! naming nothing is left alone, because somebody else's anchor is not this
+//! page's business.
+async function openFromLink() {
+  let key = "";
+  try { key = decodeURIComponent(String(location.hash || "").slice(1)).trim(); }
+  catch (e) { return false; }
+  if (!key) return false;
+  const sample = SAMPLES.find(one => one.key === key);
+  if (!sample) return false;
+  say("opening " + sample.name + " from the link\u2026");
+  return openSample(sample);
+}
+
 function buildSampleMenu() {
   sampleMenu.textContent = "";
   // The samples scroll and the warning under them does not: see the stylesheet.
@@ -13858,31 +13905,9 @@ function buildSampleMenu() {
     const button = document.createElement("button");
     button.innerHTML = "<b>" + escapeHtml(sample.name) + "</b><span>" +
       escapeHtml(sample.summary) + "</span>";
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       sampleMenu.hidden = true;
-      state.hidden.clear();
-      state.selected = null;
-      state.edited = null;
-      // Straight down the same channel as everything else, so it lands in the
-      // graph console like any other edit. A sample kept as a file has to be
-      // read first, and a read that fails says so where the click was rather
-      // than leaving an empty document and no reason for it.
-      let model;
-      try {
-        //! ITS PACKAGES FIRST. A sample built out of a package's nodes cannot
-        //! open until they are in the catalogue, and the refusal names the
-        //! first node rather than the package - which reads as a broken sample.
-        for (const id of sample.needs || []) {
-          if (packages.isLoaded(id)) continue;
-          say("switching on the " + id + " package\u2026");
-          await packages.load(id);
-        }
-        //! AND WHATEVER THE FILE ITSELF ASKS FOR, which is the list that
-        //! travels with a model rather than the one beside it in the menu.
-        model = await loadNeeds(await sampleModel(sample));
-      }
-      catch (error) { say("could not open " + sample.name + ": " + error.message); return; }
-      if (await edit({ op: "model", model })) fitView();
+      openSample(sample);
     });
     scroller.appendChild(button);
   }
@@ -17934,6 +17959,7 @@ addEventListener("keyup", event => {
       document.getElementById("boot").hidden = true;
       offerSpare();
       await switchOnTheAlwaysOn();
+      await openFromLink();
       return;
     } catch (err) { /* fall through to the kernel in this page */ }
   }
@@ -17948,6 +17974,7 @@ addEventListener("keyup", event => {
   document.getElementById("boot").hidden = true;
   offerSpare();
   await switchOnTheAlwaysOn();
+  await openFromLink();
   //! ONCE, TO SOMEBODY WHO HAS NEVER BEEN HERE. This is the whole point of it:
   //! the person who opens this without anybody sitting beside them should not
   //! have to find the help button to be told there is one. Afterwards it never

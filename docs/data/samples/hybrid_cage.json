@@ -1,0 +1,379 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Hybrid cage",
+ "units": "mm",
+ "features": [
+  {
+   "id": "D",
+   "type": "GeometricalSet",
+   "name": "00 Datums",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "O",
+   "type": "Point",
+   "name": "Origin",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "D"
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "kind": "Components",
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "D"
+  },
+  {
+   "id": "PXY",
+   "type": "Plane",
+   "name": "Ground",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "O"
+    },
+    "normal": {
+     "ref": "VZ"
+    },
+    "size": 600
+   },
+   "parent": "D"
+  },
+  {
+   "id": "S",
+   "type": "GeometricalSet",
+   "name": "01 Swept  ·  section + path",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "S_SEC",
+   "type": "Circle",
+   "name": "Section",
+   "args": {
+    "plane": {
+     "ref": "PXY"
+    },
+    "radius": 70
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_P0",
+   "type": "Point",
+   "name": "Path point 1",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_P1",
+   "type": "Point",
+   "name": "Path point 2",
+   "args": {
+    "kind": "Coordinates",
+    "x": 60,
+    "y": 260,
+    "z": 180
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_P2",
+   "type": "Point",
+   "name": "Path point 3",
+   "args": {
+    "kind": "Coordinates",
+    "x": -140,
+    "y": 520,
+    "z": 420
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_P3",
+   "type": "Point",
+   "name": "Path point 4",
+   "args": {
+    "kind": "Coordinates",
+    "x": 40,
+    "y": 760,
+    "z": 700
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_P4",
+   "type": "Point",
+   "name": "Path point 5",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 980,
+    "z": 980
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_PATH",
+   "type": "Interpolate",
+   "name": "Path",
+   "args": {
+    "points": [
+     {
+      "ref": "S_P0"
+     },
+     {
+      "ref": "S_P1"
+     },
+     {
+      "ref": "S_P2"
+     },
+     {
+      "ref": "S_P3"
+     },
+     {
+      "ref": "S_P4"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_CAGE",
+   "type": "MeshSweep",
+   "name": "Cage",
+   "args": {
+    "section": {
+     "ref": "S_SEC"
+    },
+    "path": {
+     "ref": "S_PATH"
+    },
+    "around": 12,
+    "along": 16,
+    "twist": 0.25,
+    "taper": 0.5,
+    "caps": "Capped"
+   },
+   "parent": "S"
+  },
+  {
+   "id": "S_NURBS",
+   "type": "MeshToNurbs",
+   "name": "Swept solid",
+   "args": {
+    "mesh": {
+     "ref": "S_CAGE"
+    },
+    "levels": 1,
+    "boundary": "Keep sharp",
+    "tolerance": 0.01,
+    "solid": "A solid if it closes",
+    "source": "The cage behind any Subdivide",
+    "weld": 0
+   },
+   "parent": "S",
+   "appearance": {
+    "finish": "brass"
+   }
+  },
+  {
+   "id": "L",
+   "type": "GeometricalSet",
+   "name": "02 Lofted  ·  through three sections",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "L_O",
+   "type": "Point",
+   "name": "Loft origin",
+   "args": {
+    "kind": "Coordinates",
+    "x": 700,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "D"
+  },
+  {
+   "id": "L_BASE",
+   "type": "Plane",
+   "name": "Loft ground",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "L_O"
+    },
+    "normal": {
+     "ref": "VZ"
+    },
+    "size": 500
+   },
+   "parent": "D"
+  },
+  {
+   "id": "L_PL0",
+   "type": "Plane",
+   "name": "Section plane 1",
+   "args": {
+    "kind": "Offset from a plane",
+    "origin": {
+     "ref": "L_O"
+    },
+    "from": {
+     "ref": "L_BASE"
+    },
+    "offset": 0,
+    "size": 400
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_C0",
+   "type": "Circle",
+   "name": "Section 1",
+   "args": {
+    "plane": {
+     "ref": "L_PL0"
+    },
+    "radius": 210
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_PL1",
+   "type": "Plane",
+   "name": "Section plane 2",
+   "args": {
+    "kind": "Offset from a plane",
+    "origin": {
+     "ref": "L_O"
+    },
+    "from": {
+     "ref": "L_BASE"
+    },
+    "offset": 420,
+    "size": 400
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_C1",
+   "type": "Circle",
+   "name": "Section 2",
+   "args": {
+    "plane": {
+     "ref": "L_PL1"
+    },
+    "radius": 95
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_PL2",
+   "type": "Plane",
+   "name": "Section plane 3",
+   "args": {
+    "kind": "Offset from a plane",
+    "origin": {
+     "ref": "L_O"
+    },
+    "from": {
+     "ref": "L_BASE"
+    },
+    "offset": 820,
+    "size": 400
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_C2",
+   "type": "Circle",
+   "name": "Section 3",
+   "args": {
+    "plane": {
+     "ref": "L_PL2"
+    },
+    "radius": 175
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_CAGE",
+   "type": "MeshLoft",
+   "name": "Cage",
+   "args": {
+    "sections": [
+     {
+      "ref": "L_C0"
+     },
+     {
+      "ref": "L_C1"
+     },
+     {
+      "ref": "L_C2"
+     }
+    ],
+    "around": 12,
+    "along": 2,
+    "loop": "Open",
+    "caps": "Capped"
+   },
+   "parent": "L"
+  },
+  {
+   "id": "L_NURBS",
+   "type": "MeshToNurbs",
+   "name": "Lofted solid",
+   "args": {
+    "mesh": {
+     "ref": "L_CAGE"
+    },
+    "levels": 1,
+    "boundary": "Keep sharp",
+    "tolerance": 0.01,
+    "solid": "A solid if it closes",
+    "source": "The cage behind any Subdivide",
+    "weld": 0
+   },
+   "parent": "L",
+   "appearance": {
+    "finish": "aluminium"
+   }
+  }
+ ],
+ "hidden": [
+  "S_CAGE",
+  "L_CAGE",
+  "D",
+  "L_PL0",
+  "L_PL1",
+  "L_PL2"
+ ]
+}

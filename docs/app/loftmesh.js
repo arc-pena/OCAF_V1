@@ -206,6 +206,21 @@ export function loftCage(rings, { closedAround = true, closedAlong = false, caps
       faces.push([a[i], b[i], b[j], a[j]]);
     }
   }
+  //! CAPPED WITH AN N-GON, and that is where the extraordinary vertices come
+  //! from. Subdividing a twelve-sided cap puts a vertex of valence twelve in
+  //! the middle of it with a ring of valence-three vertices round it, and those
+  //! are exactly the places the NURBS conversion cannot be exact: measured on a
+  //! twelve-sided swept tube, 26 extraordinary vertices and patches meeting
+  //! 26.3 degrees out of tangent, on a body whose WALL is exact everywhere.
+  //!
+  //! A grid of quads would spend those better - four corners of valence three
+  //! per cap instead of a star - and Euler says a closed surface cannot have
+  //! none whatever you do, so it is only ever a question of where to spend
+  //! them. polymesh's gridFill is the obvious tool and it is BROKEN: on a plain
+  //! twelve-ring it leaves fourteen open edges and six non-manifold ones,
+  //! because its interior rows take their ends from loop vertices that are
+  //! already in the opposite run. Until that is fixed this stays an n-gon,
+  //! which is at least a surface.
   if (caps && !closedAlong && closedAround) {
     faces.push(index[0].slice());
     faces.push(index[index.length - 1].slice().reverse());

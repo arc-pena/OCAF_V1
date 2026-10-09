@@ -217,6 +217,7 @@ SAMPLES = [
     ("atrium-galleries", "atrium_galleries.json"),
     ("ergonomics-study", "ergonomics_study.json"),
     ("material-gallery", "material_gallery.json"),
+    ("hybrid-cage", "hybrid_cage.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

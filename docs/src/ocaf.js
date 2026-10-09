@@ -1229,6 +1229,30 @@ export const SAMPLES = [
            + "open the graph and take one apart. Built by "
            + "scripts/build_materialgallery.mjs. 63 nodes." },
 
+  //! THE HYBRID ROUTE, END TO END, and the one sample whose claim is a
+  //! measurement rather than a shape: the note each Mesh to NURBS node prints
+  //! says how exact the conversion was and where it was not.
+  { key: "hybrid-cage", name: "Hybrid \u00b7 curves to a cage to NURBS",
+    file: "samples/hybrid_cage.json",
+    summary: "The hybrid route in two chains. A circle swept along a path bending in two "
+           + "planes, twisted a quarter turn and tapered to half \u2014 the two things a "
+           + "swept B-Rep cannot be asked for after it is made \u2014 and three circles "
+           + "lofted up a stack. Each sweep and loft makes a twelve-sided CAGE of a few "
+           + "hundred quads, and the resolution stays an argument: change Around, Along, "
+           + "Twist or Taper and the smooth body follows. Mesh to NURBS then turns each "
+           + "cage into bicubic patches sewn into a solid \u2014 792 and 216 of them \u2014 "
+           + "and says how exact it was. Where the cage is REGULAR the conversion is not "
+           + "an approximation at all: the same sweep left uncapped reports \"the cage is "
+           + "regular throughout, so this IS the limit surface\". Capped, neither body is "
+           + "regular, because a closed surface cannot be \u2014 Euler says its "
+           + "extraordinary vertices sum to 8 whatever you do, and an n-gon cap spends "
+           + "them all at once. So the notes name them: 26 of them each, patches meeting "
+           + "26.3\u00b0 out of tangent on the swept cap and 12.1\u00b0 on the lofted one, "
+           + "every one of them a cap's. Switch a cage back on with its eye and the few "
+           + "dozen quads stand around the smooth body they mean. Open it straight "
+           + "from a link ending #hybrid-cage. Built by "
+           + "scripts/build_hybrid_cage.mjs. 25 nodes." },
+
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
     file: "samples/datahall_ocp.json", needs: ["rack"],
     summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "
