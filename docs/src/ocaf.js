@@ -1253,6 +1253,24 @@ export const SAMPLES = [
            + "from a link ending #hybrid-cage. Built by "
            + "scripts/build_hybrid_cage.mjs. 25 nodes." },
 
+  { key: "soft-selection", name: "Soft selection \u00b7 attractors, falloff and a cage edit",
+    file: "samples/soft_selection.json",
+    summary: "Four ways of pushing a mesh about without picking a single vertex. A "
+           + "POINT over a sheet, pulled up through a smooth falloff \u2014 drag the "
+           + "point and the bulge follows it, widen the zone of influence and it "
+           + "spreads. THREE POINTS evaluated at thirds along one spline, all three "
+           + "fed to one selection, so the sheet has three bulges and moving the "
+           + "spline moves all of them together; that one carries on into Mesh to "
+           + "NURBS, which reports the cage regular and the surface therefore exact. "
+           + "A PLANE, which measures along its normal and so catches a slab right "
+           + "through a block however wide it is \u2014 twisted, it is a local twist in "
+           + "the middle of a solid. And a LATTICE round a column, bent: the lattice "
+           + "is an ordinary mesh, so what bends it is the ordinary Bend, and the "
+           + "column follows through mean value coordinates. Switch any selection on "
+           + "with its eye to see the weights as a heat map, red where the attractor "
+           + "is. Built by scripts/build_softselect_sample.mjs. Open it straight from "
+           + "a link ending #soft-selection. 38 nodes." },
+
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
     file: "samples/datahall_ocp.json", needs: ["rack"],
     summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "

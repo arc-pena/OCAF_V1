@@ -1,0 +1,571 @@
+{
+ "format": "ocaf-parametric-model",
+ "version": 1,
+ "name": "Soft selection",
+ "units": "mm",
+ "features": [
+  {
+   "id": "D",
+   "type": "GeometricalSet",
+   "name": "00 Datums",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "O",
+   "type": "Point",
+   "name": "Origin",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "D"
+  },
+  {
+   "id": "VZ",
+   "type": "Vector",
+   "name": "Up",
+   "args": {
+    "kind": "Components",
+    "dx": 0,
+    "dy": 0,
+    "dz": 1
+   },
+   "parent": "D"
+  },
+  {
+   "id": "VX",
+   "type": "Vector",
+   "name": "Across",
+   "args": {
+    "kind": "Components",
+    "dx": 1,
+    "dy": 0,
+    "dz": 0
+   },
+   "parent": "D"
+  },
+  {
+   "id": "PXY",
+   "type": "Plane",
+   "name": "Ground",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "O"
+    },
+    "normal": {
+     "ref": "VZ"
+    },
+    "size": 900
+   },
+   "parent": "D"
+  },
+  {
+   "id": "A",
+   "type": "GeometricalSet",
+   "name": "01 A point  ·  and a falloff",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "A_AT",
+   "type": "Point",
+   "name": "Attractor",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "A"
+  },
+  {
+   "id": "A_GRID",
+   "type": "MeshGrid",
+   "name": "Sheet",
+   "args": {
+    "plane": {
+     "ref": "PXY"
+    },
+    "width": 800,
+    "depth": 800,
+    "cols": 24,
+    "rows": 24
+   },
+   "parent": "A"
+  },
+  {
+   "id": "A_SEL",
+   "type": "SoftSelect",
+   "name": "Soft selection",
+   "args": {
+    "mesh": {
+     "ref": "A_GRID"
+    },
+    "attractors": [
+     {
+      "ref": "A_AT"
+     }
+    ],
+    "radius": 260,
+    "falloff": "Smooth",
+    "blend": "Largest"
+   },
+   "parent": "A"
+  },
+  {
+   "id": "A_PULL",
+   "type": "CageDeform",
+   "name": "Pull it up",
+   "args": {
+    "mesh": {
+     "ref": "A_SEL"
+    },
+    "kind": "Move",
+    "by": {
+     "ref": "VZ"
+    },
+    "distance": 240
+   },
+   "parent": "A"
+  },
+  {
+   "id": "B",
+   "type": "GeometricalSet",
+   "name": "02 Three attractors  ·  evaluated along a curve",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "B_P0",
+   "type": "Point",
+   "name": "Spline point 1",
+   "args": {
+    "kind": "Coordinates",
+    "x": -320,
+    "y": 1100,
+    "z": 0
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_P1",
+   "type": "Point",
+   "name": "Spline point 2",
+   "args": {
+    "kind": "Coordinates",
+    "x": -60,
+    "y": 1300,
+    "z": 180
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_P2",
+   "type": "Point",
+   "name": "Spline point 3",
+   "args": {
+    "kind": "Coordinates",
+    "x": 180,
+    "y": 1050,
+    "z": 0
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_P3",
+   "type": "Point",
+   "name": "Spline point 4",
+   "args": {
+    "kind": "Coordinates",
+    "x": 380,
+    "y": 1280,
+    "z": 150
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_PATH",
+   "type": "Interpolate",
+   "name": "Spline",
+   "args": {
+    "points": [
+     {
+      "ref": "B_P0"
+     },
+     {
+      "ref": "B_P1"
+     },
+     {
+      "ref": "B_P2"
+     },
+     {
+      "ref": "B_P3"
+     }
+    ],
+    "closed": "Open",
+    "degree": 3
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_AT0",
+   "type": "Point",
+   "name": "At 0.15 along",
+   "args": {
+    "kind": "On a curve",
+    "curve": {
+     "ref": "B_PATH"
+    },
+    "at": 0.15
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_AT1",
+   "type": "Point",
+   "name": "At 0.5 along",
+   "args": {
+    "kind": "On a curve",
+    "curve": {
+     "ref": "B_PATH"
+    },
+    "at": 0.5
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_AT2",
+   "type": "Point",
+   "name": "At 0.85 along",
+   "args": {
+    "kind": "On a curve",
+    "curve": {
+     "ref": "B_PATH"
+    },
+    "at": 0.85
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_O",
+   "type": "Point",
+   "name": "Its middle",
+   "args": {
+    "kind": "Coordinates",
+    "x": 0,
+    "y": 1180,
+    "z": 0
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_PL",
+   "type": "Plane",
+   "name": "Its ground",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "B_O"
+    },
+    "normal": {
+     "ref": "VZ"
+    },
+    "size": 600
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_GRID",
+   "type": "MeshGrid",
+   "name": "Sheet",
+   "args": {
+    "plane": {
+     "ref": "B_PL"
+    },
+    "width": 1000,
+    "depth": 500,
+    "cols": 30,
+    "rows": 16
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_SEL",
+   "type": "SoftSelect",
+   "name": "Three selections at once",
+   "args": {
+    "mesh": {
+     "ref": "B_GRID"
+    },
+    "attractors": [
+     {
+      "ref": "B_AT0"
+     },
+     {
+      "ref": "B_AT1"
+     },
+     {
+      "ref": "B_AT2"
+     }
+    ],
+    "radius": 200,
+    "falloff": "Smooth",
+    "blend": "Largest"
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_PULL",
+   "type": "CageDeform",
+   "name": "Pull them up",
+   "args": {
+    "mesh": {
+     "ref": "B_SEL"
+    },
+    "kind": "Move",
+    "by": {
+     "ref": "VZ"
+    },
+    "distance": 200
+   },
+   "parent": "B"
+  },
+  {
+   "id": "B_NURBS",
+   "type": "MeshToNurbs",
+   "name": "As NURBS",
+   "args": {
+    "mesh": {
+     "ref": "B_PULL"
+    },
+    "levels": 1,
+    "boundary": "Keep sharp",
+    "tolerance": 0.01,
+    "solid": "A solid if it closes",
+    "source": "The mesh exactly as it arrives",
+    "weld": 0
+   },
+   "parent": "B",
+   "appearance": {
+    "finish": "aluminium"
+   }
+  },
+  {
+   "id": "C",
+   "type": "GeometricalSet",
+   "name": "03 A plane  ·  selects a slab right through",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "C_O",
+   "type": "Point",
+   "name": "Its corner",
+   "args": {
+    "kind": "Coordinates",
+    "x": 1400,
+    "y": -150,
+    "z": 0
+   },
+   "parent": "C"
+  },
+  {
+   "id": "C_AT",
+   "type": "Point",
+   "name": "Half way up",
+   "args": {
+    "kind": "Coordinates",
+    "x": 1550,
+    "y": 0,
+    "z": 300
+   },
+   "parent": "C"
+  },
+  {
+   "id": "C_PL",
+   "type": "Plane",
+   "name": "The slab's plane",
+   "args": {
+    "kind": "Origin and normal",
+    "origin": {
+     "ref": "C_AT"
+    },
+    "normal": {
+     "ref": "VZ"
+    },
+    "size": 500
+   },
+   "parent": "C"
+  },
+  {
+   "id": "C_BOX",
+   "type": "MeshBox",
+   "name": "Block",
+   "args": {
+    "origin": {
+     "ref": "C_O"
+    },
+    "dx": 300,
+    "dy": 300,
+    "dz": 600,
+    "segX": 6,
+    "segY": 6,
+    "segZ": 20
+   },
+   "parent": "C"
+  },
+  {
+   "id": "C_SEL",
+   "type": "SoftSelect",
+   "name": "The middle band",
+   "args": {
+    "mesh": {
+     "ref": "C_BOX"
+    },
+    "attractors": [
+     {
+      "ref": "C_PL"
+     }
+    ],
+    "radius": 150,
+    "falloff": "Smooth",
+    "blend": "Largest",
+    "side": "Both sides"
+   },
+   "parent": "C"
+  },
+  {
+   "id": "C_TWIST",
+   "type": "CageDeform",
+   "name": "Twist the band",
+   "args": {
+    "mesh": {
+     "ref": "C_SEL"
+    },
+    "kind": "Twist",
+    "axis": {
+     "ref": "VZ"
+    },
+    "angle": 150,
+    "at": {
+     "ref": "C_AT"
+    }
+   },
+   "parent": "C"
+  },
+  {
+   "id": "E",
+   "type": "GeometricalSet",
+   "name": "04 A cage edit  ·  driven like anything else",
+   "args": {
+    "inputs": "",
+    "shell": "Open"
+   }
+  },
+  {
+   "id": "E_AT",
+   "type": "Point",
+   "name": "Its corner",
+   "args": {
+    "kind": "Coordinates",
+    "x": 2200,
+    "y": -90,
+    "z": 0
+   },
+   "parent": "E"
+  },
+  {
+   "id": "E_COL",
+   "type": "MeshBox",
+   "name": "Column",
+   "args": {
+    "origin": {
+     "ref": "E_AT"
+    },
+    "dx": 180,
+    "dy": 180,
+    "dz": 900,
+    "segX": 4,
+    "segY": 4,
+    "segZ": 18
+   },
+   "parent": "E"
+  },
+  {
+   "id": "E_CAGE",
+   "type": "CageLattice",
+   "name": "Lattice",
+   "args": {
+    "mesh": {
+     "ref": "E_COL"
+    },
+    "nx": 1,
+    "ny": 1,
+    "nz": 3,
+    "padding": 0
+   },
+   "parent": "E"
+  },
+  {
+   "id": "E_BENT",
+   "type": "CageDeform",
+   "name": "Bend the lattice",
+   "args": {
+    "mesh": {
+     "ref": "E_CAGE"
+    },
+    "kind": "Bend",
+    "axis": {
+     "ref": "VZ"
+    },
+    "angle": 70
+   },
+   "parent": "E"
+  },
+  {
+   "id": "E_MORPH",
+   "type": "CageMorph",
+   "name": "The column follows",
+   "args": {
+    "mesh": {
+     "ref": "E_COL"
+    },
+    "rest": {
+     "ref": "E_CAGE"
+    },
+    "moved": {
+     "ref": "E_BENT"
+    }
+   },
+   "parent": "E",
+   "appearance": {
+    "finish": "brass"
+   }
+  }
+ ],
+ "hidden": [
+  "D",
+  "A_GRID",
+  "A_SEL",
+  "B_GRID",
+  "B_SEL",
+  "B_PULL",
+  "C_BOX",
+  "C_SEL",
+  "E_COL",
+  "E_CAGE",
+  "E_BENT"
+ ]
+}
