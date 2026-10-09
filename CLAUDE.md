@@ -19,7 +19,11 @@ python3 docs/build.py          # writes docs/parametric-cad.html AND the site in
 2. **GitHub Pages** — `docs/index.html` with `docs/app/`, `docs/kernel/` and
    `docs/data/`. Pages serves what is committed, from this branch with the
    folder set to `/docs`, so **commit and push** is what publishes it:
-   `https://arc-pena.github.io/RMUH_v1/`
+   `https://arc-pena.github.io/OCAF_V1/`
+   (the repository was renamed from `RMUH_v1`, so a push prints "this
+   repository moved" and still works, but the old Pages address is a 404 — it
+   is `OCAF_V1` that serves. A deploy lands about twenty seconds after the
+   push; checking the file you just added is what tells you it has.)
 
 Never publish one without the other. The Artifact is the private working copy;
 Pages is what anybody else can open.
