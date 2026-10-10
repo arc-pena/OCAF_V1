@@ -1288,11 +1288,19 @@ export const SAMPLES = [
            + "outer; none is under 10 m on any side or squarer than \u221a2, and a "
            + "grid too fine to hold one refuses by name and says what to change. "
            + "Heights are uniform give or take \p vary \u2014 the semi-regular massing "
-           + "\u2014 and then the ATTRACTOR at \p atX, \p atY adds up to \p bulge at its "
-           + "own position and less as it fades, on the same five falloff curves the "
-           + "Soft Select node uses. Move the two sliders and the city grows its peak "
-           + "somewhere else. Open it straight from a link ending #octagon-plan. "
-           + "1 node and 23 sliders." },
+           + "\u2014 and then TWO ATTRACTORS work on them. The first, at \p atX, \p atY, "
+           + "adds up to \p bulge, and it is asked at every CORNER of every mass, so a "
+           + "block that straddles the edge of its reach comes out LEANING: the top is "
+           + "a plane fitted through the corner heights, flat to the last bit and "
+           + "tilted towards the attractor. The second, at \p voidX, \p voidY, takes "
+           + "away: above \p voidCut nothing is built at all, and between there and "
+           + "its reach it opens \p gap between the masses, so they stand furthest "
+           + "apart at the void and touch where it fades. Groups are either straight "
+           + "runs or THREE OCTAGONS WRAPPING ONE PLAZA \u2014 a court open on the fourth "
+           + "side, which a run can never make \u2014 and a share of the plazas are major "
+           + "squares, bigger by \p grandScale, with the octagons round them giving way "
+           + "by exactly as much. Open it straight from a link ending #octagon-plan. "
+           + "1 node and 31 sliders." },
 
   //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
   //! this program: nineteen sliders and a hundred lines of plane geometry,

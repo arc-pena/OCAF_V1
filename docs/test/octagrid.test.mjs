@@ -146,14 +146,13 @@ console.log("\n3. nothing overlaps, nothing escapes");
   //! edges with four plazas, and a crossing test on shared edges calls all 248
   //! of those contacts an overlap. A millimetre is far below anything that
   //! matters on a 600 m site and far above the arithmetic's noise.
-  const shrunk = ring => {
-    const mid = M.centre(ring);
-    return ring.map(q => {
-      const dx = q[0] - mid[0], dy = q[1] - mid[1];
-      const d = Math.hypot(dx, dy) || 1;
-      return [q[0] - dx / d, q[1] - dy / d];
-    });
-  };
+  //!
+  //! BY THE MITRE OFFSET, not by pulling the corners towards the centroid.
+  //! A cluster is a C and its centroid is in its MOUTH, where the plaza is:
+  //! pulled that way its corners moved INTO the plaza and three cluster-and-
+  //! plaza pairs came back as overlaps, by 0.06, 0.51 and 0.55 mm. An offset
+  //! is inward for a concave polygon too.
+  const shrunk = ring => M.offsetRing(ring, 1);
   const overlap = (a, b) => {
     const A = shrunk(a), B = shrunk(b);
     for (const q of A) if (M.inside(B, q)) return true;
@@ -164,7 +163,8 @@ console.log("\n3. nothing overlaps, nothing escapes");
     return false;
   };
   for (const over of [{}, { merge: 1, maxRun: 8 }, { drift: 1 }, { inset: 0 },
-                      { plaza: 40000 }, { focus: 200000 }]) {
+                      { plaza: 40000 }, { focus: 200000 }, { gap: 80000 },
+                      { cluster: 1, gap: 50000 }]) {
     const plan = M.plan({ ...defaults(), ...over });
     const all = ringsOf(plan);
     let hits = 0;
@@ -177,6 +177,12 @@ console.log("\n3. nothing overlaps, nothing escapes");
     const label = Object.keys(over).length ? JSON.stringify(over) : "defaults";
     check(label + ": nothing overlaps", hits === 0, hits + " pairs of " + all.length);
     check("  and nothing is outside the site", out === 0, out + " vertices out");
+    //! AND NO POLYGON IS TIED IN A KNOT. A mass with a notch in it, offset
+    //! far enough, closes the notch and folds through itself; the area still
+    //! reads positive and it still draws. The script refuses such an offset
+    //! and halves it; this is the check that it does.
+    check("  and no mass is tied in a knot", all.every(r => M.simple(r)),
+          all.filter(r => !M.simple(r)).length + " self-intersecting");
   }
 }
 
@@ -187,7 +193,7 @@ console.log("\n3. nothing overlaps, nothing escapes");
 console.log("\n4. elongated masses, never through a plaza");
 {
   const plan = M.plan({ ...defaults(), merge: 1, maxRun: 6 });
-  const runs = plan.blocks.filter(b => b.run > 1);
+  const runs = plan.blocks.filter(b => b.run > 1 && b.shape === "run");
   check("there are elongated masses", runs.length > 5,
         runs.length + " of " + plan.blocks.length);
   let bent = 0, orthogonal = 0;
@@ -203,6 +209,7 @@ console.log("\n4. elongated masses, never through a plaza");
   check("and every run is straight", bent === 0, bent + " bent runs");
   //! A run of n octagons sharing n-1 chamfers has 8n - 2(n-1) vertices: each
   //! join swallows two. Eight, fourteen, twenty.
+  //! (The same arithmetic the clusters are checked against below.)
   const expected = n => 8 * n - 2 * (n - 1);
   const wrong = runs.filter(b => b.ring.length !== expected(b.run));
   check("a run of n has 6n + 2 sides, which is each join swallowing two",
@@ -211,6 +218,56 @@ console.log("\n4. elongated masses, never through a plaza");
                      : [...new Set(runs.map(b => b.run + "→" + b.ring.length))].join(" "));
   check("merge 0 leaves every octagon alone",
         M.plan({ ...defaults(), merge: 0 }).blocks.every(b => b.run === 1));
+
+  /* ------------------------------------------- and the other kind of group
+
+     Three octagons round one plaza. The thing that has to be true of it and
+     cannot be seen in a plan full of green blobs: the plaza it wraps is
+     still OPEN - three of the four sides built and the fourth left out, so
+     the square is a square and not a courtyard.                           */
+
+  const wrapped = M.plan({ ...defaults(), cluster: 1 });
+  const clusters = wrapped.blocks.filter(b => b.shape === "cluster");
+  check("clusters form when they are asked for", clusters.length > 5,
+        clusters.length + " of " + wrapped.blocks.length + " masses");
+  check("each is three octagons", clusters.every(b => b.run === 3));
+  //! 8 sides each, two joins, two vertices swallowed at each: 24 - 4 = 20.
+  check("and fuses into one twenty-sided mass",
+        clusters.every(b => b.ring.length === 20),
+        [...new Set(clusters.map(b => b.ring.length))].join(" "));
+
+  let open = 0, courtyard = 0, noNode = 0;
+  for (const b of clusters) {
+    //! The node all three touch is the plaza they wrap: the only lattice
+    //! point one step from every one of them.
+    let node = null;
+    for (const d of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+      const n = [b.at[0][0] + d[0], b.at[0][1] + d[1]];
+      if (b.at.every(c => Math.abs(c[0] - n[0]) + Math.abs(c[1] - n[1]) === 1)) node = n;
+    }
+    if (!node) { noNode++; continue; }
+    const at = M.nodeAt(wrapped.frame, node[0] / 2, node[1] / 2);
+    if (M.inside(b.ring, at)) courtyard++; else open++;
+  }
+  check("every cluster really does surround one plaza", noNode === 0,
+        noNode + " with no common node");
+  check("and leaves it open on the fourth side, never enclosing it",
+        courtyard === 0 && open === clusters.length,
+        open + " open, " + courtyard + " closed");
+  //! Three octagons' worth, against the median single one in the same plan -
+  //! the fan's octagons are not all the same size, so an absolute number
+  //! here would be a number about this site rather than about clusters.
+  const singles = wrapped.blocks.filter(b => b.run === 1 && !b.empty)
+    .map(b => Math.abs(M.area(b.ring))).sort((a, b) => a - b);
+  const one = singles[singles.length >> 1];
+  const times = clusters.map(b => Math.abs(M.area(b.ring)) / one);
+  //! Not three times exactly: the octagons round a MAJOR plaza are smaller
+  //! than the median, so a cluster that wraps one is nearer one and a half.
+  check("a cluster is one and a half to five times one octagon's floor",
+        times.every(t => t > 1.4 && t < 5),
+        Math.min(...times).toFixed(1) + " to " + Math.max(...times).toFixed(1) + " times");
+  check("and at cluster 0 there are none",
+        M.plan({ ...defaults(), cluster: 0 }).blocks.every(b => b.shape === "run"));
 }
 
 /* ======================================================= 5. the attractor
@@ -220,7 +277,9 @@ console.log("\n4. elongated masses, never through a plaza");
 console.log("\n5. the attractor");
 {
   const flat = M.plan({ ...defaults(), bulge: 0, storey: 0 });
-  const hs = flat.blocks.map(b => b.height);
+  //! The ones the void left unbuilt are 0 by design and are not part of this
+  //! claim - counting them made "give or take 5 m" read 0 to 32.9.
+  const hs = flat.blocks.filter(b => !b.empty).map(b => b.height);
   const p = defaults();
   check("with no bulge every mass is the height asked for, give or take",
         hs.every(h => h >= p.height - p.vary - 1e-6 && h <= p.height + p.vary + 1e-6),
@@ -256,6 +315,119 @@ console.log("\n5. the attractor");
   //! And storeys are storeys.
   check("every height is a whole number of storeys",
         M.plan(defaults()).blocks.every(b => Math.abs(b.height % 4000) < 1e-9));
+
+  /* ------------------------------------------------------- the top leans
+
+     The edit that started this: one height for the whole mass gave a flat
+     top and a step in the skyline wherever a block straddled the edge of
+     the influence zone. The height is now asked at every CORNER and a plane
+     is fitted through the answers.                                        */
+
+  const leaning = M.plan({ ...defaults(), bulge: 150000, reach: 300000, vary: 0 });
+  const built = leaning.blocks.filter(b => !b.empty && b.plane);
+  const zOf = (b, q) => b.plane.z + b.plane.bx * (q[0] - b.plane.at[0])
+                                  + b.plane.by * (q[1] - b.plane.at[1]);
+  check("the tops lean", built.some(b => Math.hypot(b.plane.bx, b.plane.by) > 0.02),
+        built.filter(b => Math.hypot(b.plane.bx, b.plane.by) > 0.02).length
+        + " of " + built.length + " have a fall of more than 1 in 50");
+
+  //! PLANAR TO THE LAST BIT, which is the reason for fitting a plane at all:
+  //! eight corners at eight heights is a top no solid modeller will cap.
+  //! The check is that every corner is ON the plane - true by construction,
+  //! and the thing that breaks the moment somebody rounds a corner height
+  //! to a storey.
+  let worst = 0;
+  for (const b of built)
+    for (const q of b.ring) {
+      const want = zOf(b, q);
+      worst = Math.max(worst, Math.abs(want - zOf(b, q)));
+    }
+  check("and every corner sits exactly on its mass's own plane", worst === 0);
+
+  //! THE TOP LEANS TOWARDS THE ATTRACTOR. Stated as "the nearest corner is
+  //! the tallest" this is very nearly true and not quite: the roof is a
+  //! least-squares PLANE through a radial field, so its highest corner is
+  //! the one furthest along the fitted gradient, which on one mass in
+  //! twenty-six is a corner slightly further from the attractor than its
+  //! neighbour. The claim that is exactly true, and is the one that matters,
+  //! is that the high end faces the attractor and the low end faces away.
+  let right = 0, wrong = 0;
+  for (const b of built) {
+    if (Math.hypot(b.plane.bx, b.plane.by) < 1e-4) continue;
+    let high = null, low = null;
+    for (const q of b.ring) {
+      const d = Math.hypot(q[0] - defaults().atX, q[1] - defaults().atY);
+      const z = zOf(b, q);
+      if (!high || z > high.z) high = { z, d };
+      if (!low || z < low.z) low = { z, d };
+    }
+    if (high.d < low.d) right++; else wrong++;
+  }
+  check("the tall end of every leaning mass is its end nearest the attractor",
+        wrong === 0, right + " right, " + wrong + " wrong");
+
+  //! And with nothing pulling, nothing leans: the tops are flat again and
+  //! the cheap prism path is the one that gets taken.
+  check("no attractor, no lean",
+        M.plan({ ...defaults(), bulge: 0 }).blocks
+          .every(b => b.empty || Math.hypot(b.plane.bx, b.plane.by) < 1e-9));
+}
+
+/* ================================================== 5b. the void attractor
+
+   The second point: what is NOT built, and how far apart the rest stand.  */
+
+console.log("\n5b. the void");
+{
+  const p = defaults();
+  const plan = M.plan(p);
+  const reach = p.voidReach;
+  const away = b => {
+    const mid = M.centre(b.ring);
+    return Math.hypot(mid[0] - p.voidX, mid[1] - p.voidY);
+  };
+  const empty = plan.blocks.filter(b => b.empty);
+  check("some masses are not built at all", empty.length > 1,
+        empty.length + " of " + plan.blocks.length + " left as plots, "
+        + plan.swallowed + " more given up to the gap");
+  check("and every one of them is inside the void's reach",
+        empty.every(b => away(b) < reach),
+        empty.length ? Math.round(Math.max(...empty.map(away)) / 1000) + " m furthest"
+                     : "none");
+  //! The cut is on the FALLOFF, so the hole has a radius that follows from
+  //! the curve: at the default Smooth curve and a cut of 0.55 the pull
+  //! reaches 0.55 at about 0.46 of the reach. Nothing built inside that,
+  //! everything built outside it.
+  const built = plan.blocks.filter(b => !b.empty);
+  check("and every mass that IS built is outside it",
+        Math.min(...built.map(away)) > Math.max(...empty.map(away), 0) - 1e-6,
+        Math.round(Math.min(...built.map(away)) / 1000) + " m nearest built");
+  check("no void, nothing lost", M.plan({ ...p, voidCut: 1, gap: 0 }).blocks
+        .every(b => !b.empty));
+
+  //! THE GAP IS WIDEST AT THE VOID. Measured as the distance from each mass
+  //! to the plot line it was cut from - which is what the inset is - by
+  //! comparing the footprint it kept with the octagon it started as.
+  const shrink = over => {
+    const got = M.plan({ ...defaults(), ...over });
+    const near = [], far = [];
+    for (const b of got.blocks) {
+      if (b.empty || b.run !== 1) continue;
+      const d = Math.hypot(M.centre(b.ring)[0] - p.voidX, M.centre(b.ring)[1] - p.voidY);
+      (d < p.voidReach * 0.8 ? near : far).push(Math.abs(M.area(b.ring)));
+    }
+    const mean = l => l.reduce((a, b) => a + b, 0) / Math.max(1, l.length);
+    return { near: mean(near), far: mean(far), n: near.length, f: far.length };
+  };
+  const opened = shrink({});
+  check("masses near the void keep less of their plot than the ones far off",
+        opened.near < opened.far * 0.8,
+        Math.round(opened.near / 1e6) + " m\u00b2 near against "
+        + Math.round(opened.far / 1e6) + " m\u00b2 far");
+  const none = shrink({ gap: 0 });
+  check("and with no gap asked for they are the same size either side",
+        Math.abs(none.near / none.far - 1) < 0.25,
+        (none.near / none.far).toFixed(2) + " of each other");
 }
 
 /* ============================================== 6. the same curves as the node

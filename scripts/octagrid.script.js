@@ -59,13 +59,26 @@
     { key: "plazaVary", label: "Plazas vary", def: 0.25, min: 0, max: 1, step: 0.05,
       unit: "" },
 
+    //! THE PLAZAS THAT ARE MORE THAN PLAZAS. A share of the nodes take a
+    //! bigger rectangle and the octagons round them give way, which is how a
+    //! plan gets a square rather than a hundred light wells.
+    { key: "grand", label: "Share of plazas that are major", def: 0.18, min: 0, max: 1,
+      step: 0.02, unit: "" },
+    { key: "grandScale", label: "How much bigger", def: 1.9, min: 1, max: 3.5, step: 0.05,
+      unit: "" },
+
     //! THE MASSES
     { key: "merge", label: "How often masses join", def: 0.5, min: 0, max: 1, step: 0.05,
       unit: "" },
     { key: "maxRun", label: "Longest run", def: 3, min: 1, max: 8, step: 1, unit: "" },
     { key: "alongRings", label: "Run around the fan →", def: 0.5, min: 0, max: 1,
       step: 0.05, unit: "" },
-    { key: "inset", label: "Pull off the plot line", def: 2500, min: 0, max: 40000,
+    //! A GROUP IS NOT ALWAYS A LINE. This share of them wraps three octagons
+    //! round one plaza instead - a court open on one side, which a straight
+    //! run can never make.
+    { key: "cluster", label: "Groups that wrap a plaza", def: 0.35, min: 0, max: 1,
+      step: 0.05, unit: "" },
+    { key: "inset", label: "Pull off the plot line", def: 1000, min: 0, max: 40000,
       step: 250 },
     { key: "drift", label: "Off the grid", def: 0, min: 0, max: 1, step: 0.05, unit: "" },
     { key: "margin", label: "Keep off the boundary", def: 10000, min: 0, max: 200000,
@@ -76,16 +89,29 @@
     { key: "vary", label: "Give or take", def: 5000, min: 0, max: 60000, step: 500 },
     { key: "storey", label: "Round to storeys of", def: 4000, min: 0, max: 8000, step: 100 },
 
-    //! THE ATTRACTOR
+    //! THE HEIGHT ATTRACTOR
     { key: "atX", label: "Attractor east", def: 300000, min: -200000, max: 800000,
       step: 5000 },
     { key: "atY", label: "Attractor north", def: 480000, min: -200000, max: 1100000,
       step: 5000 },
-    { key: "reach", label: "Its reach", def: 320000, min: 10000, max: 1500000, step: 10000 },
-    { key: "bulge", label: "Height it adds", def: 90000, min: -200000, max: 400000,
+    { key: "reach", label: "Its reach", def: 340000, min: 10000, max: 1500000, step: 10000 },
+    { key: "bulge", label: "Height it adds", def: 120000, min: -200000, max: 400000,
       step: 5000 },
     { key: "falloff", label: "Falloff", options: ["Smooth", "Linear", "Sharp", "Dome",
                                                   "Hard"], def: 0 },
+
+    //! THE SECOND ATTRACTOR, which takes away rather than adds: round it
+    //! nothing is built at all, and between there and nowhere the masses
+    //! stand further apart.
+    { key: "voidX", label: "Void east", def: 170000, min: -200000, max: 800000,
+      step: 5000 },
+    { key: "voidY", label: "Void north", def: 250000, min: -200000, max: 1100000,
+      step: 5000 },
+    { key: "voidReach", label: "Its reach", def: 260000, min: 10000, max: 1500000,
+      step: 10000 },
+    { key: "voidCut", label: "Nothing is built above", def: 0.55, min: 0.01, max: 1,
+      step: 0.01, unit: "" },
+    { key: "gap", label: "Gap it opens", def: 16000, min: 0, max: 80000, step: 500 },
 
     { key: "seed", label: "Seed", def: 4, min: 1, max: 999, step: 1, unit: "" },
     { key: "show", label: "Draw", options: ["Massing and plazas", "The massing only",
@@ -174,6 +200,22 @@
       out.push([here[0] + sum[0] / denom * d, here[1] + sum[1] / denom * d]);
     }
     return out;
+  },
+
+  //! NO TWO EDGES THAT ARE NOT NEIGHBOURS MAY CROSS. Twenty vertices is a
+  //! hundred and ninety pairs, which is nothing, and it is the only honest
+  //! way to know an offset has not folded a polygon through itself.
+  simple(ring) {
+    const n = ring.length;
+    const side = (p, q, r) =>
+      Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+    for (let i = 0; i < n; i++)
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue;          // they share a vertex
+        const a = ring[i], b = ring[(i + 1) % n], c = ring[j], d = ring[(j + 1) % n];
+        if (side(a, b, c) !== side(a, b, d) && side(c, d, a) !== side(c, d, b)) return false;
+      }
+    return true;
   },
 
   unit(v) {
@@ -275,7 +317,7 @@
      half the size at one end of the plan and the rule is in metres: no side
      under ten, and never squarer than root two.                            */
 
-  plazaAt(f, u, v, p, roll) {
+  plazaAt(f, u, v, p, roll, grand) {
     //! The bay and the ring AT THIS NODE, in millimetres on the ground. Two
     //! lattice steps are one bay, which is why the span is taken across
     //! u-1 .. u+1 and halved nowhere: that distance IS the bay.
@@ -285,7 +327,12 @@
     //! \p plazaVary moves each plaza's size by up to a quarter either way at
     //! the default, which is what keeps the octagons from being 180 copies of
     //! one octagon.
-    const scale = 1 + (roll * 2 - 1) * p.plazaVary * 0.4;
+    const scale = (1 + (roll * 2 - 1) * p.plazaVary * 0.4)
+      //! AND SOME PLAZAS ARE MORE THAN PLAZAS. A share of the nodes take the
+      //! bigger rectangle; the octagons round them are made from their plots
+      //! and so give way by exactly as much, which is why a major square
+      //! needs no other machinery than a bigger number here.
+      * (grand ? Math.max(1, p.grandScale) : 1);
     let short = Math.max(10000, p.plaza * scale);
     let long = short * ratio;
     //! AND IT HAS TO FIT. Two rectangles either side of an octagon must leave
@@ -304,7 +351,7 @@
     long = Math.min(long, FIT * ring);
     if (long < short * Math.SQRT2) short = Math.min(short, long / Math.SQRT2);
     if (long > short * ratio) long = short * ratio;
-    return { hw: short / bay, hd: long / ring, short, long, bay, ring,
+    return { hw: short / bay, hd: long / ring, short, long, bay, ring, grand: !!grand,
              kept: short >= 9999 && long >= short * 1.4142 - 1 };
   },
 
@@ -354,8 +401,14 @@
     for (let v = 0; v <= 2 * ringCount; v++)
       for (let u = 0; u <= 2 * spokes; u++) {
         if ((u + v) % 2 === 0) continue;             // nodes are the odd points
-        const roll = this.rng(Math.round(p.seed) * 7919 + u * 131 + v * 17)();
-        plots.set(key(u, v), this.plazaAt(f, u, v, p, roll));
+        //! ROLLED FROM THE NODE'S OWN COORDINATES, twice: once for the size
+        //! and once for whether this is a major square. Rolling from the
+        //! sequence instead would move every plaza the moment anything
+        //! upstream changed the order cells are visited in.
+        const draw = this.rng(Math.round(p.seed) * 7919 + u * 131 + v * 17);
+        const roll = draw();
+        const grand = draw() < p.grand;
+        plots.set(key(u, v), this.plazaAt(f, u, v, p, roll, grand));
       }
 
     //! THE OCTAGONS. A diamond is kept when all eight of its corners are in
@@ -395,11 +448,42 @@
       const t = order[i]; order[i] = order[j]; order[j] = t;
     }
 
+    //! THE FOUR OCTAGONS ROUND ONE PLAZA, in cycle order. Consecutive ones
+    //! share a chamfer - (u+1,v) and (u,v+1) step by (-1,+1), which is a
+    //! diagonal - so any three in a row make one C-shaped mass with the
+    //! plaza in its mouth. All four would close the plaza into a courtyard,
+    //! which is a different thing and not what was asked for.
+    const ROUND = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
     const blocks = [];
+
+    //! THE CLUSTERS ARE TAKEN FIRST, in a pass of their own, and that is not
+    //! tidiness. Tried inside the main loop they almost never formed: three
+    //! free octagons round one node is a strict thing to ask for, and by the
+    //! time a cell came up its neighbours had been eaten by the straight runs
+    //! - four attempts, nought clusters, on the default settings. Given first
+    //! claim they succeed, and what is left still makes runs.
+    for (const cell of order) {
+      if (used.has(key(cell.u, cell.v))) continue;
+      if (rnd() >= p.merge * p.cluster) continue;
+      const node = ROUND.map(d => [cell.u + d[0], cell.v + d[1]])[Math.floor(rnd() * 4) % 4];
+      const round = ROUND.map(d => cells.get(key(node[0] + d[0], node[1] + d[1])));
+      const start = Math.floor(rnd() * 4) % 4;
+      for (let turn = 0; turn < 4; turn++) {
+        const three = [0, 1, 2].map(i => round[(start + turn + i) % 4]);
+        if (!three.every(c => c && !used.has(key(c.u, c.v)))) continue;
+        if (!three.some(c => c.u === cell.u && c.v === cell.v)) continue;
+        for (const c of three) used.add(key(c.u, c.v));
+        blocks.push({ cells: three, shape: "cluster", about: node });
+        break;
+      }
+    }
+
     for (const cell of order) {
       if (used.has(key(cell.u, cell.v))) continue;
       let want = 1;
       if (rnd() < p.merge) want = 2 + Math.floor(rnd() * Math.max(0, Math.round(p.maxRun) - 1));
+
       const dir = DIRS[rnd() < p.alongRings ? 0 : 1];
       const run = [cell];
       used.add(key(cell.u, cell.v));
@@ -415,49 +499,136 @@
           if (way > 0) run.push(next); else run.unshift(next);
         }
       }
-      blocks.push({ cells: run, step: dir });
+      blocks.push({ cells: run, shape: "run", step: dir });
     }
 
     /* ------------------------------------------------------- shaping and height */
 
     const out = [];
+    let swallowed = 0;
     const storey = Math.max(0, p.storey);
     const reach = Math.max(1, p.reach);
+    const voidReach = Math.max(1, p.voidReach);
     const style = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
+    const pullAt = (q, x, y, r) =>
+      this.falloffAt(style, 1 - Math.hypot(q[0] - x, q[1] - y) / r);
     for (const block of blocks) {
       let ring = block.cells.length > 1
         ? this.unionOf(block.cells.map(c => c.ring))
         : block.cells[0].ring;
       if (!ring) ring = block.cells[0].ring;
+      const mid = this.centre(ring);
 
-      if (p.inset > 0) {
-        const moved = this.offsetRing(ring, p.inset);
-        if (this.area(moved) * this.area(ring) > 0) ring = moved;
+      //! THE VOID ATTRACTOR DRIVES THE GAP. At its centre the masses are
+      //! pulled \p gap off their plot lines and stand as far apart as they
+      //! ever will; out at its reach there is only \p inset left, and at
+      //! inset 0 they touch along their chamfers the way the tiling does.
+      const hollow = pullAt(mid, p.voidX, p.voidY, voidReach);
+      const back = p.inset + p.gap * hollow;
+      const was = Math.abs(this.area(ring));
+      if (back > 0) {
+        //! THE OFFSET CAN TIE A KNOT, and only on the concave ones. A run or
+        //! a cluster has a notch in it where a plaza sits, and a mitre offset
+        //! big enough closes that notch and sends the reflex corner out
+        //! through the far wall: at a 10 m gap one mass put a corner 439 mm
+        //! inside the plaza it wraps. The area still reads positive and the
+        //! thing still draws, which is why this is checked rather than
+        //! assumed. Halve and try again, and give the plot up if it will not
+        //! come clean.
+        let want = back;
+        for (let tries = 0; tries < 4; tries++) {
+          const moved = this.offsetRing(ring, want);
+          //! AND IT MUST STAY INSIDE WHAT IT CAME FROM. A mitre at a REFLEX
+          //! corner - the mouth of a notch - moves the vertex out of the
+          //! body on purpose, which is right until the offset is wider than
+          //! the notch: at an 80 m gap twenty-two masses had grown out
+          //! through their own notches into their neighbours, and two
+          //! corners had left the site. An inward offset that lands outside
+          //! the ring it came from is not an inward offset.
+          if (this.area(moved) * this.area(ring) > 0 && this.simple(moved)
+              && moved.every(q => this.inside(ring, q) || this.awayFrom(ring, q) < 1)) {
+            ring = moved;
+            break;
+          }
+          want /= 2;
+          if (tries === 3) { ring = null; }
+        }
+        if (!ring) { swallowed++; continue; }
       }
-      //! Off the grid, by at most half the gap the inset opened, so two
+      //! AND WHAT THE GAP HAS EATEN IS NOT A BUILDING. A 36 m gap on a 40 m
+      //! octagon leaves a splinter: the sign of the area still says it is a
+      //! polygon, it draws, and the plan fills with grit round the void. A
+      //! quarter of what it started as is the line - below that the plot is
+      //! given up to the negative space, which is what the void is for.
+      if (Math.abs(this.area(ring)) < was * 0.25) { swallowed++; continue; }
+      //! Off the grid, by at most half the gap that was opened, so two
       //! neighbours closing on each other still cannot meet. The plazas are
       //! the other thing in the way, and they do not move.
-      if (p.drift > 0 && p.inset > 0) {
-        const budget = p.drift * p.inset / 2;
+      if (p.drift > 0 && back > 0) {
+        const budget = p.drift * back / 2;
         const dx = (rnd() * 2 - 1) * budget, dy = (rnd() * 2 - 1) * budget;
         ring = ring.map(q => [q[0] + dx, q[1] + dy]);
       }
 
-      //! THE HEIGHT. Uniform, give or take \p vary - that is the semi-regular
-      //! massing - and then the attractor adds its bulge, measured from the
-      //! mass's own middle so a long run leans as a whole rather than
-      //! stepping.
-      const mid = this.centre(ring);
-      const away = Math.hypot(mid[0] - p.atX, mid[1] - p.atY);
-      const pull = this.falloffAt(style, 1 - away / reach);
-      let height = p.height + (rnd() * 2 - 1) * p.vary + p.bulge * pull;
-      if (storey > 0) height = Math.round(height / storey) * storey;
-      //! A mass of no height is a plot. Below one storey it is drawn flat
-      //! rather than as a sliver, and a bulge of -200 m cannot push it
-      //! through the ground.
-      height = Math.max(0, height);
-      out.push({ ring, height, run: block.cells.length, pull,
-                 at: block.cells.map(c => [c.u, c.v]) });
+      //! AND IT DECIDES WHAT IS NOT BUILT AT ALL. Above \p voidCut the block
+      //! keeps its plot and takes no height: a hole in the massing with a
+      //! soft edge, because the cut is on the falloff rather than on the
+      //! distance.
+      const jitter = (rnd() * 2 - 1) * p.vary;
+      if (hollow >= p.voidCut) {
+        out.push({ ring, height: 0, plane: null, run: block.cells.length,
+                   pull: 0, hollow, empty: true, shape: block.shape,
+                   at: block.cells.map(c => [c.u, c.v]) });
+        continue;
+      }
+
+      //! THE HEIGHT, VERTEX BY VERTEX. Asking the attractor once, at the
+      //! middle, gave every mass one height and a flat top - and a 60 m
+      //! block that straddles the edge of the influence zone is then either
+      //! wholly in it or wholly out, which is the step you can see in the
+      //! skyline. Asked at each corner instead, the corner nearest the
+      //! attractor gets the most and the far one least.
+      //!
+      //! THE TOP IS STILL ONE FLAT FACE, because the heights are fitted with
+      //! a PLANE through the corner values rather than used raw: eight
+      //! corners at eight heights is a top no solid modeller will cap. The
+      //! plane is the least-squares fit, so it leans the way the field does
+      //! and the face is planar to the last bit.
+      const zs = ring.map(q => p.height + jitter
+        + p.bulge * pullAt(q, p.atX, p.atY, reach));
+      let mean = 0;
+      for (const z of zs) mean += z;
+      mean /= zs.length;
+      let sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+      ring.forEach((q, i) => {
+        const dx = q[0] - mid[0], dy = q[1] - mid[1], dz = zs[i] - mean;
+        sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+        sxz += dx * dz; syz += dy * dz;
+      });
+      const det = sxx * syy - sxy * sxy;
+      let bx = 0, by = 0;
+      if (Math.abs(det) > 1e-9) {
+        bx = (sxz * syy - syz * sxy) / det;
+        by = (syz * sxx - sxz * sxy) / det;
+      }
+      //! Only the level is rounded to a storey. Rounding each corner would
+      //! put them on different planes again, which is the whole thing this
+      //! avoids.
+      if (storey > 0) mean = Math.round(mean / storey) * storey;
+      const plane = { z: mean, bx, by, at: mid };
+      const corners = ring.map(q => mean + bx * (q[0] - mid[0]) + by * (q[1] - mid[1]));
+      const low = Math.min(...corners);
+      //! A slope steep enough to put a corner underground is flattened until
+      //! it does not. It takes a 400 m bulge on a 10 m reach to get there,
+      //! and the answer "a building with a corner below the pavement" is
+      //! worse than a shallower roof.
+      if (low < storey && Math.max(...corners) > storey) {
+        const k = (mean - storey) / Math.max(1e-9, mean - low);
+        plane.bx *= k; plane.by *= k;
+      }
+      out.push({ ring, height: Math.max(0, mean), plane, run: block.cells.length,
+                 pull: pullAt(mid, p.atX, p.atY, reach), hollow, empty: false,
+                 shape: block.shape, at: block.cells.map(c => [c.u, c.v]) });
     }
 
     //! THE PLAZAS THEMSELVES, for drawing: every node whose four octagons -
@@ -472,7 +643,8 @@
       const ring = this.rectRing(f, u, v, half);
       if (this.area(ring) < 0) ring.reverse();
       if (ring.some(q => !this.inside(this.SITE, q))) continue;
-      plazas.push({ ring, short: half.short, long: half.long, touching: near.length });
+      plazas.push({ ring, short: half.short, long: half.long, grand: half.grand,
+                    touching: near.length, at: [u, v] });
     }
 
     //! THE TIGHTEST BAY ON THE FAN, so a refusal can say WHY rather than
@@ -486,7 +658,7 @@
       if (half.ring < ring) ring = half.ring;
     }
     return { blocks: out, plazas, frame: f, cells: cells.size, refusedPlaza,
-             bay, ring };
+             swallowed, bay, ring };
   },
 
   /* THE UNION OF OCTAGONS THAT SHARE A CHAMFER, by cancelling the shared
@@ -547,10 +719,19 @@
     }
 
     for (const block of made.blocks) {
-      const wire = k.polyline(block.ring.map(q => [q[0], q[1], 0]), { closed: true });
-      parts.push(show === 2 || block.height < 1
-        ? k.face(wire)
-        : k.prism(k.face(wire), [0, 0, block.height]));
+      const base = k.polyline(block.ring.map(q => [q[0], q[1], 0]), { closed: true });
+      if (show === 2 || block.height < 1 || !block.plane) { parts.push(k.face(base)); continue; }
+      const pl = block.plane;
+      const z = q => pl.z + pl.bx * (q[0] - pl.at[0]) + pl.by * (q[1] - pl.at[1]);
+      const tilt = Math.hypot(pl.bx, pl.by);
+      //! A FLAT TOP IS A PRISM AND A LEANING ONE IS A LOFT. Below a
+      //! millimetre of fall across the whole block the two are the same
+      //! solid, and the prism is the one that cannot produce a degenerate
+      //! ruled face - so the cheap path is taken when it is honest to.
+      if (tilt < 1e-6) { parts.push(k.prism(k.face(base), [0, 0, pl.z])); continue; }
+      const top = k.polyline(block.ring.map(q => [q[0], q[1], Math.max(1, z(q))]),
+                             { closed: true });
+      parts.push(k.loft([base, top], { solid: true, ruled: true }));
     }
     //! The plazas are drawn flat, always: they are the thing between the
     //! buildings and a plan without them is a plan of islands.
@@ -561,14 +742,26 @@
     //! THE ATTRACTOR, drawn where it is: a ring at its reach and a mast at
     //! its centre. A slider pair you cannot see the effect of is a slider
     //! pair nobody will touch.
-    const circle = [];
-    for (let i = 0; i <= 64; i++) {
-      const a = i / 64 * Math.PI * 2;
-      circle.push([p.atX + Math.cos(a) * p.reach, p.atY + Math.sin(a) * p.reach, 0]);
-    }
-    parts.push(k.polyline(circle, { closed: true }));
+    const circleAt = (x, y, r) => {
+      const run = [];
+      for (let i = 0; i <= 64; i++) {
+        const a = i / 64 * Math.PI * 2;
+        run.push([x + Math.cos(a) * r, y + Math.sin(a) * r, 0]);
+      }
+      return k.polyline(run, { closed: true });
+    };
+    parts.push(circleAt(p.atX, p.atY, p.reach));
     parts.push(k.polyline([[p.atX, p.atY, 0],
                            [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]));
+    //! The void's ring too, and the smaller ring where its cut bites - the
+    //! line inside which nothing is built. Two attractors you cannot see are
+    //! two attractors nobody will move.
+    parts.push(circleAt(p.voidX, p.voidY, p.voidReach));
+    const cut = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
+    let bite = 0;
+    for (let i = 100; i >= 0; i--)
+      if (this.falloffAt(cut, 1 - i / 100) >= p.voidCut) { bite = i / 100; break; }
+    if (bite > 0) parts.push(circleAt(p.voidX, p.voidY, p.voidReach * bite));
     parts.push(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }));
     return k.compound(parts);
   },
