@@ -281,6 +281,55 @@ def worker_modules():
     return [name for name in MODULES if name in seen]
 
 
+CLASS_HEAD = re.compile(r'^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)')
+#! A method of a class in this tree is indented exactly two spaces and is
+#! followed by its arguments. `get x()` and `set x()` are a legal pair and are
+#! kept apart by their keyword; everything else is one name, once.
+CLASS_METHOD = re.compile(r'^  (?:(static|get|set|async)\s+)*\*?([A-Za-z_$][\w$]*)\s*\(')
+
+
+def check_methods():
+    """No class may declare one method name twice.
+
+    JavaScript does not say a word about it: the second declaration simply
+    replaces the first, and what is lost is whatever the first one did. The
+    GraphEditor had TWO methods called setNode - one that moves a node to a
+    place, one that builds a collapsed set - two hundred lines apart, so every
+    "move" edit went to the set builder with an id where its feature list
+    should have been. Tidy did nothing and dragging a node logged an error, and
+    both looked right on screen because the pointer had already moved the node
+    it was dragging.
+
+    Read off the indentation rather than by parsing, because the thing being
+    looked for is two lines that start the same way and this tree writes its
+    methods one way."""
+    for name in sorted(p.name for p in SRC.glob('*.js')):
+        klass, seen, bad = None, {}, []
+        for at, line in enumerate((SRC / name).read_text().splitlines(), 1):
+            head = CLASS_HEAD.match(line)
+            if head:
+                klass, seen = head.group(1), {}
+                continue
+            if line.startswith('}'):
+                klass = None
+                continue
+            if not klass:
+                continue
+            method = CLASS_METHOD.match(line)
+            if not method:
+                continue
+            kind, what = method.group(1) or '', method.group(2)
+            if what in ('if', 'for', 'while', 'switch', 'catch', 'return', 'do'):
+                continue
+            key = (kind if kind in ('get', 'set') else '', what)
+            if key in seen:
+                bad.append('%s.%s, at lines %d and %d' % (klass, what, seen[key], at))
+            seen[key] = at
+        if bad:
+            sys.exit('%s declares the same method twice - the second one wins and '
+                     'the first is lost: %s' % (name, '; '.join(bad)))
+
+
 def check_imports():
     """Every relative import must name a file that is really there, and one the
     single-file build carries. The artifact cannot catch this - it throws the
@@ -459,6 +508,7 @@ def main():
 
     # Both checks first, so neither target is written if one module is wrong.
     check_imports()
+    check_methods()
     bodies = module_bodies()
 
     if args.only != "artifact":

@@ -38,6 +38,19 @@
 // Soft Select node uses - docs/test/octagrid.test.mjs checks the two agree
 // term for term. Move the attractor and the city grows a peak around it.
 //
+// WHAT IS WIRED INTO THE NODE BEATS WHAT IS TYPED INTO IT. Three Points on
+// the Script's Points input are, in order, the height attractor, the void and
+// the WORMHOLE - which drags the lattice itself towards it, so the plots, the
+// octagons and the plazas all lean in together and the tiling stays a tiling.
+// A curve on its Curves input is the spline attractor: it raises what is near
+// it AND opens a gap along it, so one spline can be a high street with a cut
+// down the middle of it. The sliders of the same name are the fallback, for a
+// node with nothing wired to it.
+//
+// Every parameter below is an ARGUMENT on the node, so any of them can be
+// driven by a Number: drop a slider node on the graph, wire it to Height, and
+// the whole city answers to it.
+//
 // THE SITE is SiteBoundary.dxf: 44 points, 33.2 hectares, 602 x 853 m, in
 // millimetres. Replace SITE with any closed ring of [x, y] and everything
 // refits to it.
@@ -112,6 +125,28 @@
     { key: "voidCut", label: "Nothing is built above", def: 0.55, min: 0.01, max: 1,
       step: 0.01, unit: "" },
     { key: "gap", label: "Gap it opens", def: 16000, min: 0, max: 80000, step: 500 },
+
+    //! THE WORMHOLE. Not a height and not a gap: it drags the LATTICE ITSELF
+    //! towards itself, so the plots, the octagons and the plazas all lean in
+    //! together and the tiling stays a tiling.
+    { key: "warpX", label: "Wormhole east", def: 420000, min: -200000, max: 800000,
+      step: 5000 },
+    { key: "warpY", label: "Wormhole north", def: 620000, min: -200000, max: 1100000,
+      step: 5000 },
+    { key: "warpReach", label: "Its reach", def: 300000, min: 10000, max: 1500000,
+      step: 10000 },
+    { key: "warpPull", label: "How far it drags", def: 0.35, min: 0, max: 0.8, step: 0.01,
+      unit: "" },
+
+    //! AND A CURVE TO ATTRACT TO, wired into the node's Curves input rather
+    //! than typed in: a spline through three or four Points, which are nodes
+    //! in the graph you can drag. It raises what is near it and opens a gap
+    //! along it, so one curve can be a high street or a cut through the plan.
+    { key: "splineReach", label: "Spline reach", def: 150000, min: 10000, max: 800000,
+      step: 5000 },
+    { key: "splineBulge", label: "Height it adds", def: 60000, min: -200000, max: 400000,
+      step: 5000 },
+    { key: "splineGap", label: "Gap it opens", def: 0, min: 0, max: 80000, step: 500 },
 
     { key: "seed", label: "Seed", def: 4, min: 1, max: 999, step: 1, unit: "" },
     { key: "show", label: "Draw", options: ["Massing and plazas", "The massing only",
@@ -270,7 +305,14 @@
       if (rad < r0) r0 = rad;
       if (rad > r1) r1 = rad;
     }
+    //! THE WORMHOLE RIDES ON THE FRAME, so every node this frame makes is
+    //! already dragged. Put anywhere else it would have to be applied in
+    //! four places - the plots, the octagons, the plazas, the drawn grid -
+    //! and the first one anybody forgot would tear the tiling open.
     return { from, look, a0, a1, r0, r1,
+             warp: { x: p.warpX, y: p.warpY, reach: Math.max(1, p.warpReach),
+                     pull: Math.max(0, Math.min(0.8, p.warpPull)),
+                     style: this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0] },
              da: (a1 - a0) / Math.max(1, Math.round(p.spokes)),
              dr: (r1 - r0) / Math.max(1, Math.round(p.rings)) };
   },
@@ -283,7 +325,27 @@
     // look rotated by ang, times the radius
     const dx = (f.look[0] * c - f.look[1] * s) * rad;
     const dy = (f.look[1] * c + f.look[0] * s) * rad;
-    return [f.from[0] + dx, f.from[1] + dy];
+    return this.warped(f, [f.from[0] + dx, f.from[1] + dy]);
+  },
+
+  //! THE WORMHOLE, applied to one node. The node is moved a FRACTION of the
+  //! way to the hole, and the fraction is the falloff - so the pull is
+  //! strongest at the centre and nothing at the rim, and a node outside the
+  //! reach does not move at all.
+  //!
+  //! A FRACTION RATHER THAN A DISTANCE, and at most 0.8 of it. Moving every
+  //! node a fixed distance towards a point turns the lattice inside out the
+  //! moment the distance is bigger than the gap between two nodes: they swap
+  //! sides. A fraction cannot reorder them, because it is monotone in the
+  //! distance - two nodes on a ray stay in the order they were in.
+  warped(f, q) {
+    const w = f.warp;
+    if (!w || w.pull <= 0) return q;
+    const dx = w.x - q[0], dy = w.y - q[1];
+    const d = Math.hypot(dx, dy);
+    if (!(d > 1e-9) || d >= w.reach) return q;
+    const k = w.pull * this.falloffAt(w.style, 1 - d / w.reach);
+    return [q[0] + dx * k, q[1] + dy * k];
   },
 
 
@@ -385,6 +447,44 @@
 
      Pure: numbers in, polygons out, no kernel. This is what the test drives. */
 
+  //! WHAT IS WIRED IN, BEFORE ANYTHING IS BUILT. The Script node hands over
+  //! the Points and Curves on its inputs as plain numbers, in the order they
+  //! were wired, and they OVERRULE the sliders of the same name: the first
+  //! point is the height attractor, the second the void, the third the
+  //! wormhole. The sliders stay as the fallback, so the node still works
+  //! with nothing wired to it, and the graph is the better way round - a
+  //! point you drag in the viewport beats two numbers you type.
+  withWired(p, wired) {
+    const points = (wired && wired.points) || [];
+    const at = { ...p };
+    if (points[0]) { at.atX = points[0][0]; at.atY = points[0][1]; }
+    if (points[1]) { at.voidX = points[1][0]; at.voidY = points[1][1]; }
+    if (points[2]) { at.warpX = points[2][0]; at.warpY = points[2][1]; }
+    at.spline = (wired && wired.curves && wired.curves[0]) || null;
+    at.wiredPoints = points.length;
+    return at;
+  },
+
+  //! How far a point on the ground is from the wired spline. The curve
+  //! arrives as a polyline, so this is the distance to the nearest place ON
+  //! it, clamped to each segment's ends - the same measure the Soft Select
+  //! node's curve attractor uses, and for the same reason: unclamped, a
+  //! point off the end of the spline reads as being on it.
+  alongSpline(run, q) {
+    if (!run || run.length < 2) return Infinity;
+    let best = Infinity;
+    for (let i = 0; i + 1 < run.length; i++) {
+      const a = run[i], b = run[i + 1];
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 1e-12 ? ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const d = Math.hypot(q[0] - (a[0] + dx * t), q[1] - (a[1] + dy * t));
+      if (d < best) best = d;
+    }
+    return best;
+  },
+
   plan(p) {
     const f = this.frameOf(p);
     const spokes = Math.max(1, Math.round(p.spokes));
@@ -415,7 +515,7 @@
     //! the site - not its centre, which would hang a quarter of a block over
     //! the boundary.
     const cells = new Map();
-    let refusedPlaza = 0;
+    let refusedPlaza = 0, folded = 0;
     for (let v = 1; v < 2 * ringCount; v++)
       for (let u = 1; u < 2 * spokes; u++) {
         if ((u + v) % 2 !== 0) continue;
@@ -425,6 +525,11 @@
         if (!(E.kept && N.kept && W.kept && S.kept)) { refusedPlaza++; continue; }
         const ring = this.octagonRing(f, u, v, E, N, W, S);
         if (this.area(ring) < 0) ring.reverse();     // the lattice frame is left-handed
+        //! AND IT MUST STILL BE AN OCTAGON. The wormhole drags the lattice
+        //! about, and a cell close enough to the middle of it can be dragged
+        //! through itself. The fractional pull makes that rare rather than
+        //! impossible, so it is checked rather than argued about.
+        if (!this.simple(ring) || Math.abs(this.area(ring)) < 1e6) { folded++; continue; }
         let ok = true;
         for (const q of ring)
           if (!this.inside(this.SITE, q) || this.awayFrom(this.SITE, q) < margin) {
@@ -509,6 +614,7 @@
     const storey = Math.max(0, p.storey);
     const reach = Math.max(1, p.reach);
     const voidReach = Math.max(1, p.voidReach);
+    const splineReach = Math.max(1, p.splineReach);
     const style = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
     const pullAt = (q, x, y, r) =>
       this.falloffAt(style, 1 - Math.hypot(q[0] - x, q[1] - y) / r);
@@ -524,7 +630,13 @@
       //! ever will; out at its reach there is only \p inset left, and at
       //! inset 0 they touch along their chamfers the way the tiling does.
       const hollow = pullAt(mid, p.voidX, p.voidY, voidReach);
-      const back = p.inset + p.gap * hollow;
+      //! THE SPLINE DOES BOTH. Near it the masses stand further apart and
+      //! higher - a street with a cut down it - and it is the same falloff
+      //! and the same reach for the two, so a curve that opens a gap also
+      //! raises what it has opened.
+      const along = p.spline
+        ? this.falloffAt(style, 1 - this.alongSpline(p.spline, mid) / splineReach) : 0;
+      const back = p.inset + p.gap * hollow + p.splineGap * along;
       const was = Math.abs(this.area(ring));
       if (back > 0) {
         //! THE OFFSET CAN TIE A KNOT, and only on the concave ones. A run or
@@ -594,8 +706,12 @@
       //! corners at eight heights is a top no solid modeller will cap. The
       //! plane is the least-squares fit, so it leans the way the field does
       //! and the face is planar to the last bit.
+      //! AND THE SPLINE IS ASKED AT EVERY CORNER TOO, so a mass alongside it
+      //! leans towards it exactly as it leans towards the point attractor.
       const zs = ring.map(q => p.height + jitter
-        + p.bulge * pullAt(q, p.atX, p.atY, reach));
+        + p.bulge * pullAt(q, p.atX, p.atY, reach)
+        + (p.spline ? p.splineBulge
+            * this.falloffAt(style, 1 - this.alongSpline(p.spline, q) / splineReach) : 0));
       let mean = 0;
       for (const z of zs) mean += z;
       mean /= zs.length;
@@ -658,7 +774,7 @@
       if (half.ring < ring) ring = half.ring;
     }
     return { blocks: out, plazas, frame: f, cells: cells.size, refusedPlaza,
-             swallowed, bay, ring };
+             swallowed, folded, bay, ring };
   },
 
   /* THE UNION OF OCTAGONS THAT SHARE A CHAMFER, by cancelling the shared
@@ -698,7 +814,8 @@
 
   /* --------------------------------------------------------------- the solid */
 
-  build(p, k) {
+  build(raw, k, wired) {
+    const p = this.withWired(raw, wired);
     const made = this.plan(p);
     const show = Math.round(p.show);
     const parts = [];

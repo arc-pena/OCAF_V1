@@ -187,7 +187,7 @@ const STARTER = {
 const mdl = new Mdl({
   get kernel() { return kernel; },
   apply: (payload, hint) => applyState(payload, hint),
-  setNode: (id, x, y) => graph.setNode(id, x, y),
+  setNode: (id, x, y) => graph.moveNode(id, x, y),
   readLayout: block => (block === undefined ? graph.layoutJson() : graph.readLayout(block)),
   //! What is hidden, both ways: asked for with nothing, set with a list. The
   //! same shape as readLayout, and in the file for the same reason.
@@ -10641,13 +10641,30 @@ function buildPanel() {
       || entry.category === "container")
     host.appendChild(cutField(entry));
 
-  // Whatever the script declared for itself, as sliders.
+  //! WHATEVER THE SCRIPT DECLARED FOR ITSELF - and drawn as the ARGUMENTS they
+  //! now are, not as sliders of their own. A declared parameter is composed
+  //! into the feature's spec, so it has a label in the document, a value in
+  //! the tree, a port in the graph and room for a wire; realField is what
+  //! draws all of that, and drawing these any other way meant a parameter
+  //! could be driven by a Number everywhere except in the panel, where the
+  //! handle still looked live and its number was being ignored.
+  //!
+  //! Under a heading, because a reader should be able to tell which of the
+  //! sliders came out of the code. \p scriptField is still the fallback for a
+  //! type that declares parameters without composing them - there is no value
+  //! in the tree for one of those, and a slider drawn from nothing reads NaN.
   if (entry.params && entry.params.length) {
     const head = document.createElement("div");
     head.className = "params-head";
     head.textContent = "Parameters";
     host.appendChild(head);
-    for (const param of entry.params) host.appendChild(scriptField(entry, param));
+    for (const param of entry.params) {
+      if (param.kind === "ref" || param.kind === "refs") continue;
+      const composed = entry.values && entry.values[param.key] !== undefined;
+      host.appendChild(!composed ? scriptField(entry, param)
+                     : param.options ? choiceField(entry, param)
+                     : realField(entry, param));
+    }
   }
   if (entry.code !== undefined) host.appendChild(codeEditor(entry));
 
@@ -12661,7 +12678,11 @@ function realField(entry, arg) {
   const shape = sliderRange(arg, entry.ranges);
   const span = sliderSpan(shape, value);
   field.innerHTML =
-    '<div class="field-head"><label for="p-' + arg.key + '">' + arg.label + "</label>" +
+    //! ESCAPED, because a declared parameter's label is written by whoever
+    //! wrote the script and these are the same fields a declared parameter
+    //! gets now. A catalogue label never needed it; one of these does.
+    '<div class="field-head"><label for="p-' + arg.key + '">' + escapeHtml(arg.label || arg.key)
+    + "</label>" +
     //! TEXT, NOT A NUMBER INPUT. A number input will not hold "10m" or
     //! "Width/Bays" long enough to be read - the browser clears what it
     //! cannot parse - and those are the whole point. The spinner goes with
@@ -14759,6 +14780,11 @@ let openMode = null;
 globalThis.__cad = {
   detail, shapes, unmeshed, view, setShape,
   entry: id => feature(id),
+  //! THE TREE AS THE PAGE HAS IT, for a drive that has to count what exists
+  //! rather than read one feature. The rows in #tree are this same list drawn,
+  //! but a row inside a shut set is not in the markup at all - so counting
+  //! rows counts what is on screen, and this counts what is in the model.
+  tree: () => state.tree || { features: [] },
   //! So the tree's reveal can be driven and MEASURED from outside. Where a row
   //! lands after being scrolled to is not something that can be checked by
   //! reading the code: it depends on layout the browser has not done yet.

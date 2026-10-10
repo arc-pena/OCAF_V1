@@ -32,6 +32,13 @@ export const PLAN_CEILING = 2000;
 //! run forever, so it does not: it stops and says so.
 export const RECONCILE_PASSES = 8;
 
+//! The Generator's own argument keys - see compilePlan.
+const PLAN_ARGS = ["plan", "reads", "made", "live", "shell"];
+
+//! As many as a Script may declare, and for the same reason: they are labels in
+//! a numbered block and the block is a hundred wide.
+export const PLAN_PARAM_CEILING = 40;
+
 export function compilePlan(source) {
   let module;
   try {
@@ -45,25 +52,49 @@ export function compilePlan(source) {
     throw new Error("the code must define plan(params, doc)");
 
   const params = [];
+  //! The Generator's own arguments, which a parameter may not be called. Two
+  //! arguments with one key is not a clash anybody sees: the key resolves to
+  //! whichever label was written last, so a parameter called "plan" would
+  //! quietly be read as the source code.
+  const own = new Set(PLAN_ARGS);
+  const taken = new Set();
   for (const raw of module.params || []) {
     if (!raw || typeof raw.key !== "string" || !raw.key)
       throw new Error("every parameter needs a key");
+    if (own.has(raw.key))
+      throw new Error("'" + raw.key + "' is one of the generator's own inputs; "
+        + "a parameter cannot be called that");
+    //! Said apart from the one above, because they are different mistakes and
+    //! the one message for both sent a reader looking for an input called
+    //! "radius" that was never there.
+    if (taken.has(raw.key))
+      throw new Error("two parameters share the key '" + raw.key + "'");
+    taken.add(raw.key);
+    //! KIND, AND NOT OPTIONAL. A declared parameter is composed into the
+    //! feature's spec and is then an argument like any other - which is what
+    //! lets a Number be wired to it - and everything downstream reads \p kind
+    //! to know whether it holds a real or an index. Omitted, the parameter
+    //! drew and saved but setParameter could not find it as an argument: it
+    //! wrote the old parameter label instead while the plan read the new one,
+    //! so a slider moved and the model did not.
     if (Array.isArray(raw.options)) {
       if (raw.options.length < 2)
         throw new Error("'" + raw.key + "' needs at least two options");
-      params.push({ key: raw.key, label: raw.label || raw.key,
+      params.push({ key: raw.key, kind: "choice", label: raw.label || raw.key,
                     options: raw.options.map(String),
                     def: Number.isFinite(raw.def) ? Math.round(raw.def) : 0,
                     min: 0, max: raw.options.length - 1, step: 1, unit: "" });
       continue;
     }
-    params.push({ key: raw.key, label: raw.label || raw.key,
+    params.push({ key: raw.key, kind: "real", label: raw.label || raw.key,
                   def: Number.isFinite(raw.def) ? raw.def : 0,
                   min: Number.isFinite(raw.min) ? raw.min : -1e6,
                   max: Number.isFinite(raw.max) ? raw.max : 1e6,
-                  step: Number.isFinite(raw.step) ? raw.step : 1,
+                  step: Number.isFinite(raw.step) && raw.step > 0 ? raw.step : 1,
                   unit: typeof raw.unit === "string" ? raw.unit : undefined });
   }
+  if (params.length > PLAN_PARAM_CEILING)
+    throw new Error("a plan may declare at most " + PLAN_PARAM_CEILING + " parameters");
   return { module, params };
 }
 

@@ -430,6 +430,178 @@ console.log("\n5b. the void");
         (none.near / none.far).toFixed(2) + " of each other");
 }
 
+/* ===================================================== 5c. the wormhole
+
+   A point that drags the LATTICE into itself rather than the heights. The
+   thing that has to hold is that it is still a lattice afterwards.        */
+
+console.log("\n5c. the wormhole");
+{
+  const flat = M.frameOf({ ...defaults(), warpPull: 0 });
+  const pulled = M.frameOf({ ...defaults(), warpPull: 0.6 });
+  const p = defaults();
+  const at = (f, u, v) => M.nodeAt(f, u, v);
+  check("with no pull nothing moves",
+        [[2, 2], [5, 3], [9, 6]].every(([u, v]) => {
+          const a = at(flat, u, v), b = at(M.frameOf({ ...p, warpPull: 0 }), u, v);
+          return Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-9;
+        }));
+  //! Nodes move TOWARDS it, never away, and never past it.
+  let worst = 0, away = 0;
+  for (let u = 0; u <= 2 * p.spokes; u++)
+    for (let v = 0; v <= 2 * p.rings; v++) {
+      const a = at(flat, u / 2, v / 2), b = at(pulled, u / 2, v / 2);
+      const was = Math.hypot(a[0] - p.warpX, a[1] - p.warpY);
+      const now = Math.hypot(b[0] - p.warpX, b[1] - p.warpY);
+      if (now > was + 1e-6) away++;
+      worst = Math.max(worst, Math.hypot(a[0] - b[0], a[1] - b[1]));
+    }
+  check("every node moves towards the hole, never away", away === 0, away + " moved away");
+  //! The biggest move is not at the hole - a node ON it has nowhere to go -
+  //! but half way out, where the distance and the falloff are both still
+  //! large: 0.6 x 100 m x smoothstep(2/3) is 44 m, and 47 is what it is.
+  check("and some of them move a long way",
+        worst > 30000, Math.round(worst / 1000) + " m the furthest");
+  check("a node outside its reach does not move at all",
+        Math.hypot(at(flat, 0, 0)[0] - at(pulled, 0, 0)[0],
+                   at(flat, 0, 0)[1] - at(pulled, 0, 0)[1])
+        < 1e-9 || Math.hypot(at(flat, 0, 0)[0] - p.warpX, at(flat, 0, 0)[1] - p.warpY)
+        < p.warpReach);
+
+  //! THE ORDER ON A RAY IS KEPT, which is why the pull is a FRACTION of the
+  //! distance and not a distance. Moving every node a fixed 40 m towards a
+  //! point swaps two nodes that are 30 m apart, and a lattice whose nodes
+  //! have changed places is a lattice turned inside out.
+  let swapped = 0;
+  for (let v = 0; v <= 2 * p.rings; v++)
+    for (let u = 0; u + 2 <= 2 * p.spokes; u++) {
+      const a = at(pulled, u / 2, v / 2), b = at(pulled, (u + 2) / 2, v / 2);
+      const was = at(flat, u / 2, v / 2), wasB = at(flat, (u + 2) / 2, v / 2);
+      //! Along the bay direction they must stay in the same order about the
+      //! hole: the one that was nearer is still nearer.
+      const near = Math.hypot(was[0] - p.warpX, was[1] - p.warpY)
+                 < Math.hypot(wasB[0] - p.warpX, wasB[1] - p.warpY);
+      const still = Math.hypot(a[0] - p.warpX, a[1] - p.warpY)
+                  < Math.hypot(b[0] - p.warpX, b[1] - p.warpY);
+      if (near !== still) swapped++;
+    }
+  check("and no two nodes on a row change places", swapped === 0, swapped + " swapped");
+
+  //! AND THE TILING SURVIVES IT. Checked the same way section 3 checks it,
+  //! because a warped tiling that overlaps is the failure this would have.
+  for (const pull of [0.3, 0.6, 0.8]) {
+    const got = M.plan({ ...defaults(), warpPull: pull });
+    const all = ringsOf(got);
+    let hits = 0;
+    const shrunk = ring => M.offsetRing(ring, 1);
+    const turn = (q, r, t) =>
+      Math.sign((r[0] - q[0]) * (t[1] - q[1]) - (r[1] - q[1]) * (t[0] - q[0]));
+    const crosses = (a, b, c, d) =>
+      turn(a, b, c) !== turn(a, b, d) && turn(c, d, a) !== turn(c, d, b);
+    for (let i = 0; i < all.length; i++)
+      for (let j = i + 1; j < all.length; j++) {
+        const A = shrunk(all[i]), B = shrunk(all[j]);
+        let hit = false;
+        for (const q of A) if (M.inside(B, q)) hit = true;
+        for (const q of B) if (M.inside(A, q)) hit = true;
+        for (let a = 0; a < A.length && !hit; a++)
+          for (let b = 0; b < B.length; b++)
+            if (crosses(A[a], A[(a + 1) % A.length], B[b], B[(b + 1) % B.length])) { hit = true; break; }
+        if (hit) hits++;
+      }
+    check("pull " + pull + ": the warped tiling still does not overlap itself",
+          hits === 0, hits + " pairs, " + got.folded + " cells folded and dropped");
+  }
+}
+
+/* ====================================================== 5d. the spline
+
+   A curve wired into the node, raising what is near it and opening a gap
+   along it.                                                               */
+
+console.log("\n5d. the spline attractor");
+{
+  const spline = [[60000, 700000, 0], [250000, 560000, 0], [430000, 430000, 0],
+                  [520000, 250000, 0]];
+  //! MEASURED WITH NOTHING MERGED, so every mass is one octagon and the
+  //! comparison is of like with like. Restricted to singles inside a merged
+  //! plan there were one and two of them, which is a true claim about a
+  //! sample too small to be worth making.
+  const base = { ...defaults(), bulge: 0, vary: 0, storey: 0, merge: 0, cluster: 0,
+                 splineBulge: 80000, splineGap: 20000 };
+  const wired = M.withWired(base, { points: [], curves: [spline] });
+  const bare = M.withWired(base, null);
+  const along = M.plan(wired), without = M.plan(bare);
+  const near = b => M.alongSpline(spline, M.centre(b.ring));
+  //! BEYOND THE REACH THE CONTRIBUTION IS EXACTLY NOUGHT, which is the line
+  //! to split on - a spline that crosses the whole site has nothing two
+  //! reaches away from it to compare against, which is what "0 far" meant
+  //! the first time this ran.
+  //!
+  //! And "beyond the reach" means EVERY CORNER beyond it, because the height
+  //! is taken at the corners: a mass whose middle is just outside and whose
+  //! near corner is just inside is raised, correctly, and reading it as a
+  //! far one made this ask for 28 m and get 32.
+  const allOut = b => b.ring.every(q => M.alongSpline(spline, q) > wired.splineReach);
+  //! Singles only. A cluster is three octagons and a run is two or more, so
+  //! comparing footprints across the kinds compares the grouping and not the
+  //! gap: 4,889 m2 near against 3,861 m2 far, which is three octagons
+  //! against one.
+  //! Three quarters of the reach in: fourteen of the thirty-three singles,
+  //! where half a reach caught two. The band matters because the claim below
+  //! compares the WEAKEST raised mass with the strongest unraised one.
+  const close = along.blocks.filter(b => !b.empty && b.run === 1
+    && near(b) < wired.splineReach * 0.75);
+  const far = along.blocks.filter(b => !b.empty && b.run === 1 && allOut(b));
+  check("there are masses beside the spline and masses away from it",
+        close.length > 8 && far.length > 5, close.length + " near, " + far.length + " far");
+  check("the ones beside it are taller",
+        Math.min(...close.map(b => b.height)) > Math.max(...far.map(b => b.height)),
+        Math.round(Math.min(...close.map(b => b.height)) / 1000) + " m nearest against "
+        + Math.round(Math.max(...far.map(b => b.height)) / 1000) + " m furthest");
+  check("the ones away from it are at the base height",
+        far.every(b => Math.abs(b.height - defaults().height) < 1),
+        Math.round(far[0].height / 1000) + " m");
+  check("and with no curve wired in nothing is raised at all",
+        without.blocks.filter(b => !b.empty)
+          .every(b => Math.abs(b.height - defaults().height) < 1));
+  //! The gap: a mass beside the spline keeps less of its plot.
+  const area = list => list.reduce((a, b) => a + Math.abs(M.area(b.ring)), 0)
+    / Math.max(1, list.length);
+  check("and the ones beside it stand further apart",
+        area(close) < area(far) * 0.9,
+        Math.round(area(close) / 1e6) + " m\u00b2 near against "
+        + Math.round(area(far) / 1e6) + " m\u00b2 far");
+  //! The spline is asked at every CORNER as well, so a mass alongside it
+  //! leans towards it.
+  const leaning = along.blocks.filter(b => !b.empty && b.plane
+    && Math.hypot(b.plane.bx, b.plane.by) > 0.02);
+  check("masses beside it lean towards it", leaning.length > 0,
+        leaning.length + " of " + along.blocks.length);
+}
+
+/* ============================================= 5e. what is wired overrules
+
+   Points on the node's input, in the order they were wired.               */
+
+console.log("\n5e. the wired points overrule the sliders");
+{
+  const p = defaults();
+  const three = [[111000, 222000, 0], [333000, 444000, 0], [555000, 666000, 0]];
+  const got = M.withWired(p, { points: three, curves: [] });
+  check("the first point is the height attractor",
+        got.atX === 111000 && got.atY === 222000);
+  check("the second is the void", got.voidX === 333000 && got.voidY === 444000);
+  check("the third is the wormhole", got.warpX === 555000 && got.warpY === 666000);
+  check("and with nothing wired the sliders stand",
+        M.withWired(p, null).atX === p.atX && M.withWired(p, { points: [] }).voidY === p.voidY);
+  check("one point wired moves only the height attractor",
+        (() => {
+          const one = M.withWired(p, { points: [three[0]] });
+          return one.atX === 111000 && one.voidX === p.voidX && one.warpX === p.warpX;
+        })());
+}
+
 /* ============================================== 6. the same curves as the node
 
    The script cannot import softselect.js - it is one self-contained string -
@@ -539,21 +711,67 @@ console.log("\n9. built in the real kernel");
       }
     return { best, at };
   };
-  await mdl.run({ op: "set", id: "PLAN", key: "atX", value: 120000 });
-  await mdl.run({ op: "set", id: "PLAN", key: "atY", value: 700000 });
+  //! MOVED AS A POINT IN THE GRAPH, not as a slider on the node. The sample
+  //! wires three Points into the script's inputs and they overrule the
+  //! sliders of the same name, so setting atX here does exactly nothing -
+  //! which is what it did, and the peak moved 0 m.
+  await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: 120000 });
+  await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: 700000 });
   const west = await tallestNear();
-  await mdl.run({ op: "set", id: "PLAN", key: "atX", value: 430000 });
-  await mdl.run({ op: "set", id: "PLAN", key: "atY", value: 300000 });
+  await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: 430000 });
+  await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: 300000 });
   const east = await tallestNear();
   check("the peak follows the attractor across the site",
         Math.hypot(west.at[0] - east.at[0], west.at[1] - east.at[1]) > 200000,
         "peak moved " + Math.round(Math.hypot(west.at[0] - east.at[0],
                                               west.at[1] - east.at[1]) / 1000) + " m");
-  check("and it is beside the attractor both times",
+  check("and it is beside the point both times",
         Math.hypot(west.at[0] - 120000, west.at[1] - 700000) < 200000
         && Math.hypot(east.at[0] - 430000, east.at[1] - 300000) < 200000,
         Math.round(Math.hypot(west.at[0] - 120000, west.at[1] - 700000) / 1000) + " m and "
         + Math.round(Math.hypot(east.at[0] - 430000, east.at[1] - 300000) / 1000) + " m");
+
+
+  /* ------------------------------------- 9b. the graph drives the script
+
+     The two halves of the last edit, through the real document: a Point
+     wired into the node, and a Number wired onto one of the script's own
+     parameters.                                                          */
+
+  const spec = (await kernel.schema()).types.find(t => t.type === "Script");
+  check("the Script type takes points and curves",
+        spec.args.some(a => a.key === "points" && a.kind === "refs")
+        && spec.args.some(a => a.key === "curves" && a.kind === "refs"),
+        spec.args.map(a => a.key).join(" "));
+
+  const wiredIn = await at();
+  check("the sample has its three points and its spline on the node",
+        (wiredIn.lists.points || []).length === 3 && (wiredIn.lists.curves || []).length === 1,
+        JSON.stringify(wiredIn.lists.points) + " " + JSON.stringify(wiredIn.lists.curves));
+
+  //! AND EVERY PARAMETER IS AN ARGUMENT, which is what lets a slider node
+  //! drive one. The sample wires a Number onto the base height.
+  check("the base height is driven by the Number node",
+        wiredIn.driven && wiredIn.driven.height === "N_HEIGHT",
+        JSON.stringify(wiredIn.driven));
+  const before = await meshOf();
+  const topOf = m => {
+    let top = 0;
+    for (let i = 2; i < m.positions.length; i += 3)
+      if (m.positions[i] > top) top = m.positions[i];
+    return top;
+  };
+  await mdl.run({ op: "set", id: "N_HEIGHT", key: "value", value: 56000 });
+  const after = await meshOf();
+  check("turning the Number up raises the whole city",
+        topOf(after) > topOf(before) + 20000,
+        Math.round(topOf(before) / 1000) + " m to " + Math.round(topOf(after) / 1000) + " m");
+  //! And the literal under the wire is not what is used: the slider on the
+  //! node still says 28,000 and the model is twice that tall.
+  const driven = await at();
+  check("and the script is handed the wire's number, not the slider's",
+        (driven.params.find(q => q.key === "height") || {}).value === 56000,
+        String((driven.params.find(q => q.key === "height") || {}).value));
 }
 
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");

@@ -11,7 +11,7 @@
 // performance property, it is the difference between settling and looping.
 import { createWasmKernel } from "../src/wasm-kernel.js";
 import { Mdl } from "../src/mdl.js";
-import { PLAN_CEILING, fingerprint, planDoc, readMade, readPlan,
+import { PLAN_CEILING, compilePlan, fingerprint, planDoc, readMade, readPlan,
          reconcile, writeMade } from "../src/generate.js";
 import { readFileSync } from "fs";
 
@@ -153,6 +153,51 @@ console.log("\n6. a value that changes patches rather than replaces");
   check("the nodes are the same nodes", now.map(f => f.id).join() === ids);
   check("and the value moved", Math.abs(now[0].values.radius - 140) < 1e-9,
         String(now[0].values.radius));
+
+  //! A DECLARED PARAMETER IS AN ARGUMENT, which is what lets a Number drive
+  //! it. The failure this catches is silent: with no \p kind on the
+  //! declaration the parameter still drew as a slider and still saved, but
+  //! setParameter could not find it among the arguments and wrote the old
+  //! parameter label instead - so the handle moved, the plan read the label
+  //! underneath, and the model did not change.
+  const gen = (await feats()).find(one => one.id === GEN);
+  check("the parameter is reported as a value on the node",
+        Math.abs((gen.values || {}).radius - 140) < 1e-9,
+        JSON.stringify(gen.values));
+
+  const NUM = (await mdl.run({ op: "add", type: "Number", name: "Radius" })).id;
+  await mdl.run({ op: "set", id: NUM, key: "value", value: 260 });
+  await mdl.run({ op: "connect", id: GEN, key: "radius", from: NUM });
+  const wired = await under(GEN);
+  check("a Number wired to it drives the plan",
+        Math.abs(wired[0].values.radius - 260) < 1e-9, String(wired[0].values.radius));
+  check("and the nodes are still the same nodes",
+        wired.map(f => f.id).join() === ids, wired.map(f => f.id).join());
+  await mdl.run({ op: "disconnect", id: GEN, key: "radius", from: NUM });
+  check("pulling the wire puts the typed number back",
+        Math.abs((await under(GEN))[0].values.radius - 140) < 1e-9,
+        String((await under(GEN))[0].values.radius));
+}
+
+console.log("\n6b. a parameter may not be called what an input is called");
+{
+  const refused = key => {
+    try {
+      compilePlan('({ params: [{ key: "' + key + '", def: 1 }], plan() { return []; } })');
+      return "(accepted)";
+    } catch (e) { return e.message; }
+  };
+  check("'plan' is the generator's own code", /own inputs/.test(refused("plan")), refused("plan"));
+  check("'reads' is its list input", /own inputs/.test(refused("reads")), refused("reads"));
+  check("'live' is its rebuild switch", /own inputs/.test(refused("live")), refused("live"));
+  check("and a name of its own is fine", refused("radius") === "(accepted)", refused("radius"));
+  const twice = (() => {
+    try {
+      compilePlan('({ params: [{ key: "a" }, { key: "a" }], plan() { return []; } })');
+      return "(accepted)";
+    } catch (e) { return e.message; }
+  })();
+  check("two parameters cannot share a key", /share the key/.test(twice), twice);
 }
 
 console.log("\n7. it says what is wrong instead of failing silently");

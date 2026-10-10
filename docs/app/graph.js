@@ -478,7 +478,14 @@ export class GraphEditor {
     if (this.showing) this.rebuild();
   }
 
-  setNode(id, x, y) {
+  //! WHERE A NODE SITS, moved. Called \p setNode once, which is also the name
+  //! of the method that builds a collapsed SET two hundred lines down - and in
+  //! a class the second declaration simply wins. So every "move" edit arrived
+  //! at the set builder with an id where its feature list should be and threw
+  //! "features is not iterable" out of membersOf: Tidy did nothing, dragging a
+  //! node logged an error, and the graph looked fine both times because the
+  //! node had already been moved by the pointer that asked.
+  moveNode(id, x, y) {
     this.layout.set(id, { x, y });
     const node = this.nodes.get(id);
     if (node) { node.el.style.left = x + "px"; node.el.style.top = y + "px"; this.drawWires(); }
@@ -1347,11 +1354,17 @@ export class GraphEditor {
       const scroller = doc.createElement("div");
       scroller.className = "g-params";
       scroller.addEventListener("pointerdown", event => event.stopPropagation());
+      //! WITH A PORT ON EVERY ONE. A script's parameters are arguments like
+      //! any other now - see F.spec - so a Number node can drive one exactly
+      //! as it drives a box's width. Passing null here was what stopped it:
+      //! the row drew, the slider worked, and there was no dot to drop a
+      //! wire on.
       for (const param of entry.params)
         scroller.appendChild(param.options
           ? this.choiceRow(entry, { key: param.key, label: param.label, options: param.options },
-                           Math.round(param.value))
-          : this.realRow(entry, param, param.key, param.value, null));
+                           Math.round(entry.values[param.key] ?? param.value))
+          : this.realRow(entry, param, param.key,
+                         entry.values[param.key] ?? param.value, ports));
       body.appendChild(scroller);
     }
 

@@ -1616,10 +1616,22 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     if (typeof module.build !== "function")
       throw new Error("the code must define build(params, kernel)");
 
+    //! WHAT THE SCRIPT DECLARES BECOMES REAL ARGUMENTS on the feature, in the
+    //! same shape the catalogue writes its own. That is what makes every one
+    //! of them wireable: the panel, the graph's ports, setReference and
+    //! F.real all read the spec, and none of them has to know that this one
+    //! was composed rather than written down. See F.spec.
     const params = [];
+    const taken = new Set(["code", "points", "curves"]);
     for (const raw of module.params || []) {
       if (!raw || typeof raw.key !== "string" || !raw.key)
         throw new Error("every parameter needs a key");
+      //! The catalogue's own three are not up for grabs: a parameter called
+      //! "code" would shadow the source the feature is made of.
+      if (taken.has(raw.key))
+        throw new Error("'" + raw.key + "' is one of the feature's own inputs; "
+          + "a parameter cannot be called that");
+      taken.add(raw.key);
 
       // A parameter that names its alternatives is a switch, not a slider. The
       // value stored is still a number - the index - so nothing below here
@@ -1628,7 +1640,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
         if (raw.options.length < 2)
           throw new Error("'" + raw.key + "' needs at least two options");
         params.push({
-          key: raw.key,
+          key: raw.key, kind: "choice",
           label: typeof raw.label === "string" ? raw.label : raw.key,
           options: raw.options.map(String),
           def: Number.isFinite(raw.def) ? Math.round(raw.def) : 0,
@@ -1638,7 +1650,7 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       }
 
       params.push({
-        key: raw.key,
+        key: raw.key, kind: "real",
         label: typeof raw.label === "string" ? raw.label : raw.key,
         def: Number.isFinite(raw.def) ? raw.def : 0,
         min: Number.isFinite(raw.min) ? raw.min : 0,
@@ -1668,12 +1680,34 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
     },
     build: f => {
       const { module, params } = compileScript(F.code(f, "code", ""));
-      const stored = F.paramValues(f);
+      //! READ THE WAY EVERY OTHER DRIVER READS ITS ARGUMENTS, which is the
+      //! whole point of composing them into the spec: a slider wired to a
+      //! Number arrives here as that number, and the driver never learns
+      //! there was a wire.
       const values = {};
       for (const spec of params)
-        values[spec.key] = clampTo(spec, stored[spec.key] ?? spec.def);
+        values[spec.key] = spec.kind === "choice"
+          ? Feature_choice(f, spec.key)
+          : F.real(f, spec.key, spec.def);
 
-      const shape = module.build(values, shapeApi());
+      //! WHAT IS WIRED IN, resolved to plain numbers before the script sees
+      //! it. A script is a string with no way to reach the document, so the
+      //! points and curves on its inputs are handed over as coordinates and
+      //! polylines - in the order they were wired, which is the order the
+      //! graph draws them in.
+      const wired = {
+        points: F.references(f, "points").map(source => {
+          const at = readPoint(source);
+          if (!at) throw new Error(F.name(source) + " has no position yet");
+          return at;
+        }),
+        curves: F.references(f, "curves").map(source => {
+          const { run, closed } = polylineOf(source, "curve");
+          run.closed = closed;
+          return run;
+        }),
+      };
+      const shape = module.build(values, shapeApi(), wired);
       if (!shape || typeof shape.IsNull !== "function" || shape.IsNull())
         throw new Error("build() must return a shape");
       return shape;
@@ -7333,9 +7367,14 @@ function sprawl(face, edges) {
   //! on screen.
   function runPlan(f) {
     const { module, params } = compilePlan(F.code(f, "plan", ""));
-    const stored = F.paramValues(f);
+    //! Read as arguments, like the Script driver and for the same reason: a
+    //! plan's parameters are arguments on the node, so a Number wired to one
+    //! arrives here as that number.
     const values = {};
-    for (const spec of params) values[spec.key] = clampTo(spec, stored[spec.key] ?? spec.def);
+    for (const spec of params)
+      values[spec.key] = spec.kind === "choice"
+        ? Feature_choice(f, spec.key)
+        : F.real(f, spec.key, spec.def);
 
     const model = doc.modelJson();
     const api = planDoc(model, {
@@ -7755,6 +7794,57 @@ function sprawl(face, edges) {
     const i = Math.min(HEAT.length - 2, Math.floor(t));
     const k = t - i, a = HEAT[i], b = HEAT[i + 1];
     return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  }
+
+  /* WHAT THE FILE ASKED FOR THAT THE DOCUMENT COULD NOT PLACE YET.
+
+     A Script's parameters are arguments like any other - that is what makes
+     them wireable - but they exist only once the code has compiled, and the
+     code compiles the first time the feature builds. So the reader puts
+     anything it does not recognise aside on a declaring feature, and this
+     puts it on afterwards. Everything it reads was written by the model
+     writer, so the shapes are the writer's: a bare number, {value, from} for
+     a slider with a wire on it, an option's NAME for a choice, {ref} for a
+     reference.                                                            */
+  function applyPending() {
+    let moved = false;
+    for (const f of doc.features()) {
+      const held = F.pending(f);
+      if (!held) continue;
+      F.clearPending(f);
+      const spec = F.spec(f);
+      for (const [key, value] of Object.entries(held)) {
+        const arg = spec && spec.args.find(a => a.key === key);
+        //! A parameter the script has since dropped is not an error in the
+        //! file: the file is older than the code.
+        if (!arg) continue;
+        try {
+          if (arg.kind === "choice") {
+            const at = typeof value === "string"
+              ? (arg.options || []).indexOf(value)
+              : Math.round(value && typeof value === "object" ? value.value : value);
+            if (at >= 0) { doc.setParameter(f, key, at); moved = true; }
+          } else if (arg.kind === "real") {
+            const literal = value && typeof value === "object" ? value.value : value;
+            if (Number.isFinite(literal)) { doc.setParameter(f, key, literal); moved = true; }
+            const from = value && typeof value === "object" ? value.from : null;
+            if (from) {
+              const source = doc.find(from);
+              if (source) { doc.setReference(f, key, source); moved = true; }
+            }
+          } else if (arg.kind === "ref" || arg.kind === "refs") {
+            const list = (Array.isArray(value) ? value : [value])
+              .map(one => doc.find(typeof one === "string" ? one : one && one.ref))
+              .filter(Boolean);
+            for (const source of list) { doc.setReference(f, key, source); moved = true; }
+          }
+        } catch (e) {
+          //! A value the script will not take is not a broken file. It is a
+          //! file older than the code, and the parameter keeps its default.
+        }
+      }
+    }
+    return moved;
   }
 
   function streamMesh(data) {
@@ -8574,6 +8664,8 @@ function sprawl(face, edges) {
       return { ...settled, made };
     },
 
+    _applyPending: () => applyPending(),
+
     async loadModel(model) {
       const parsed = typeof model === "string" ? JSON.parse(model) : model;
       //! READING THE FILE IS ITSELF WORK. Six thousand features is a second
@@ -8594,7 +8686,13 @@ function sprawl(face, edges) {
       const tell = this.onBuild
         ? step => this.onBuild({ stage: "building", ...step }) : null;
       if (tell) await breathe();                        // let the message land
-      const settled = state(await settleAsync(true, tell));
+      let settled = state(await settleAsync(true, tell));
+      //! AND NOW THE ARGUMENTS THE FILE COULD NOT PLACE. A script's own
+      //! parameters do not exist until its code has compiled, and the code
+      //! compiles when the feature first builds - which has just happened.
+      //! So the values and the wires that were put aside during the read go
+      //! on here, and anything that moved is rebuilt.
+      if (applyPending()) settled = state(await settleAsync(true, tell));
       //! AND PUT AWAY AGAIN. The shapes are built and OCAF is holding them;
       //! the text was only ever needed to get there, and on a large import it
       //! is the biggest thing in memory by a wide margin.

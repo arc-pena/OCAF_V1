@@ -1299,8 +1299,15 @@ export const SAMPLES = [
            + "runs or THREE OCTAGONS WRAPPING ONE PLAZA \u2014 a court open on the fourth "
            + "side, which a run can never make \u2014 and a share of the plazas are major "
            + "squares, bigger by \p grandScale, with the octagons round them giving way "
-           + "by exactly as much. Open it straight from a link ending #octagon-plan. "
-           + "1 node and 31 sliders." },
+           + "by exactly as much. THE ATTRACTORS ARE NODES IN THE GRAPH: three "
+           + "Points wired into the script's own inputs - the height attractor, the "
+           + "void, and a WORMHOLE that drags the lattice itself towards it so the "
+           + "whole tiling leans in - and a spline through four more Points that "
+           + "raises what is near it and opens a gap along it. Drag any of them and "
+           + "the city answers. A Number node drives the base height, because every "
+           + "parameter a script declares is an argument on the node now and any of "
+           + "them can take a wire. Open it straight from a link ending "
+           + "#octagon-plan. 10 nodes and 38 sliders." },
 
   //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
   //! this program: nineteen sliders and a hundred lines of plane geometry,
@@ -2961,22 +2968,39 @@ export const CATALOGUE = [
            real("angle", "Angle", 360, 1, 360, 1, "\u00b0")] },
   { type: "Script", guid: "9a1b2c30-0030-4c00-9e00-caf000000030", category: "body",
     produces: "solid",
+    //! Its code declares arguments of its own; see F.spec.
+    declares: true,
     summary: "A feature you write. The code declares its own parameters and returns "
            + "a shape, so anything this build can make can become a feature. "
-           + "This one starts as a spiral stair.",
-    args: [code("code", "Code", SPIRAL_STAIR)] },
+           + "This one starts as a spiral stair. Wire POINTS and CURVES into it and "
+           + "the script is handed their positions - an attractor you can drag in "
+           + "the viewport rather than type into a slider, a spline through four "
+           + "points to pull a plan along. They arrive in the order they are wired.",
+    //! APPENDED, as everything here is: \p code stays argument nought, so every
+    //! file written before these existed reads its script off the same label.
+    args: [code("code", "Code", SPIRAL_STAIR),
+           refs("points", "Points", ["point"]),
+           refs("curves", "Curves", ["curve"])] },
   { type: "Center", guid: "9a1b2c30-0032-4c00-9e00-caf000000032", category: "body",
     produces: "solid",
+    //! Its code declares arguments of its own; see F.spec.
+    declares: true,
     summary: "A written feature starting from the Heydar Aliyev Center: a roof lofted "
            + "through section curves, and a soft grid of mullions on the glazed face "
            + "behind the peak.",
-    args: [code("code", "Code", HEYDAR_CENTER)] },
+    args: [code("code", "Code", HEYDAR_CENTER),
+           refs("points", "Points", ["point"]),
+           refs("curves", "Curves", ["curve"])] },
   { type: "Ribbon", guid: "9a1b2c30-0031-4c00-9e00-caf000000031", category: "body",
     produces: "solid",
+    //! Its code declares arguments of its own; see F.spec.
+    declares: true,
     summary: "The same written feature, starting from a different sample: a lofted "
            + "shell taken in bands with a gap between each, after Heydar Aliyev. The "
            + "driver surface is never built - only the bands cut from it.",
-    args: [code("code", "Code", HEYDAR)] },
+    args: [code("code", "Code", HEYDAR),
+           refs("points", "Points", ["point"]),
+           refs("curves", "Curves", ["curve"])] },
 
   /* --------------------------------------------------------------- mesh
      A polymesh: vertices, and faces of any number of sides. Not a B-Rep -
@@ -3416,6 +3440,11 @@ export const CATALOGUE = [
   //! shows the lot as one node.
   { type: "Generator", guid: "9a1b2c30-00a2-4c00-9e00-caf0000000a2",
     category: "container", produces: "text",
+    //! Its plan declares parameters of its own, exactly as a Script's code
+    //! does - so they are arguments on the node and can be wired. Without
+    //! this flag syncParams has nowhere to put them and the generator failed
+    //! to build at all, which is how it was found.
+    declares: true,
     summary: "A script that writes the model. It returns a list of nodes - system "
            + "types and sets somebody built, asked for the same way - and the number "
            + "of them follows whatever list is wired in, so feeding it more points "
@@ -3994,6 +4023,17 @@ export const DATA_TAG = 103;
 //! declaration itself is cached beside them so the interface can draw the
 //! sliders without compiling anything.
 export const PARAM_TAG_BASE = 10, PARAM_TAG_LIMIT = 50, SPECS_TAG = 51;
+//! Where a declared argument's own label lives: its value, its wire and its
+//! range, exactly as a catalogue argument has them. Clear of the argument
+//! tags (1..9), the old parameter tags (10..49) and the result (100..102).
+export const DECLARED_TAG_BASE = 200, DECLARED_TAG_LIMIT = 300;
+//! WHERE WHAT THE FILE COULD NOT PLACE YET IS KEPT. 57, because every number
+//! below it is taken - and it was 52 for an afternoon, which is the appearance
+//! label: clearing the pending values after a load dropped the brass off
+//! everything that had been painted, and the only thing that said so was one
+//! check in the styles suite. See the tags are all different, in the persist
+//! suite, which is the check that would have said it first.
+export const PENDING_TAG = 57;
 
 //! THE CONTAINERS THAT ARE ALSO BODIES. A folder produces nothing and so has
 //! never taken part in the regeneration order; these produce the compound of
@@ -4148,6 +4188,10 @@ export const typeSpec = type => byType.get(type) || null;
 export const registeredTypes = () => [...byType.values()];
 const argIndex = (spec, key) => spec.args.findIndex(a => a.key === key);
 
+//! Composed specs, by type and declaration. Bounded by the number of distinct
+//! scripts in the document rather than by the number of features.
+const declaredSpecs = new Map();
+
 /* ------------------------------------------------------------- TDF labels */
 
 //! HOW MANY TIMES THE DOCUMENT HAS CHANGED SHAPE.
@@ -4204,7 +4248,35 @@ export class Label {
 /* ------------------------------------------------- reading a feature label */
 
 export const F = {
-  spec: f => (f && byGuid.get(f.attr.TFunction_Function)) || null,
+  //! THE TYPE'S ARGUMENTS, PLUS THE ONES THIS FEATURE DECLARED FOR ITSELF.
+  //!
+  //! A Script's parameters used to live on labels of their own, read by the
+  //! panel and by nothing else: they drew as sliders and could not be WIRED,
+  //! so a number node could drive every other slider in the document and not
+  //! one of the nineteen on a script. Composing them into the spec instead
+  //! puts them through the same machinery as every catalogue argument - the
+  //! panel's fields, the graph's ports, setReference, F.real's wire, the
+  //! model writer - without one of those knowing a script exists.
+  //!
+  //! Cached on the stored declaration, because spec() is called tens of
+  //! thousands of times in a rebuild and composing a list each time showed up
+  //! as a third of it.
+  spec: f => {
+    const base = (f && byGuid.get(f.attr.TFunction_Function)) || null;
+    if (!base || !base.declares) return base;
+    const said = f.findChild(SPECS_TAG);
+    const json = (said && said.attr.TDataStd_AsciiString) || "";
+    if (!json || json === "[]") return base;
+    const key = base.guid + "\u0000" + json;
+    let made = declaredSpecs.get(key);
+    if (!made) {
+      let extra = [];
+      try { extra = JSON.parse(json); } catch (e) { extra = []; }
+      made = { ...base, args: base.args.concat(extra.map(a => ({ ...a, dynamic: true }))) };
+      declaredSpecs.set(key, made);
+    }
+    return made;
+  },
   name: f => (f && f.attr.TDataStd_Name) || "",
   id: f => (f && f.attr.TDataStd_AsciiString) || "",
   visible: f => f.attr.TDataStd_Integer !== 0,
@@ -4232,6 +4304,26 @@ export const F = {
     if (!spec) return null;
     const index = argIndex(spec, key);
     if (index < 0) return null;
+    //! A DECLARED ARGUMENT IS FOUND BY NAME, not by where it sits in the list.
+    //! The catalogue's own arguments are append-only and their position IS
+    //! their tag, which is what makes an old file keep reading; a script's
+    //! are whatever the author last typed, and inserting one at the top would
+    //! otherwise hand every wire below it to the wrong parameter.
+    if (spec.args[index].dynamic) {
+      for (let tag = DECLARED_TAG_BASE; tag < DECLARED_TAG_LIMIT; tag++) {
+        const label = f.findChild(tag);
+        if (label && label.attr.TDataStd_Name === key) return label;
+      }
+      if (!create) return null;
+      for (let tag = DECLARED_TAG_BASE; tag < DECLARED_TAG_LIMIT; tag++)
+        if (!f.findChild(tag)) {
+          const label = f.findChild(tag, true);
+          label.attr.TDataStd_Name = key;
+          return label;
+        }
+      throw new Error("a script may declare at most "
+        + (DECLARED_TAG_LIMIT - DECLARED_TAG_BASE) + " parameters");
+    }
     const label = f.findChild(FIRST_ARG_TAG + index, create);
     if (label && create) label.attr.TDataStd_Name = key;
     return label;
@@ -4476,6 +4568,24 @@ export const F = {
 
   //! What the script last declared, so the panel can draw its sliders without
   //! compiling the code again.
+  /* WHAT A FILE ASKED FOR THAT THE DOCUMENT COULD NOT PLACE YET, kept on a
+     label of its own until the script has compiled and said what its
+     arguments are. See the loader, and applyPending in the kernel.        */
+  pending(f) {
+    const label = f.findChild(PENDING_TAG);
+    if (!label || typeof label.attr.TDataStd_AsciiString !== "string") return null;
+    try { return JSON.parse(label.attr.TDataStd_AsciiString); } catch (e) { return null; }
+  },
+  setPending(f, key, value) {
+    const held = F.pending(f) || {};
+    held[key] = value;
+    f.findChild(PENDING_TAG, true).attr.TDataStd_AsciiString = JSON.stringify(held);
+  },
+  clearPending(f) {
+    const label = f.findChild(PENDING_TAG);
+    if (label) f.dropChild(PENDING_TAG);
+  },
+
   paramSpecs(f) {
     const label = f.findChild(SPECS_TAG);
     if (!label || typeof label.attr.TDataStd_AsciiString !== "string") return [];
@@ -4519,15 +4629,42 @@ export const F = {
   //! the script dropped are forgotten.
   syncParams(f, specs) {
     const wanted = new Set(specs.map(spec => spec.key));
+    //! The declaration goes down FIRST, because every label below is found
+    //! through the composed spec and the spec is composed from this.
+    F.setParamSpecs(f, specs);
     for (const label of F.paramLabels(f))
       if (!wanted.has(label.attr.TDataStd_Name)) f.dropChild(label.tag);
-    for (const spec of specs) {
-      const existing = F.paramLabel(f, spec.key);
-      const value = existing && typeof existing.attr.TDataStd_Real === "number"
-        ? existing.attr.TDataStd_Real : spec.def;
-      F.setParamValue(f, spec.key, clampTo(spec, value));
+    //! And a declared label the script has dropped goes with them, or its
+    //! wire would keep a feature alive that nothing reads.
+    for (let tag = DECLARED_TAG_BASE; tag < DECLARED_TAG_LIMIT; tag++) {
+      const label = f.findChild(tag);
+      if (label && !wanted.has(label.attr.TDataStd_Name)) f.dropChild(tag);
     }
-    F.setParamSpecs(f, specs);
+    for (const spec of specs) {
+      const label = F.argLabel(f, spec.key, true);
+      //! A TYPE THAT DECLARES PARAMETERS WITHOUT SAYING SO has nowhere to put
+      //! them: spec() will not compose what it was not told to, so there is
+      //! no label and nothing to write. Carry on rather than throw - the old
+      //! parameter label below still holds the value, and the feature still
+      //! builds.
+      if (!label) continue;
+      if (spec.kind === "ref" || spec.kind === "refs") continue;
+      const has = spec.kind === "choice"
+        ? typeof label.attr.TDataStd_Integer === "number"
+        : typeof label.attr.TDataStd_Real === "number";
+      if (has) continue;
+      //! SEEDED FROM THE OLD PARAMETER LABEL WHEN THERE IS ONE. Every script
+      //! written before parameters were arguments stored its values there,
+      //! and a file that reopened with all nineteen sliders back at their
+      //! defaults would be a file that had lost its design.
+      const was = F.paramLabel(f, spec.key);
+      const kept = was && typeof was.attr.TDataStd_Real === "number"
+        ? was.attr.TDataStd_Real : spec.def;
+      if (spec.kind === "choice")
+        label.attr.TDataStd_Integer = Math.max(0,
+          Math.min((spec.options || []).length - 1, Math.round(kept)));
+      else label.attr.TDataStd_Real = clampTo(spec, kept);
+    }
   },
 
   //! An argument is live only when its condition holds; the rest are carried
@@ -5753,8 +5890,15 @@ export class Doc {
         if (source) {
           entry.code = F.code(f, source.key, source.def);
           entry.codeKey = source.key;
-          const stored = F.paramValues(f);
-          entry.params = F.paramSpecs(f).map(p => ({ ...p, value: stored[p.key] ?? p.def }));
+          //! The declared list, with what each one is worth NOW - which is
+          //! what the wire says when there is one, because that is what the
+          //! script will be handed.
+          entry.params = F.paramSpecs(f).map(one => ({
+            ...one,
+            value: one.kind === "choice" ? F.choice(f, one.key, one.def)
+              : one.kind === "ref" || one.kind === "refs" ? undefined
+              : F.real(f, one.key, one.def),
+          }));
         }
         const appearance = F.appearance(f);
         if (appearance) entry.appearance = appearance;
@@ -5821,13 +5965,7 @@ export class Doc {
           else if (arg.kind === "sketch") args[arg.key] = F.sketch(f, arg.key);
           else if (arg.kind === "refs") args[arg.key] = F.references(f, arg.key).map(t => ({ ref: F.id(t) }));
           else if (arg.kind === "choice") args[arg.key] = arg.options[F.choice(f, arg.key, arg.def)];
-          else if (arg.kind === "code") {
-            args[arg.key] = F.code(f, arg.key, arg.def);
-            const stored = F.paramValues(f);
-            if (Object.keys(stored).length)
-              args.params = Object.fromEntries(
-                Object.entries(stored).map(([key, value]) => [key, round(value)]));
-          }
+          else if (arg.kind === "code") args[arg.key] = F.code(f, arg.key, arg.def);
           else {
             const target = F.reference(f, arg.key);
             if (target) args[arg.key] = { ref: F.id(target) };
@@ -5921,6 +6059,18 @@ export class Doc {
           continue;
         }
         const arg = spec.args.find(a => a.key === key);
+        //! A DECLARING TYPE'S ARGUMENTS DO NOT EXIST YET. A script's
+        //! parameters are known only once the code has compiled, which
+        //! happens when the feature is first built - long after this loop.
+        //! So they are kept aside, and the kernel puts them on once the
+        //! first build has told the document what they are. A number lands
+        //! on the old parameter label too, which is where every file written
+        //! before scripts had arguments keeps them.
+        if (!arg && spec.declares) {
+          if (typeof value === "number") F.setParamValue(f, key, value);
+          F.setPending(f, key, value);
+          continue;
+        }
         if (!arg) throw new Error(spec.type + ' has no argument "' + key + '"');
         if (arg.kind === "code" || arg.kind === "text" || arg.kind === "blob") {
           if (typeof value !== "string") throw new Error(key + " of " + entry.id + " must be text");

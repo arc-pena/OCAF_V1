@@ -107,11 +107,145 @@ await kernel.setParameter(id, "size", 137);
 const model = await kernel.model();
 const saved = model.features.find(f => f.id === id);
 check("the source is in the file", saved.args.code.includes("build(p, k)"));
-check("so is the value", saved.args.params.size === 137, JSON.stringify(saved.args.params));
+//! A DECLARED PARAMETER IS AN ARGUMENT NOW, so it is written like one - by
+//! its own key, beside the code - rather than bundled under "params". What a
+//! file written the old way does is checked below.
+check("so is the value, under its own key", saved.args.size === 137,
+  JSON.stringify(saved.args).slice(0, 120));
 const reloaded = await kernel.loadModel(model);
 check("and it rebuilds", reloaded.report.failed.length === 0);
 check("with the value it was saved with",
   reloaded.tree.features.find(f => f.id === id).params[0].value === 137);
+
+//! THE OLD SHAPE STILL OPENS. Every file written before a script's
+//! parameters were arguments keeps them in one "params" object, and a
+//! document that reopened with all its sliders back at their defaults would
+//! be a document that had lost its design.
+{
+  const older = JSON.parse(JSON.stringify(model));
+  const feature = older.features.find(f => f.id === id);
+  delete feature.args.size;
+  feature.args.params = { size: 92 };
+  const back = await kernel.loadModel(older);
+  check("a file written the old way, with a params bundle, still opens",
+    back.report.failed.length === 0,
+    JSON.stringify(back.report.failed.map(f => f.message)));
+  check("and keeps the value it had",
+    back.tree.features.find(f => f.id === id).params[0].value === 92,
+    String(back.tree.features.find(f => f.id === id).params[0].value));
+  //! And it is an ARGUMENT once it is open, so the next save writes it the
+  //! new way and a wire can be put on it.
+  const again = (await kernel.model()).features.find(f => f.id === id);
+  check("and is written back under its own key", again.args.size === 92,
+    JSON.stringify(again.args).slice(0, 120));
+}
+
+/* ---------------------------------------------- 6b. a slider can drive it
+
+   The reason for all of the above: a Number node wired onto a script's own
+   parameter. Every other slider in the document could be driven by one and
+   not a single one of a script's nineteen.                                */
+{
+  await kernel.loadModel(model);
+  const number = await kernel.addFeature("Number", {});
+  await kernel.setParameter(number.id, "value", 48);
+  const wired = await kernel.setReference(id, "size", number.id);
+  check("a Number can be wired onto a declared parameter",
+    !wired.report || wired.report.failed.length === 0,
+    JSON.stringify((wired.report || { failed: [] }).failed.map(f => f.message)));
+  const driven = (await kernel.tree()).tree.features.find(f => f.id === id);
+  check("and the script is handed what the wire says, not what the slider holds",
+    driven.params[0].value === 48, String(driven.params[0].value));
+  const box = (await kernel.mesh([id])).features[0];
+  const xs = [];
+  for (let i = 0; i < box.positions.length; i += 3) xs.push(box.positions[i]);
+  check("which is the box it built", Math.abs((Math.max(...xs) - Math.min(...xs)) - 48) < 1e-6,
+    (Math.max(...xs) - Math.min(...xs)).toFixed(3) + " mm across");
+  //! And it survives the file.
+  const withWire = await kernel.model();
+  const row = withWire.features.find(f => f.id === id);
+  //! The same shape every other driven slider is written in: the literal
+  //! that is underneath the wire, and who is driving it.
+  check("the wire is written into the file, the way every slider's is",
+    row.args.size && row.args.size.from === number.id
+    && Number.isFinite(row.args.size.value),
+    JSON.stringify(row.args.size));
+  const after = await kernel.loadModel(withWire);
+  check("and comes back on reload", after.report.failed.length === 0,
+    JSON.stringify(after.report.failed.map(f => f.message)));
+  check("still driven by the number",
+    after.tree.features.find(f => f.id === id).params[0].value === 48,
+    String(after.tree.features.find(f => f.id === id).params[0].value));
+}
+
+/* ------------------------------ 6c. the labels a feature keeps are all different
+
+   A feature's labels are numbered, and every one of those numbers is written
+   into saved files. Two names for one number is not a clash anything reports:
+   the second writer simply overwrites the first, and what is lost is whatever
+   the other one was for.
+
+   This happened. PENDING_TAG - where a value a file asked for is held until
+   the script has compiled and said whether it has anywhere to put it - was
+   given 52, which is the APPEARANCE label. Clearing the pending values after a
+   load then dropped the appearance off every feature that had been painted, and
+   the only thing in ninety-three suites that noticed was one check about brass.
+   So the numbers are now compared with each other here, where they are used,
+   and the behaviour is checked as well: a comparison of constants would not
+   have caught a third writer reaching the same label by another route.      */
+console.log("6c. every label a feature keeps has its own number");
+{
+  const O = await import("../src/ocaf.js");
+  const singles = ["RESULT_TAG", "ERROR_TAG", "REVISION_TAG", "DATA_TAG", "NOTE_TAG",
+                   "SPECS_TAG", "PENDING_TAG", "APPEARANCE_TAG", "FRAME_TAG",
+                   "PARENT_TAG", "SPREAD_TAG", "SHOWN_TAG"];
+  const seen = new Map();
+  const clashes = [];
+  for (const name of singles) {
+    const tag = O[name];
+    if (seen.has(tag)) clashes.push(seen.get(tag) + " and " + name + " are both " + tag);
+    else seen.set(tag, name);
+  }
+  check("no two of them are the same number", clashes.length === 0, clashes.join("; "));
+  //! And none of them falls inside a numbered BLOCK, which is the other way
+  //! two labels end up being one.
+  const blocks = [["the old parameter block", O.PARAM_TAG_BASE, O.PARAM_TAG_LIMIT],
+                  ["the declared argument block", O.DECLARED_TAG_BASE, O.DECLARED_TAG_LIMIT],
+                  ["the argument tags", O.FIRST_ARG_TAG, O.PARAM_TAG_BASE]];
+  const inside = [];
+  for (const name of singles)
+    for (const [what, lo, hi] of blocks)
+      if (O[name] >= lo && O[name] < hi) inside.push(name + " is inside " + what);
+  check("and none of them is inside a block of them", inside.length === 0, inside.join("; "));
+}
+
+/* --------------- 6d. a painted script keeps its paint across the file
+
+   The behaviour the clash above broke, on the feature that owns the pending
+   label. A Script is the only thing that HAS pending values, so it is the one
+   whose appearance a collision there would take.                            */
+console.log("6d. a painted script keeps its paint");
+{
+  await kernel.loadModel(model);
+  const wear = { finish: "brass", color: [0.83, 0.66, 0.31], gloss: 0.31 };
+  await kernel.setAppearance(id, wear);
+  const before = (await kernel.tree()).tree.features.find(f => f.id === id);
+  check("the script wears it", before.appearance && before.appearance.finish === "brass",
+    JSON.stringify(before.appearance));
+  const file = await kernel.model();
+  check("and the file carries it",
+    file.features.find(f => f.id === id).appearance.finish === "brass");
+  const back = await kernel.loadModel(file);
+  const after = back.tree.features.find(f => f.id === id);
+  check("it is still painted after the load - the pending values do not take it",
+    after.appearance && after.appearance.finish === "brass",
+    JSON.stringify(after.appearance));
+  //! \p model is the file saved in section 6, so the value it put aside is
+  //! that one: what is being checked is that the appearance and the pending
+  //! parameter both land, not which number it was.
+  check("and the parameter the file put aside arrived anyway",
+    after.params[0].value === 137, String(after.params[0].value));
+}
 
 console.log("7. the scene exports as STEP");
 await kernel.setCode(id, "code", (await import("../src/ocaf.js")).SPIRAL_STAIR);

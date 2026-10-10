@@ -25,10 +25,43 @@ const SRC = new URL("./octagrid.script.js", import.meta.url).pathname;
 
 const code = readFileSync(SRC, "utf8");
 
+//! THE ATTRACTORS ARE NODES IN THE GRAPH, not numbers in the script. Three
+//! Points and a spline through four more are wired into the Script's own
+//! inputs; the script reads them in the order they are wired and lets them
+//! overrule its sliders. Drag a point in the viewport and the city answers,
+//! which is the whole difference between a parameter and a handle.
+const ref = id => ({ ref: id });
+const point = (id, name, x, y) =>
+  ({ id, type: "Point", name, args: { kind: "Coordinates", x, y, z: 0 } });
+
+const spline = [[60000, 700000], [250000, 560000], [430000, 430000], [520000, 250000]];
+
+//! AT THE TOP LEVEL, NOT FILED IN A SET. A set is one node in the graph with
+//! its own graph inside it - Grasshopper's cluster - so attractors tidied into
+//! a folder draw as a single box, and opening the Nodes view on this sample
+//! showed two nodes and no handles at all. The whole point of the arrangement
+//! is to be able to SEE it: three points, four more on a spline, the curve
+//! through them and a number, all wired into the script.
 const model = {
   format: "ocaf-parametric-model", version: 1, name: "Octagon plan", units: "mm",
   features: [
-    { id: "PLAN", type: "Script", name: "Octagon masterplan", args: { code },
+    point("P_HIGH", "Height attractor", 300000, 480000),
+    point("P_VOID", "Void attractor", 170000, 250000),
+    point("P_WORM", "Wormhole", 420000, 620000),
+    ...spline.map(([x, y], i) => point("S" + i, "Spline point " + (i + 1), x, y)),
+    { id: "SPLINE", type: "Interpolate", name: "Spline attractor",
+      args: { points: spline.map((_, i) => ref("S" + i)), closed: "Open", degree: 3 } },
+    //! A Number driving one of the script's own parameters, because that is
+    //! the other half of what this sample is for: every declared parameter is
+    //! an argument now, so a slider node can drive it like any other.
+    { id: "N_HEIGHT", type: "Number", name: "Base height", args: { value: 28000 } },
+
+    { id: "PLAN", type: "Script", name: "Octagon masterplan",
+      args: { code,
+              points: [ref("P_HIGH"), ref("P_VOID"), ref("P_WORM")],
+              curves: [ref("SPLINE")],
+              height: { value: 28000, from: "N_HEIGHT" },
+              splineGap: 12000 },
       appearance: { finish: "concrete" } },
   ],
 };
@@ -41,6 +74,7 @@ const mdl = new Mdl({ kernel, setNode: () => {}, readLayout: () => ({}),
                       select: () => {}, selected: () => null });
 await mdl.run({ op: "model", model });
 const at = async () => (await kernel.tree()).tree.features.find(f => f.id === "PLAN");
+const says = async id => (await kernel.tree()).tree.features.find(f => f.id === id);
 
 let bad = 0;
 const say = line => console.log("  " + line);
@@ -48,6 +82,19 @@ const entry = await at();
 if (entry.error) { say("FAILED — " + entry.error); bad++; }
 say((entry.params || []).length + " sliders: "
   + (entry.params || []).map(p => p.key).join(" "));
+//! THE WIRES, CHECKED. A sample whose attractors are wired to nothing looks
+//! exactly like one whose attractors are wired up: the script falls back to
+//! its sliders and the plan comes out plausible either way.
+const wiredPoints = ((await says("PLAN")).lists || {}).points || [];
+const wiredCurves = ((await says("PLAN")).lists || {}).curves || [];
+say("wired in: " + wiredPoints.length + " points (" + wiredPoints.join(", ") + ") and "
+  + wiredCurves.length + " curve (" + wiredCurves.join(", ") + ")");
+if (wiredPoints.length !== 3 || wiredCurves.length !== 1) {
+  say("  ^ the attractors are not wired - not written"); bad++;
+}
+const driver = ((await says("PLAN")).driven || {}).height;
+say("and the base height is driven by " + (driver || "nothing"));
+if (driver !== "N_HEIGHT") { say("  ^ the Number is not driving it - not written"); bad++; }
 
 //! WHAT IT ACTUALLY MADE, measured off the mesh rather than off the script's
 //! own arithmetic - a plan() that returns a hundred polygons and a build()
@@ -71,7 +118,16 @@ for (const [key, value] of [["rings", 2], ["rings", 24], ["spokes", 2], ["spokes
                             ["inset", 0], ["inset", 40000], ["drift", 1],
                             ["plaza", 10000], ["plaza", 120000], ["ratio", 4],
                             ["bulge", -200000], ["bulge", 400000], ["reach", 10000],
-                            ["falloff", 4], ["show", 2]]) {
+                            ["falloff", 4], ["show", 2],
+                            //! The wormhole and the spline, both ends. The
+                            //! wormhole at full drag is the one that can fold
+                            //! a cell inside out, and a gap wider than the
+                            //! plot is the one that can leave nothing.
+                            ["warpPull", 0], ["warpPull", 0.8],
+                            ["warpReach", 10000], ["warpReach", 1500000],
+                            ["splineReach", 10000], ["splineReach", 800000],
+                            ["splineBulge", -200000], ["splineBulge", 400000],
+                            ["splineGap", 0], ["splineGap", 80000]]) {
   await mdl.run({ op: "set", id: "PLAN", key, value });
   const got = await at();
   //! A NAMED REFUSAL IS NOT A FAILURE. Asking for 24 rings on this site with a
