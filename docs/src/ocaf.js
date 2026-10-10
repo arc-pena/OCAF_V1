@@ -1271,6 +1271,29 @@ export const SAMPLES = [
            + "is. Built by scripts/build_softselect_sample.mjs. Open it straight from "
            + "a link ending #soft-selection. 38 nodes." },
 
+  { key: "octagon-plan", name: "Octagon plan \u00b7 the diagrid with its nodes built on",
+    file: "samples/octagon_plan.json",
+    summary: "The same radial fan as the Diagrid sample, one step on: a RECTANGLE on "
+           + "every node of the diagrid in a 1:2 proportion, and the octagon that "
+           + "leaves between them. Look at one diamond and the four plots round it "
+           + "show it two long sides and two short ones; join those with four "
+           + "chamfers and the diamond has had its points cut off by its neighbours' "
+           + "plots. It tiles exactly \u2014 the chamfer between this octagon's east and "
+           + "north plots is the same pair of corners the octagon up-and-right of it "
+           + "draws backwards \u2014 so octagons that share a chamfer fuse into one "
+           + "elongated mass, while the ones across a plaza never can: the plazas are "
+           + "the interstitial squares and are never built on. Every plaza is sized "
+           + "in METRES for its own place on the fan rather than as a fraction of a "
+           + "bay, because the bay grows by half again from the inner ring to the "
+           + "outer; none is under 10 m on any side or squarer than \u221a2, and a "
+           + "grid too fine to hold one refuses by name and says what to change. "
+           + "Heights are uniform give or take \p vary \u2014 the semi-regular massing "
+           + "\u2014 and then the ATTRACTOR at \p atX, \p atY adds up to \p bulge at its "
+           + "own position and less as it fades, on the same five falloff curves the "
+           + "Soft Select node uses. Move the two sliders and the city grows its peak "
+           + "somewhere else. Open it straight from a link ending #octagon-plan. "
+           + "1 node and 23 sliders." },
+
   //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
   //! this program: nineteen sliders and a hundred lines of plane geometry,
   //! rather than a tree of nodes.
