@@ -224,6 +224,7 @@ SAMPLES = [
     ("material-gallery", "material_gallery.json"),
     ("hybrid-cage", "hybrid_cage.json"),
     ("soft-selection", "soft_selection.json"),
+    ("diagrid-plan", "diagrid_plan.json"),
 ]
 PAYLOADS += [("sample-" + key, "samples/" + name) for key, name in SAMPLES]
 

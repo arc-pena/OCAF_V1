@@ -1271,6 +1271,34 @@ export const SAMPLES = [
            + "is. Built by scripts/build_softselect_sample.mjs. Open it straight from "
            + "a link ending #soft-selection. 38 nodes." },
 
+  //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
+  //! this program: nineteen sliders and a hundred lines of plane geometry,
+  //! rather than a tree of nodes.
+  { key: "diagrid-plan", name: "Diagrid plan \u00b7 a masterplan on a radial grid",
+    file: "samples/diagrid_plan.json",
+    summary: "One Script feature and nineteen sliders: a diamond lattice on a RADIAL "
+           + "grid fitted to a real site boundary, and blocks made of whole lattice "
+           + "units and half ones \u2014 the way a macro shape is outlined on a diagrid "
+           + "by hand. \p focus is the whole range of configurations in one number: it "
+           + "puts the fan's centre that far beyond the site along its own long axis, "
+           + "so 200 m is a sunburst (159\u00b0 of splay), 1.2 km is the gentle fan it "
+           + "opens with, and 20 km is a parallel grid with a 2\u00b0 lean. The angular "
+           + "and radial limits are then the site's own extent seen from there, so the "
+           + "grid never spends a ring or a bay on ground that is not in the site. "
+           + "Blocks merge along ONE lattice direction at a time, so a merged block is "
+           + "always a straight run \u2014 three diamonds up the slope, four around the "
+           + "ring \u2014 and never a chevron; the two diagonal steps fuse into one "
+           + "polygon and the two orthogonal ones meet at the diamonds' points, which "
+           + "is a line of towers touching corner to corner. Any cell can be a whole "
+           + "rhomboid, one of its two halves, or the square through its side "
+           + "midpoints. \p pinch decides where blocks meet: at 1 the tips stay on "
+           + "their lattice nodes and only the sides pull in, at 0 every block is an "
+           + "island. \p drift takes them off the grid, keeping their edges parallel "
+           + "to it, and spends only the slack \p pinch leaves, so they never overlap. "
+           + "Heights are whole storeys, up or down. The site is the plot line out of "
+           + "SiteBoundary.dxf: 33.2 hectares, 602 by 853 m. Open it straight from a "
+           + "link ending #diagrid-plan. 1 node and 19 sliders." },
+
   { key: "datahall-ocp", name: "Data hall ribbon \u00b7 OCP Open Rack V3 ready",
     file: "samples/datahall_ocp.json", needs: ["rack"],
     summary: "The hot aisle containment ribbon from the Spec to Data Hall demo, and the "
