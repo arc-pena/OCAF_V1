@@ -111,12 +111,20 @@ console.log("\n2. the plazas");
   //! 10 m plaza leaves no octagon is a fair thing to ask for; an empty plan
   //! with no explanation is not a fair answer, and that is what it gave.
   {
+    //! The finest the SLIDERS go leaves a handful of cells at the wide outer
+    //! end of the fan, where a bay is still ten metres across; a Number node
+    //! wired to the ring count is under no such limit, and past it there is
+    //! nothing left at all.
     const tight = M.plan({ ...defaults(), rings: 24, spokes: 40 });
-    check("a grid too fine for a 10 m plaza refuses every cell", tight.blocks.length === 0,
+    check("the finest grid the sliders allow refuses all but a handful",
+          tight.blocks.length <= 4 && tight.refusedPlaza > 1000,
           tight.blocks.length + " blocks, " + tight.refusedPlaza + " refused");
+    const finer = M.plan({ ...defaults(), rings: 30, spokes: 50 });
+    check("  and a grid finer still refuses every cell", finer.blocks.length === 0,
+          finer.blocks.length + " blocks, " + finer.refusedPlaza + " refused");
     let said = "";
     try {
-      M.build({ ...defaults(), rings: 24, spokes: 40 }, {});
+      M.build({ ...defaults(), rings: 30, spokes: 50 }, {});
     } catch (e) { said = e.message; }
     check("  and build() says why, with the bay size in it",
           /no block survived the plaza rule/.test(said) && /smallest bay here is \d+ m/.test(said),
@@ -290,8 +298,15 @@ console.log("\n5. the attractor");
 
   //! THE PEAK IS WHERE THE POINT IS. Measured by distance, not by eye: the
   //! tallest mass must be one of the nearest to the attractor.
-  const peakNear = (atX, atY) => {
-    const plan = M.plan({ ...defaults(), atX, atY, bulge: 120000, vary: 0, storey: 0 });
+  //!
+  //! The attractors are placed in the fan's own uv now - 0 to 1 each way
+  //! over the whole plan - so the test asks the script where that is rather
+  //! than carrying a millimetre of its own. See fromUV.
+  const peakNear = (atU, atV) => {
+    const made = { ...defaults(), atU, atV, bulge: 120000, vary: 0, storey: 0 };
+    const plan = M.plan(made);
+    const world = M.fromUV(plan.frame, atU, atV);
+    const atX = world.x, atY = world.y;
     let best = null, far = null;
     for (const b of plan.blocks) {
       const mid = M.centre(b.ring);
@@ -301,10 +316,13 @@ console.log("\n5. the attractor");
     }
     return { best, far, plan };
   };
-  for (const [x, y] of [[300000, 480000], [120000, 700000], [430000, 250000]]) {
-    const got = peakNear(x, y);
-    check("attractor at " + x / 1000 + "," + y / 1000 + " m: the tallest mass is beside it",
-          got.best.d < 120000, (got.best.d / 1000).toFixed(0) + " m away");
+  //! THREE CORNERS OF THE UV SQUARE AND ITS MIDDLE, which is the point of
+  //! the square: the same three numbers describe the same three places on
+  //! any site, and none of them can be off it.
+  for (const [u, v] of [[0.5, 0.6], [0.2, 0.8], [0.8, 0.2]]) {
+    const got = peakNear(u, v);
+    check("attractor at uv " + u + "," + v + ": the tallest mass is beside it",
+          got.best.d < 150000, (got.best.d / 1000).toFixed(0) + " m away");
     check("  and the furthest mass is back to the base height",
           Math.abs(got.far.h - defaults().height) < 1,
           (got.far.h / 1000).toFixed(1) + " m against " + defaults().height / 1000);
@@ -325,6 +343,9 @@ console.log("\n5. the attractor");
 
   const leaning = M.plan({ ...defaults(), bulge: 150000, reach: 300000, vary: 0 });
   const built = leaning.blocks.filter(b => !b.empty && b.plane);
+  //! Where the height attractor actually is, asked of the fan rather than
+  //! carried as a millimetre - see fromUV.
+  const leanAt = M.fromUV(leaning.frame, defaults().atU, defaults().atV);
   const zOf = (b, q) => b.plane.z + b.plane.bx * (q[0] - b.plane.at[0])
                                   + b.plane.by * (q[1] - b.plane.at[1]);
   check("the tops lean", built.some(b => Math.hypot(b.plane.bx, b.plane.by) > 0.02),
@@ -356,7 +377,7 @@ console.log("\n5. the attractor");
     if (Math.hypot(b.plane.bx, b.plane.by) < 1e-4) continue;
     let high = null, low = null;
     for (const q of b.ring) {
-      const d = Math.hypot(q[0] - defaults().atX, q[1] - defaults().atY);
+      const d = Math.hypot(q[0] - leanAt.x, q[1] - leanAt.y);
       const z = zOf(b, q);
       if (!high || z > high.z) high = { z, d };
       if (!low || z < low.z) low = { z, d };
@@ -382,9 +403,10 @@ console.log("\n5b. the void");
   const p = defaults();
   const plan = M.plan(p);
   const reach = p.voidReach;
+  const voidAt = M.fromUV(plan.frame, p.voidU, p.voidV);
   const away = b => {
     const mid = M.centre(b.ring);
-    return Math.hypot(mid[0] - p.voidX, mid[1] - p.voidY);
+    return Math.hypot(mid[0] - voidAt.x, mid[1] - voidAt.y);
   };
   const empty = plan.blocks.filter(b => b.empty);
   check("some masses are not built at all", empty.length > 1,
@@ -409,11 +431,18 @@ console.log("\n5b. the void");
   //! to the plot line it was cut from - which is what the inset is - by
   //! comparing the footprint it kept with the octagon it started as.
   const shrink = over => {
-    const got = M.plan({ ...defaults(), ...over });
+    const asked = { ...defaults(), ...over };
+    const got = M.plan(asked);
+    //! The void is placed in uv, so where it IS has to be asked of the plan's
+    //! own frame. Reading p.voidX off the parameters - which is what this did
+    //! until the attractors moved into uv - gave undefined, every distance
+    //! NaN, every mass counted as far from the void, and a near average of
+    //! nought that sailed straight through "near is smaller than far".
+    const voidAt = M.fromUV(got.frame, asked.voidU, asked.voidV);
     const near = [], far = [];
     for (const b of got.blocks) {
       if (b.empty || b.run !== 1) continue;
-      const d = Math.hypot(M.centre(b.ring)[0] - p.voidX, M.centre(b.ring)[1] - p.voidY);
+      const d = Math.hypot(M.centre(b.ring)[0] - voidAt.x, M.centre(b.ring)[1] - voidAt.y);
       (d < p.voidReach * 0.8 ? near : far).push(Math.abs(M.area(b.ring)));
     }
     const mean = l => l.reduce((a, b) => a + b, 0) / Math.max(1, l.length);
@@ -440,6 +469,11 @@ console.log("\n5c. the wormhole");
   const flat = M.frameOf({ ...defaults(), warpPull: 0 });
   const pulled = M.frameOf({ ...defaults(), warpPull: 0.6 });
   const p = defaults();
+  //! WHERE THE HOLE IS, off the frame rather than off the parameters. It is
+  //! placed in uv now, so there is no warpX to read - and reading one gave
+  //! undefined, every distance NaN, every comparison false, and "0 nodes
+  //! moved away" from a check that could no longer tell.
+  const hole = pulled.warp;
   const at = (f, u, v) => M.nodeAt(f, u, v);
   check("with no pull nothing moves",
         [[2, 2], [5, 3], [9, 6]].every(([u, v]) => {
@@ -451,8 +485,8 @@ console.log("\n5c. the wormhole");
   for (let u = 0; u <= 2 * p.spokes; u++)
     for (let v = 0; v <= 2 * p.rings; v++) {
       const a = at(flat, u / 2, v / 2), b = at(pulled, u / 2, v / 2);
-      const was = Math.hypot(a[0] - p.warpX, a[1] - p.warpY);
-      const now = Math.hypot(b[0] - p.warpX, b[1] - p.warpY);
+      const was = Math.hypot(a[0] - hole.x, a[1] - hole.y);
+      const now = Math.hypot(b[0] - hole.x, b[1] - hole.y);
       if (now > was + 1e-6) away++;
       worst = Math.max(worst, Math.hypot(a[0] - b[0], a[1] - b[1]));
     }
@@ -465,7 +499,7 @@ console.log("\n5c. the wormhole");
   check("a node outside its reach does not move at all",
         Math.hypot(at(flat, 0, 0)[0] - at(pulled, 0, 0)[0],
                    at(flat, 0, 0)[1] - at(pulled, 0, 0)[1])
-        < 1e-9 || Math.hypot(at(flat, 0, 0)[0] - p.warpX, at(flat, 0, 0)[1] - p.warpY)
+        < 1e-9 || Math.hypot(at(flat, 0, 0)[0] - hole.x, at(flat, 0, 0)[1] - hole.y)
         < p.warpReach);
 
   //! THE ORDER ON A RAY IS KEPT, which is why the pull is a FRACTION of the
@@ -479,10 +513,10 @@ console.log("\n5c. the wormhole");
       const was = at(flat, u / 2, v / 2), wasB = at(flat, (u + 2) / 2, v / 2);
       //! Along the bay direction they must stay in the same order about the
       //! hole: the one that was nearer is still nearer.
-      const near = Math.hypot(was[0] - p.warpX, was[1] - p.warpY)
-                 < Math.hypot(wasB[0] - p.warpX, wasB[1] - p.warpY);
-      const still = Math.hypot(a[0] - p.warpX, a[1] - p.warpY)
-                  < Math.hypot(b[0] - p.warpX, b[1] - p.warpY);
+      const near = Math.hypot(was[0] - hole.x, was[1] - hole.y)
+                 < Math.hypot(wasB[0] - hole.x, wasB[1] - hole.y);
+      const still = Math.hypot(a[0] - hole.x, a[1] - hole.y)
+                  < Math.hypot(b[0] - hole.x, b[1] - hole.y);
       if (near !== still) swapped++;
     }
   check("and no two nodes on a row change places", swapped === 0, swapped + " swapped");
@@ -587,19 +621,94 @@ console.log("\n5d. the spline attractor");
 console.log("\n5e. the wired points overrule the sliders");
 {
   const p = defaults();
-  const three = [[111000, 222000, 0], [333000, 444000, 0], [555000, 666000, 0]];
+  //! IN UV, not in millimetres: a Point wired to an attractor carries u in
+  //! its x and v in its y, both nought to one over the whole fan. That is
+  //! the whole of the change - the coordinates used to be 420000, 620000,
+  //! which say nothing to a reader and are wrong the moment the site is
+  //! replaced.
+  const three = [[0.11, 0.22, 0], [0.33, 0.44, 0], [0.55, 0.66, 0]];
   const got = M.withWired(p, { points: three, curves: [] });
   check("the first point is the height attractor",
-        got.atX === 111000 && got.atY === 222000);
-  check("the second is the void", got.voidX === 333000 && got.voidY === 444000);
-  check("the third is the wormhole", got.warpX === 555000 && got.warpY === 666000);
+        got.atU === 0.11 && got.atV === 0.22);
+  check("the second is the void", got.voidU === 0.33 && got.voidV === 0.44);
+  check("the third is the wormhole", got.warpU === 0.55 && got.warpV === 0.66);
   check("and with nothing wired the sliders stand",
-        M.withWired(p, null).atX === p.atX && M.withWired(p, { points: [] }).voidY === p.voidY);
+        M.withWired(p, null).atU === p.atU && M.withWired(p, { points: [] }).voidV === p.voidV);
   check("one point wired moves only the height attractor",
         (() => {
           const one = M.withWired(p, { points: [three[0]] });
-          return one.atX === 111000 && one.voidX === p.voidX && one.warpX === p.warpX;
+          return one.atU === 0.11 && one.voidU === p.voidU && one.warpU === p.warpU;
         })());
+
+  /* ------------------------------------------- and uv is uv, on any site
+
+     THE CLAIM THE WHOLE CHANGE RESTS ON: every number a pair of 0.1 sliders
+     can hold puts the attractor ON the ground. Not near it, not pulled back
+     onto it - on it, because v is measured between the two places the ray
+     crosses the BOUNDARY rather than between the radii of a sector that
+     bounds the whole site. The sector was the first attempt: 66 of these
+     121 positions were off the site and had to be clamped, so half the
+     square did nothing and the half that worked did not say where.       */
+  const frame = M.plan(p).frame;
+  const onSite = w => M.inside(M.SITE, [w.x, w.y])
+    || M.awayFrom(M.SITE, [w.x, w.y]) < 0.001;        // a micron of the edge
+  let off = 0, lost = 0, lostAtEdge = 0;
+  for (let i = 0; i <= 10; i++)
+    for (let j = 0; j <= 10; j++) {
+      const u = i / 10, v = j / 10;
+      const w = M.fromUV(frame, u, v);
+      if (!onSite(w)) off++;
+      const back = M.toUV(frame, [w.x, w.y]);
+      if (Math.abs(back.u - u) > 1e-9 || Math.abs(back.v - v) > 1e-9) {
+        lost++;
+        if (i === 0 || i === 10) lostAtEdge++;
+      }
+    }
+  check("every one of the 121 slider positions is on the site", off === 0,
+        off + " of 121 off it");
+
+  //! v = 0 AND v = 1 ARE THE BOUNDARY, at every u. This is the check that
+  //! tells the span map from the sector it replaced: a sector's own near and
+  //! far radii touch the site at one angle each and are metres off it
+  //! everywhere else.
+  let worstEnd = 0;
+  for (let i = 0; i <= 20; i++) {
+    for (const v of [0, 1]) {
+      const w = M.fromUV(frame, i / 20, v);
+      worstEnd = Math.max(worstEnd, M.awayFrom(M.SITE, [w.x, w.y]));
+    }
+  }
+  check("v = 0 and v = 1 land on the boundary itself, at every u",
+        worstEnd < 0.001, (worstEnd * 1000).toFixed(1) + " nanometres at worst");
+
+  //! And it is not the sector in disguise: along the middle ray the site is
+  //! shallower than the sector, and it starts further out.
+  const midSpan = M.spanAlong(frame, frame.a0 + (frame.a1 - frame.a0) * 0.5);
+  check("  and that is nearer and shallower than the sector's own radii",
+        midSpan.near > frame.r0 + 1000 && midSpan.far < frame.r1 - 1000,
+        "site " + (midSpan.near / 1000).toFixed(0) + ".." + (midSpan.far / 1000).toFixed(0)
+        + " m, sector " + (frame.r0 / 1000).toFixed(0) + ".." + (frame.r1 / 1000).toFixed(0) + " m");
+
+  //! The round trip is exact everywhere the site has any depth along the ray,
+  //! and the two edges of the square are where it cannot be: u = 0 and u = 1
+  //! are the rays that GRAZE the corners which set the fan's limits, so the
+  //! site's extent along them is that one corner and every v there is the
+  //! same place. A fan has two tangents; that is its shape, and both of them
+  //! are on the site.
+  const mid = M.fromUV(frame, 0.5, 0.5);
+  const back = M.toUV(frame, [mid.x, mid.y]);
+  check("and the map is exact in the middle",
+        Math.abs(back.u - 0.5) < 1e-9 && Math.abs(back.v - 0.5) < 1e-9,
+        back.u + ", " + back.v);
+  check("exact everywhere but the two tangent rays",
+        lost === lostAtEdge && lost < 22, lost + " of 121 not recovered, "
+        + lostAtEdge + " of them on u = 0 or u = 1");
+  const tangent = M.spanAlong(frame, frame.a0);
+  check("  and a tangent ray is one point, not the whole sector",
+        Math.abs(tangent.far - tangent.near) < 1
+        && Math.abs(tangent.near - frame.r0) > 1000,
+        (tangent.near / 1000).toFixed(1) + " m, the sector's r0 is "
+        + (frame.r0 / 1000).toFixed(1) + " m");
 }
 
 /* ============================================== 6. the same curves as the node
@@ -724,23 +833,37 @@ console.log("\n9. built in the real kernel");
   };
   //! MOVED AS A POINT IN THE GRAPH, not as a slider on the node. The sample
   //! wires three Points into the script's inputs and they overrule the
-  //! sliders of the same name, so setting atX here does exactly nothing -
+  //! sliders of the same name, so setting atU here does exactly nothing -
   //! which is what it did, and the peak moved 0 m.
-  await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: 120000 });
-  await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: 700000 });
-  const west = await tallestNear();
-  await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: 430000 });
-  await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: 300000 });
-  const east = await tallestNear();
+  //!
+  //! AND THE POINT CARRIES UV, which is the whole of the last change: x is u
+  //! and y is v, 0 to 1 over the fan, and where that is in the world has to
+  //! be worked out the same way the script does it. Set as millimetres -
+  //! which is what this did - both ends clamp to 1 and the peak does not
+  //! move at all.
+  const fan = M.frameOf(defaults());
+  const atUV = async (u, v) => {
+    await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: u });
+    await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: v });
+    return { ...(await tallestNear()), want: M.fromUV(fan, u, v) };
+  };
+  const west = await atUV(0.85, 0.25);
+  const east = await atUV(0.15, 0.85);
   check("the peak follows the attractor across the site",
         Math.hypot(west.at[0] - east.at[0], west.at[1] - east.at[1]) > 200000,
         "peak moved " + Math.round(Math.hypot(west.at[0] - east.at[0],
                                               west.at[1] - east.at[1]) / 1000) + " m");
+  const beside = g => Math.hypot(g.at[0] - g.want.x, g.at[1] - g.want.y);
   check("and it is beside the point both times",
-        Math.hypot(west.at[0] - 120000, west.at[1] - 700000) < 200000
-        && Math.hypot(east.at[0] - 430000, east.at[1] - 300000) < 200000,
-        Math.round(Math.hypot(west.at[0] - 120000, west.at[1] - 700000) / 1000) + " m and "
-        + Math.round(Math.hypot(east.at[0] - 430000, east.at[1] - 300000) / 1000) + " m");
+        beside(west) < 200000 && beside(east) < 200000,
+        Math.round(beside(west) / 1000) + " m and " + Math.round(beside(east) / 1000) + " m");
+  //! The uv the point was given really is somewhere different each time: two
+  //! uv that map to one place would pass the check above with a peak that
+  //! never moved.
+  check("  and the two uv are 200 m apart on the ground",
+        Math.hypot(west.want.x - east.want.x, west.want.y - east.want.y) > 200000,
+        Math.round(Math.hypot(west.want.x - east.want.x,
+                              west.want.y - east.want.y) / 1000) + " m apart");
 
 
   /* ------------------------------------- 9b. the graph drives the script

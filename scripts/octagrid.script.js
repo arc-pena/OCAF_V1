@@ -33,10 +33,20 @@
 //
 // THE HEIGHTS ARE NEARLY UNIFORM AND THEN THEY ARE NOT. Every mass takes the
 // same height give or take \p vary, which is the semi-regular massing you
-// start from; then the ATTRACTOR at (\p atX, \p atY) adds up to \p bulge at
+// start from; then the ATTRACTOR at (\p atU, \p atV) adds up to \p bulge at
 // its own position and less as it fades, on the same five falloff curves the
 // Soft Select node uses - docs/test/octagrid.test.mjs checks the two agree
 // term for term. Move the attractor and the city grows a peak around it.
+//
+// EVERY ATTRACTOR IS PLACED IN THE FAN'S OWN UV, nought to one each way over
+// the whole of it - u around the fan from one edge of the site to the other,
+// v out from the near edge of the site to the far one ALONG THAT RAY. So
+// (0.5, 0.5) is the middle of the plan whatever the boundary, the focus or
+// the bearing, and no pair of sliders can put an attractor off the ground.
+// They used to be millimetres on the world axes - 420000, 620000 - which say
+// nothing to anyone reading the model and are wrong the moment the site is
+// replaced. See fromUV; the two tangent rays, u = 0 and u = 1, are a single
+// corner each, which is what a fan is.
 //
 // WHAT IS WIRED INTO THE NODE BEATS WHAT IS TYPED INTO IT. Three Points on
 // the Script's Points input are, in order, the height attractor, the void and
@@ -116,10 +126,14 @@
     { key: "storey", label: "Round to storeys of", def: 4000, min: 0, max: 8000, step: 100 },
 
     //! THE HEIGHT ATTRACTOR
-    { key: "atX", label: "Attractor east", def: 300000, min: -200000, max: 800000,
-      step: 5000 },
-    { key: "atY", label: "Attractor north", def: 480000, min: -200000, max: 1100000,
-      step: 5000 },
+    //! ON THE FAN'S OWN SURFACE, 0 to 1 each way - see fromUV. Nought is one
+    //! edge of the site and one is the other, whatever the site is, so these
+    //! two numbers mean the same thing on every plan and cannot put an
+    //! attractor off the ground.
+    { key: "atU", label: "Attractor across", def: 0.5, min: 0, max: 1, step: 0.1,
+      unit: "" },
+    { key: "atV", label: "Attractor out", def: 0.6, min: 0, max: 1, step: 0.1,
+      unit: "" },
     { key: "reach", label: "Its reach", def: 340000, min: 10000, max: 1500000, step: 10000 },
     { key: "bulge", label: "Height it adds", def: 120000, min: -200000, max: 400000,
       step: 5000 },
@@ -129,10 +143,9 @@
     //! THE SECOND ATTRACTOR, which takes away rather than adds: round it
     //! nothing is built at all, and between there and nowhere the masses
     //! stand further apart.
-    { key: "voidX", label: "Void east", def: 170000, min: -200000, max: 800000,
-      step: 5000 },
-    { key: "voidY", label: "Void north", def: 250000, min: -200000, max: 1100000,
-      step: 5000 },
+    { key: "voidU", label: "Void across", def: 0.3, min: 0, max: 1, step: 0.1,
+      unit: "" },
+    { key: "voidV", label: "Void out", def: 0.2, min: 0, max: 1, step: 0.1, unit: "" },
     { key: "voidReach", label: "Its reach", def: 260000, min: 10000, max: 1500000,
       step: 10000 },
     { key: "voidCut", label: "Nothing is built above", def: 0.55, min: 0.01, max: 1,
@@ -142,10 +155,10 @@
     //! THE WORMHOLE. Not a height and not a gap: it drags the LATTICE ITSELF
     //! towards itself, so the plots, the octagons and the plazas all lean in
     //! together and the tiling stays a tiling.
-    { key: "warpX", label: "Wormhole east", def: 420000, min: -200000, max: 800000,
-      step: 5000 },
-    { key: "warpY", label: "Wormhole north", def: 620000, min: -200000, max: 1100000,
-      step: 5000 },
+    { key: "warpU", label: "Wormhole across", def: 0.7, min: 0, max: 1, step: 0.1,
+      unit: "" },
+    { key: "warpV", label: "Wormhole out", def: 0.8, min: 0, max: 1, step: 0.1,
+      unit: "" },
     { key: "warpReach", label: "Its reach", def: 300000, min: 10000, max: 1500000,
       step: 10000 },
     { key: "warpPull", label: "How far it drags", def: 0.35, min: 0, max: 0.8, step: 0.01,
@@ -328,16 +341,136 @@
       if (rad < r0) r0 = rad;
       if (rad > r1) r1 = rad;
     }
+    const frame = { from, look, a0, a1, r0, r1, warp: null,
+                    da: (a1 - a0) / Math.max(1, Math.round(p.spokes)),
+                    dr: (r1 - r0) / Math.max(1, Math.round(p.rings)) };
     //! THE WORMHOLE RIDES ON THE FRAME, so every node this frame makes is
     //! already dragged. Put anywhere else it would have to be applied in
     //! four places - the plots, the octagons, the plazas, the drawn grid -
     //! and the first one anybody forgot would tear the tiling open.
-    return { from, look, a0, a1, r0, r1,
-             warp: { x: p.warpX, y: p.warpY, reach: Math.max(1, p.warpReach),
-                     pull: Math.max(0, Math.min(0.8, p.warpPull)),
-                     style: this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0] },
-             da: (a1 - a0) / Math.max(1, Math.round(p.spokes)),
-             dr: (r1 - r0) / Math.max(1, Math.round(p.rings)) };
+    //!
+    //! Placed through the UNWARPED fan, which is why it is set after the
+    //! frame rather than inside it: a wormhole whose own position was
+    //! dragged by itself would run away from where it was put.
+    frame.warp = { ...this.fromUV(frame, p.warpU, p.warpV),
+                   reach: Math.max(1, p.warpReach),
+                   pull: Math.max(0, Math.min(0.8, p.warpPull)),
+                   style: this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0] };
+    return frame;
+  },
+
+  /* --------------------------------------------------- the fan's own UV
+
+     THE GRID IS A SURFACE, so it has a surface's coordinates. u runs round
+     the fan from one edge of the site to the other - the same a0..a1 the
+     octagons are laid out on - and v runs out from the near edge of the SITE
+     to the far one along that ray, which is not the lattice's r0..r1 and is
+     the whole of why this works: the ray's own crossings of the boundary,
+     rather than the two radii that bound every ray at once. So an attractor
+     at (0.5, 0.5) is in the middle of the plan whatever the site, the focus
+     or the bearing.
+
+     This is what the attractors are placed by. Their coordinates used to be
+     millimetres on the world axes - 420000, 620000 - which say nothing to
+     anyone looking at the model and go wrong the moment the site changes.
+     A number from 0 to 1 cannot leave the fan.                           */
+
+  //! WHERE THE SITE IS ALONG ONE RAY of the fan: the nearest and furthest
+  //! places the boundary crosses it, measured from the focus. This is what
+  //! makes v mean the same thing at every u - the near edge of the site to
+  //! the far edge of the site, rather than the near and far edges of a
+  //! SECTOR that bounds it.
+  //!
+  //! The sector was the first attempt and it was no good: it takes the
+  //! widest angle and the longest radius together, which no point of the
+  //! boundary has, so sixty-six of the hundred and twenty-one positions a
+  //! pair of 0.1 sliders can hold landed off the site and had to be pulled
+  //! back onto it. Half the square did nothing. Measured against the
+  //! boundary itself, every one of them is on the ground and the square is
+  //! spent where the site is.
+  spanAlong(f, ang) {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const dir = [f.look[0] * c - f.look[1] * s, f.look[1] * c + f.look[0] * s];
+    const site = this.SITE;
+    let near = Infinity, far = -Infinity;
+    for (let i = 0, j = site.length - 1; i < site.length; j = i++) {
+      const a = site[j], b = site[i];
+      //! The ray from the focus against this edge: solve from + t*dir =
+      //! a + w*(b - a) for t >= 0 and w in [0, 1].
+      const ex = b[0] - a[0], ey = b[1] - a[1];
+      const det = dir[0] * (-ey) - dir[1] * (-ex);
+      if (Math.abs(det) < 1e-12) continue;
+      const rx = a[0] - f.from[0], ry = a[1] - f.from[1];
+      const t = (rx * (-ey) - ry * (-ex)) / det;
+      const w = (dir[0] * ry - dir[1] * rx) / det;
+      //! A NANOMETRE OF SLACK ON THE EDGE'S OWN PARAMETER, because the two
+      //! extreme rays are AIMED AT CORNERS: a0 and a1 are a vertex's own
+      //! bearing from the focus, and the cos/sin that rebuilds that bearing
+      //! into a direction lands a few parts in 10^16 to one side of it.
+      //! Rejected exactly there, every u = 0 and u = 1 fell through to the
+      //! sector's radii and walked off the site - uv (1, 0) was 193 m west
+      //! of a site that starts at zero.
+      if (t < 0 || w < -1e-9 || w > 1 + 1e-9) continue;
+      if (t < near) near = t;
+      if (t > far) far = t;
+    }
+    //! A ray that misses the site altogether - which the fan's own limits
+    //! should make impossible, but a replaced SITE need not be convex - is
+    //! answered by the vertex that comes closest to it, so the point is on
+    //! the boundary rather than nowhere.
+    if (near > far) {
+      let best = Infinity, at = f.r0;
+      for (const q of site) {
+        const dx = q[0] - f.from[0], dy = q[1] - f.from[1];
+        const along = dx * dir[0] + dy * dir[1];
+        const off = Math.abs(dx * dir[1] - dy * dir[0]);
+        if (along >= 0 && off < best) { best = off; at = along; }
+      }
+      return { near: at, far: at };
+    }
+    //! AND THE TANGENT RAYS ARE A POINT, not an error. At u = 0 and u = 1 the
+    //! ray grazes the corner that set the limit, so the site's extent along
+    //! it is that one corner and every v there is the same place. That is
+    //! the fan's shape - a sector between two tangents - and the price of
+    //! spending the whole square on ground that is in the site.
+    return { near, far };
+  },
+
+  fromUV(f, u, v) {
+    const uu = u < 0 ? 0 : u > 1 ? 1 : u;
+    const vv = v < 0 ? 0 : v > 1 ? 1 : v;
+    const ang = f.a0 + (f.a1 - f.a0) * uu;
+    const span = this.spanAlong(f, ang);
+    const rad = span.near + (span.far - span.near) * vv;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    return { x: f.from[0] + (f.look[0] * c - f.look[1] * s) * rad,
+             y: f.from[1] + (f.look[1] * c + f.look[0] * s) * rad };
+  },
+
+  //! AND BACK, from a place on the ground to the uv that would put something
+  //! there. Nothing in the script calls it - a wired point already carries
+  //! uv - and it is here for two reasons: it is what the suite measures the
+  //! map's exactness WITH (uv -> world -> uv to a part in a billion, which no
+  //! amount of staring at the plan would tell you), and anything that has a
+  //! world point and wants an attractor at it needs this and should not
+  //! re-derive it.
+  //!
+  //! Not a search: the map is an angle about a known focus and a fraction of
+  //! the site's span along that ray, and both invert in closed form. A point
+  //! off the end of the fan clamps to its edge rather than reaching outside
+  //! the site. The one thing it cannot recover is v on a TANGENT ray, where
+  //! the span is a single corner and every v was the same place; nought is
+  //! the answer there.
+  toUV(f, q) {
+    const dx = q[0] - f.from[0], dy = q[1] - f.from[1];
+    const along = dx * f.look[0] + dy * f.look[1];
+    const across = -dx * f.look[1] + dy * f.look[0];
+    const ang = Math.atan2(across, along), rad = Math.hypot(dx, dy);
+    const u = f.a1 - f.a0 > 1e-12 ? (ang - f.a0) / (f.a1 - f.a0) : 0;
+    const span = this.spanAlong(f, ang);
+    const v = span.far - span.near > 1e-12
+      ? (rad - span.near) / (span.far - span.near) : 0;
+    return { u: u < 0 ? 0 : u > 1 ? 1 : u, v: v < 0 ? 0 : v > 1 ? 1 : v };
   },
 
   //! Lattice node (u, v) in the world. u counts bays around the fan, v counts
@@ -475,14 +608,26 @@
   //! were wired, and they OVERRULE the sliders of the same name: the first
   //! point is the height attractor, the second the void, the third the
   //! wormhole. The sliders stay as the fallback, so the node still works
-  //! with nothing wired to it, and the graph is the better way round - a
-  //! point you drag in the viewport beats two numbers you type.
+  //! with nothing wired to it, and the graph is the better way round - an
+  //! attractor is a thing in the model with a name and a wire, not two
+  //! numbers buried in a panel of thirty-eight.
+  //! A WIRED POINT IS READ IN UV, not in millimetres. Its x is u and its y
+  //! is v, both 0 to 1 over the whole fan, and a number outside that clamps
+  //! rather than sending an attractor out over the fields. That is the whole
+  //! of the change: the coordinates used to be 420000 and 620000, which mean
+  //! nothing to a reader and are wrong the moment the boundary changes.
+  //!
+  //! AND IT COSTS THE VIEWPORT HANDLE, which is worth saying plainly: a
+  //! point holding 0.5 and 0.6 stands at the origin, so these three are set
+  //! by their sliders rather than dragged across the plan. What is drawn
+  //! where the attractor actually is is its REACH - the rings in the setting
+  //! out, from fromUV - so you can still see where (0.5, 0.6) landed.
   withWired(p, wired) {
     const points = (wired && wired.points) || [];
     const at = { ...p };
-    if (points[0]) { at.atX = points[0][0]; at.atY = points[0][1]; }
-    if (points[1]) { at.voidX = points[1][0]; at.voidY = points[1][1]; }
-    if (points[2]) { at.warpX = points[2][0]; at.warpY = points[2][1]; }
+    if (points[0]) { at.atU = points[0][0]; at.atV = points[0][1]; }
+    if (points[1]) { at.voidU = points[1][0]; at.voidV = points[1][1]; }
+    if (points[2]) { at.warpU = points[2][0]; at.warpV = points[2][1]; }
     at.spline = (wired && wired.curves && wired.curves[0]) || null;
     at.wiredPoints = points.length;
     return at;
@@ -639,6 +784,11 @@
     const voidReach = Math.max(1, p.voidReach);
     const splineReach = Math.max(1, p.splineReach);
     const style = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
+    //! THE TWO ATTRACTORS, PUT ON THE GROUND. They are given in the fan's
+    //! own uv - see fromUV - so this is where they become millimetres, once,
+    //! rather than being converted at each of the four places that ask.
+    const pullAtUV = this.fromUV(f, p.atU, p.atV);
+    const voidAtUV = this.fromUV(f, p.voidU, p.voidV);
     const pullAt = (q, x, y, r) =>
       this.falloffAt(style, 1 - Math.hypot(q[0] - x, q[1] - y) / r);
     for (const block of blocks) {
@@ -652,7 +802,7 @@
       //! pulled \p gap off their plot lines and stand as far apart as they
       //! ever will; out at its reach there is only \p inset left, and at
       //! inset 0 they touch along their chamfers the way the tiling does.
-      const hollow = pullAt(mid, p.voidX, p.voidY, voidReach);
+      const hollow = pullAt(mid, voidAtUV.x, voidAtUV.y, voidReach);
       //! THE SPLINE DOES BOTH. Near it the masses stand further apart and
       //! higher - a street with a cut down it - and it is the same falloff
       //! and the same reach for the two, so a curve that opens a gap also
@@ -732,7 +882,7 @@
       //! AND THE SPLINE IS ASKED AT EVERY CORNER TOO, so a mass alongside it
       //! leans towards it exactly as it leans towards the point attractor.
       const zs = ring.map(q => p.height + jitter
-        + p.bulge * pullAt(q, p.atX, p.atY, reach)
+        + p.bulge * pullAt(q, pullAtUV.x, pullAtUV.y, reach)
         + (p.spline ? p.splineBulge
             * this.falloffAt(style, 1 - this.alongSpline(p.spline, q) / splineReach) : 0));
       let mean = 0;
@@ -766,7 +916,7 @@
         plane.bx *= k; plane.by *= k;
       }
       out.push({ ring, height: Math.max(0, mean), plane, run: block.cells.length,
-                 pull: pullAt(mid, p.atX, p.atY, reach), hollow, empty: false,
+                 pull: pullAt(mid, pullAtUV.x, pullAtUV.y, reach), hollow, empty: false,
                  shape: block.shape, at: block.cells.map(c => [c.u, c.v]) });
     }
 
@@ -950,15 +1100,30 @@
       }
       return k.polyline(run, { closed: true });
     };
-    setting.push(circleAt(p.atX, p.atY, p.reach));
-    setting.push(k.polyline([[p.atX, p.atY, 0],
-                             [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]));
-    setting.push(circleAt(p.voidX, p.voidY, p.voidReach));
+    //! The two attractors and the wormhole, drawn where the uv puts them -
+    //! which is the only place anybody can see where (0.5, 0.6) actually is.
+    const frame = made.frame;
+    const atW = this.fromUV(frame, p.atU, p.atV);
+    const voidW = this.fromUV(frame, p.voidU, p.voidV);
+    const warpW = this.fromUV(frame, p.warpU, p.warpV);
+    setting.push(circleAt(atW.x, atW.y, p.reach));
+    setting.push(k.polyline([[atW.x, atW.y, 0],
+                             [atW.x, atW.y, p.height + Math.max(0, p.bulge)]]));
+    setting.push(circleAt(voidW.x, voidW.y, p.voidReach));
     const cut = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
     let bite = 0;
     for (let i = 100; i >= 0; i--)
       if (this.falloffAt(cut, 1 - i / 100) >= p.voidCut) { bite = i / 100; break; }
-    if (bite > 0) setting.push(circleAt(p.voidX, p.voidY, p.voidReach * bite));
+    if (bite > 0) setting.push(circleAt(voidW.x, voidW.y, p.voidReach * bite));
+    //! AND THE WORMHOLE, which had no mark at all: its reach as a ring, and
+    //! a cross at its middle, because a thing that drags the whole lattice
+    //! about and cannot be seen is a thing nobody will touch.
+    if (p.warpPull > 0) {
+      setting.push(circleAt(warpW.x, warpW.y, p.warpReach));
+      const tick = Math.max(2000, p.warpReach / 20);
+      setting.push(k.polyline([[warpW.x - tick, warpW.y, 0], [warpW.x + tick, warpW.y, 0]]));
+      setting.push(k.polyline([[warpW.x, warpW.y - tick, 0], [warpW.x, warpW.y + tick, 0]]));
+    }
     setting.push(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }));
 
     //! AND THE THREE, PUBLISHED. The massing and the plazas are meshes; the

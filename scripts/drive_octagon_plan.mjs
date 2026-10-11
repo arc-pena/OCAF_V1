@@ -21,6 +21,24 @@ const check = (name, ok, detail = "") => {
   if (!ok) bad++;
   log((ok ? "  ok   " : "  FAIL ") + name + (detail ? "  - " + detail : ""));
 };
+//! THE TWO UV THE WORMHOLE IS PUT AT, and where they are on the ground. The
+//! script's own fromUV answers that, off the very file the sample embeds, so
+//! a drive that measures "towards the wormhole" is measuring towards where
+//! the script put it rather than towards a number typed here twice.
+const M = new Function('"use strict"; return ('
+  + readFileSync(new URL("./octagrid.script.js", import.meta.url).pathname, "utf8") + ");")();
+const SLIDERS = {};
+for (const q of M.params) SLIDERS[q.key] = q.def;
+const FAN = M.frameOf(SLIDERS);
+//! The two ends of the drag, and a third place for the "with no drag it does
+//! nothing" check below. Far apart on purpose: a wormhole moved a hundred
+//! metres is a true edit and a weak measurement.
+const HOLE_A = [0.15, 0.25], HOLE_B = [0.85, 0.85], FAR = [0.5, 0.2];
+const atA = M.fromUV(FAN, HOLE_A[0], HOLE_A[1]);
+const atB = M.fromUV(FAN, HOLE_B[0], HOLE_B[1]);
+const farAt = M.fromUV(FAN, FAR[0], FAR[1]);
+const apart = Math.hypot(atB.x - farAt.x, atB.y - farAt.y);
+
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium",
   args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
@@ -52,9 +70,39 @@ const plan = () => page.evaluate(() => {
                 lists: f.lists || {}, driven: f.driven || {} };
 });
 
+//! WHAT THE STATUS BAR SAYS WHEN IT OPENS, kept for the end: the last two
+//! screenshots are meant to be of the sample as it opens rather than of the
+//! last slider end, and the triangle count is the one thing on screen that
+//! can tell the two apart. Read now rather than written down - it was
+//! written down, as 2,310, and every change to the plan since has made that
+//! check a false alarm about a true picture.
+const barSays = async () => {
+  await page.waitForFunction(() => {
+    const bar = document.getElementById("status");
+    return bar && /[\d,]+ tris/.test(bar.textContent);
+  }, null, { timeout: 600000 });
+  return page.evaluate(() => {
+    const bar = document.getElementById("status");
+    return (bar.textContent.match(/([\d,]+) tris/) || [])[1] || "";
+  });
+};
+const openTris = await barSays();
+log("the sample opens at " + openTris + " triangles");
+
 const all = await feats();
 log("opened with " + all.length + " nodes: " + all.map(f => f.id).join(" "));
-check("the sample opened from its link", all.length === 10, String(all.length));
+//! EVERY NODE THE FILE NAMES, rather than a number written down here: this
+//! said "ten" and the sample grew a cage and three outputs, so a check about
+//! whether the sample opens at all was failing because it had been counted
+//! once, a month ago. Read off the file, it cannot go stale.
+const WANT = JSON.parse(readFileSync(
+  new URL("../docs/data/samples/octagon_plan.json", import.meta.url).pathname, "utf8"))
+  .features.map(f => f.id);
+const missing = WANT.filter(id => !all.some(f => f.id === id));
+check("the sample opened from its link, with every node in the file",
+      missing.length === 0 && all.length >= WANT.length,
+      all.length + " of " + WANT.length
+      + (missing.length ? ", missing " + missing.join(" ") : ""));
 check("nothing in it is in error", all.every(f => !f.error),
       all.filter(f => f.error).map(f => f.id + ": " + f.error).join(" | "));
 
@@ -121,7 +169,7 @@ const panel = await page.evaluate(() => {
   return box ? box.textContent.replace(/\s+/g, " ") : "";
 });
 log("panel: " + panel.slice(0, 400));
-for (const label of ["Points", "Curves", "Wormhole east", "Its reach",
+for (const label of ["Points", "Curves", "Wormhole across", "Its reach",
                      "How far it drags", "Spline reach", "Height it adds",
                      "Gap it opens"])
   check("the panel offers " + JSON.stringify(label), panel.includes(label), "");
@@ -199,35 +247,55 @@ check("and the centre of it is on the site, where the city is",
       && before.at[1] > 61000 && before.at[1] < 835000,
       Math.round(before.at[0] / 1000) + ", " + Math.round(before.at[1] / 1000)
       + " m, against a site 39..520 east by 61..835 north");
-await page.evaluate(async () => {
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: 180000 });
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: 760000 });
-  await window.__cad.run({ op: "set", id: "PLAN", key: "warpPull", value: 0.6 });
-});
-await page.waitForTimeout(2500);
-const after = await ground();
-const moved = Math.hypot(before.at[0] - after.at[0], before.at[1] - after.at[1]);
-log("the wormhole moved the built ground's centre of gravity by "
-  + Math.round(moved / 1000) + " m, and its area from "
-  + Math.round(before.area / 1e6) + " to " + Math.round(after.area / 1e6)
-  + " m² over " + before.tris + " -> " + after.tris + " triangles");
-//! TOWARDS IT, which is the whole of what a wormhole is. "Something changed"
-//! would pass for any edit at all; what has to be true of THIS one is that
-//! the ground the city stands on ends up nearer the point than it was.
-const pull = at => Math.hypot(at[0] - 180000, at[1] - 760000);
-log("  and from " + Math.round(pull(before.at) / 1000) + " m off the wormhole to "
-  + Math.round(pull(after.at) / 1000) + " m");
-check("dragging the wormhole point drags the city towards it",
-      moved > 2000 && pull(after.at) < pull(before.at),
-      Math.round(moved / 1000) + " m, now " + Math.round(pull(after.at) / 1000)
-      + " m off it");
+//! IN UV, 0 TO 1 EACH WAY, which is what a wired attractor carries now: x is
+//! u across the fan and y is v out from the near edge of the site to the far
+//! one. Set as millimetres - which is what this did - both numbers cap at 1
+//! and the wormhole sits on a corner however far the point is "moved".
+//! Where that uv actually is is worked out here the same way the script works
+//! it out, off the same file the suite drives, so this drive cannot drift
+//! from it.
+//!
+//! TWO PLACES AND THE DIRECTION BETWEEN THEM, rather than one move measured
+//! against a distance. "The city ends up nearer the hole than it was" reads
+//! well and is the wrong test: a warp also changes which plots pass the
+//! plaza rule, so the built ground is a slightly different set of masses
+//! either side and its centre can move seven metres the wrong way while the
+//! lattice has plainly followed. What cannot be explained away is the
+//! direction - put the hole at one end of the site and then the other, and
+//! the centre of gravity must move the way the hole did.
+const holeTo = async ([u, v]) => {
+  await page.evaluate(async ([a, b]) => {
+    await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: a });
+    await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: b });
+    await window.__cad.run({ op: "set", id: "PLAN", key: "warpPull", value: 0.6 });
+  }, [u, v]);
+  await page.waitForTimeout(2500);
+  return ground();
+};
+const south = await holeTo(HOLE_A), after = await holeTo(HOLE_B);
+const way = [atB.x - atA.x, atB.y - atA.y];
+const went = [after.at[0] - south.at[0], after.at[1] - south.at[1]];
+const len = Math.hypot(way[0], way[1]);
+const along = (went[0] * way[0] + went[1] * way[1]) / len;
+const moved = Math.hypot(went[0], went[1]);
+log("the wormhole from " + Math.round(atA.x / 1000) + "," + Math.round(atA.y / 1000)
+  + " m to " + Math.round(atB.x / 1000) + "," + Math.round(atB.y / 1000)
+  + " m moved the built ground's centre of gravity "
+  + Math.round(moved / 1000) + " m, " + Math.round(along / 1000)
+  + " m of it the way the hole went");
+check("dragging the wormhole point drags the city after it",
+      moved > 2000 && along > moved * 0.5,
+      Math.round(along / 1000) + " m of " + Math.round(moved / 1000) + " m along a "
+      + Math.round(len / 1000) + " m drag");
 //! The mass COUNT is not one of the claims, and it was until this ran: a warp
 //! moves the lattice's nodes, which resizes the plazas, which changes which
 //! plots pass the plaza rule - so 2,310 triangles became 2,780 and the city
 //! was right both times. Reported, not asserted.
-log("  over " + before.tris + " -> " + after.tris
-  + " triangles, which a warp is allowed to change: moving the nodes resizes "
-  + "the plazas, and the plaza rule then admits a different set of plots");
+log("  over " + south.tris + " -> " + after.tris
+  + " triangles and " + Math.round(south.area / 1e6) + " -> "
+  + Math.round(after.area / 1e6) + " m\u00b2, which a warp is allowed to change: "
+  + "moving the nodes resizes the plazas, and the plaza rule then admits a "
+  + "different set of plots");
 const warped = await plan();
 check("and it still builds afterwards", warped.built && !warped.error, warped.error || "");
 await page.evaluate(() => window.__cad.fit());
@@ -244,23 +312,24 @@ await page.evaluate(async () => {
 });
 await page.waitForTimeout(2500);
 const still = await ground();
-await page.evaluate(async () => {
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: 505000 });
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: 110000 });
-});
+await page.evaluate(async ([u, v]) => {
+  await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: u });
+  await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: v });
+}, FAR);
 await page.waitForTimeout(2500);
 const deaf = await ground();
-log("with the drag at nought, moving the point 700 m left the built ground at "
+log("with the drag at nought, moving the point " + Math.round(apart / 1000)
+  + " m left the built ground at "
   + Math.round(still.area / 1e6) + " -> " + Math.round(deaf.area / 1e6) + " m²");
 check("with the drag at nought the wormhole point does nothing at all",
       Math.abs(deaf.area - still.area) < 1 && deaf.tris === still.tris,
       Math.round(still.area) + " vs " + Math.round(deaf.area) + " mm², "
       + still.tris + " vs " + deaf.tris + " triangles");
-await page.evaluate(async () => {
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: 180000 });
-  await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: 760000 });
+await page.evaluate(async ([u, v]) => {
+  await window.__cad.run({ op: "set", id: "P_WORM", key: "x", value: u });
+  await window.__cad.run({ op: "set", id: "P_WORM", key: "y", value: v });
   await window.__cad.run({ op: "set", id: "PLAN", key: "warpPull", value: 0.35 });
-});
+}, HOLE_B);
 await page.waitForTimeout(2500);
 
 //! AND THE SPLINE. Moving one of its four Points re-fits the curve, and the
@@ -344,7 +413,8 @@ if (graph) {
   //! filed in a set: a set is ONE node in the graph with its own graph inside
   //! it, so the Nodes view opened on two boxes - the folder and the script -
   //! and not one of the handles the sample is about was in the drawing.
-  check("the graph draws all ten nodes", graph.nodes === 10, String(graph.nodes));
+  check("the graph draws every node in the model", graph.nodes === all.length,
+        graph.nodes + " drawn of " + all.length);
   //! Four points into the spline, the spline into the script, three points
   //! into the script, the number into the script: eight.
   check("and the wires between them", graph.wires >= 8, String(graph.wires));
@@ -408,13 +478,10 @@ await page.screenshot({ path: D + "octagon-top.png" });
 //! AND THE NUMBER THAT SAYS WHICH MODEL WAS PHOTOGRAPHED. The status bar
 //! carries the triangle count, and it is the one thing on screen that can
 //! tell the sample from the sample with every slider driven to its end.
-const shown = await page.evaluate(() => {
-  const bar = document.getElementById("status");
-  return bar ? bar.textContent.replace(/\s+/g, " ").trim() : "";
-});
-log("photographed: " + shown);
+const shown = await barSays();
+log("photographed: " + shown + " triangles, against " + openTris + " at the open");
 check("the pictures are of the sample as it opens, not of the last slider end",
-      /2,310 tris/.test(shown), shown.slice(0, 90));
+      shown === openTris && shown !== "", shown + " vs " + openTris);
 
 check("no page errors", errs.length === 0, errs.join(" | "));
 log(bad ? "\n" + bad + " FAILED" : "\nall good");

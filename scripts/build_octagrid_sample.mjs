@@ -34,6 +34,24 @@ const ref = id => ({ ref: id });
 const point = (id, name, x, y) =>
   ({ id, type: "Point", name, args: { kind: "Coordinates", x, y, z: 0 } });
 
+//! AN ATTRACTOR IS A POINT IN THE FAN'S OWN UV, nought to one each way, and
+//! its two sliders say so: min 0, max 1, step 0.1, which is eleven positions
+//! across the plan and eleven out from the near edge of the site to the far
+//! one. They used to be millimetres on the world axes - 420000, 620000 -
+//! which say nothing to a reader, cannot be set without arithmetic, and are
+//! wrong the moment the boundary is replaced. The sliders' own range travels
+//! in the file, so opening this sample hands you the range as well as the
+//! value; see sliderRange.
+const UNIT = { min: 0, max: 1, step: 0.1 };
+const atUV = (id, name, u, v) =>
+  ({ ...point(id, name, u, v), ranges: { x: { ...UNIT }, y: { ...UNIT } } });
+
+//! THE SPLINE'S POINTS STAY IN MILLIMETRES, and that is not an oversight.
+//! The three attractors above are places, and a place on this plan is best
+//! said in the fan's own uv; the spline is a CURVE, made by an Interpolate
+//! node that draws it in the world and handed to the script as geometry. Its
+//! control points have to be where the curve is, or the curve is a millimetre
+//! long at the origin and the script measures every mass against a dot.
 const spline = [[60000, 700000], [250000, 560000], [430000, 430000], [520000, 250000]];
 
 //! AT THE TOP LEVEL, NOT FILED IN A SET. A set is one node in the graph with
@@ -45,9 +63,11 @@ const spline = [[60000, 700000], [250000, 560000], [430000, 430000], [520000, 25
 const model = {
   format: "ocaf-parametric-model", version: 1, name: "Octagon plan", units: "mm",
   features: [
-    point("P_HIGH", "Height attractor", 300000, 480000),
-    point("P_VOID", "Void attractor", 170000, 250000),
-    point("P_WORM", "Wormhole", 420000, 620000),
+    //! The script's own defaults, so the sliders on the node and the points
+    //! wired to it say the same thing until one of them is moved.
+    atUV("P_HIGH", "Height attractor \u00b7 uv", 0.5, 0.6),
+    atUV("P_VOID", "Void attractor \u00b7 uv", 0.3, 0.2),
+    atUV("P_WORM", "Wormhole \u00b7 uv", 0.7, 0.8),
     ...spline.map(([x, y], i) => point("S" + i, "Spline point " + (i + 1), x, y)),
     { id: "SPLINE", type: "Interpolate", name: "Spline attractor",
       args: { points: spline.map((_, i) => ref("S" + i)), closed: "Open", degree: 3 } },
@@ -221,8 +241,23 @@ for (const id of ["CAGE", "CSEL", "CPULL", "MORPH"]) {
   if (!now || !was || Math.abs(now.hi - was.hi) < 5) {
     say("  ^ the cage did not move the massing - not written"); bad++;
   }
-  if (!squares || Math.abs(squares.hi - 519.5) > 1) {
-    say("  ^ the squares moved with it, which is what the outputs are for - not written");
+  //! THE SQUARES DO NOT MOVE, measured against THEMSELVES with the pull taken
+  //! back to nought rather than against a number written down here. A
+  //! constant was what this checked until the attractors moved into uv and
+  //! the whole plan shifted by two and a half metres: the claim was still
+  //! true and the check still failed, which is a check measuring the wrong
+  //! thing.
+  await mdl.run({ op: "set", id: "CPULL", key: "distance", value: 0 });
+  const restMorph = await spanOf("MORPH", 0), restSquares = await spanOf("O_PLAZ", 0);
+  await mdl.run({ op: "set", id: "CPULL", key: "distance", value: 45000 });
+  say("with the pull at nought the morph is " + (restMorph ? restMorph.hi : "?")
+      + " m east and the squares are " + (restSquares ? restSquares.hi : "?") + " m");
+  if (!restMorph || !was || Math.abs(restMorph.hi - was.hi) > 0.2) {
+    say("  ^ no pull should be no change, and it is not - not written"); bad++;
+  }
+  if (!restSquares || !squares || Math.abs(restSquares.hi - squares.hi) > 0.2) {
+    say("  ^ the squares moved with the cage, which is what the outputs are for"
+        + " - not written");
     bad++;
   }
 }
@@ -275,6 +310,64 @@ for (const [key, value] of [["rings", 2], ["rings", 24], ["spokes", 2], ["spokes
   await mdl.run({ op: "set", id: "PLAN", key, value: spec ? spec.def : value });
 }
 say("every slider end builds");
+
+//! AND THAT UV IS UV, through the real document. The claim of the change is
+//! that every position a pair of 0.1 sliders can hold puts an attractor on
+//! the site, so the four corners of the unit square and its middle are
+//! driven on each of the three points - and the peak is then measured, which
+//! is the only way to tell a uv that moved the city from a uv that was
+//! quietly read as millimetres and clamped to a corner.
+{
+  const peak = async () => {
+    const m = (await kernel.mesh(["PLAN"])).features[0];
+    let best = -1, at = null;
+    for (let i = 0; i + 2 < m.positions.length; i += 3)
+      if (m.positions[i + 2] > best) {
+        best = m.positions[i + 2];
+        at = [Math.round(m.positions[i] / 1000), Math.round(m.positions[i + 1] / 1000)];
+      }
+    return at;
+  };
+  const putAt = async (u, v) => {
+    await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: u });
+    await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: v });
+    return at();
+  };
+  //! The corners first, for the refusal that is not there: the two tangent
+  //! rays are a single corner of the site each, so (0, 0) and (0, 1) are the
+  //! same place - which is a fan's shape, not a fault, and must still build.
+  for (const [u, v] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+    const got = await putAt(u, v);
+    if (got.error) { say("FAILED at uv " + u + "," + v + " \u2014 " + got.error); bad++; }
+  }
+  //! And then five places that really are five places, because the peak
+  //! landing in one spot for all of them is what reading uv as millimetres
+  //! and clamping would look like.
+  const seen = new Set();
+  for (const [u, v] of [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9], [0.5, 0.5]]) {
+    const got = await putAt(u, v);
+    if (got.error) { say("FAILED at uv " + u + "," + v + " \u2014 " + got.error); bad++; }
+    else seen.add((await peak()).join(","));
+  }
+  say("the height attractor at five uv put the peak in " + seen.size + " places");
+  if (seen.size < 4) {
+    say("  ^ uv is not moving the city - not written"); bad++;
+  }
+  await mdl.run({ op: "set", id: "P_HIGH", key: "x", value: 0.5 });
+  await mdl.run({ op: "set", id: "P_HIGH", key: "y", value: 0.6 });
+
+  //! AND THE SLIDERS SAY 0 TO 1. The range travels in the file, so this is
+  //! what anybody opening the sample is handed; without it x and y are a
+  //! Point's own millimetre track and 0.5 is a pixel's width from the end.
+  for (const id of ["P_HIGH", "P_VOID", "P_WORM"]) {
+    const shape = ((await says(id)).ranges || {});
+    const ok = ["x", "y"].every(k => shape[k] && shape[k].min === 0
+                                     && shape[k].max === 1 && shape[k].step === 0.1);
+    say(id + " sliders: " + JSON.stringify(shape.x || null) + " "
+        + JSON.stringify(shape.y || null));
+    if (!ok) { say("  ^ not 0 to 1 by tenths - not written"); bad++; }
+  }
+}
 
 if ((await at()).error) { say("FAILED after the sweep"); bad++; }
 if (bad) process.exit(1);
