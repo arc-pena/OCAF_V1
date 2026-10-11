@@ -96,6 +96,22 @@ const driver = ((await says("PLAN")).driven || {}).height;
 say("and the base height is driven by " + (driver || "nothing"));
 if (driver !== "N_HEIGHT") { say("  ^ the Number is not driving it - not written"); bad++; }
 
+//! AND THE THREE OUTPUTS, which are nodes the script makes rather than rows
+//! in this file: they appear under it when it is opened. Checked by what they
+//! BUILT, because an output that carries an empty compound looks exactly like
+//! one that carries the massing until something is asked to mesh it.
+const kids = (await kernel.tree()).tree.features.filter(f => f.parent === "PLAN");
+say(kids.length + " outputs: " + kids.map(f => f.name).join(", "));
+if (kids.length !== 3) { say("  ^ the script's outputs are not there - not written"); bad++; }
+for (const kid of kids) {
+  const got = (await kernel.mesh([kid.id])).features[0];
+  const n = got ? got.triangles : 0;
+  const edges = got && got.edges ? got.edges.length : 0;
+  say("  " + kid.name + ": " + n + " triangles, " + edges + " edges"
+      + (kid.error ? "  ERROR " + kid.error : ""));
+  if (kid.error || (!n && !edges)) { say("  ^ it carries nothing - not written"); bad++; }
+}
+
 //! WHAT IT ACTUALLY MADE, measured off the mesh rather than off the script's
 //! own arithmetic - a plan() that returns a hundred polygons and a build()
 //! that drops them all would look identical from the inside.

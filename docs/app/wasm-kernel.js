@@ -24,7 +24,7 @@
 import { CATALOGUE, Doc, Driver, F, clampTo, dataLines, dataProgram, drafting,
          BLENDS, DEFORMS, FALLOFFS,
          kernelMessage, meshCreases, meshFaces, meshSharpness, meshWeightTail,
-         meshWeights, parseNumbers,
+         meshWeights, nestingChanged, parseNumbers,
          registeredTypes, schemaJson, setDrafting, trimNumber,
          typeSpec } from "./ocaf.js";
 import { chainSegments, meshCross, meshSlice, thin } from "./draft.js";
@@ -1660,7 +1660,25 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       });
     }
     if (params.length > 40) throw new Error("a script may declare at most 40 parameters");
-    return { module, params };
+
+    //! AND WHAT IT PUBLISHES. Declared, like the parameters, so the names are
+    //! known without running the code: the Output nodes that carry them have
+    //! to exist before anything can be wired to them, and compiling to find
+    //! out would mean every rebuild ran the script twice.
+    const outputs = [];
+    for (const raw of module.outputs || []) {
+      if (!raw || typeof raw.key !== "string" || !raw.key)
+        throw new Error("every output needs a key");
+      if (outputs.some(one => one.key === raw.key))
+        throw new Error("two outputs share the key '" + raw.key + "'");
+      outputs.push({
+        key: raw.key,
+        label: typeof raw.label === "string" && raw.label ? raw.label : raw.key,
+      });
+    }
+    if (outputs.length > 12)
+      throw new Error("a script may publish at most 12 outputs");
+    return { module, params, outputs };
   }
 
   builders.Script = {
@@ -1671,15 +1689,16 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       const source = F.code(f, "code", "");
       if (!source.trim()) return "there is no code to run";
       try {
-        const { params } = compileScript(source);
+        const { params, outputs } = compileScript(source);
         F.syncParams(f, params);
+        F.setOutputSpecs(f, outputs);
       } catch (err) {
         return err.message;
       }
       return null;
     },
     build: f => {
-      const { module, params } = compileScript(F.code(f, "code", ""));
+      const { module, params, outputs } = compileScript(F.code(f, "code", ""));
       //! READ THE WAY EVERY OTHER DRIVER READS ITS ARGUMENTS, which is the
       //! whole point of composing them into the spec: a slider wired to a
       //! Number arrives here as that number, and the driver never learns
@@ -1707,10 +1726,69 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           return run;
         }),
       };
-      const shape = module.build(values, shapeApi(), wired);
+      //! A SHAPE, OR A SHAPE AND ITS PIECES. Returning the shape alone is
+      //! what every script written so far does and goes on meaning the same
+      //! thing; returning { shape, parts } also publishes the named pieces,
+      //! which is what the Output nodes under the feature carry.
+      const got = module.build(values, shapeApi(), wired);
+      const shape = got && typeof got.IsNull === "function" ? got : (got && got.shape);
       if (!shape || typeof shape.IsNull !== "function" || shape.IsNull())
-        throw new Error("build() must return a shape");
-      return shape;
+        throw new Error("build() must return a shape, or { shape, parts }");
+      const named = (got && got.shape && got.parts) || null;
+      if (!named) {
+        if (outputs.length)
+          throw new Error("it declares " + outputs.length + " output"
+            + (outputs.length === 1 ? "" : "s") + " and build() returned a bare shape - "
+            + "return { shape, parts: { " + outputs.map(o => o.key).join(", ") + " } }");
+        return shape;
+      }
+      const parts = {};
+      for (const out of outputs) {
+        const piece = named[out.key];
+        //! A DECLARED OUTPUT THAT THE BUILD DID NOT FILL is said here rather
+        //! than left to the Output node to discover: the script is where the
+        //! mistake is, and a node reporting "there is no such output" sends
+        //! the reader looking at the wrong thing.
+        if (!piece || typeof piece.IsNull !== "function" || piece.IsNull())
+          throw new Error("it declares an output called '" + out.key
+            + "' and build() returned nothing for it");
+        parts[out.key] = piece;
+      }
+      for (const key of Object.keys(named))
+        if (!outputs.some(out => out.key === key))
+          throw new Error("build() returned a part called '" + key
+            + "' that the script does not declare - add it to outputs");
+      return { shape, parts };
+    },
+  };
+
+  //! ONE NAMED PIECE, HANDED ON. The shape is shared with the script's own,
+  //! the way an Instance shares a part's: Moved with an identity transform
+  //! gives this feature a handle of its own onto the same TShape, so the two
+  //! can be released independently and the geometry is built once.
+  builders.Output = {
+    precondition: f => {
+      const from = F.reference(f, "from");
+      if (!from) return "nothing wired in to take an output from";
+      const name = F.text(f, "part", "");
+      if (!name) return "it does not say which output";
+      //! A SCRIPT IN ERROR IS NOT THIS NODE'S ERROR. It keeps the pieces it
+      //! last published, exactly as it keeps the shape it last built, so the
+      //! outputs go on carrying them - one red row where the mistake is,
+      //! rather than four. And it matters more than tidiness: the script has
+      //! stood down from the view in favour of these, so an output that
+      //! refused in sympathy would leave nothing on screen at all.
+      if (!F.partShape(from, name))
+        return F.name(from) + " published no output called '" + name + "'";
+      return null;
+    },
+    build: f => {
+      const from = F.reference(f, "from");
+      const name = F.text(f, "part", "");
+      const shape = F.partShape(from, name);
+      return { shape: shape.Moved(new oc.TopLoc_Location(new oc.gp_Trsf())),
+               data: text([name, "published by " + F.name(from),
+                           "the same geometry, not a copy"]) };
     },
   };
 
@@ -7586,7 +7664,8 @@ function sprawl(face, edges) {
     //! The generators, exactly as the straight one runs them - and then one
     //! more sliced pass if any of them made anything.
     for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
-      if (!runGenerators()) return report;
+      const moved = runOutputs();
+      if (!runGenerators() && !moved) return report;
       report = await settleSlowly(false, tell);
     }
     sayUnsettled();
@@ -7628,6 +7707,43 @@ function sprawl(face, edges) {
     return worked;
   }
 
+  //! THE OUTPUTS A SCRIPT DECLARED, KEPT IN STEP. One Output node under the
+  //! script per name it publishes: added when it starts declaring one, taken
+  //! away when it stops, and never touched otherwise - so a wire somebody put
+  //! on an output survives every rebuild of the script that feeds it.
+  //!
+  //! Run beside the generators, and for the same reason: a feature that makes
+  //! features cannot make them while the tree is being walked.
+  function runOutputs() {
+    let worked = false;
+    for (const f of doc.features()) {
+      const spec = F.spec(f);
+      if (!spec || !spec.publishes) continue;
+      const want = F.outputSpecs(f);
+      const have = new Map();
+      for (const one of doc.within(f)) {
+        const kind = F.spec(one);
+        if (kind && kind.type === "Output") have.set(F.text(one, "part", ""), one);
+      }
+      for (const [name, one] of have)
+        if (!want.some(out => out.key === name)) { doc.deleteFeature(one); worked = true; }
+      for (const out of want) {
+        if (have.has(out.key)) continue;
+        const made = doc.addFeature("Output", null, out.label || out.key);
+        doc.setCode(made, "part", out.key);
+        doc.setReference(made, "from", f);
+        //! THROUGH F, not doc.setParent, which refuses a parent that is not a
+        //! set - and rightly: filing things into a script by hand is not a
+        //! move anybody should be able to make. This is the script filing its
+        //! own, which is the one case there is.
+        F.setParent(made, f);
+        nestingChanged();
+        worked = true;
+      }
+    }
+    return worked;
+  }
+
   //! Said on the generators rather than thrown, because the model is still
   //! there and still drawable - it is just one pass behind whatever it is
   //! chasing.
@@ -7641,7 +7757,8 @@ function sprawl(face, edges) {
   function settle(all = false) {
     let report = doc.recompute(all);
     for (let pass = 0; pass < RECONCILE_PASSES; pass++) {
-      if (!runGenerators()) return report;
+      const moved = runOutputs();
+      if (!runGenerators() && !moved) return report;
       report = doc.recompute(false);
     }
     sayUnsettled();

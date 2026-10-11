@@ -9508,7 +9508,12 @@ function treeNode(entry, keep = null, hit = null) {
     return li;
   }
 
-  if (entry.category === "container") {
+  //! A BRANCH IS DRAWN FOR WHATEVER HAS SOMETHING UNDER IT, which until now
+  //! meant a container and nothing else. A script that publishes outputs
+  //! files them under itself without being a folder - it is a body, with the
+  //! pieces it made hanging off it - and read by category alone those rows
+  //! were nowhere in the tree at all.
+  if (entry.category === "container" || kidsOf(entry.id).length) {
     const all = kidsOf(entry.id);
     const inside = keep ? all.filter(f => survives(f, keep)) : all;
     // A SEARCH OPENS WHAT IT FOUND. Folding is a thing you did on purpose and

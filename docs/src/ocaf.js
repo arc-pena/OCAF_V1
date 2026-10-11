@@ -1307,7 +1307,10 @@ export const SAMPLES = [
            + "the city answers. A Number node drives the base height, because every "
            + "parameter a script declares is an argument on the node now and any of "
            + "them can take a wire. Open it straight from a link ending "
-           + "#octagon-plan. 10 nodes and 38 sliders." },
+           + "#octagon-plan. 10 nodes and 38 sliders - and three OUTPUTS under the "
+           + "script, which appear by themselves because the code declares them: "
+           + "the massing, the plazas and the setting out, each a node you can wire "
+           + "into anything. Deform the massing and the squares stay where they are." },
 
   //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
   //! this program: nineteen sliders and a hundred lines of plane geometry,
@@ -2970,12 +2973,19 @@ export const CATALOGUE = [
     produces: "solid",
     //! Its code declares arguments of its own; see F.spec.
     declares: true,
+    //! And it may name PIECES of what it builds. One Output node is kept
+    //! under it per name, so what a script makes can be taken apart and fed
+    //! on without the script being run again. See PARTS_TAG and runOutputs.
+    publishes: true,
     summary: "A feature you write. The code declares its own parameters and returns "
            + "a shape, so anything this build can make can become a feature. "
            + "This one starts as a spiral stair. Wire POINTS and CURVES into it and "
            + "the script is handed their positions - an attractor you can drag in "
            + "the viewport rather than type into a slider, a spline through four "
-           + "points to pull a plan along. They arrive in the order they are wired.",
+           + "points to pull a plan along. They arrive in the order they are wired. "
+           + "It can also NAME the pieces of what it builds: declare them in "
+           + "outputs and return { shape, parts }, and each one gets a node of its "
+           + "own under this one, to be deformed or cut or exported on its own.",
     //! APPENDED, as everything here is: \p code stays argument nought, so every
     //! file written before these existed reads its script off the same label.
     args: [code("code", "Code", SPIRAL_STAIR),
@@ -2985,6 +2995,10 @@ export const CATALOGUE = [
     produces: "solid",
     //! Its code declares arguments of its own; see F.spec.
     declares: true,
+    //! And it may name PIECES of what it builds. One Output node is kept
+    //! under it per name, so what a script makes can be taken apart and fed
+    //! on without the script being run again. See PARTS_TAG and runOutputs.
+    publishes: true,
     summary: "A written feature starting from the Heydar Aliyev Center: a roof lofted "
            + "through section curves, and a soft grid of mullions on the glazed face "
            + "behind the peak.",
@@ -2995,12 +3009,36 @@ export const CATALOGUE = [
     produces: "solid",
     //! Its code declares arguments of its own; see F.spec.
     declares: true,
+    //! And it may name PIECES of what it builds. One Output node is kept
+    //! under it per name, so what a script makes can be taken apart and fed
+    //! on without the script being run again. See PARTS_TAG and runOutputs.
+    publishes: true,
     summary: "The same written feature, starting from a different sample: a lofted "
            + "shell taken in bands with a gap between each, after Heydar Aliyev. The "
            + "driver surface is never built - only the bands cut from it.",
     args: [code("code", "Code", HEYDAR),
            refs("points", "Points", ["point"]),
            refs("curves", "Curves", ["curve"])] },
+
+  //! ONE NAMED PIECE OF WHAT A SCRIPT BUILT. Made by the script that declares
+  //! it and filed under it, so a script with three outputs reads as three
+  //! rows in the tree and three nodes in the graph - and each of them is an
+  //! ordinary feature, so it can be wired into anything that takes what it
+  //! gives. The shape is SHARED with the script's own, the way an Instance
+  //! shares a part's: it costs a handle and no geometry.
+  //!
+  //! Hidden from the toolbar because there is nothing to add - it exists
+  //! when a script says it does, and goes when the script stops saying so.
+  { type: "Output", guid: "9a1b2c30-0033-4c00-9e00-caf000000033",
+    category: "operation", produces: "solid", hidden: true,
+    summary: "One named piece of what a script built - its massing, say, apart from "
+           + "its squares. The script declares the names; this is the node that "
+           + "carries one of them, so it can be deformed, cut, measured or exported "
+           + "on its own. It is the same geometry as the script's and not a copy, "
+           + "which is what makes it free - and means the two share a tessellation "
+           + "as well, so a part drawn on its own may fix how the whole is drawn.",
+    args: [ref("from", "From", ["solid", "mesh", "curve", "plane", "point"]),
+           text("part", "Output", "", "which of the script's outputs this is")] },
 
   /* --------------------------------------------------------------- mesh
      A polymesh: vertices, and faces of any number of sides. Not a B-Rep -
@@ -4035,6 +4073,21 @@ export const DECLARED_TAG_BASE = 200, DECLARED_TAG_LIMIT = 300;
 //! suite, which is the check that would have said it first.
 export const PENDING_TAG = 57;
 
+//! WHAT A FEATURE PUBLISHED BESIDE ITS RESULT: named pieces of what it built,
+//! each on a child label carrying its name and its own TNaming_NamedShape.
+//!
+//! A feature still has exactly ONE result, and this is not a second one. It is
+//! the pieces that result was assembled from, kept so that something
+//! downstream can be handed one of them without the thing being built again -
+//! a script that makes a city publishes its massing and its squares, and a
+//! deformer can be wired to the massing alone.
+export const PARTS_TAG = 58;
+//! And what it SAYS it will publish, as JSON, declared before it runs - the
+//! same discipline as a script's parameters, and for the same reason: the
+//! outputs have to be known to make the nodes that carry them, and compiling
+//! the code to find out would mean running it twice.
+export const OUTPUTS_TAG = 59;
+
 //! THE CONTAINERS THAT ARE ALSO BODIES. A folder produces nothing and so has
 //! never taken part in the regeneration order; these produce the compound of
 //! what is filed in them, which makes them depend on all of it. Named in one
@@ -4586,6 +4639,51 @@ export const F = {
     if (label) f.dropChild(PENDING_TAG);
   },
 
+  //! THE PIECES A FEATURE PUBLISHED. See PARTS_TAG.
+  partsLabel: (f, create = false) => (f ? f.findChild(PARTS_TAG, create) : null),
+  partNames(f) {
+    const label = F.partsLabel(f);
+    if (!label) return [];
+    return label.childList().map(one => one.attr.TDataStd_Name).filter(Boolean);
+  },
+  partShape(f, name) {
+    const label = F.partsLabel(f);
+    if (!label || !name) return null;
+    for (const one of label.childList())
+      if (one.attr.TDataStd_Name === name) return one.attr.TNaming_NamedShape || null;
+    return null;
+  },
+  //! Replaces the lot, releasing what was there. Called on every successful
+  //! build, with {} for the features that publish nothing - a script that
+  //! stopped declaring an output must not leave the old one behind for an
+  //! Output node to keep reading.
+  setParts(f, parts, release) {
+    const names = Object.keys(parts || {});
+    const label = F.partsLabel(f, names.length > 0);
+    if (!label) return null;
+    for (const one of label.childList())
+      if (one.attr.TNaming_NamedShape && release) release(one.attr.TNaming_NamedShape);
+    label.children.clear();
+    label.nextTag = 0;
+    for (const name of names) {
+      if (!parts[name]) continue;
+      const child = label.newChild();
+      child.attr.TDataStd_Name = name;
+      child.attr.TNaming_NamedShape = parts[name];
+    }
+    return label;
+  },
+
+  //! What the code says it will publish. See OUTPUTS_TAG.
+  outputSpecs(f) {
+    const label = f && f.findChild(OUTPUTS_TAG);
+    if (!label || typeof label.attr.TDataStd_AsciiString !== "string") return [];
+    try { return JSON.parse(label.attr.TDataStd_AsciiString); } catch (e) { return []; }
+  },
+  setOutputSpecs(f, outputs) {
+    f.findChild(OUTPUTS_TAG, true).attr.TDataStd_AsciiString = JSON.stringify(outputs || []);
+  },
+
   paramSpecs(f) {
     const label = f.findChild(SPECS_TAG);
     if (!label || typeof label.attr.TDataStd_AsciiString !== "string") return [];
@@ -5023,12 +5121,19 @@ export class Driver {
     const bare = built && typeof built.ShapeType === "function";
     const shape = bare ? built : (built && built.shape) || null;
     const data = bare ? null : (built && built.data) || null;
+    //! AND IT MAY NAME PIECES OF WHAT IT BUILT. See PARTS_TAG - the result is
+    //! still one shape; these are the pieces it was made of, published so an
+    //! Output node can hand one of them on. Written on every success, with
+    //! nothing for the drivers that publish nothing, so a script that stops
+    //! declaring an output does not leave the old one readable.
+    const parts = bare ? null : (built && built.parts) || null;
     if (!shape && !data) return this.fail(f, "the driver produced nothing");
 
     const result = F.resultLabel(f, true);
     if (result.attr.TNaming_NamedShape) this.release(result.attr.TNaming_NamedShape);
     result.attr.TNaming_NamedShape = shape;
     const dataLabel = F.setData(f, data);
+    F.setParts(f, parts || {}, this.release);
 
     F.setNote(f, (built && built.note) || "");
     F.setError(f, "");
@@ -5133,10 +5238,24 @@ export class Doc {
     if (!spec) throw new Error('unknown feature type "' + type + '"');
     if (id && this.find(id)) throw new Error('duplicate feature id "' + id + '"');
 
+    //! THE NAMES ARE SETTLED BEFORE THE LABEL EXISTS, and that order is the
+    //! whole of this comment. uniqueId and uniqueName both ask the document
+    //! what is already in it; asking rebuilds the feature list when it is
+    //! stale; and a rebuild that happens AFTER newChild() already contains
+    //! the new label - so the push at the bottom then files it a second time
+    //! and the document reports one feature twice, with one id, for ever.
+    //!
+    //! It took a feature that deletes and adds in the same breath to show it.
+    //! Nothing did until runOutputs: a generator's adds carry their ids with
+    //! them, so uniqueId is never called and the list is never rebuilt in the
+    //! gap. The symptom was a renamed script output appearing twice in the
+    //! tree and twice in the saved file.
+    const mintedId = id || this.uniqueId(type);
+    const mintedName = name || this.uniqueName(type);
     const f = this.featuresRoot.newChild();
     f.attr.TFunction_Function = spec.guid;
-    f.attr.TDataStd_AsciiString = id || this.uniqueId(type);
-    f.attr.TDataStd_Name = name || this.uniqueName(type);
+    f.attr.TDataStd_AsciiString = mintedId;
+    f.attr.TDataStd_Name = mintedName;
     //! FOLDED INTO THE INDEXES rather than invalidating them. Reading a
     //! building is nine thousand adds, and a rebuilt index on each one is the
     //! walk per add that the index was there to remove - measured at about
@@ -5239,7 +5358,13 @@ export class Doc {
   //! make a tree stop being one.
   setParent(f, container) {
     if (container) {
-      if (!this.isContainer(container))
+      //! A SET HOLDS THINGS, AND SO DOES A FEATURE THAT PUBLISHES. A script
+      //! that names pieces of what it built files one Output node under
+      //! itself per name - it is a body with its own outputs hanging off it,
+      //! not a folder - and those rows have to be filed somewhere. Refusing
+      //! them here meant the nodes were made, written into the file, and
+      //! then refused when the file was opened again.
+      if (!this.isContainer(container) && !F.spec(container).publishes)
         throw new Error(F.name(container) + " is not a set - only a set holds things");
       if (container === f) throw new Error("a set cannot be put inside itself");
       for (let up = F.parent(container); up; up = F.parent(up))
@@ -5713,6 +5838,22 @@ export class Doc {
         for (const source of sources)
           if (source && !F.pinnedShown(source)) F.setVisible(source, false);
       }
+    //! AND A FEATURE WHOSE PIECES ARE BEING DRAWN DOES NOT DRAW ITSELF. A
+    //! script that publishes its massing and its squares has them on screen
+    //! as two nodes; drawn as well it is drawn twice - twice the triangles,
+    //! and a flicker where the two copies of one face meet. It is the same
+    //! argument as the consumption rule above and it is checked in the same
+    //! place, including the pin: an author who wants to see the whole as
+    //! well presses the eye and it stays pressed.
+    //!
+    //! The contract that makes this right is the script's own: what it
+    //! publishes should BE what it built. Publish one piece of three and one
+    //! piece of three is what is drawn.
+    for (const f of features) {
+      if (F.spec(f).type !== "Output") continue;
+      const holder = F.parent(f);
+      if (holder && !F.pinnedShown(holder)) F.setVisible(holder, false);
+    }
   }
   //! WHAT SWALLOWED THIS ONE - a fillet's cube, a boolean's two bodies.
   //!

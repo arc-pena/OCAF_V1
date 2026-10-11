@@ -984,7 +984,21 @@ export class GraphEditor {
   //! What is drawn right now: whatever is filed directly in the graph you are
   //! looking at. A set among them is drawn collapsed, contents and all.
   onStage(features) {
-    return features.filter(one => (one.parent || null) === this.inside);
+    //! BY THE NEAREST SET ABOVE IT, not by the parent. A set is a node you
+    //! step into, so what is filed in one belongs to that graph and not to
+    //! this one - but a script that publishes outputs files them under
+    //! itself WITHOUT being a set, and read by the parent alone those nodes
+    //! were in no graph at all: not on the stage, because their parent is
+    //! not null, and not inside anything, because a script is not a set you
+    //! can step into.
+    const by = new Map(features.map(one => [one.id, one]));
+    const holder = one => {
+      for (let up = one.parent ? by.get(one.parent) : null, guard = 0;
+           up && guard < 200; up = up.parent ? by.get(up.parent) : null, guard++)
+        if (this.isSet(up)) return up.id;
+      return null;
+    };
+    return features.filter(one => holder(one) === this.inside);
   }
 
   //! Everything inside a set, at any depth - what it swallowed.

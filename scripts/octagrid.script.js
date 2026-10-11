@@ -153,6 +153,16 @@
                                             "The plan only"], def: 0 },
   ],
 
+  //! WHAT IT PUBLISHES. The whole plan is still what the feature itself
+  //! gives; these are the three things it is made of, each carried by a node
+  //! of its own under this one, so the massing can be deformed, cut, measured
+  //! or exported without the squares and the setting-out lines coming too.
+  outputs: [
+    { key: "massing", label: "Massing" },
+    { key: "plazas", label: "Plazas" },
+    { key: "setting", label: "Setting out" },
+  ],
+
   SITE: [
     [430300, 766300], [452200, 835300], [7300, 856500], [2100, 780900], [0, 704200],
     [400, 681200], [1200, 658300], [2500, 635600], [4300, 613000], [6600, 590500],
@@ -819,6 +829,11 @@
     const made = this.plan(p);
     const show = Math.round(p.show);
     const parts = [];
+    //! THE THREE THINGS THIS PLAN IS, kept apart as they are made. The whole
+    //! is still what the feature gives; these are what the Output nodes under
+    //! it carry, so the massing can be deformed, cut or exported without the
+    //! squares and the setting-out lines coming with it.
+    const massing = [], squares = [], setting = [];
 
     //! REFUSED BY NAME, not by an empty compound. The plaza rule is a rule
     //! about the ground - ten metres, never squarer than root two - and a
@@ -835,9 +850,10 @@
         + (made.refusedPlaza ? " — " + made.refusedPlaza + " cells were refused" : ""));
     }
 
+    const keep = (one, into) => { parts.push(one); into.push(one); return one; };
     for (const block of made.blocks) {
       const base = k.polyline(block.ring.map(q => [q[0], q[1], 0]), { closed: true });
-      if (show === 2 || block.height < 1 || !block.plane) { parts.push(k.face(base)); continue; }
+      if (show === 2 || block.height < 1 || !block.plane) { keep(k.face(base), massing); continue; }
       const pl = block.plane;
       const z = q => pl.z + pl.bx * (q[0] - pl.at[0]) + pl.by * (q[1] - pl.at[1]);
       const tilt = Math.hypot(pl.bx, pl.by);
@@ -845,16 +861,16 @@
       //! millimetre of fall across the whole block the two are the same
       //! solid, and the prism is the one that cannot produce a degenerate
       //! ruled face - so the cheap path is taken when it is honest to.
-      if (tilt < 1e-6) { parts.push(k.prism(k.face(base), [0, 0, pl.z])); continue; }
+      if (tilt < 1e-6) { keep(k.prism(k.face(base), [0, 0, pl.z]), massing); continue; }
       const top = k.polyline(block.ring.map(q => [q[0], q[1], Math.max(1, z(q))]),
                              { closed: true });
-      parts.push(k.loft([base, top], { solid: true, ruled: true }));
+      keep(k.loft([base, top], { solid: true, ruled: true }), massing);
     }
     //! The plazas are drawn flat, always: they are the thing between the
     //! buildings and a plan without them is a plan of islands.
     if (show !== 1)
       for (const plaza of made.plazas)
-        parts.push(k.face(k.polyline(plaza.ring.map(q => [q[0], q[1], 0]), { closed: true })));
+        keep(k.face(k.polyline(plaza.ring.map(q => [q[0], q[1], 0]), { closed: true })), squares);
 
     //! THE ATTRACTOR, drawn where it is: a ring at its reach and a mast at
     //! its centre. A slider pair you cannot see the effect of is a slider
@@ -867,19 +883,30 @@
       }
       return k.polyline(run, { closed: true });
     };
-    parts.push(circleAt(p.atX, p.atY, p.reach));
-    parts.push(k.polyline([[p.atX, p.atY, 0],
-                           [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]));
+    keep(circleAt(p.atX, p.atY, p.reach), setting);
+    keep(k.polyline([[p.atX, p.atY, 0],
+                     [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]), setting);
     //! The void's ring too, and the smaller ring where its cut bites - the
     //! line inside which nothing is built. Two attractors you cannot see are
     //! two attractors nobody will move.
-    parts.push(circleAt(p.voidX, p.voidY, p.voidReach));
+    keep(circleAt(p.voidX, p.voidY, p.voidReach), setting);
     const cut = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
     let bite = 0;
     for (let i = 100; i >= 0; i--)
       if (this.falloffAt(cut, 1 - i / 100) >= p.voidCut) { bite = i / 100; break; }
-    if (bite > 0) parts.push(circleAt(p.voidX, p.voidY, p.voidReach * bite));
-    parts.push(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }));
-    return k.compound(parts);
+    if (bite > 0) keep(circleAt(p.voidX, p.voidY, p.voidReach * bite), setting);
+    keep(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }), setting);
+    //! AND THE THREE, PUBLISHED. An empty one would be an output carrying
+    //! nothing, which the kernel refuses by name - so a setting with no
+    //! massing in it (every plot given to the void, say) publishes the site
+    //! line it always has rather than an empty compound.
+    return {
+      shape: k.compound(parts),
+      parts: {
+        massing: k.compound(massing.length ? massing : setting),
+        plazas: k.compound(squares.length ? squares : setting),
+        setting: k.compound(setting),
+      },
+    };
   },
 })
