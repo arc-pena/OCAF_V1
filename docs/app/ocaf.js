@@ -1307,10 +1307,19 @@ export const SAMPLES = [
            + "the city answers. A Number node drives the base height, because every "
            + "parameter a script declares is an argument on the node now and any of "
            + "them can take a wire. Open it straight from a link ending "
-           + "#octagon-plan. 10 nodes and 38 sliders - and three OUTPUTS under the "
-           + "script, which appear by themselves because the code declares them: "
-           + "the massing, the plazas and the setting out, each a node you can wire "
-           + "into anything. Deform the massing and the squares stay where they are." },
+           + "#octagon-plan. 19 nodes and 38 sliders. What it builds is a POLYMESH "
+           + "- n-gons, 728 vertices for the massing against 2,184 triangles of "
+           + "tessellated B-Rep, with every arris creased so a Mesh to NURBS gives "
+           + "the solid back square - and it publishes three OUTPUTS, which appear "
+           + "by themselves because the code declares them: the massing and the "
+           + "plazas as meshes, the setting out as curves, each a node you can wire "
+           + "into anything. The sample does exactly that: a CAGE round the massing "
+           + "alone, a copy of that cage pulled 45 m towards the east corner of the "
+           + "site through a soft selection, and the massing carried through the "
+           + "difference by a Cage morph - so the blocks lean east and reach 25 m "
+           + "further while the squares and the setting-out lines, which are not in "
+           + "the cage, do not move at all. Take the pull back to nought and the "
+           + "morph is the plan again, which is the way to see what it did." },
 
   //! A SCRIPT FEATURE AS THE WHOLE MODEL, which is the other way of using
   //! this program: nineteen sliders and a hundred lines of plane geometry,
@@ -2977,6 +2986,15 @@ export const CATALOGUE = [
     //! under it per name, so what a script makes can be taken apart and fed
     //! on without the script being run again. See PARTS_TAG and runOutputs.
     publishes: true,
+    //! And what it builds may be a polymesh rather than a B-Rep - see
+    //! kindOf, which answers with what it actually made.
+    eitherWay: true,
+    //! And what it builds may be a polymesh rather than a B-Rep - see
+    //! kindOf, which answers with what it actually made.
+    eitherWay: true,
+    //! And what it builds may be a polymesh rather than a B-Rep - see
+    //! kindOf, which answers with what it actually made.
+    eitherWay: true,
     summary: "A feature you write. The code declares its own parameters and returns "
            + "a shape, so anything this build can make can become a feature. "
            + "This one starts as a spiral stair. Wire POINTS and CURVES into it and "
@@ -2985,7 +3003,12 @@ export const CATALOGUE = [
            + "points to pull a plan along. They arrive in the order they are wired. "
            + "It can also NAME the pieces of what it builds: declare them in "
            + "outputs and return { shape, parts }, and each one gets a node of its "
-           + "own under this one, to be deformed or cut or exported on its own.",
+           + "own under this one, to be deformed or cut or exported on its own. "
+           + "And it can build a POLYMESH instead of a solid - return "
+           + "{ mesh: { points, faces, creases } } - which for anything with a lot "
+           + "of pieces in it is a fraction of the memory and goes straight into "
+           + "every mesh tool there is. Crease the arrises and Mesh to NURBS gives "
+           + "the solid back with its corners still sharp.",
     //! APPENDED, as everything here is: \p code stays argument nought, so every
     //! file written before these existed reads its script off the same label.
     args: [code("code", "Code", SPIRAL_STAIR),
@@ -3031,6 +3054,9 @@ export const CATALOGUE = [
   //! when a script says it does, and goes when the script stops saying so.
   { type: "Output", guid: "9a1b2c30-0033-4c00-9e00-caf000000033",
     category: "operation", produces: "solid", hidden: true,
+    //! The piece it carries is whatever the script published - a solid, or
+    //! a mesh. See kindOf.
+    eitherWay: true,
     summary: "One named piece of what a script built - its massing, say, apart from "
            + "its squares. The script declares the names; this is the node that "
            + "carries one of them, so it can be deformed, cut, measured or exported "
@@ -3336,19 +3362,40 @@ export const CATALOGUE = [
 
   { type: "CageLattice", guid: "9a1b2c30-0165-4c00-9e00-caf000000165", category: "mesh",
     produces: "mesh",
-    summary: "A box of control points round a mesh, as an ordinary mesh - which is "
+    summary: "A box of control points round something, as an ordinary mesh - which is "
            + "what makes this different from an FFD modifier. Deform THIS with "
            + "anything that deforms a mesh and wire both it and this original into a "
            + "Cage morph, and the model follows. The lattice is hollow: the "
            + "coordinates the morph uses act through the cage's surface, so a control "
            + "point inside the box would have no effect and none is made. \p padding "
            + "stands it off the model, which is what you want when the deformation "
-           + "has to fall away to nothing at the ends.",
-    args: [ref("mesh", "Mesh to fit round", ["mesh"]),
+           + "has to fall away to nothing at the ends.\n\n"
+           + "A SOLID WILL DO as well as a mesh: a lattice needs nothing but the "
+           + "extents of what it goes round, so a body - or a script's massing - can "
+           + "be wired straight in without being tessellated first.\n\n"
+           + "BOX says where the eight corners are. On the input's bounding box it "
+           + "follows whatever is wired in, which is what you want while the model is "
+           + "being designed; on a typed size it holds still, which is what you want "
+           + "once a morph is hanging off it - a cage that resizes under you moves "
+           + "every control point and the deformation with it. Putting it back on the "
+           + "bounding box is the reset: the typed numbers are left alone and ignored, "
+           + "and the cage is the input's box again.",
+    //! APPENDED, as everything here is: `mesh` stays argument nought and the
+    //! four numbers keep their places, so every file written before the box
+    //! had a choice reads its lattice off the same labels.
+    args: [ref("mesh", "Fit round", ["mesh", "solid", "plane"]),
            real("nx", "Divisions in X", 2, 1, 32, 1, ""),
            real("ny", "Divisions in Y", 2, 1, 32, 1, ""),
            real("nz", "Divisions in Z", 2, 1, 32, 1, ""),
-           real("padding", "Stand-off", 0, 0, 100000, 1)] },
+           real("padding", "Stand-off", 0, 0, 100000, 1),
+           choice("fit", "Box", ["The input's bounding box", "A size I type"], 0),
+           when(real("sizeX", "Width", 1000, 1, 10000000, 10), "fit", 1),
+           when(real("sizeY", "Depth", 1000, 1, 10000000, 10), "fit", 1),
+           when(real("sizeZ", "Height", 1000, 1, 10000000, 10), "fit", 1),
+           //! Unwired it is the input's own middle, so typing a size alone
+           //! gives a box centred on the model rather than one at the origin
+           //! with the model somewhere off to one side.
+           when(ref("at", "Centre on", ["point"]), "fit", 1)] },
 
   { type: "CageMorph", guid: "9a1b2c30-0166-4c00-9e00-caf000000166", category: "mesh",
     produces: "mesh",
@@ -3362,7 +3409,12 @@ export const CATALOGUE = [
            + "case. The two cages have to be the same cage with its points moved; a "
            + "cage subdivided or welded in between is refused by name rather than "
            + "deforming by the difference between two unrelated meshes.",
-    args: [ref("mesh", "Mesh", ["mesh"], true),
+    //! A SOLID IS TAKEN TOO, and tessellated here at the standard deflection.
+    //! Morphing a B-Rep is not a thing that can be done - mean value
+    //! coordinates move POINTS - so something has to make the mesh, and
+    //! refusing the wire sent people looking for which node that was. The
+    //! note says it happened and what to put in front to choose the quality.
+    args: [ref("mesh", "Mesh", ["mesh", "solid"], true),
            ref("rest", "Cage as it was", ["mesh"]),
            ref("moved", "Cage as it is now", ["mesh"])] },
 
@@ -4647,10 +4699,23 @@ export const F = {
     return label.childList().map(one => one.attr.TDataStd_Name).filter(Boolean);
   },
   partShape(f, name) {
+    const got = F.partOf(f, name);
+    return (got && got.shape) || null;
+  },
+  //! ONE PIECE, WHICHEVER IT IS. A script that builds solids publishes
+  //! shapes; one that builds polymeshes publishes meshes, and a plan does
+  //! both - its massing as a mesh, its setting-out lines as curves. So a
+  //! part is { shape } or { data } and the Output node hands on whichever
+  //! it finds.
+  partOf(f, name) {
     const label = F.partsLabel(f);
     if (!label || !name) return null;
-    for (const one of label.childList())
-      if (one.attr.TDataStd_Name === name) return one.attr.TNaming_NamedShape || null;
+    for (const one of label.childList()) {
+      if (one.attr.TDataStd_Name !== name) continue;
+      if (one.attr.TNaming_NamedShape) return { shape: one.attr.TNaming_NamedShape };
+      const data = F.readData(one);
+      return data ? { data } : null;
+    }
     return null;
   },
   //! Replaces the lot, releasing what was there. Called on every successful
@@ -4663,13 +4728,20 @@ export const F = {
     if (!label) return null;
     for (const one of label.childList())
       if (one.attr.TNaming_NamedShape && release) release(one.attr.TNaming_NamedShape);
+    //! Mesh parts need no releasing: they are arrays of numbers on a label,
+    //! not handles into the kernel's heap.
     label.children.clear();
     label.nextTag = 0;
     for (const name of names) {
-      if (!parts[name]) continue;
+      const piece = parts[name];
+      if (!piece) continue;
       const child = label.newChild();
       child.attr.TDataStd_Name = name;
-      child.attr.TNaming_NamedShape = parts[name];
+      //! A shape, or a mesh. Told apart by what a shape IS - the kernel's
+      //! own object answers IsNull - rather than by a flag somebody has to
+      //! remember to set.
+      if (typeof piece.IsNull === "function") child.attr.TNaming_NamedShape = piece;
+      else F.writeData(child, piece);
     }
     return label;
   },
@@ -4836,7 +4908,13 @@ export const F = {
     };
   },
   setData(f, data) {
-    const label = F.dataLabel(f, true);
+    return F.writeData(F.dataLabel(f, true), data);
+  },
+  //! The same attributes, onto whichever label is being asked to hold them -
+  //! a feature's own data label, or one of the PARTS a feature published,
+  //! which carry meshes exactly as a feature does. One writer, because two
+  //! would be two formats the moment either was changed.
+  writeData(label, data) {
     if (!data) {
       label.attr.TDataStd_AsciiString = "";
       label.attr.TDataStd_RealArray = [];
@@ -4850,6 +4928,21 @@ export const F = {
     label.attr.TDataStd_IntegerArray = data.faces || [];
     label.attr.TDataStd_Integer = (data.smooth ? 1 : 0) | (data.heat ? 2 : 0);
     return label;
+  },
+  //! And back off a label that is not a feature's own.
+  readData(label) {
+    if (!label || !label.attr.TDataStd_AsciiString) return null;
+    const kind = label.attr.TDataStd_AsciiString;
+    return {
+      kind,
+      stride: kind === "point" || kind === "vector" || kind === "mesh"
+           || kind === "axis" ? 3 : 1,
+      values: label.attr.TDataStd_RealArray || [],
+      lines: label.attr.TDataStd_ExtStringArray || [],
+      faces: label.attr.TDataStd_IntegerArray || [],
+      smooth: !!(label.attr.TDataStd_Integer & 1),
+      heat: !!(label.attr.TDataStd_Integer & 2),
+    };
   },
   //! Points and vectors read back as triples, which is how every driver wants
   //! them and how the interface previews them.
@@ -5655,7 +5748,13 @@ export class Doc {
       throw new Error(F.name(f) + " has no input '" + key + "'");
     if (target) {
       const accepts = arg.kind === "ref" || arg.kind === "refs" ? arg.accepts : ["number"];
-      const gives = F.spec(target).produces;
+      //! WHAT IT GIVES, not what its type declares. These are the same for
+      //! almost everything; where they differ - a transform carrying a
+      //! curve through, a script that built a mesh - the interface was
+      //! already offering the wire off kindOf and the document was refusing
+      //! it off produces, which is the disagreement the comment above warns
+      //! about, seen from the other side.
+      const gives = this.kindOf(target);
       //! BY KIND, OR BY TYPE - the same rule acceptsFrom uses, because these
       //! two are the same question asked twice: acceptsFrom decides which wires
       //! the interface will OFFER and this decides which the document will
@@ -5892,6 +5991,15 @@ export class Doc {
   kindOf(f, seen = null) {
     const spec = F.spec(f);
     if (!spec) return null;
+    //! WHAT IT MADE BEATS WHAT ITS TYPE SAYS, for the types that can make
+    //! either. A script returns a shape or a polymesh - a masterplan is far
+    //! lighter as n-gons than as a thousand B-Rep prisms, and every mesh
+    //! tool then works on it directly - and what it hands downstream has to
+    //! say which, or a mesh input will not take it and a solid input will.
+    if (spec.eitherWay) {
+      const data = F.data(f);
+      if (data && data.kind === "mesh") return "mesh";
+    }
     if (!spec.passes) return spec.produces;
     const guard = seen || new Set();
     if (guard.has(f)) return spec.produces;
@@ -6481,7 +6589,15 @@ export function previewData(data, limit = 6) {
   if (SAID_AS_JSON.has(data.kind)) return data.lines[0] || "";
   if (data.kind === "mesh") {
     const tally = meshTally(data);
-    return (data.values.length / 3) + " vertices · " + (tally || "no faces");
+    //! AND HOW MANY OF ITS EDGES ARE ARRISES. A crease is the difference
+    //! between a cage that converts to a box and one that converts to a
+    //! pebble, and it is carried on the mesh where nothing else shows it:
+    //! the vertex count is the same either way, and so is the picture until
+    //! something subdivides. Said only when there are some, so a mesh that
+    //! has never been creased reads exactly as it always did.
+    const sharp = Object.keys(meshCreases(data).creases).length;
+    return (data.values.length / 3) + " vertices · " + (tally || "no faces")
+      + (sharp ? " · " + sharp + " creased edges" : "");
   }
   if (data.lines.length)
     return data.lines.slice(0, limit).join(" · ")

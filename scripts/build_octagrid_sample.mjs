@@ -63,7 +63,59 @@ const model = {
               height: { value: 28000, from: "N_HEIGHT" },
               splineGap: 12000 },
       appearance: { finish: "concrete" } },
+
+    //! THE THREE OUTPUTS, WRITTEN DOWN rather than left to appear. The script
+    //! declares them and the kernel makes one node per name on its own, with
+    //! ids of its own - which is fine until something in the file has to
+    //! WIRE to one. Named here, the reconciler finds them already there and
+    //! leaves them alone, and the cage below can point at the massing.
+    { id: "O_MASS", type: "Output", name: "Massing", parent: "PLAN",
+      args: { from: ref("PLAN"), part: "massing" } },
+    { id: "O_PLAZ", type: "Output", name: "Plazas", parent: "PLAN",
+      args: { from: ref("PLAN"), part: "plazas" } },
+    { id: "O_SET", type: "Output", name: "Setting out", parent: "PLAN",
+      args: { from: ref("PLAN"), part: "setting" } },
+
+    /* ------------------------------------- and a cage edit over the top of it
+
+       THE POINT OF THE OUTPUTS, demonstrated: a lattice round the MASSING
+       alone, a copy of it pulled towards the east corner of the site, and the
+       massing carried through the difference. The squares and the setting-out
+       lines are not in the cage and do not move, which is the whole reason
+       the script publishes three things rather than one.
+
+       The lattice takes the massing - a solid - straight in: a cage needs
+       nothing but the extents of what it goes round. The morph takes it
+       straight in too and tessellates it, and says so in its note.        */
+
+    //! The site's easternmost corner, which is a real vertex of the boundary.
+    point("C_EAST", "Site corner", 602000, 320300),
+    { id: "V_PULL", type: "Vector", name: "Towards the corner",
+      args: { dx: 0.927, dy: -0.375, dz: 0 } },
+
+    { id: "CAGE", type: "CageLattice", name: "Cage round the massing",
+      args: { mesh: ref("O_MASS"), nx: 3, ny: 3, nz: 2, padding: 20000,
+              fit: "The input's bounding box" } },
+    //! A soft selection made of the corner point: the control points nearest
+    //! it are fully selected and it falls away to nothing 400 m out, so the
+    //! cage is pulled at one end and held at the other.
+    { id: "CSEL", type: "SoftSelect", name: "Near the corner",
+      args: { mesh: ref("CAGE"), attractors: [ref("C_EAST")],
+              radius: 400000, falloff: "Smooth" } },
+    { id: "CPULL", type: "CageDeform", name: "Pull towards the corner",
+      args: { mesh: ref("CSEL"), kind: "Move", by: ref("V_PULL"), distance: 45000 } },
+    { id: "MORPH", type: "CageMorph", name: "Massing, morphed",
+      args: { mesh: ref("O_MASS"), rest: ref("CAGE"), moved: ref("CPULL") },
+      appearance: { finish: "concrete" } },
   ],
+  //! THE DEFORMED CAGE IS PUT AWAY, because it is a box the size of the
+  //! whole city and shaded like everything else: left on, it is all you see
+  //! - the first screenshot of this sample was a grey box with a site
+  //! boundary peeping out from under it. The eye in the tree brings it back,
+  //! which is what you do when you want to push its control points about.
+  //! The cage it came from and the soft selection on it are already away,
+  //! having been eaten by the two nodes that read them.
+  hidden: ["CPULL"],
 };
 
 /* ------------------------------------------------- built before it is written */
@@ -107,9 +159,72 @@ for (const kid of kids) {
   const got = (await kernel.mesh([kid.id])).features[0];
   const n = got ? got.triangles : 0;
   const edges = got && got.edges ? got.edges.length : 0;
-  say("  " + kid.name + ": " + n + " triangles, " + edges + " edges"
-      + (kid.error ? "  ERROR " + kid.error : ""));
+  say("  " + kid.name + ": " + n + " triangles, " + edges + " edges, gives "
+      + kid.produces + (kid.error ? "  ERROR " + kid.error : ""));
   if (kid.error || (!n && !edges)) { say("  ^ it carries nothing - not written"); bad++; }
+}
+//! N-GONS, NOT B-REP, which is what makes every mesh tool downstream work
+//! without a conversion node and what makes this a tenth of the memory. The
+//! massing and the plazas are meshes; the setting out is curves, because a
+//! line on the ground is not a surface.
+{
+  const plan = await says("PLAN");
+  const kinds = kids.map(f => f.name + "=" + f.produces).join(" ");
+  say("the plan gives " + plan.produces + " \u00b7 " + kinds);
+  if (plan.produces !== "mesh") { say("  ^ the plan is not a mesh - not written"); bad++; }
+  const want = { Massing: "mesh", Plazas: "mesh", "Setting out": "solid" };
+  for (const kid of kids)
+    if (kid.produces !== want[kid.name]) {
+      say("  ^ " + kid.name + " gives " + kid.produces + ", wanted " + want[kid.name]
+          + " - not written");
+      bad++;
+    }
+  //! AND THE ARRISES ARE MARKED. Every edge of a building is one, and a
+  //! Mesh to NURBS downstream reads exactly this to keep the city square
+  //! rather than rounding it off.
+  const mass = await says("O_MASS");
+  const creased = mass.data && mass.data.preview || "";
+  say("the massing's mesh: " + creased);
+  if (!/crease/.test(creased)) {
+    say("  ^ the massing carries no creases, so a conversion would round it off"
+        + " - not written");
+    bad++;
+  }
+}
+
+//! AND THE CAGE EDIT OVER THE TOP. Four nodes that have to build, and one
+//! claim that is the whole reason they are here: the massing moves and the
+//! squares do not. Measured as the eastern edge of each, because the pull is
+//! eastward and that is the number it changes.
+const spanOf = async (id, axis) => {
+  const got = (await kernel.mesh([id])).features[0];
+  if (!got || !got.positions.length) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = axis; i < got.positions.length; i += 3) {
+    if (got.positions[i] < lo) lo = got.positions[i];
+    if (got.positions[i] > hi) hi = got.positions[i];
+  }
+  return { lo: Math.round(lo / 100) / 10, hi: Math.round(hi / 100) / 10 };
+};
+for (const id of ["CAGE", "CSEL", "CPULL", "MORPH"]) {
+  const node = await says(id);
+  say(node.name + ": " + (node.error ? "FAILED \u2014 " + node.error
+                                     : (node.note || "built")));
+  if (node.error) bad++;
+}
+{
+  const was = await spanOf("O_MASS", 0), now = await spanOf("MORPH", 0);
+  const squares = await spanOf("O_PLAZ", 0);
+  say("massing " + (was ? was.lo + ".." + was.hi : "?") + " m east, morphed "
+      + (now ? now.lo + ".." + now.hi : "?") + " m, squares "
+      + (squares ? squares.lo + ".." + squares.hi : "?") + " m");
+  if (!now || !was || Math.abs(now.hi - was.hi) < 5) {
+    say("  ^ the cage did not move the massing - not written"); bad++;
+  }
+  if (!squares || Math.abs(squares.hi - 519.5) > 1) {
+    say("  ^ the squares moved with it, which is what the outputs are for - not written");
+    bad++;
+  }
 }
 
 //! WHAT IT ACTUALLY MADE, measured off the mesh rather than off the script's

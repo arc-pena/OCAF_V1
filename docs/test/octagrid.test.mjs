@@ -687,12 +687,23 @@ console.log("\n9. built in the real kernel");
   await mdl.run({ op: "model", model: sample });
   const at = async () => (await kernel.tree()).tree.features.find(f => f.id === "PLAN");
   const entry = await at();
-  check("the sample's script builds", entry.built && !entry.error, entry.error || "");
+  //! \p built means "it has a SHAPE". This one builds a MESH, so the honest
+  //! question is whether it ran without complaint and left something behind.
+  check("the sample's script builds", !entry.error && !!entry.data, entry.error || "");
   check("and declares its sliders", (entry.params || []).length === M.params.length,
         (entry.params || []).length + " of " + M.params.length);
 
   const meshOf = async () => (await kernel.mesh(["PLAN"])).features[0];
   const first = await meshOf();
+  //! N-GONS, NOT B-REP, which is what the whole plan is now: the massing is
+  //! a polymesh with every arris creased, so every mesh tool takes it
+  //! directly and a Mesh to NURBS gives the solid back square.
+  check("what the plan builds is a mesh, not a solid", entry.produces === "mesh",
+        entry.produces);
+  check("and it says how many vertices and how many arrises",
+        /vertices/.test((entry.data || {}).preview || "")
+        && /creased edges/.test((entry.data || {}).preview || ""),
+        (entry.data || {}).preview);
   check("it has massing in it", first.triangles > 500, first.triangles + " triangles");
   const zs = [];
   for (let i = 2; i < first.positions.length; i += 3) zs.push(first.positions[i]);

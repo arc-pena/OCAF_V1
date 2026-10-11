@@ -301,5 +301,143 @@ console.log("\n6. wired up in a document");
         (await at(morph.id)).error);
 }
 
+/* ============================================ 7. a cage round a BODY
+
+   A lattice needs nothing but the extents of what it goes round, so making
+   it refuse everything but a polymesh was an arbitrary restriction: a
+   script's massing is a solid, and putting a cage round it meant tessellating
+   a whole masterplan first to get at a number that is six floats.
+
+   The morph is the other half. A B-Rep cannot be bent - mean value
+   coordinates move POINTS - so something has to make the mesh; refusing the
+   wire only sent people looking for which node that was. It makes it, and
+   says in the note that it did.                                           */
+
+console.log("\n7. a cage round a body, and a morph of one");
+{
+  const kernel = await createWasmKernel({ initModule,
+    wasmBinary: readFileSync(WASM_DIR + "/replicad_single.wasm") });
+  const mdl = new Mdl({ kernel, setNode: () => {}, readLayout: () => ({}),
+                        select: () => {}, selected: () => null });
+  const at = async id => (await kernel.tree()).tree.features.find(f => f.id === id);
+
+  //! A 400 x 200 x 100 cube at the origin, so every number below can be read
+  //! off the box on paper before the program is asked.
+  const O = (await mdl.run({ op: "add", type: "Point", name: "O" })).id;
+  const cube = (await mdl.run({ op: "add", type: "Cube", name: "Block",
+                                refs: { origin: O } })).id;
+  for (const [k, v] of [["dx", 400], ["dy", 200], ["dz", 100]])
+    await mdl.run({ op: "set", id: cube, key: k, value: v });
+
+  const lat = (await mdl.run({ op: "add", type: "CageLattice", name: "Cage" })).id;
+  await mdl.run({ op: "connect", id: lat, key: "mesh", from: cube, mode: "only" });
+  const got = await at(lat);
+  check("a solid can be wired straight into a lattice", got.built && !got.error,
+        got.error || got.note);
+  check("and the box is the solid's own, to the millimetre",
+        /400 × 200 × 100 mm box/.test(got.note || ""), got.note);
+  check("which it says is the input's bounding box",
+        /the input's own bounding box/.test(got.note || ""), got.note);
+
+  //! IT FOLLOWS THE INPUT. That is the whole of the default, and it is what
+  //! the typed box below is an alternative TO.
+  await mdl.run({ op: "set", id: cube, key: "dx", value: 900 });
+  check("and it follows the solid when the solid changes",
+        /900 × 200 × 100 mm box/.test((await at(lat)).note || ""), (await at(lat)).note);
+
+  //! AND IT DOES NOT CHANGE WHEN SOMETHING ELSE LOOKS AT THE BODY. A
+  //! bounding box asked for with useTriangulation on comes back with the
+  //! triangulation's deflection added as a gap, so the cage round the
+  //! octagon sample's massing measured 451,491 mm across until the morph
+  //! downstream tessellated the same body and 457,847 mm afterwards - 3,178
+  //! on each side, which is the deflection. A cylinder is used here because
+  //! a box's triangulation is exact and would not show it; a sphere's is the
+  //! furthest from it there is.
+  const round = (await mdl.run({ op: "add", type: "Sphere", name: "Ball",
+                                 refs: { center: O } })).id;
+  await mdl.run({ op: "set", id: round, key: "radius", value: 300 });
+  const lat2 = (await mdl.run({ op: "add", type: "CageLattice", name: "Round it" })).id;
+  await mdl.run({ op: "connect", id: lat2, key: "mesh", from: round, mode: "only" });
+  const clean = (await at(lat2)).note;
+  const tess = (await mdl.run({ op: "add", type: "MeshFromShape", name: "Meshed" })).id;
+  await mdl.run({ op: "connect", id: tess, key: "shape", from: round, mode: "only" });
+  //! THE LATTICE ALONE IS REBUILT, which is the whole of what makes this
+  //! test able to fail. Touching the sphere instead rebuilds the sphere, and
+  //! a freshly built shape carries no triangulation - so the cage would read
+  //! a clean one either way and the check would pass on the bug it is for.
+  //! This is how it goes wrong in a real document: the cage is built, the
+  //! morph downstream tessellates the same body, and the NEXT thing that
+  //! touches the cage reads a box with the deflection added to it.
+  await mdl.run({ op: "set", id: lat2, key: "padding", value: 0 });
+  check("the box is the geometry's, so tessellating the body elsewhere does not move it",
+        (await at(lat2)).note === clean,
+        clean + "\n        became " + (await at(lat2)).note);
+
+  //! A TYPED BOX HOLDS STILL, which is what you want once a morph hangs off
+  //! it: a cage that resizes under you moves every control point, and the
+  //! deformation with it.
+  await mdl.run({ op: "set", id: lat, key: "fit", value: 1 });
+  for (const [k, v] of [["sizeX", 1000], ["sizeY", 600], ["sizeZ", 400]])
+    await mdl.run({ op: "set", id: lat, key: k, value: v });
+  check("a typed size is the box instead",
+        /1000 × 600 × 400 mm box/.test((await at(lat)).note || ""), (await at(lat)).note);
+  check("and it says it is no longer following the input",
+        /does not follow the input/.test((await at(lat)).note || ""), (await at(lat)).note);
+  await mdl.run({ op: "set", id: cube, key: "dx", value: 400 });
+  check("so the solid changing leaves it where it was",
+        /1000 × 600 × 400 mm box/.test((await at(lat)).note || ""), (await at(lat)).note);
+
+  //! AND IT SAYS SO WHEN THE MODEL IS NOT IN IT. A mesh outside its cage is
+  //! not refused - the coordinates are defined out there too - it is just
+  //! sent somewhere surprising, which is the failure that looks like a bug
+  //! in the morph rather than a number in the cage.
+  await mdl.run({ op: "set", id: lat, key: "sizeX", value: 100 });
+  check("a typed box the model does not fit in says so",
+        /THE INPUT IS NOT INSIDE IT/.test((await at(lat)).note || ""), (await at(lat)).note);
+
+  //! THE RESET: back on the bounding box, and the cage is the input's again.
+  //! The typed numbers are left alone - they are still there to go back to.
+  await mdl.run({ op: "set", id: lat, key: "fit", value: 0 });
+  const back = await at(lat);
+  check("putting it back on the bounding box is the reset",
+        /400 × 200 × 100 mm box/.test(back.note || "")
+        && /the input's own bounding box/.test(back.note || ""), back.note);
+  check("and the typed size is kept, not thrown away",
+        back.values.sizeY === 600, String(back.values.sizeY));
+
+  //! AND THE MORPH TAKES THE BODY. Moved 50 mm up at the top of the cage, so
+  //! the block's top face must follow and its bottom must not.
+  const mv = (await mdl.run({ op: "add", type: "CageDeform", name: "Lift" })).id;
+  await mdl.run({ op: "connect", id: mv, key: "mesh", from: lat, mode: "only" });
+  await mdl.run({ op: "set", id: mv, key: "kind", value: DEFORMS.indexOf("Scale") });
+  await mdl.run({ op: "set", id: mv, key: "factor", value: 1.5 });
+  const morph = (await mdl.run({ op: "add", type: "CageMorph", name: "Morph" })).id;
+  await mdl.run({ op: "connect", id: morph, key: "mesh", from: cube, mode: "only" });
+  await mdl.run({ op: "connect", id: morph, key: "rest", from: lat, mode: "only" });
+  await mdl.run({ op: "connect", id: morph, key: "moved", from: mv, mode: "only" });
+  const done = await at(morph);
+  check("a solid can be wired into the morph as the thing to deform",
+        done.built && !done.error, done.error || done.note);
+  check("and the note says it tessellated it, and what to use to choose the quality",
+        /tessellated here/.test(done.note || "") && /Mesh from shape/.test(done.note || ""),
+        done.note);
+  //! A scale of 1.5 about the cage's middle, and the cage IS the block's box,
+  //! so the block comes back 600 x 300 x 150 - the one number here that can
+  //! be worked out on paper.
+  const mesh = (await kernel.mesh([morph])).features[0];
+  const span = a => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = a; i < mesh.positions.length; i += 3) {
+      if (mesh.positions[i] < lo) lo = mesh.positions[i];
+      if (mesh.positions[i] > hi) hi = mesh.positions[i];
+    }
+    return hi - lo;
+  };
+  check("and the body came back scaled by exactly what the cage did",
+        Math.abs(span(0) - 600) < 0.5 && Math.abs(span(1) - 300) < 0.5
+        && Math.abs(span(2) - 150) < 0.5,
+        [span(0), span(1), span(2)].map(v => v.toFixed(2)).join(" × "));
+}
+
 console.log(failures ? "\n" + failures + " FAILED" : "\nall good");
 process.exit(failures ? 1 : 0);

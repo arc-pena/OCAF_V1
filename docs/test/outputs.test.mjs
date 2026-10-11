@@ -221,15 +221,15 @@ console.log("\n6. it says what is wrong, on the thing that is wrong");
   })` });
   const f = await at(SC);
   check("a declared output the build did not fill is reported on the script",
-        !!f.error && /output called 'missing'/.test(f.error), f.error || "(no error)");
+        !!f.error && /the output 'missing'/.test(f.error), f.error || "(no error)");
 
   await mdl.run({ op: "code", id: SC, key: "code", text: `({
     params: [], outputs: [{ key: "block" }],
     build(p, k) { return k.box(40, 40, 40); }
   })` });
   const g = await at(SC);
-  check("so is a build that declares outputs and returns a bare shape",
-        !!g.error && /bare shape/.test(g.error), g.error || "(no error)");
+  check("so is a build that declares outputs and returns none",
+        !!g.error && /returned no parts/.test(g.error), g.error || "(no error)");
 
   const twice = await (async () => {
     await mdl.run({ op: "code", id: SC, key: "code", text: `({
@@ -263,6 +263,91 @@ console.log("\n6b. a script in error keeps drawing through its outputs");
         now ? now.hi[0] + " against " + was.hi[0] : "(nothing)");
   await mdl.run({ op: "code", id: SC, key: "code", text: TWO });
   check("and come back when the script does", !(await at(SC)).error);
+}
+
+/* ====================================== 6c2. a script that builds a MESH
+
+   A thousand blocks as B-Rep prisms is a thousand solids for the kernel to
+   carry, tessellate and boolean; the same thousand as n-gons is a list of
+   points and a list of faces. So a script may build one, and what it hands
+   downstream then has to SAY it is a mesh - or a mesh input will not take it
+   and a solid input will take it and fail.                               */
+
+console.log("\n6e. a script may build a mesh instead of a shape");
+{
+  //! A square prism as six n-gons: two quads and four sides. Written out by
+  //! hand so every number below can be checked on paper - 8 vertices, 6
+  //! faces, and 100 across.
+  const PRISM = `({
+    params: [], outputs: [{ key: "block", label: "The block" }],
+    build() {
+      const pts = [], n = 100;
+      for (const z of [0, 60])
+        for (const [x, y] of [[0, 0], [n, 0], [n, n], [0, n]]) pts.push([x, y, z]);
+      const faces = [[3, 2, 1, 0], [4, 5, 6, 7],
+                     [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+      //! Every edge of a building is an arris, so every edge is creased -
+      //! which is what a Mesh to NURBS downstream reads to keep it sharp.
+      const creases = {};
+      for (const face of faces)
+        for (let i = 0; i < face.length; i++) {
+          const a = face[i], b = face[(i + 1) % face.length];
+          creases[a < b ? a + "," + b : b + "," + a] = 1;
+        }
+      const mesh = { points: pts, faces, creases };
+      return { mesh, parts: { block: mesh } };
+    }
+  })`;
+  await mdl.run({ op: "code", id: SC, key: "code", text: PRISM });
+  const f = await at(SC);
+  //! \p built means "it has a SHAPE", and this one deliberately has not -
+  //! what it has is mesh data, which is the whole point of the section.
+  check("it runs without complaint", !f.error, f.error || "");
+  check("and what it made is a mesh, not a shape",
+        f.data && f.data.kind === "mesh", JSON.stringify(f.data && f.data.kind));
+  check("eight vertices and six faces, as written",
+        f.data && f.data.count === 8 && f.data.faces === 6,
+        JSON.stringify(f.data));
+  //! WHAT IT SAYS IT GIVES. The catalogue says a Script produces a solid;
+  //! this one did not, and anything downstream has to be told the truth or
+  //! a mesh input will refuse the wire.
+  check("and it reports itself as producing a mesh", f.produces === "mesh", f.produces);
+
+  const kid = (await under(SC))[0];
+  check("the output carries the mesh too", kid && kid.produces === "mesh",
+        kid ? kid.produces : "(no output)");
+  check("and says how many vertices", /8 vertices/.test((kid || {}).note || ""),
+        (kid || {}).note);
+
+  //! THE POINT OF ALL OF IT: a mesh tool takes it, with no conversion node
+  //! in between. A lattice is the one the request was about.
+  const cage = (await mdl.run({ op: "add", type: "CageLattice", name: "Cage" })).id;
+  await mdl.run({ op: "connect", id: cage, key: "mesh", from: kid.id, mode: "only" });
+  const box = await at(cage);
+  check("a cage lattice takes the script's mesh output straight in",
+        box.built && !box.error, box.error || "");
+  check("and its box is the prism's own, to the millimetre",
+        /100 × 100 × 60 mm box/.test(box.note || ""), box.note);
+
+  //! AND THE CREASES TRAVEL. They are on the mesh, not on the node that set
+  //! them, so a Mesh to NURBS downstream reads them off whatever arrives.
+  const nurbs = (await mdl.run({ op: "add", type: "MeshToNurbs", name: "Back to NURBS" })).id;
+  await mdl.run({ op: "connect", id: nurbs, key: "mesh", from: kid.id, mode: "only" });
+  const solid = await at(nurbs);
+  check("and a Mesh to NURBS takes it as well", solid.built && !solid.error,
+        solid.error || solid.note);
+  //! Six patches, one per creased n-gon - which is the whole claim about
+  //! creases: uncreased, the subdivision would round the box off and the
+  //! patch count would not be six.
+  check("coming back as the six flat faces it went in as, because of the creases",
+        /\b6 NURBS patches/.test(solid.note || ""), solid.note);
+
+  //! Taken out again. Section 7 drops the outputs these are wired to, which
+  //! rightly cuts the wires, and section 8 would then be checking that a
+  //! lattice with nothing wired in fails - which it should, and which is
+  //! not what that section is about.
+  await mdl.run({ op: "delete", id: nurbs });
+  await mdl.run({ op: "delete", id: cage });
 }
 
 console.log("\n7. a script that publishes nothing is exactly as it was");

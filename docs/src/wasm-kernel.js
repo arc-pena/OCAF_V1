@@ -1726,41 +1726,57 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
           return run;
         }),
       };
-      //! A SHAPE, OR A SHAPE AND ITS PIECES. Returning the shape alone is
-      //! what every script written so far does and goes on meaning the same
-      //! thing; returning { shape, parts } also publishes the named pieces,
-      //! which is what the Output nodes under the feature carry.
+      //! WHAT A BUILD MAY HAND BACK. A shape, as every script written so far
+      //! does; { shape, parts } to publish named pieces of it; { mesh } to
+      //! build a POLYMESH instead, which a plan of a thousand blocks wants to
+      //! be - n-gons are a tenth of the memory of the B-Rep and every mesh
+      //! tool works on them directly; or { mesh, parts } for both.
       const got = module.build(values, shapeApi(), wired);
-      const shape = got && typeof got.IsNull === "function" ? got : (got && got.shape);
-      if (!shape || typeof shape.IsNull !== "function" || shape.IsNull())
-        throw new Error("build() must return a shape, or { shape, parts }");
-      const named = (got && got.shape && got.parts) || null;
+      const own = oneResult(got && typeof got.IsNull === "function" ? got
+                            : (got && (got.shape || got.mesh)), "build()");
+      const named = (got && typeof got.IsNull !== "function" && got.parts) || null;
       if (!named) {
         if (outputs.length)
           throw new Error("it declares " + outputs.length + " output"
-            + (outputs.length === 1 ? "" : "s") + " and build() returned a bare shape - "
-            + "return { shape, parts: { " + outputs.map(o => o.key).join(", ") + " } }");
-        return shape;
+            + (outputs.length === 1 ? "" : "s")
+            + " and build() returned no parts - return { shape, parts: { "
+            + outputs.map(o => o.key).join(", ") + " } }");
+        return own;
       }
       const parts = {};
       for (const out of outputs) {
-        const piece = named[out.key];
         //! A DECLARED OUTPUT THAT THE BUILD DID NOT FILL is said here rather
         //! than left to the Output node to discover: the script is where the
         //! mistake is, and a node reporting "there is no such output" sends
         //! the reader looking at the wrong thing.
-        if (!piece || typeof piece.IsNull !== "function" || piece.IsNull())
-          throw new Error("it declares an output called '" + out.key
-            + "' and build() returned nothing for it");
-        parts[out.key] = piece;
+        const piece = oneResult(named[out.key], "the output '" + out.key + "'");
+        parts[out.key] = piece.data || piece.shape;
       }
       for (const key of Object.keys(named))
         if (!outputs.some(out => out.key === key))
           throw new Error("build() returned a part called '" + key
             + "' that the script does not declare - add it to outputs");
-      return { shape, parts };
+      return { ...own, parts };
     },
   };
+
+  //! ONE THING A SCRIPT HANDED BACK, as the driver wants it: a kernel shape
+  //! stays a shape, and a polymesh - points and faces, plain arrays, nothing
+  //! of the kernel in it - is checked and packed. Anything else is named
+  //! here rather than three frames later as "cannot read properties of
+  //! undefined".
+  function oneResult(piece, what) {
+    if (piece && typeof piece.IsNull === "function") {
+      if (piece.IsNull()) throw new Error(what + " came back as a null shape");
+      return { shape: piece };
+    }
+    if (piece && Array.isArray(piece.points) && Array.isArray(piece.faces))
+      return { data: packMesh(checkMesh({
+        points: piece.points, faces: piece.faces,
+        creases: piece.creases || {}, corners: piece.corners || {},
+      }, what)) };
+    throw new Error(what + " must give a shape, or a mesh of { points, faces }");
+  }
 
   //! ONE NAMED PIECE, HANDED ON. The shape is shared with the script's own,
   //! the way an Instance shares a part's: Moved with an identity transform
@@ -1778,15 +1794,21 @@ export async function createWasmKernel({ initModule, wasmBinary, instantiateWasm
       //! rather than four. And it matters more than tidiness: the script has
       //! stood down from the view in favour of these, so an output that
       //! refused in sympathy would leave nothing on screen at all.
-      if (!F.partShape(from, name))
+      if (!F.partOf(from, name))
         return F.name(from) + " published no output called '" + name + "'";
       return null;
     },
     build: f => {
       const from = F.reference(f, "from");
       const name = F.text(f, "part", "");
-      const shape = F.partShape(from, name);
-      return { shape: shape.Moved(new oc.TopLoc_Location(new oc.gp_Trsf())),
+      const piece = F.partOf(from, name);
+      //! A MESH IS HANDED ON AS IT IS. It is numbers on a label, so there is
+      //! nothing to share and nothing to copy; the note says what a shape's
+      //! says, minus the sentence about geometry.
+      if (piece.data)
+        return { data: piece.data, note: name + " · published by " + F.name(from)
+                   + " · " + (piece.data.values.length / 3) + " vertices" };
+      return { shape: piece.shape.Moved(new oc.TopLoc_Location(new oc.gp_Trsf())),
                data: text([name, "published by " + F.name(from),
                            "the same geometry, not a copy"]) };
     },
@@ -4415,6 +4437,43 @@ function sprawl(face, edges) {
         ? meshWeightTail(mesh.weights) : []),
   });
 
+  //! A B-REP, AS A MESH. The Mesh from shape node's own answer, lifted out so
+  //! that a node which will take a body INSTEAD of a mesh gives exactly the
+  //! same one - two copies of this would be two tessellations to tell apart
+  //! in a bug report.
+  //!
+  //! OpenCascade tessellates per face and gives every face its own copy of
+  //! the shared vertices, so what comes back is a pile of triangles rather
+  //! than a mesh. Welding is what turns it into one, and is on by default.
+  function tessellatedMesh(shape, { quality = 1, weld = true } = {}) {
+    const stream = tessellate(shape, deflectionFor(shape) / Math.max(0.05, quality));
+    if (!stream.positions || !stream.index || !stream.index.length)
+      throw new Error("the tessellation came back empty");
+    const points = [];
+    for (let i = 0; i + 2 < stream.positions.length; i += 3)
+      points.push([stream.positions[i], stream.positions[i + 1], stream.positions[i + 2]]);
+    const faces = [];
+    for (let i = 0; i + 2 < stream.index.length; i += 3)
+      faces.push([stream.index[i], stream.index[i + 1], stream.index[i + 2]]);
+    const mesh = { points, faces };
+    if (!weld) return mesh;
+    const box = extents(shape);
+    return weldMesh(mesh, Math.max(1e-4, (box ? box.diagonal : 100) * 1e-5), true);
+  }
+
+  //! THE MESH A NODE IS TO WORK ON, whether what is wired in is one or is a
+  //! body. Returns the mesh and whether it had to be made, so the note can
+  //! say so - a node that silently tessellates at a quality nobody chose is a
+  //! node whose output nobody can explain.
+  function meshOrShape(source, what) {
+    if (!source) throw new Error("no " + what + " is wired in");
+    const data = F.data(source);
+    if (data && data.kind === "mesh") return { mesh: meshFrom(source, what), made: false };
+    const shape = F.shape(source);
+    if (!shape) throw new Error(F.name(source) + " is not a mesh and has not been built");
+    return { mesh: tessellatedMesh(shape), made: true };
+  }
+
   //! The mesh arriving on an input, unpacked. Anything that is not a mesh -
   //! a list of points, say - is refused by name rather than half-read.
   function meshFrom(source, what) {
@@ -4748,26 +4807,13 @@ function sprawl(face, edges) {
         return F.name(source) + " has no faces to tessellate";
       return null;
     },
-    //! OpenCascade tessellates per face and gives every face its own copy of
-    //! the shared vertices, so the result is a pile of triangles rather than a
-    //! mesh. Welding is what turns it into one, and is on by default.
+    //! See tessellatedMesh, which is this and is also what a node that takes
+    //! a body where it wanted a mesh does with it.
     build: f => {
-      const shape = F.shape(F.reference(f, "shape"));
-      const quality = Math.max(0.05, F.real(f, "quality", 1));
-      const stream = tessellate(shape, deflectionFor(shape) / quality);
-      if (!stream.positions || !stream.index || !stream.index.length)
-        throw new Error("the tessellation came back empty");
-      const points = [];
-      for (let i = 0; i + 2 < stream.positions.length; i += 3)
-        points.push([stream.positions[i], stream.positions[i + 1], stream.positions[i + 2]]);
-      const faces = [];
-      for (let i = 0; i + 2 < stream.index.length; i += 3)
-        faces.push([stream.index[i], stream.index[i + 1], stream.index[i + 2]]);
-      let mesh = { points, faces };
-      if (Feature_choice(f, "weld") === 0) {
-        const box = extents(shape);
-        mesh = weldMesh(mesh, Math.max(1e-4, (box ? box.diagonal : 100) * 1e-5), true);
-      }
+      const mesh = tessellatedMesh(F.shape(F.reference(f, "shape")), {
+        quality: F.real(f, "quality", 1),
+        weld: Feature_choice(f, "weld") === 0,
+      });
       return { data: packMesh(checkMesh(mesh, "tessellation")) };
     },
   };
@@ -5546,24 +5592,67 @@ function sprawl(face, edges) {
      See cagemorph.js. The lattice is an ordinary mesh so that everything that
      deforms a mesh can drive it, which is the whole idea.                    */
 
+  //! WHAT A LATTICE GOES ROUND, as a box. A polymesh gives it from its own
+  //! points; a B-Rep gives it from its bounding box, which is all a lattice
+  //! ever needed - so a solid can be wired straight in and nothing has to
+  //! tessellate a masterplan to put a cage round it.
+  function boxAround(source) {
+    if (!source) return null;
+    const data = F.data(source);
+    if (data && data.kind === "mesh") return boundsOf(meshFrom(source, "mesh"));
+    const shape = F.shape(source);
+    if (!shape) return null;
+    //! FROM THE GEOMETRY, NOT FROM WHATEVER LAST TESSELLATED IT. extents()
+    //! asks BRepBndLib with useTriangulation on, which is right for it -
+    //! cheap, and a few millimetres do not matter to a weld tolerance. They
+    //! matter here: a box taken that way includes the triangulation's own
+    //! deflection as a gap, so the cage round this sample's massing measured
+    //! 451,491 mm across until the morph downstream tessellated the same
+    //! body, and 457,847 mm afterwards - 3,178 mm on each side, which is the
+    //! deflection. A cage that changes size depending on what else has
+    //! looked at the shape moves every control point and the deformation
+    //! with it, and nothing on screen says why.
+    const bb = new oc.Bnd_Box();
+    oc.BRepBndLib.Add(shape, bb, false);
+    if (bb.IsVoid()) { bb.delete(); return null; }
+    const lo = bb.CornerMin(), hi = bb.CornerMax();
+    const box = { lo: [lo.X(), lo.Y(), lo.Z()], hi: [hi.X(), hi.Y(), hi.Z()] };
+    bb.delete();
+    return box;
+  }
+
   builders.CageLattice = {
     precondition: f => {
       const source = F.reference(f, "mesh");
-      if (!source) return "no mesh to put a lattice round";
-      const data = F.data(source);
-      if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
+      if (!source) return "nothing wired in to put a lattice round";
+      if (!boxAround(source))
+        return F.name(source) + " is neither a mesh nor a body that has been built";
       const n = ["x", "y", "z"].map(a => Math.round(F.real(f, "n" + a, 2)));
       if (n.some(v => v < 1)) return "a lattice needs at least one division each way";
       if (n[0] * n[1] * n[2] > 2000)
         return n.join(" × ") + " is " + (n[0] * n[1] * n[2]) + " cells; a cage you "
           + "can push about is a handful each way";
+      if (Feature_choice(f, "fit") === 1
+          && ["sizeX", "sizeY", "sizeZ"].some(key => F.real(f, key, 1000) <= 0))
+        return "a typed box needs a size in all three directions";
       return null;
     },
     build: f => {
-      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
-      //! polymesh's, which takes the mesh. A second one here taking the
-      //! points was the same answer spelled twice and the build said so.
-      const box = boundsOf(mesh);
+      //! polymesh's boundsOf, which takes the mesh. A second one here taking
+      //! the points was the same answer spelled twice and the build said so.
+      const around = boxAround(F.reference(f, "mesh"));
+      const typed = Feature_choice(f, "fit") === 1;
+      let box = around;
+      if (typed) {
+        const size = ["sizeX", "sizeY", "sizeZ"].map(key => Math.max(1e-6, F.real(f, key, 1000)));
+        //! Centred on the point if one is wired, and otherwise on what the
+        //! cage is round - a typed size at the origin would leave the model
+        //! outside its own cage, which morphs it into the distance.
+        const at = readPoint(F.reference(f, "at"))
+          || [0, 1, 2].map(a => (around.lo[a] + around.hi[a]) / 2);
+        box = { lo: [0, 1, 2].map(a => at[a] - size[a] / 2),
+                hi: [0, 1, 2].map(a => at[a] + size[a] / 2) };
+      }
       const cage = latticeCage(box, {
         nx: Math.round(F.real(f, "nx", 2)),
         ny: Math.round(F.real(f, "ny", 2)),
@@ -5571,13 +5660,24 @@ function sprawl(face, edges) {
         padding: F.real(f, "padding", 0),
       });
       const size = [0, 1, 2].map(a => box.hi[a] - box.lo[a]);
+      //! WHETHER THE MODEL IS ACTUALLY IN IT. A typed box is the one that can
+      //! be wrong, and a mesh outside its cage is not refused - mean value
+      //! coordinates work outside the cage too, they just send it somewhere
+      //! surprising - so it is measured and said rather than left to be found.
+      const out = typed && around && [0, 1, 2].some(
+        a => around.lo[a] < box.lo[a] - 1e-6 || around.hi[a] > box.hi[a] + 1e-6);
       return {
         data: packMesh(checkMesh(cage, "lattice")),
         //! The count says hollow out loud, because asking for 4 x 4 x 4 and
         //! counting 56 points where 64 were expected is the first thing
         //! anybody will do.
         note: cage.points.length + " control points round a "
-          + size.map(trim).join(" × ") + " mm box · hollow: the coordinates "
+          + size.map(trim).join(" × ") + " mm box"
+          + (typed ? " · typed, so it does not follow the input"
+                   + (out ? " — AND THE INPUT IS NOT INSIDE IT: put Box back on the "
+                          + "bounding box, or make the typed one bigger" : "")
+                   : " · the input's own bounding box")
+          + " · hollow: the coordinates "
           + "act through the cage's surface, so a point inside it would do nothing",
       };
     },
@@ -5585,19 +5685,32 @@ function sprawl(face, edges) {
 
   builders.CageMorph = {
     precondition: f => {
-      for (const [key, what] of [["mesh", "mesh to deform"], ["rest", "cage"],
-                                 ["moved", "moved cage"]]) {
+      for (const [key, what] of [["rest", "cage"], ["moved", "moved cage"]]) {
         const source = F.reference(f, key);
         if (!source) return "no " + what + " wired in";
         const data = F.data(source);
         if (!data || data.kind !== "mesh") return F.name(source) + " is not a mesh";
       }
+      //! The thing being deformed may be a body, and is tessellated here if
+      //! it is - see meshOrShape. The two CAGES may not: a cage is a mesh
+      //! whose points somebody moved, and a tessellation of a body is not
+      //! that in any sense worth guessing at.
+      const subject = F.reference(f, "mesh");
+      if (!subject) return "no mesh to deform wired in";
+      const mine = F.data(subject);
+      if (!(mine && mine.kind === "mesh") && !F.shape(subject))
+        return F.name(subject) + " is not a mesh and has not been built";
       const rest = meshFrom(F.reference(f, "rest"), "cage");
       const moved = meshFrom(F.reference(f, "moved"), "moved cage");
       const why = sameCage(rest, moved);
       if (why) return "the two cages are not the same cage: " + why;
-      const data = F.data(F.reference(f, "mesh"));
-      const vertices = data.values.length / 3;
+      const vertices = mine && mine.kind === "mesh"
+        ? mine.values.length / 3
+        //! A body has no vertex count until it is tessellated, and
+        //! tessellating twice to find out what tessellating would cost is
+        //! worse than the budget this guards. Its faces are the honest
+        //! stand-in: a tessellation is tens of triangles a face at most here.
+        : countSubShapes(F.shape(subject), FACE) * 64;
       //! Every point of the mesh against every triangle of the cage, with
       //! three arcsines a triangle. A 4 x 4 x 4 lattice is 196 triangles, so
       //! this is really a budget on the mesh.
@@ -5608,7 +5721,8 @@ function sprawl(face, edges) {
       return null;
     },
     build: f => {
-      const mesh = meshFrom(F.reference(f, "mesh"), "mesh");
+      const taken = meshOrShape(F.reference(f, "mesh"), "mesh");
+      const mesh = taken.mesh;
       const rest = meshFrom(F.reference(f, "rest"), "cage");
       const moved = meshFrom(F.reference(f, "moved"), "moved cage");
       const went = cageMoved(rest, moved);
@@ -5616,7 +5730,9 @@ function sprawl(face, edges) {
       const off = movedBy(mesh.points, got.points);
       return {
         data: packMesh(checkMesh({ ...mesh, points: got.points }, "morphed mesh")),
-        note: mesh.points.length.toLocaleString() + " vertices through a "
+        note: (taken.made ? "a body, tessellated here at the standard quality - put "
+                 + "a Mesh from shape in front to choose it · " : "")
+          + mesh.points.length.toLocaleString() + " vertices through a "
           + rest.points.length + "-point cage · "
           + (went.moved
             ? went.moved + " control points moved, the furthest by " + trim(went.most)

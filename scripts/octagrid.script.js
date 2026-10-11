@@ -51,6 +51,19 @@
 // driven by a Number: drop a slider node on the graph, wire it to Height, and
 // the whole city answers to it.
 //
+// WHAT IT BUILDS IS A POLYMESH, not a pile of B-Rep solids. Eighty blocks as
+// solids is eighty bodies for the kernel to carry and tessellate; the same
+// eighty as n-gons is two arrays of numbers - 728 vertices and 399 faces for
+// the massing here, against 2,184 triangles of tessellated B-Rep. Every mesh
+// tool then works on it with nothing in between: a cage round it, a soft
+// selection, a morph. EVERY EDGE IS CREASED, because every edge of a building
+// is an arris, so a Mesh to NURBS downstream gives back the same square city
+// rather than a rounded one.
+//
+// It publishes three things: the massing and the plazas as meshes, and the
+// setting-out lines as curves - a ring at an attractor\'s reach is a line on
+// the ground and a mesh has no way to carry one.
+//
 // THE SITE is SiteBoundary.dxf: 44 points, 33.2 hectares, 602 x 853 m, in
 // millimetres. Replace SITE with any closed ring of [x, y] and everything
 // refits to it.
@@ -824,15 +837,73 @@
 
   /* --------------------------------------------------------------- the solid */
 
+  /* -------------------------------------------------------- the geometry
+
+     N-GONS, NOT B-REP. A plan of eighty blocks as solids is eighty bodies
+     for the kernel to carry and tessellate; the same eighty as polygon
+     meshes is two arrays of numbers. Every mesh tool then works on the
+     result directly - a cage round it, a soft selection, a morph - with no
+     conversion node in the way, and Mesh to NURBS takes it back to a solid
+     when a solid is wanted. Every edge of a building is an arris, so every
+     edge is CREASED: that is what the conversion reads to keep the corners
+     sharp rather than rounding the city off.                             */
+
+  //! One block as a prism: the ring at the bottom, the ring lifted onto its
+  //! plane at the top, an n-gon each end and a quad up every side.
+  prismMesh(ring, zOf) {
+    const n = ring.length;
+    const points = ring.map(q => [q[0], q[1], 0])
+      .concat(ring.map(q => [q[0], q[1], zOf(q)]));
+    //! The bottom wound backwards so both caps face outwards.
+    const faces = [ring.map((_, i) => n - 1 - i), ring.map((_, i) => n + i)];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      faces.push([i, j, n + j, n + i]);
+    }
+    return { points, faces, creases: this.creaseAll(faces) };
+  },
+
+  //! One plot as a flat n-gon - a plaza, or a block that is not built on.
+  flatMesh(ring) {
+    const faces = [ring.map((_, i) => i)];
+    return { points: ring.map(q => [q[0], q[1], 0]), faces,
+             creases: this.creaseAll(faces) };
+  },
+
+  //! EVERY EDGE AT ONE. A crease is a number from 0 to 1 on the edge between
+  //! two vertices, and a building has no soft ones.
+  creaseAll(faces) {
+    const creases = {};
+    for (const face of faces)
+      for (let i = 0; i < face.length; i++) {
+        const a = face[i], b = face[(i + 1) % face.length];
+        creases[a < b ? a + "," + b : b + "," + a] = 1;
+      }
+    return creases;
+  },
+
+  //! Several meshes as one, with the indices and the crease keys shifted.
+  //! Nothing is welded: two blocks that touch along a chamfer keep their own
+  //! vertices, which is what makes them two blocks.
+  joinMeshes(list) {
+    const points = [], faces = [], creases = {};
+    for (const one of list) {
+      if (!one || !one.points.length) continue;
+      const at = points.length;
+      for (const q of one.points) points.push(q);
+      for (const face of one.faces) faces.push(face.map(i => i + at));
+      for (const [key, w] of Object.entries(one.creases || {})) {
+        const [a, b] = key.split(",").map(Number);
+        creases[(a + at) + "," + (b + at)] = w;
+      }
+    }
+    return { points, faces, creases };
+  },
+
   build(raw, k, wired) {
     const p = this.withWired(raw, wired);
     const made = this.plan(p);
     const show = Math.round(p.show);
-    const parts = [];
-    //! THE THREE THINGS THIS PLAN IS, kept apart as they are made. The whole
-    //! is still what the feature gives; these are what the Output nodes under
-    //! it carry, so the massing can be deformed, cut or exported without the
-    //! squares and the setting-out lines coming with it.
     const massing = [], squares = [], setting = [];
 
     //! REFUSED BY NAME, not by an empty compound. The plaza rule is a rule
@@ -847,34 +918,30 @@
         + " m plaza at 1:" + (+p.ratio).toFixed(2)
         + " leaves no octagon between the plots. Use fewer rings or bays, a "
         + "smaller plaza, or a shallower proportion"
-        + (made.refusedPlaza ? " — " + made.refusedPlaza + " cells were refused" : ""));
+        + (made.refusedPlaza ? " \u2014 " + made.refusedPlaza + " cells were refused" : ""));
     }
 
-    const keep = (one, into) => { parts.push(one); into.push(one); return one; };
     for (const block of made.blocks) {
-      const base = k.polyline(block.ring.map(q => [q[0], q[1], 0]), { closed: true });
-      if (show === 2 || block.height < 1 || !block.plane) { keep(k.face(base), massing); continue; }
+      if (show === 2 || block.height < 1 || !block.plane) {
+        massing.push(this.flatMesh(block.ring));
+        continue;
+      }
       const pl = block.plane;
-      const z = q => pl.z + pl.bx * (q[0] - pl.at[0]) + pl.by * (q[1] - pl.at[1]);
-      const tilt = Math.hypot(pl.bx, pl.by);
-      //! A FLAT TOP IS A PRISM AND A LEANING ONE IS A LOFT. Below a
-      //! millimetre of fall across the whole block the two are the same
-      //! solid, and the prism is the one that cannot produce a degenerate
-      //! ruled face - so the cheap path is taken when it is honest to.
-      if (tilt < 1e-6) { keep(k.prism(k.face(base), [0, 0, pl.z]), massing); continue; }
-      const top = k.polyline(block.ring.map(q => [q[0], q[1], Math.max(1, z(q))]),
-                             { closed: true });
-      keep(k.loft([base, top], { solid: true, ruled: true }), massing);
+      //! At least a millimetre, so a corner of a leaning top cannot land on
+      //! or under the base and fold the side quad through itself.
+      const zOf = q => Math.max(1, pl.z + pl.bx * (q[0] - pl.at[0]) + pl.by * (q[1] - pl.at[1]));
+      massing.push(this.prismMesh(block.ring, zOf));
     }
     //! The plazas are drawn flat, always: they are the thing between the
     //! buildings and a plan without them is a plan of islands.
     if (show !== 1)
-      for (const plaza of made.plazas)
-        keep(k.face(k.polyline(plaza.ring.map(q => [q[0], q[1], 0]), { closed: true })), squares);
+      for (const plaza of made.plazas) squares.push(this.flatMesh(plaza.ring));
 
-    //! THE ATTRACTOR, drawn where it is: a ring at its reach and a mast at
-    //! its centre. A slider pair you cannot see the effect of is a slider
-    //! pair nobody will touch.
+    //! THE SETTING OUT STAYS CURVES, because that is what it is: a ring at
+    //! an attractor's reach is a line on the ground, not a surface, and a
+    //! mesh has no way to carry one. So this output is a SHAPE where the
+    //! other two are meshes - which is allowed, and is why a part is asked
+    //! for one or the other rather than told which.
     const circleAt = (x, y, r) => {
       const run = [];
       for (let i = 0; i <= 64; i++) {
@@ -883,28 +950,33 @@
       }
       return k.polyline(run, { closed: true });
     };
-    keep(circleAt(p.atX, p.atY, p.reach), setting);
-    keep(k.polyline([[p.atX, p.atY, 0],
-                     [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]), setting);
-    //! The void's ring too, and the smaller ring where its cut bites - the
-    //! line inside which nothing is built. Two attractors you cannot see are
-    //! two attractors nobody will move.
-    keep(circleAt(p.voidX, p.voidY, p.voidReach), setting);
+    setting.push(circleAt(p.atX, p.atY, p.reach));
+    setting.push(k.polyline([[p.atX, p.atY, 0],
+                             [p.atX, p.atY, p.height + Math.max(0, p.bulge)]]));
+    setting.push(circleAt(p.voidX, p.voidY, p.voidReach));
     const cut = this.FALLOFFS[Math.round(p.falloff)] || this.FALLOFFS[0];
     let bite = 0;
     for (let i = 100; i >= 0; i--)
       if (this.falloffAt(cut, 1 - i / 100) >= p.voidCut) { bite = i / 100; break; }
-    if (bite > 0) keep(circleAt(p.voidX, p.voidY, p.voidReach * bite), setting);
-    keep(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }), setting);
-    //! AND THE THREE, PUBLISHED. An empty one would be an output carrying
-    //! nothing, which the kernel refuses by name - so a setting with no
-    //! massing in it (every plot given to the void, say) publishes the site
-    //! line it always has rather than an empty compound.
+    if (bite > 0) setting.push(circleAt(p.voidX, p.voidY, p.voidReach * bite));
+    setting.push(k.polyline(this.SITE.map(q => [q[0], q[1], 0]), { closed: true }));
+
+    //! AND THE THREE, PUBLISHED. The massing and the plazas are meshes; the
+    //! setting out is curves. The feature's own result is the two meshes
+    //! together - which is what it looks like - and the lines are reached
+    //! through their own output.
+    //!
+    //! An empty one would be an output carrying nothing, which the kernel
+    //! refuses by name, so a plan whose every plot went to the void
+    //! publishes a single degenerate face rather than nothing: the refusal
+    //! belongs to the plaza rule above, which has already had its say.
+    const nothing = { points: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], faces: [[0, 1, 2]] };
+    const city = this.joinMeshes(massing.concat(squares));
     return {
-      shape: k.compound(parts),
+      mesh: city.points.length ? city : nothing,
       parts: {
-        massing: k.compound(massing.length ? massing : setting),
-        plazas: k.compound(squares.length ? squares : setting),
+        massing: massing.length ? this.joinMeshes(massing) : nothing,
+        plazas: squares.length ? this.joinMeshes(squares) : nothing,
         setting: k.compound(setting),
       },
     };
