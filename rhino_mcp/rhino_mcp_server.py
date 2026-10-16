@@ -325,11 +325,18 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingMixIn, HTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # Must stay False: on Windows SO_REUSEADDR lets a second server bind the same
+    # port while the old one keeps answering, so requests hit stale code.
+    allow_reuse_address = False
 
 
 def start():
-    srv = Server((HOST, PORT), Handler)
+    try:
+        srv = Server((HOST, PORT), Handler)
+    except Exception as e:
+        print("Could not open port %d (%s). An old server is probably still running:" % (PORT, e))
+        print("restart Rhino, or run  netstat -ano | findstr :%d  and end that process." % PORT)
+        return
     t = threading.Thread(target=srv.serve_forever)
     t.daemon = True
     t.start()
