@@ -225,6 +225,43 @@ def handle_rpc(msg):
     return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "Method not found: " + str(method)}}
 
 
+UI_HTML = u"""<!doctype html><html><head><meta charset="utf-8"><title>Rhino Console</title>
+<style>body{font:14px system-ui;margin:20px;max-width:900px}textarea{width:100%;height:180px;font:13px monospace}
+pre{background:#f3f3f3;padding:10px;white-space:pre-wrap}button{padding:6px 14px;margin:6px 6px 6px 0}</style></head>
+<body><h2>Rhino Console</h2><p>Connected to Rhino. Call <code>rhino(tool, args)</code> from JS, or use the form.</p>
+<select id="tool"></select><br><textarea id="args">{}</textarea><br>
+<button onclick="go()">Run</button><pre id="out"></pre>
+<script>
+const API = location.pathname.replace('/ui/', '/api/');
+async function rhino(tool, args){
+  const r = await fetch(API, {method:'POST', headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify({tool: tool, arguments: args || {}})});
+  return r.json();
+}
+window.rhino = rhino;
+async function go(){
+  let a; try { a = JSON.parse(document.getElementById('args').value || '{}'); }
+  catch(e){ document.getElementById('out').textContent = 'Bad JSON: ' + e; return; }
+  document.getElementById('out').textContent = '...';
+  const res = await rhino(document.getElementById('tool').value, a);
+  document.getElementById('out').textContent = JSON.stringify(res, null, 1);
+}
+fetch(API).then(r => r.json()).then(ts => {
+  const sel = document.getElementById('tool');
+  ts.forEach(t => { const o = document.createElement('option'); o.value = o.textContent = t.name; o.title = t.description; sel.appendChild(o); });
+});
+</script></body></html>"""
+
+
+def call_tool(name, args):
+    if name not in TOOLS:
+        return {"ok": False, "error": "Unknown tool " + str(name)}
+    try:
+        return {"ok": True, "result": on_ui(TOOLS[name][0](args or {}))}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -234,23 +271,44 @@ class Handler(BaseHTTPRequestHandler):
     def _path_ok(self):
         return self.path.split("?")[0].rstrip("/") == "/mcp/" + _token()
 
-    def _send(self, code, body=None):
-        data = json.dumps(body).encode("utf-8") if body is not None else b""
+    def _route(self):
+        return self.path.split("?")[0].rstrip("/")
+
+    def _send(self, code, body=None, html=None):
+        if html is not None:
+            data = html.encode("utf-8")
+        else:
+            data = json.dumps(body, default=str).encode("utf-8") if body is not None else b""
         self.send_response(code)
-        if body is not None:
+        if html is not None:
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+        elif body is not None:
             self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
-        # No server-initiated SSE stream; spec allows 405 here.
+        r = self._route()
+        if r == "/ui/" + _token():
+            return self._send(200, html=UI_HTML)
+        if r == "/api/" + _token():
+            return self._send(200, [{"name": n, "description": t[1], "inputSchema": t[2]} for n, t in TOOLS.items()])
+        if r == "" or r == "/":
+            return self._send(200, html=u"<p>Rhino MCP server is running. Open /ui/&lt;token&gt; (printed in Rhino).</p>")
+        # No server-initiated SSE stream on /mcp; spec allows 405 here.
         self._send(405 if self._path_ok() else 404)
 
     def do_DELETE(self):
         self._send(200 if self._path_ok() else 404)
 
     def do_POST(self):
+        if self._route() == "/api/" + _token():
+            try:
+                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8"))
+            except Exception:
+                return self._send(400, {"ok": False, "error": "Bad JSON"})
+            return self._send(200, call_tool(req.get("tool"), req.get("arguments")))
         if not self._path_ok():
             return self._send(404)
         try:
@@ -278,6 +336,7 @@ def start():
     sc.sticky[STICKY_KEY] = srv
     url = "http://%s:%d/mcp/%s" % (HOST, PORT, _token())
     print("Rhino MCP server running: " + url)
+    print("Browser console:  http://%s:%d/ui/%s" % (HOST, PORT, _token()))
     print("Expose with:  cloudflared tunnel --url http://%s:%d" % (HOST, PORT))
     print("Connector URL: https://<tunnel-host>/mcp/" + _token())
     print("Run this script again to stop.")
